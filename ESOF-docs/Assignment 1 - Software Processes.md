@@ -44,6 +44,6 @@ in june and july was a period of high contributions for the project.
 
 ## Group Information
 
-Diogo Luís Cerqueira Carneiro da Silva up201405742@fe.up.pt<br>
-Mónica Ariana Fernandes up201404789@fe.up.pt<br>
-Tiago Bernardes Almeida up201305665@fe.up.pt<br>
+[Diogo Luís Cerqueira Carneiro da Silva](https://github.com/pingudiogo) (up201405742@fe.up.pt)<br>
+[Mónica Ariana Fernandes](https://github.com/arianafernandes) up201404789@fe.up.pt<br>
+[Tiago Bernardes Almeida](https://github.com/tiagobalm) up201305665@fe.up.pt<br>
