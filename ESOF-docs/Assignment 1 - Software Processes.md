@@ -20,7 +20,7 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode.
 ![Commitstomaster](resources/cmaster.png)<br>
 
 
-![CommitsImag](resources/commits.png)<br>
+![CommitsImag](resources/Commits.png)<br>
 
 Last week there is only one contribuition as we can see in the graph but we can also see that
 in june and july was a period of high contributions for the project.
