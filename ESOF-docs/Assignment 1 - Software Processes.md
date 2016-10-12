@@ -44,8 +44,7 @@ in june and july was a period of high contributions for the project.
 * Community Maps Repository: http://github.com/triplea-maps
 * Source Forge (legacy): https://sourceforge.net/projects/triplea/
 * Bug reports, feature requests: http://github.com/triplea-game/triplea/issues/new
-<br>
-<br>
+
 ## Group Information
 
 Diogo Silva <br>
