@@ -6,9 +6,9 @@ has since expanded to include different conflicts, as well as variations and mod
 maps and rules, which typically are based upon Axis and Allies rules.
 <br>
 <br>
-![Map1](resources/map1.png)<br>
+![Map1](resources/map1.png)<br><br>
 
-## Project History
+### Project History
 TripleA was started in October 2001 by Sean Bridges as a way to improve his resume. However, soon after, Sean secured employment
 and because of that the progress of TripleA was severely slowed. Many people made contributions, but it was not enough to keep
 TripleA's development well paced, since Sean was still doing most of the development. Fortunately, two events occuring relatively
@@ -16,17 +16,11 @@ closely revitalized the project. The first was the contribution by Logan of new 
 the second event was the release of the revised map and rules. With no competing real time game, interest in TripleA increased.
 TripleA 0.3.1 is estimated to be the first playable version in networked mode.
 
-#### Process
+### Process
 ![Commitstomaster](resources/cmaster.png)<br>
-
-As we can see by the graph, the number of commits increased as the years past. 
-The year of 2016 is the year with a higher number of commits
-
 
 
 ![CommitsImag](resources/commits.png)<br>
-
-![CommitsImag](resources/commits2.png)<br>
 
 Last week there is only one contribuition as we can see in the graph but we can also see that
 in june and july was a period of high contributions for the project.
@@ -35,7 +29,7 @@ in june and july was a period of high contributions for the project.
 
 ### Critical Analysis
 
-### Work by:
+### Work by
 
 Diogo Silva <br>
 Mónica Ariana Fernandes up201404789@fe.up.pt<br>
