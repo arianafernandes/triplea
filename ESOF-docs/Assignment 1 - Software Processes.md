@@ -1,17 +1,20 @@
-![TripleAICon](resources/icon_menu.png)<br>
+![TripleAICon](resources/icon_menu.png)<br><br><br>
 TripleA is a turn-based strategy game and board game engine. Though TripleA comes with many games inside, it
 is just an engine for playing games, and is not a game itself. TripleA started out as a World War II simulation, but
 has since expanded to include different conflicts, as well as variations and mods of popular games and maps (a
-‘map’ is like a board, while a ‘game’ is a specific setup on a map/board).
+‘map’ is like a board, while a ‘game’ is a specific setup on a map/board). It allows for customized user editable
+maps and rules, which typically are based upon Axis and Allies rules.
 <br>
 <br>
 ![Map1](resources/map1.png)<br>
 
-#### History
-TripleA was started in Oct 2001 by Sean Bridges.
-He was looking for a way to build up his resume after the end of the tech bubble. 
-Sean was too successful, and soon after the 0.1 release (which he managed to demo in a job interview)
-he secured gainful employment.
+## Project History
+TripleA was started in October 2001 by Sean Bridges as a way to improve his resume. However, soon after, Sean secured employment
+and because of that the progress of TripleA was severely slowed. Many people made contributions, but it was not enough to keep
+TripleA's development well paced, since Sean was still doing most of the development. Fortunately, two events occuring relatively
+closely revitalized the project. The first was the contribution by Logan of new graphics, giving the game a better look and feel and 
+the second event was the release of the revised map and rules. With no competing real time game, interest in TripleA increased.
+TripleA 0.3.1 is estimated to be the first playable version in networked mode.
 
 #### Process
 ![Commitstomaster](resources/cmaster.png)<br>
@@ -34,6 +37,6 @@ in june and july was a period of high contributions for the project.
 
 ### Work by:
 
-Diogo Silva
-Mónica Ariana Fernandes up201404789@fe.up.pt
-Tiago Bernardes Almeida up201305665@fe.up.pt
+Diogo Silva <br>
+Mónica Ariana Fernandes up201404789@fe.up.pt<br>
+Tiago Bernardes Almeida up201305665@fe.up.pt<br>
