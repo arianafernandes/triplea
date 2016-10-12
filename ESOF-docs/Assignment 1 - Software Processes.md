@@ -1,4 +1,6 @@
 ![TripleAICon](resources/icon_menu.png)<br><br><br>
+
+## Project Description
 TripleA is a turn-based strategy game and board game engine. Though TripleA comes with many games inside, it
 is just an engine for playing games, and is not a game itself. TripleA started out as a World War II simulation, but
 has since expanded to include different conflicts, as well as variations and mods of popular games and maps (a
@@ -15,8 +17,12 @@ TripleA's development well paced, since Sean was still doing most of the develop
 closely revitalized the project. The first was the contribution by Logan of new graphics, giving the game a better look and feel and 
 the second event was the release of the revised map and rules. With no competing real time game, interest in TripleA increased.
 TripleA 0.3.1 is estimated to be the first playable version in networked mode.
+<br>
+## Development Process
 
-### Process
+### Software Process
+
+### Stage Of Development
 ![Commitstomaster](resources/cmaster.png)<br>
 
 
@@ -24,10 +30,18 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode.
 
 Last week there is only one contribuition as we can see in the graph but we can also see that
 in june and july was a period of high contributions for the project.
+<br>
+## Critical Analysis
 
 
-
-### Critical Analysis
+<br>
+## External Links
+* HomePage: http://triplea-game.github.io/
+* Community Website: http://www.tripleawarclub.org/
+* Community Maps Repository: http://github.com/triplea-maps
+* Source Forge (legacy): https://sourceforge.net/projects/triplea/
+* Bug reports, feature requests: http://github.com/triplea-game/triplea/issues/new
+<br>
 
 ### Work by
 
