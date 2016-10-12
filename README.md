@@ -1,6 +1,9 @@
 [![Travis](https://img.shields.io/travis/ajoberstar/gradle-git.svg?style=flat-square)](https://travis-ci.org/triplea-game/triplea) [![tripleA license](https://img.shields.io/github/license/triplea-game/tripleA.svg?style=flat-square)](https://github.com/triplea-game/triplea/blob/master/LICENSE)<br>
 ![TripleAICon](icon_menu.png)<br>
-TripleA is a free game engine that runs on open source and is community supported. 
+TripleA is a turn-based strategy game and board game engine. Though TripleA comes with many games inside, it
+is just an engine for playing games, and is not a game itself. TripleA started out as a World War II simulation, but
+has since expanded to include different conflicts, as well as variations and mods of popular games and maps (a
+‘map’ is like a board, while a ‘game’ is a specific setup on a map/board).
 
 Installing TripleA and Playing
 ==============================
