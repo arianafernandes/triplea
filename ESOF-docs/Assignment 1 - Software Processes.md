@@ -1,4 +1,7 @@
-![TripleAICon](resources/icon_menu.png)<br><br><br>
+![TripleAICon](resources/icon_menu.png)
+<br>
+<br>
+<br>
 
 ## Project Description
 TripleA is a turn-based strategy game and board game engine. Though TripleA comes with many games inside, it
@@ -35,8 +38,6 @@ in june and july was a period of high contributions for the project.
 <br>
 ## Critical Analysis
 
-<br>
-<br>
 ## External Links
 * HomePage: http://triplea-game.github.io/
 * Community Website: http://www.tripleawarclub.org/
