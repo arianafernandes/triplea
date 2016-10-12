@@ -18,6 +18,7 @@ closely revitalized the project. The first was the contribution by Logan of new 
 the second event was the release of the revised map and rules. With no competing real time game, interest in TripleA increased.
 TripleA 0.3.1 is estimated to be the first playable version in networked mode.
 <br>
+<br>
 ## Development Process
 
 ### Software Process
@@ -31,9 +32,10 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode.
 Last week there is only one contribuition as we can see in the graph but we can also see that
 in june and july was a period of high contributions for the project.
 <br>
+<br>
 ## Critical Analysis
 
-
+<br>
 <br>
 ## External Links
 * HomePage: http://triplea-game.github.io/
@@ -42,8 +44,8 @@ in june and july was a period of high contributions for the project.
 * Source Forge (legacy): https://sourceforge.net/projects/triplea/
 * Bug reports, feature requests: http://github.com/triplea-game/triplea/issues/new
 <br>
-
-### Work by
+<br>
+## Group Information
 
 Diogo Silva <br>
 Mónica Ariana Fernandes up201404789@fe.up.pt<br>
