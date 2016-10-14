@@ -37,7 +37,7 @@ By the past of the years, the number of commits increased and in 2016 as it is e
 
 ## Critical Analysis
 
-<p align="justify"> As an open source project, **Continous Integration and Continuous Delivery** is one of the best models
+<p align="justify"> As an open source project, <b> Continous Integration and Continuous Delivery</b> is one of the best models
 to apply. With this model, the developers release the newer features to the public as soon as they are 
 ready and receive imediate feedback.</p>
 
