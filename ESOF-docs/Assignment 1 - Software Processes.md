@@ -26,13 +26,18 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode.</
 ### Software Process
 
 ### Stage Of Development
-![Commitstomaster](resources/cmaster.png)<br>
 
+![Commitstomaster](resources/cmaster.png)<br>
+ 
+<p align="justify">TripleA, a board game engine has thousands of commits(6568) and many contributiors(12), but not always has been like this.
+When it all started, in 2002 there was just a few number of contributions to the plataform. 
+By the past of the years, the number of commits increased and in 2016 as it is expected the number of total contributions is huge. </p>
+<br>
 
 ![CommitsImag](resources/Commits.png)<br>
-
-Last week there is only one contribuition as we can see in the graph but we can also see that
-in june and july was a period of high contributions for the project.
+<p align="justify">
+The majority of contributions are new features added to the plataform and bugs-fixed.
+</p>
 <br>
 <br>
 
