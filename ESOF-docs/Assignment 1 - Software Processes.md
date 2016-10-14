@@ -42,7 +42,14 @@ to apply. With this model, the developers release the newer features to the publ
 ready and receive imediate feedback.</p>
 
 <p align="justify"> There's many advantages to this type of approach. First, the small increments make it easier for
-customers to get familiar with the new features and </p>
+customers to get familiar with the newer features. Second, the developers get early feedback about possible mistakes or 
+even new suggestions for possible new features.</p>
+
+<p align="justify"> However, there's some disadvantages to this model. Taking into account all the feedback provided by customers,
+it becomes hard to focus on a single milestone. The team is required to be well organized to be able to keep developing 
+the project and, at the same time, listen to all of the public's feedback. Also, the structure of the software tends to deteriorate 
+over time as new increments are added. Time and money has to be spent on refactoring to improve the software in order to keep 
+the cost of implementing new features low. </p>
 
 ## External Links
 * HomePage: http://triplea-game.github.io/
