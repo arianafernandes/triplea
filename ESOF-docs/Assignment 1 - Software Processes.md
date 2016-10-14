@@ -11,7 +11,6 @@ maps and rules, which typically are based upon Axis and Allies rules. </p>
 <br>
 
 ![Map1](resources/map1.png)<br><br>
-
 ### Project History
 <p align="justify">TripleA was started in October 2001 by Sean Bridges as a way to improve his resume. However, soon after, Sean secured employment
 and because of that the progress of TripleA was severely slowed. Many people made contributions, but it was not enough to keep
@@ -22,13 +21,9 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode.</
 <br>
 
 ## Development Process
-
 ### Software Process
-
 ### Stage Of Development
-
 ![Commitstomaster](resources/cmaster.png)<br>
- 
 <p align="justify">TripleA, a board game engine has thousands of commits(6568) and many contributiors(12), but not always has been like this.
 When it all started, in 2002 there was just a few number of contributions to the plataform. 
 By the past of the years, the number of commits increased and in 2016 as it is expected the number of total contributions is huge. </p>
@@ -38,7 +33,6 @@ By the past of the years, the number of commits increased and in 2016 as it is e
 <p align="justify">
 The majority of contributions are new features added to the plataform and bugs-fixed.
 </p>
-<br>
 <br>
 
 ## Critical Analysis
