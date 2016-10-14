@@ -9,6 +9,7 @@ has since expanded to include different conflicts, as well as variations and mod
 ‘map’ is like a board, while a ‘game’ is a specific setup on a map/board). It allows for customized user editable
 maps and rules, which typically are based upon Axis and Allies rules. </p>
 <br>
+
 ![Map1](resources/map1.png)<br><br>
 
 ### Project History
@@ -19,6 +20,7 @@ closely revitalized the project. The first was the contribution by Logan of new 
 the second event was the release of the revised map and rules. With no competing real time game, interest in TripleA increased.
 TripleA 0.3.1 is estimated to be the first playable version in networked mode.</p>
 <br>
+
 ## Development Process
 
 ### Software Process
@@ -33,7 +35,14 @@ Last week there is only one contribuition as we can see in the graph but we can 
 in june and july was a period of high contributions for the project.
 <br>
 <br>
+
 ## Critical Analysis
+
+As an open source project, **Continous Integration and Continuous Delivery** is one of the best models
+to apply. With this model, the developers release the newer features to the public as soon as they are 
+ready and receive imediate feedback.<br>
+There's many advantages to this type of approach. First, the small increments make it easier for
+customers to get familiar with the new features and 
 
 ## External Links
 * HomePage: http://triplea-game.github.io/
