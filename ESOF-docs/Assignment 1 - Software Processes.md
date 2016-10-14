@@ -9,6 +9,7 @@ has since expanded to include different conflicts, as well as variations and mod
 ‘map’ is like a board, while a ‘game’ is a specific setup on a map/board). It allows for customized user editable
 maps and rules, which typically are based upon Axis and Allies rules. </p>
 <br>
+
 ![Map1](resources/map1.png)<br><br>
 
 ### Project History
@@ -19,11 +20,13 @@ closely revitalized the project. The first was the contribution by Logan of new 
 the second event was the release of the revised map and rules. With no competing real time game, interest in TripleA increased.
 TripleA 0.3.1 is estimated to be the first playable version in networked mode.</p>
 <br>
+
 ## Development Process
 
 ### Software Process
 
 ### Stage Of Development
+
 ![Commitstomaster](resources/cmaster.png)<br>
  
 <p align="justify">TripleA, a board game engine has thousands of commits(6568) and many contributiors(12), but not always has been like this.
@@ -31,15 +34,13 @@ When it all started, in 2002 there was just a few number of contributions to the
 By the past of the years, the number of commits increased and in 2016 as it is expected the number of total contributions is huge. </p>
 <br>
 
-
 ![CommitsImag](resources/Commits.png)<br>
 <p align="justify">
 The majority of contributions are new features added to the plataform and bugs-fixed.
 </p>
 <br>
+<br>
 
-<br>
-<br>
 ## Critical Analysis
 
 ## External Links
