@@ -39,10 +39,11 @@ By the past of the years, the number of commits increased and in 2016 as it is e
 
 <p align="justify"> As an open source project, <b> Continous Integration and Continuous Delivery</b> is one of the best models
 to apply. With this model, the developers release the newer features to the public as soon as they are 
-ready and receive imediate feedback.</p>
+ready and receive imediate feedback. Third, the cost of accommodating changing customer requirements is reduced. Finally, 
+the project as a lower risk of overall failure.</p>
 
 <p align="justify"> There's many advantages to this type of approach. First, the small increments make it easier for
-customers to get familiar with the newer features. Second, the developers get early feedback about possible mistakes or 
+customers to get familiar with the newer features. Second, the developers get early feedback about possible bugs or 
 even new suggestions for possible new features.</p>
 
 <p align="justify"> However, there's some disadvantages to this model. Taking into account all the feedback provided by customers,
