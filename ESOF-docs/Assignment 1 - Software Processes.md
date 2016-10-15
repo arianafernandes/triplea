@@ -9,7 +9,6 @@ is just an engine for playing games, and is not a game itself. TripleA started o
 has since expanded to include different conflicts, as well as variations and mods of popular games and maps (a
 ‘map’ is like a board, while a ‘game’ is a specific setup on a map/board). It allows for customized user editable
 maps and rules, which typically are based upon Axis and Allies rules. </p>
-<br>
 
 ![Map1](resources/map1.png)
 
