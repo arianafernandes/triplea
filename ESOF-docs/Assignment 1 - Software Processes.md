@@ -27,9 +27,11 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode.</
 <p align="justify">There's nothing in the project that says explicitly which software process was used up to this date to develop it.
 However we found that it's using Travis CI. What it does is it automatically builds the project whenever a developer checks in their 
 code to the repository. It also checks the pull requests and suggests if they're good or not to merge, which is basically why it's being 
-used here. So with this we're assuming that the process being used, as Travis CI in the name suggests, is Continuous Integration.
-It is often used in open source projects and it's essentially the practice of merging all working copies of a project into a
-commonly called master branch. This also requires developers to submit code several times a day.
+used here. So with this we're assuming that the process being used, as Travis CI in the name suggests, is <b>Continuous Integration and 
+Continuous Delivery</b>. <b>Continuous Integration</b> is often used in open source projects and it's essentially the practice of merging 
+all working copies of a project into a commonly called master branch. This also requires developers to submit code several times a day. 
+<b>Continuous Delivery</b> is closely related to <b>Continuous Integration</b> since it refers to the release of every good build of the 
+software that passes the automated tests.
 </p>
 
 ### Stage Of Development
