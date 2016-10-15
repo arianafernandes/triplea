@@ -6,7 +6,7 @@ has since expanded to include different conflicts, as well as variations and mod
 ‘map’ is like a board, while a ‘game’ is a specific setup on a map/board).
 
 Assignments
-==============================
+===========
 - [Assignment 1: Software Processes](ESOF-docs/Assignment\ 1\ -\ Software\ Processes.md)
 
 Installing TripleA and Playing
@@ -49,7 +49,7 @@ Development
 - [Developer and Project Documentation](https://github.com/triplea-game/triplea/tree/master/docs)
 
 Developer Setup
-=================
+===============
 *Eclipse*
   - Import the project as a gradle project
   - Plugins to Install:
@@ -111,7 +111,7 @@ More documentation on how build system is configured can be found in  the [/docs
 
 
 Task and Issue Tracking
-========================
+=======================
 
 * Discussion - technical discussions, anything non-technical should be pushed to forum
 * Feature Backlog - prioritized list of potential features
