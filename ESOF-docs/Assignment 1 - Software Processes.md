@@ -36,7 +36,7 @@ software that passes the automated tests. </p>
 
 ### Stage Of Development
 
-<p align="justify"> TripleA, a board game engine has thousands of commits and many contributiors, but not always has been like this.
+<p align="justify"> TripleA, a board game engine has thousands of commits and many contributors, but it wasn't like in the beginning.
 When it all started, in 2002, there was just a small number of contributions to the plataform and one main developer. 
 As the years passed, the number of contributions increased and the project began to gain a lot of attention.
 Most of the project contributions were made in 2016, as we can see below, and it is estimated to continue to grow.</p>
