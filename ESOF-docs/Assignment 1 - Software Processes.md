@@ -27,7 +27,8 @@ TripleA 0.3.1 is estimated to be the first playable version in networked mode. <
 
 <p align="justify"> There's nothing in the project that says explicitly which software process was used up to this date to develop it.
 However we found that it's using Travis CI. What it does is it automatically builds the project whenever a developer checks in their 
-code to the repository. It also checks the pull requests and suggests if they're good or not to merge. So with this we're assuming that the process being used, as Travis CI in the name suggests, is <b>Continuous Integration and 
+code to the repository. It also checks the pull requests and suggests if they're good or not to merge. So, with this, we're assuming that 
+the process being used, as Travis CI in the name suggests, is <b>Continuous Integration and 
 Continuous Delivery</b>. <b>Continuous Integration</b> is often used in open source projects and it's essentially the practice of merging 
 all working copies of a project into a commonly called master branch. This also requires developers to submit code several times a day. 
 <b>Continuous Delivery</b> is closely related to <b>Continuous Integration</b> since it refers to the release of every good build of the 
@@ -35,15 +36,18 @@ software that passes the automated tests. </p>
 
 ### Stage Of Development
 
+<p align="justify"> TripleA, a board game engine has thousands of commits and many contributiors, but not always has been like this.
+When it all started, in 2002, there was just a small number of contributions to the plataform and one main developer. 
+As the years passed, the number of contributions increased and the project began to gain a lot of attention.
+Most of the project contributions were made in 2016, as we can see below, and it is estimated to continue to grow.</p>
+
 ![Commitstomaster](resources/cmaster.png)
 
-<p align="justify"> TripleA, a board game engine has thousands of commits(6568) and many contributiors(12), but not always has been like this.
-When it all started, in 2002 there was just a few number of contributions to the plataform. 
-By the past of the years, the number of commits increased and in 2016 as it is expected the number of total contributions is huge. </p>
+![Commitstomaster](resources/traffic1.png)
+
+![Commitstomaster](resources/traffic2.png)
 
 ![CommitsImag](resources/Commits.png)
-
-<p align="justify">The majority of contributions are new features added to the plataform and bugs-fixed. </p>
 
 ## Critical Analysis
 
