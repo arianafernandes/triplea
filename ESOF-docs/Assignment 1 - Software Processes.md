@@ -43,10 +43,6 @@ Most of the project contributions were made in 2016, as we can see below, and it
 
 ![Commitstomaster](resources/cmaster.png)
 
-![Commitstomaster](resources/traffic1.png)
-
-![Commitstomaster](resources/traffic2.png)
-
 ![CommitsImag](resources/Commits.png)
 
 ## Critical Analysis
