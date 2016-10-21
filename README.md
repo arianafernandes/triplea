@@ -8,6 +8,7 @@ has since expanded to include different conflicts, as well as variations and mod
 Assignments
 ===========
 - [Assignment 1: Software Processes](ESOF-docs/Assignment\ 1\ -\ Software\ Processes.md)
+- [Assignment 2: Requirements Elicitation](ESOF-docs/Assignment\ 1\ -\ Requirements\ Elicitation.md)
 
 Installing TripleA and Playing
 ==============================
