@@ -20,77 +20,7 @@ All the stakeholders can contribute on the process of requirements elicitation. 
 
 ## Use Cases
 
-### Play Singleplayer Game
-
-- <b>Name:</b> Play Singleplayer Game
-- <b>Actors:</b> Player
-- <b>Goal:</b> Start playing a local game against AI
-- <b>References to requirements:</b>
-- <b>Pre-conditions:</b> A map or an already saved game must be already loaded
-- <b>Description:</b>
-- <b>Post-conditions:</b>
-- <b>Variations:</b>
-- <b>Exceptions:</b>
-
-### Select Map
-
-- <b>Name:</b> Select Map
-- <b>Actors:</b> Player
-- <b>Goal:</b> Select a map in order to be played
-- <b>References to requirements:</b>
-- <b>Pre-conditions:</b>
-- <b>Description:</b>
-- <b>Post-conditions:</b>
-- <b>Variations:</b>
-- <b>Exceptions:</b>
-
-### Open Saved Games
-
-- <b>Name:</b> Open Saved Games
-- <b>Actors:</b> Player
-- <b>Goal:</b> Open an already saved game in order to continue playing it
-- <b>References to requirements:</b>
-- <b>Pre-conditions:</b>
-- <b>Description:</b>
-- <b>Post-conditions:</b>
-- <b>Variations:</b>
-- <b>Exceptions:</b>
-
-### Download Maps
-
-- <b>Name:</b> Download Maps
-- <b>Actors:</b> Player
-- <b>Goal:</b> Download one or more maps from the database in order to be played
-- <b>References to requirements:</b>
-- <b>Pre-conditions:</b>
-- <b>Description:</b>
-- <b>Post-conditions:</b>
-- <b>Variations:</b>
-- <b>Exceptions:</b>
-
-### Play Multiplayer
-
-- <b>Name:</b> Play Multiplayer
-- <b>Actors:</b> Player
-- <b>Goal:</b> Start playing a game against other human players
-- <b>References to requirements:</b>
-- <b>Pre-conditions:</b>
-- <b>Description:</b>
-- <b>Post-conditions:</b>
-- <b>Variations:</b>
-- <b>Exceptions:</b>
-
-### Title
-
-- <b>Name:</b>
-- <b>Actors:</b>
-- <b>Goal:</b>
-- <b>References to requirements:</b>
-- <b>Pre-conditions:</b>
-- <b>Description:</b>
-- <b>Post-conditions:</b>
-- <b>Variations:</b>
-- <b>Exceptions:</b>
+![Use Case Diagram](resources/usecasediagram.jpg)
 
 ## Requirements and Features
 
