@@ -22,76 +22,75 @@ All the stakeholders can contribute on the process of requirements elicitation. 
 
 ### Play Singleplayer Game
 
-- Name: Play Singleplayer Game
-- Actors: Player
-- Goal: Start playing a local game against AI
-- References to requirements:
-- Pre-conditions: A map or an already saved game must be already loaded
-- Description:
-1. 
-- Post-conditions:
-- Variations:
-- Exceptions:
+- <b>Name:</b> Play Singleplayer Game
+- <b>Actors:</b> Player
+- <b>Goal:</b> Start playing a local game against AI
+- <b>References to requirements:</b>
+- <b>Pre-conditions:</b> A map or an already saved game must be already loaded
+- <b>Description:</b>
+- <b>Post-conditions:</b>
+- <b>Variations:</b>
+- <b>Exceptions:</b>
 
 ### Select Map
 
-- Name: Select Map
-- Actors: Player
-- Goal: Select a map in order to be played
-- References to requirements:
-- Pre-conditions:
-- Description:
-- Post-conditions:
-- Variations:
-- Exceptions:
+- <b>Name:</b> Select Map
+- <b>Actors:</b> Player
+- <b>Goal:</b> Select a map in order to be played
+- <b>References to requirements:</b>
+- <b>Pre-conditions:</b>
+- <b>Description:</b>
+- <b>Post-conditions:</b>
+- <b>Variations:</b>
+- <b>Exceptions:</b>
 
 ### Open Saved Games
 
-- Name: Open Saved Games
-- Actors: Player
-- Goal: Open an already saved game in order to continue playing it
-- References to requirements:
-- Pre-conditions:
-- Description:
-- Post-conditions:
-- Variations:
-- Exceptions:
+- <b>Name:</b> Open Saved Games
+- <b>Actors:</b> Player
+- <b>Goal:</b> Open an already saved game in order to continue playing it
+- <b>References to requirements:</b>
+- <b>Pre-conditions:</b>
+- <b>Description:</b>
+- <b>Post-conditions:</b>
+- <b>Variations:</b>
+- <b>Exceptions:</b>
 
 ### Download Maps
 
-- Name: Download Maps
-- Actors: Player
-- Goal: Download one or more maps from the database in order to be played
-- References to requirements:
-- Pre-conditions:
-- Description:
-- Post-conditions:
-- Variations:
-- Exceptions:
+- <b>Name:</b> Download Maps
+- <b>Actors:</b> Player
+- <b>Goal:</b> Download one or more maps from the database in order to be played
+- <b>References to requirements:</b>
+- <b>Pre-conditions:</b>
+- <b>Description:</b>
+- <b>Post-conditions:</b>
+- <b>Variations:</b>
+- <b>Exceptions:</b>
 
 ### Play Multiplayer
 
-- Name: Play Multiplayer
-- Actors: Player
-- Goal: Start playing a game against other human players
-- References to requirements:
-- Pre-conditions:
-- Description:
-- Post-conditions:
-- Variations:
-- Exceptions:
+- <b>Name:</b> Play Multiplayer
+- <b>Actors:</b> Player
+- <b>Goal:</b> Start playing a game against other human players
+- <b>References to requirements:</b>
+- <b>Pre-conditions:</b>
+- <b>Description:</b>
+- <b>Post-conditions:</b>
+- <b>Variations:</b>
+- <b>Exceptions:</b>
 
 ### Title
 
-- Name:
-- Actors:
-- Goal:
-- References to requirements:
-- Pre-conditions:
-- Description:
-- Post-conditions:
-- Variations:
-- Exceptions:
+- <b>Name:</b>
+- <b>Actors:</b>
+- <b>Goal:</b>
+- <b>References to requirements:</b>
+- <b>Pre-conditions:</b>
+- <b>Description:</b>
+- <b>Post-conditions:</b>
+- <b>Variations:</b>
+- <b>Exceptions:</b>
 
 ## Requirements and Features
 
