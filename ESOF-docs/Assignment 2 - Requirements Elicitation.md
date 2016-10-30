@@ -50,8 +50,6 @@ considered requirements: </p>
 * Game rules must be based upon Axis and Allies rules.
 
 ## Domain Model
-<<<<<<< HEAD
 
 ![DomainModel](resources/domainmodel.png)
-=======
->>>>>>> origin/master
+
