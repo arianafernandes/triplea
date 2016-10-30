@@ -15,3 +15,5 @@
 * Non-Functional Requirements
 
 ## Domain Model
+
+![DomainModel](resources/domainmodel.png)
