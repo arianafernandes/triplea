@@ -18,8 +18,6 @@ There is a section explaining the details of all contributions and the levels th
 All the stakeholders can contribute on the process of requirements elicitation. This process involves a few steps: proposal, discussion inside the community, establish its priority and ,finally, the decision about the implementation. We can find some examples of this process here (link). 
 
 
-
-
 ## Use Cases
 
 * Table
@@ -49,5 +47,6 @@ considered requirements: </p>
 ### Non-Functional Requirements
 
 * Free to play, 100% open source and community supported
+* Game rules must be based upon Axis and Allies rules.
 
 ## Domain Model
