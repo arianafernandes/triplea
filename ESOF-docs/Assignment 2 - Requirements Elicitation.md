@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The major goals of the software development’s life cycle and the project as a whole are the quality and consistency of the requirement elicitation. It´s all about preventing early misunderstood in the project that would otherwise lead to unnecessary expenses and a waste of time and resources due to the going back and forth in the project.
+The major goals of the software development’s life cycle and the project as a whole are the quality and consistency of the requirement elicitation. It's all about preventing early misunderstood in the project that would otherwise lead to unnecessary expenses and a waste of time and resources due to the going back and forth in the project.
 Requirements engineer (RE) is used to translate incomplete /imprecise needs or wishes of potential users and costumers into structured and realistic goals for the project.
 The requirements can be divided in two main types:
 Functional, if they represent a capability that the software must perform;
