@@ -20,9 +20,78 @@ All the stakeholders can contribute on the process of requirements elicitation. 
 
 ## Use Cases
 
-* Table
+### Play Singleplayer Game
 
-* Diagram
+- Name: Play Singleplayer Game
+- Actors: Player
+- Goal: Start playing a local game against AI
+- References to requirements:
+- Pre-conditions: A map or an already saved game must be already loaded
+- Description:
+1. 
+- Post-conditions:
+- Variations:
+- Exceptions:
+
+### Select Map
+
+- Name: Select Map
+- Actors: Player
+- Goal: Select a map in order to be played
+- References to requirements:
+- Pre-conditions:
+- Description:
+- Post-conditions:
+- Variations:
+- Exceptions:
+
+### Open Saved Games
+
+- Name: Open Saved Games
+- Actors: Player
+- Goal: Open an already saved game in order to continue playing it
+- References to requirements:
+- Pre-conditions:
+- Description:
+- Post-conditions:
+- Variations:
+- Exceptions:
+
+### Download Maps
+
+- Name: Download Maps
+- Actors: Player
+- Goal: Download one or more maps from the database in order to be played
+- References to requirements:
+- Pre-conditions:
+- Description:
+- Post-conditions:
+- Variations:
+- Exceptions:
+
+### Play Multiplayer
+
+- Name: Play Multiplayer
+- Actors: Player
+- Goal: Start playing a game against other human players
+- References to requirements:
+- Pre-conditions:
+- Description:
+- Post-conditions:
+- Variations:
+- Exceptions:
+
+### Title
+
+- Name:
+- Actors:
+- Goal:
+- References to requirements:
+- Pre-conditions:
+- Description:
+- Post-conditions:
+- Variations:
+- Exceptions:
 
 ## Requirements and Features
 
