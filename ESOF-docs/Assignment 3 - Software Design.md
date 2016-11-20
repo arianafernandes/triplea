@@ -16,6 +16,11 @@ architecture. </p>
 
 ## Development View
 
+<p align="justify"> The development view, also known as implementation view, illustrates a system from a programmer's perspective. With the help of a component
+diagram it allows us to understand the main components of the system and how they're wired together to form larger ones. </p>
+
+## Deployment View
+
 As the name suggests, the deployment view describes the environment into wich the system will be deployed.
 This view focuses on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to the runtime that will execute them. To represent this view we used a [deployment diagram](http://www.conceptdraw.com/examples/deployment-diagram) .
 ![Deployment View](resources/DeploymentView.png)
