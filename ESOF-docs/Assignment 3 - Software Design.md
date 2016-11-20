@@ -16,13 +16,15 @@ architecture. </p>
 
 ## Development View
 
-## Deployment View
-
 AS the name suggests, the deployment view describes the environment into wich the system will be deployed.
-This view focus on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to the runtime that will execute them. To represent this view we used a [deployment diagram](https://en.wikipedia.org/wiki/Deployment_diagram) .
+This view focuses on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to the runtime that will execute them. To represent this view we used a [deployment diagram](http://www.conceptdraw.com/examples/deployment-diagram) .
 
 ![Deployment View](resources/DeploymentView.png)
 
-We only considered the existence of 3 nodes, the gamers PC, the gamer server and the tripleA server though the gamer server is only considered when the gamer use is computer to alocate the game.
+We only considered the existence of 3 nodes and only pointed the type of physical connection:
+Gamer Server ->In case the user wants to alocate the game in his computer he becames the server. 
+Gamer PC -> The user that will only connect to the TripleA server or GsamerServer.
+TripleA Server -> The tripleA Server where the game is stored and other info related touser account, backup games, etc.
+
 
 ## Process View
