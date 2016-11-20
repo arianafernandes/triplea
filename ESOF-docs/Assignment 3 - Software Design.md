@@ -21,8 +21,9 @@ diagram it allows us to understand the main components of the system and how the
 
 ## Deployment View
 
-As the name suggests, the deployment view describes the environment into wich the system will be deployed.
-This view focuses on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to the runtime that will execute them. To represent this view we used a [deployment diagram](http://www.conceptdraw.com/examples/deployment-diagram) .
+<p align="justify"> As the name suggests, the deployment view describes the environment into wich the system will be deployed.
+This view focuses on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to 
+the runtime that will execute them. To represent this view we used a [deployment diagram](http://www.conceptdraw.com/examples/deployment-diagram). </p>
 ![Deployment View](resources/DeploymentView.png)
 
 We only considered the existence of 3 nodes and only pointed the type of physical connection:
@@ -36,8 +37,8 @@ TripleA Server -> The tripleA Server where the game is stored and other info rel
 
 ## Process View
 
-This view shows the different processes and their interaction in runtime. Since the code of this project is to extensive,
+<p align="justify"> This view shows the different processes and their interaction in runtime. Since the code of this project is to extensive,
  we decided to simplify the activity diagram. We only show the most important processes for online play in a lobby and for 
- offline play.
+ offline play. </p>
 
 ![Process View](resources/ProcessView.png)
