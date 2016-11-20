@@ -2,13 +2,13 @@
 
 ## Introduction
 
-Software Architecture is the fundamental organization of a system and it includes the most important decisions about it. 
+<p align="justify"> Software Architecture is the fundamental organization of a system and it includes the most important decisions about it. 
 This model is based ono four components: Logic View, represented by the packages diagram, Implementation View, represented 
 by components diagram, Process View, represented by the activity diagram and Deployment View, represented by the deployment 
-diagram. With these diagrams it's possible to analyse the evolution and the development of the project.
+diagram. With these diagrams it's possible to analyse the evolution and the development of the project. </p>
 
-In this case, after a deep analysis of the available code and it's structure we can conclude that there is no definided 
-architecture.
+<p align="justify"> In this case, after a deep analysis of the available code and it's structure we can conclude that there is no definided 
+architecture. </p>
 
 ## Logical View
 
