@@ -11,7 +11,7 @@
 ## Deployment View
 
 AS the name suggests, the deployment view describes the environment into wich the system will be deployed.
-This view focus on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to the runtime that will execute them. To represent this view we used a [deployment diagram]:https://en.wikipedia.org/wiki/Deployment_diagram .
+This view focus on the environment of the system, including the hardware and technical environment required as well as the mapping of the software elements to the runtime that will execute them. To represent this view we used a [deployment diagram](https://en.wikipedia.org/wiki/Deployment_diagram) .
 
 ![Deployment View](resources/DeploymentView.png)
 
