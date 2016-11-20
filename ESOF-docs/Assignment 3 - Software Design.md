@@ -35,3 +35,4 @@ TripleA Server -> The tripleA Server where the game is stored and other info rel
 
 
 ## Process View
+![Process View](resources/ProcessView.png)
