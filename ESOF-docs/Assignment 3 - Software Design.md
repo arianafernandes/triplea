@@ -35,4 +35,9 @@ TripleA Server -> The tripleA Server where the game is stored and other info rel
 
 
 ## Process View
+
+This view shows the different processes and their interaction in runtime. Since the code of this project is to extensive,
+ we decided to simplify the activity diagram. We only show the most important processes for online play in a lobby and for 
+ offline play.
+
 ![Process View](resources/ProcessView.png)
