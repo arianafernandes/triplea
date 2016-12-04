@@ -49,9 +49,24 @@ Projects such as TripleA have a large number of contributors so it is necessary 
 ## Test Statistics
 
 <p align="justify"> The statistics result of representative test cases to estimate a value of a qualility metric of software.
-They determine the efficiency and the reliability of the system. 
+They determine the efficiency and the reliability of the system. </p>
+
+Como se pode ver todos os testes são concluídos com sucesso. Isto não é um indicativo de que a qualidade do código é boa,
+mas é um indicador que todos os testes resultaram no resultado esperado. Após uma análise cuidada do código de teste,
+onde se encontraram sucessivas verificações de acerto, pode-se afirmar que a Skyframe tem um comportamento consistente
+e preparado para responder a diversas situações.
 
 ![Tests Run](resources/TestsRun.png)
+
+<p align="justify"> As we can see, all the tests run were either successfully executed or skiped. This doesn't prove the 
+code quality is good, but it does prove that whatever the developers were testing, it executed as expected. Since this is 
+a game plataform with games included, it's extremely difficult to test every single scenario, due to the complexity of the 
+project, so we can't say the project is prepared for every situation, however it can be said it's prepared for a good variety 
+of them.</p>
+
+### Code Coverage
+
+
 
 ## Bug
 
@@ -66,6 +81,6 @@ They determine the efficiency and the reliability of the system.
 
 * [Diogo Luís Cerqueira Carneiro da Silva](https://github.com/pingudiogo) (up201405742@fe.up.pt) - 25%<br>
 * [Luís Octávio Pais Ferreira Araújo Correia Soares](https://github.com/LuiSoares) (up201406356@fe.up.pt) - 25%<br>
-* [Mónica Ariana Fernandes](https://github.com/arianafernandes) (up201404789@fe.up.pt) - 25%<br>
+* [Ariana Fernandes](https://github.com/arianafernandes) (up201404789@fe.up.pt) - 25%<br>
 * [Tiago Bernardes Almeida](https://github.com/tiagobalm) (up201305665@fe.up.pt) - 25%<br>
 
