@@ -81,6 +81,12 @@ specify the requirements themselves. This way, this system cannot be properly te
 <p align="justify"> As we said before, in this project, the client and the developers are the same. Therefore, there is 
 no need for acceptance tests in this project since it is built by the clients, in some way. </p>
 
+### Regression Testing
+
+<p align="justify"> For this type of testing, the unit tests are important again. Every time a bug fix or new feature is proposed, usually 
+through pull requests, a member of the development team is responsible for testing it and verify if this alteration does 
+not compromise the features already implemented. This can be done by running unit tests. </p>
+
 ## Bug
 
 ## External Links
