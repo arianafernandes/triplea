@@ -10,6 +10,7 @@ Assignments
 - [Assignment 1: Software Processes](ESOF-docs/Assignment\ 1\ -\ Software\ Processes.md)
 - [Assignment 2: Requirements Elicitation](ESOF-docs/Assignment\ 2\ -\ Requirements\ Elicitation.md)
 - [Assignment 3: Software Design](ESOF-docs/Assignment\ 3\ -\ Software\ Design.md)
+- [Assignment 4: Verification and Validation](ESOF-docs/Assignment\ 4\ -\ Verification\ and\ Validation.md)
 
 Installing TripleA and Playing
 ==============================
