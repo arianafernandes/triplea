@@ -70,11 +70,20 @@ Those packages are the ones related to the games logic, therefore they can be pr
 
 More information about the code coverage [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/arianafernandes/triplea/master/index.html).
 
-## System Testing
+### System Testing
 
 <p align="justify"> As we said in the second report, this project started with a man's simple idea, so there is no evidence 
 that there were any requirements at all. Till this day, the team does not have a proper development process and the developers 
 specify the requirements themselves. This way, this system cannot be properly tested. </p> 
+
+Testes de aceitação
+
+Como já referimos em relatórios anteriores, o cliente deste produto é o próprio programador. Já discutimos as vantagens inerentes, como por exemplo estar definido desde o início o que o programador/cliente pretende. Assim, no nosso caso não são necessários acceptance tests, pois o Bazel é também, de certa forma, construído pelos clientes.
+
+### Acceptance Testing
+
+<p align="justify"> As we said before, in this project, the client and the developers are the same. Therefore, there is 
+no need for acceptance tests in this project since it is built by the clients, in some way. </p>
 
 ## Bug
 
