@@ -60,12 +60,12 @@ Projects such as TripleA have a large number of contributors so it is necessary 
 
 ## Test Statistics
 
-<p align="justify"> The statistics result of representative test cases to estimate a value of a quality metric of software.
+<p align="justify">The statistics result of representative test cases to estimate a value of a quality metric of software.
 They determine the efficiency and the reliability of the system.</p>
 
 ![Tests Run](resources/TestsRun.png)
 
-<p align="justify"> As we can see, all the tests run were either successfully executed or skipped. This doesn't prove the 
+<p align="justify">As we can see, all the tests run were either successfully executed or skipped. This doesn't prove the 
 code quality is good, but it does prove that whatever the developers were testing, it executed as expected. Since this is 
 a game platform with games included, it's extremely difficult to test every single scenario, due to the complexity of the 
 project, so we can't say the project is prepared for every situation, however it can be said it's prepared for a good variety 
@@ -75,7 +75,7 @@ of them.</p>
 
 ![Code Coverage](resources/CodeCoverage.png)
 
-<p align="justify"> As we can see in the image above, this project does not have a good code coverage. It is important to 
+<p align="justify">As we can see in the image above, this project does not have a good code coverage. It is important to 
 notice that, being this project a game platform, a good part of the code is GUI development and that part of the code 
 cannot be tested with JUnit tests. There are a few packages that have good code coverage, with values between 71% and 96%. 
 Those packages are the ones related to the games logic, therefore they can be properly tested.</p>
@@ -84,20 +84,20 @@ More information about the code coverage [here](https://htmlpreview.github.io/?h
 
 ### System Testing
 
-<p align="justify"> As we said in the second report, this project started with a man's simple idea, so there is no evidence 
+<p align="justify">As we said in the second report, this project started with a man's simple idea, so there is no evidence 
 that there were any requirements at all. Till this day, the team does not have a proper development process and the developers 
-specify the requirements themselves. This way, this system cannot be properly tested. </p> 
+specify the requirements themselves. This way, this system cannot be properly tested.</p>
 
 ### Acceptance Testing
 
-<p align="justify"> As we said before, in this project, the client and the developers are the same. Therefore, there is 
-no need for acceptance tests in this project since it is built by the clients, in some way. </p>
+<p align="justify">As we said before, in this project, the client and the developers are the same. Therefore, there is 
+no need for acceptance tests in this project since it is built by the clients, in some way.</p>
 
 ### Regression Testing
 
-<p align="justify"> For this type of testing, the unit tests are important again. Every time a bug fix or new feature is proposed, usually 
+<p align="justify">For this type of testing, the unit tests are important again. Every time a bug fix or new feature is proposed, usually 
 through pull requests, a member of the development team is responsible for testing it and verify if the new contribution 
-does not compromise the features already implemented. This can be done by running unit tests. </p>
+does not compromise the features already implemented. This can be done by running unit tests.</p>
 
 ## Bug
 
