@@ -25,7 +25,8 @@ It is also important to remind that ,notwithstanding all the testing we can do t
 
 ### Controllability
 <p align="justify">Phase where it is possible to control the state of the component to be tested (CUT), in accordance with the test. It denotes the ability to move a system around in its entire configuration space using only certain admissible manipulation.
-It depends a lot on the components that we want to test and how we want to test it. In the TripleA example, we may have more dificult components to control either because they depend on external user files(it´s needed testing in all the cases not only the main), or because they depend on more extensive and complex projects from diferent languages. Therefore, we have to test every combination.</p>
+It depends a lot on the components that we want to test and how we want to test it. In the TripleA example, we may have more dificult components to control either because they depend on external user files(it´s needed testing in all the cases not only the main), or because they depend on more extensive and complex projects from diferent languages. Therefore, we have to test every combination.
+</p>
 
 ### Observability
 <p align="justify">Phase in which is possible to analyze the intermediate and final results of the tests.
