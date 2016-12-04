@@ -102,14 +102,14 @@ does not compromise the features already implemented. This can be done by runnin
 ## Bug
 
 Bugs isn’t something that this project lacks and we found several interesting ones in the [issues page](http://github.com/triplea-game/triplea/issues/). 
-<p align="justify">However, we were incapable of fixing every single one of them. Our main problem was the complexity of 
-the game. Most of the issues we looked at had to do with the logic of the game. Since we didn’t make these mechanics 
-ourselves we have almost no knowledge to help us fix problems related to this matter. So, we then decided to look at UI 
-related problems. That’s when we found out that we couldn’t fix the problems we were looking at because the graphic’s 
-API this project uses doesn’t allow us to do so. It has been stated by one of the main developers that solving these kinds 
-of problems would only bring us another problem somewhere else. As a solution for this matter, the developers decided to 
-migrate the game’s UI components to JavaFx and they are under the impression that the migration will solve the problems. 
-Therefore, any alteration to the GUI would be obsolete.</p>
+<p align="justify">However, we were incapable of fixing any of them. Our main problem was the complexity of 
+the project. Most of the issues we found involved the logic of one of the games. Since we didn’t make these mechanics 
+ourselves we have almost no knowledge to help us fix problems related to this matter. There were also problems related 
+to this project's GUI. However, this problems cannot be fixed since the graphic’s API this project uses doesn’t allow us
+to do so. It has been stated by one of the main developers that solving these kinds of problems would only bring us 
+another problem somewhere else. As a solution for this matter, the developers decided to migrate the game’s UI components 
+to JavaFx and they are under the impression that the migration will solve the problems. Therefore, any alteration to the 
+GUI would be obsolete.</p>
 
 ## External Links
 * HomePage: http://triplea-game.github.io/
