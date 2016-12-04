@@ -4,8 +4,17 @@
 
 ## Introduction
 
-<p align="justify">  Nowadays is very difficult to control the quality of products because there are too many standards and reviews. So this is the major reason why software tests are fundamental to every product. With them we can detect errors and failures in order to improve our work. </p>
+<p align="justify"> Nowadays, leaks in the control of the products quality can have huge unexpected results and, without very strict and systematic testing, it´s very easy to make them.
+In average, even for an experienced programmer, it´s likely to inject around 100 defects/KLOC (Klines of code)*,  so the software testing is fundamental to the development of every product in order to detect and correct its errors and failures. 
+The goal of this report is to analyses the verification and validation(V&V) process followed in the development of TripleA.
+ We will approach this by describing some new concepts that concern to the software testability, in relation to the actual TripleA system and then present some relevant test statistic . 
+Finally, we will select a bug that we had identify and correct it, though we tried to pull request it, we are steal waiting the admin approval.
+ </p>
+ 
+![Grafico](resources/V&V.png)
 
+*(Source: Inspiring, enabling and driving the Evolution of Quality at Adobe leveraging
+the TSP, Jim Sartain, Senior Director, Quality, TSP Symposium 2009)
 
 ## Software Testability 
 <p align="justify">Software testability is a property that indicates the level of testability that a particular software supports. The higher the test capacity, the more easily system failures are detected.
