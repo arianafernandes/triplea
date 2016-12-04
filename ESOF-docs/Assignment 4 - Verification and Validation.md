@@ -61,7 +61,7 @@ Projects such as TripleA have a large number of contributors so it is necessary 
 ## Test Statistics
 
 <p align="justify"> The statistics result of representative test cases to estimate a value of a quality metric of software.
-They determine the efficiency and the reliability of the system. </p>
+They determine the efficiency and the reliability of the system.</p>
 
 ![Tests Run](resources/TestsRun.png)
 
@@ -102,7 +102,7 @@ does not compromise the features already implemented. This can be done by runnin
 ## Bug
 
 <p align="justify">
-Bugs isn’t something that this project lacks and we found several interesting ones in the issues page. However, we were incapable of fixing every single one of them. Our main problem was the complexity of the game. Most of the issues we looked at had to do with the logic of the game. Since we didn’t make these mechanics ourselves we have almost no knowledge to help us fix problems related to this matter. So, we then decided to look at UI related problems. That’s when we found out that we couldn’t fix the problems we were looking at because the graphic’s API our game uses doesn’t allow us to do so. It has been stated by one of the main developers that solving these kinds of problems would only bring us another problem somewhere else. Also because of this the game’s UI components are being migrated to JavaFx and hopefully in the future these problems will cease to exist.
+Bugs isn’t something that this project lacks and we found several interesting ones in the [issues page](http://github.com/triplea-game/triplea/issues/). However, we were incapable of fixing every single one of them. Our main problem was the complexity of the game. Most of the issues we looked at had to do with the logic of the game. Since we didn’t make these mechanics ourselves we have almost no knowledge to help us fix problems related to this matter. So, we then decided to look at UI related problems. That’s when we found out that we couldn’t fix the problems we were looking at because the graphic’s API our game uses doesn’t allow us to do so. It has been stated by one of the main developers that solving these kinds of problems would only bring us another problem somewhere else. Also because of this the game’s UI components are being migrated to JavaFx and hopefully in the future these problems will cease to exist.
 </p>
 
 ## External Links
