@@ -60,8 +60,8 @@ Projects such as TripleA have a large number of contributors so it is necessary 
 
 ## Test Statistics
 
-<p align="justify"> The statistics result of representative test cases to estimate a value of a quality metric of software.
-They determine the efficiency and the reliability of the system.</p>
+The statistics result of representative test cases to estimate a value of a quality metric of software.
+They determine the efficiency and the reliability of the system.
 
 ![Tests Run](resources/TestsRun.png)
 
