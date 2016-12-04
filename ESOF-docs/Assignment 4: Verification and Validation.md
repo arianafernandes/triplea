@@ -22,10 +22,10 @@ POR COMPLETAR
 </p>
 
 
-### Isolateability
+### Isolability
 
 <p align="justify">Isolability represents the amount of each component (CUT) that can be tested isolated. 
-In TrpleA the components communicate with each other, so is  very difficult to isolate one component from the rest. The component under test (CUT) can only be tested in isolation, partially.
+In TripleA the components communicate with each other, so is  very difficult to isolate one component from the rest. The component under test (CUT) can only be tested in isolation, partially.
 </p>
 
 
@@ -48,14 +48,14 @@ Projects such as TripleA have a large number of contributors so it is necessary 
 
 ## Test Statistics
 
-<p align="justify"> The statistics result of representative test cases to estimate a value of a qualility metric of software.
+<p align="justify"> The statistics result of representative test cases to estimate a value of a quality metric of software.
 They determine the efficiency and the reliability of the system. </p>
 
 ![Tests Run](resources/TestsRun.png)
 
-<p align="justify"> As we can see, all the tests run were either successfully executed or skiped. This doesn't prove the 
+<p align="justify"> As we can see, all the tests run were either successfully executed or skipped. This doesn't prove the 
 code quality is good, but it does prove that whatever the developers were testing, it executed as expected. Since this is 
-a game plataform with games included, it's extremely difficult to test every single scenario, due to the complexity of the 
+a game platform with games included, it's extremely difficult to test every single scenario, due to the complexity of the 
 project, so we can't say the project is prepared for every situation, however it can be said it's prepared for a good variety 
 of them.</p>
 
@@ -64,11 +64,18 @@ of them.</p>
 ![Code Coverage](resources/CodeCoverage.png)
 
 <p align="justify"> As we can see in the image above, this project does not have a good code coverage. It is important to 
-notice that, being this project a game plataform, a good part of the code is GUI development and that part of the code 
+notice that, being this project a game platform, a good part of the code is GUI development and that part of the code 
 cannot be tested with JUnit tests. There are a few packages that have good code coverage, with values between 71% to 96%. 
 Those packages are the ones related to the games logic, therefore they can be properly tested.</p>
 
 More information about the code coverage [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/arianafernandes/triplea/master/index.html).
+
+## System Testing
+
+<p align="justify"> As we said in the second report, this project started with a man's simple idea, so there is no evidence 
+that there were any requirements at all. Till this day, the team does not have a proper development process and the developers 
+specify the requirements themselves. This way, this system cannot be properly tested. </p> 
+
 ## Bug
 
 ## External Links
