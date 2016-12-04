@@ -29,11 +29,11 @@ It depends a lot on the components that we want to test and how we want to test 
 </p>
 
 ### Observability
-<p align="justify">Phase in which is possible to analyze the intermediate and final results of the tests.
+<p align="justify">Phase in which is possible to analyze the intermediate and final results of the tests.</p>
 
-The results of the tests can be easily obtained and reviewed by running them on Eclipse, Netbeans or Intellij IDEA.
+<p align="justify">The results of the tests can be easily obtained and reviewed by running them on Eclipse, Netbeans or Intellij IDEA.</p>
 
-Taking TripleA as an exaple again, there are a bunch of tests that are mandatory for the project to run after the pull request, to ensure this pull gets accepted. This seems very natural, but making sure every step is taken in the preparation for the project doesn't have a negative impact in the well functioning of it. Not only this, but it may help spot future mistakes.
+<p align="justify">Taking TripleA as an exaple again, there are a bunch of tests that are mandatory for the project to run after the pull request, to ensure this pull gets accepted. This seems very natural, but making sure every step is taken in the preparation for the project doesn't have a negative impact in the well functioning of it. Not only this, but it may help spot future mistakes.
 </p>
 
 ### Isolability
