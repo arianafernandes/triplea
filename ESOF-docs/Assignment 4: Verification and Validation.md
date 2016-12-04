@@ -76,10 +76,6 @@ More information about the code coverage [here](https://htmlpreview.github.io/?h
 that there were any requirements at all. Till this day, the team does not have a proper development process and the developers 
 specify the requirements themselves. This way, this system cannot be properly tested. </p> 
 
-Testes de aceitação
-
-Como já referimos em relatórios anteriores, o cliente deste produto é o próprio programador. Já discutimos as vantagens inerentes, como por exemplo estar definido desde o início o que o programador/cliente pretende. Assim, no nosso caso não são necessários acceptance tests, pois o Bazel é também, de certa forma, construído pelos clientes.
-
 ### Acceptance Testing
 
 <p align="justify"> As we said before, in this project, the client and the developers are the same. Therefore, there is 
