@@ -111,8 +111,6 @@ of problems would only bring us another problem somewhere else. As a solution fo
 migrate the game’s UI components to JavaFx and they are under the impression that the migration will solve the problems. 
 Therefore, any alteration to the GUI would be obsolete.</p>
 
-
-
 ## External Links
 * HomePage: http://triplea-game.github.io/
 * Community Website: http://www.tripleawarclub.org/
