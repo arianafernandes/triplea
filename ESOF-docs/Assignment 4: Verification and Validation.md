@@ -63,6 +63,14 @@ of them.</p>
 
 ![Code Coverage](resources/CodeCoverage.png)
 
+<p align="justify"> As we can see in the image above, this project does not have a good code coverage. It is important to 
+notice that, being this project a game plataform, a good part of the code is GUI development and that part of the code 
+cannot be tested with JUnit tests. There are a few packages that have good code coverage, with values between 71% to 96%. 
+Those packages are the ones related to the games logic, therefore they can be properly tested. More information about the 
+code coverage [here](https://htmlpreview.github.io/?https://raw.githubusercontent.com/arianafernandes/triplea/master/index.html). </p>
+
+Como se pode ver na imagem acima os testes cobrem grande parte do código: cerca de 92% das linhas, 91% das classes e 85% dos métodos. Com isto podemos afirmar que apenas uma pequena parte do código não está a ser testado. Com base neste valor podemos também dizer que provavelmente existem métodos com pouca extensão (poucas linhas de código) que muito provavelmente são redundantes.
+
 ## Bug
 
 ## External Links
