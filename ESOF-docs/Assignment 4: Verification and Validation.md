@@ -51,11 +51,6 @@ Projects such as TripleA have a large number of contributors so it is necessary 
 <p align="justify"> The statistics result of representative test cases to estimate a value of a qualility metric of software.
 They determine the efficiency and the reliability of the system. </p>
 
-Como se pode ver todos os testes são concluídos com sucesso. Isto não é um indicativo de que a qualidade do código é boa,
-mas é um indicador que todos os testes resultaram no resultado esperado. Após uma análise cuidada do código de teste,
-onde se encontraram sucessivas verificações de acerto, pode-se afirmar que a Skyframe tem um comportamento consistente
-e preparado para responder a diversas situações.
-
 ![Tests Run](resources/TestsRun.png)
 
 <p align="justify"> As we can see, all the tests run were either successfully executed or skiped. This doesn't prove the 
