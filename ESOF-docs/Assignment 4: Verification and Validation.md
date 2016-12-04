@@ -61,7 +61,7 @@ of them.</p>
 
 ### Code Coverage
 
-
+![Code Coverage](resources/CodeCoverage.png)
 
 ## Bug
 
