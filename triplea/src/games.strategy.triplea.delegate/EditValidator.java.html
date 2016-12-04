@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EditValidator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">EditValidator.java</span></div><h1>EditValidator.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.util.TransportUtils;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Triple;
+
+/**
+ * Provides some static methods for validating game edits.
+ */
+<span class="nc" id="L26">public class EditValidator {</span>
+  private static String validateTerritoryBasic(final GameData data, final Territory territory) {
+<span class="nc" id="L28">    return validateTerritoryBasic(data, territory, null);</span>
+  }
+
+  private static String validateTerritoryBasic(final GameData data, final Territory territory, final PlayerID player) {
+<span class="nc" id="L32">    final String result = null;</span>
+    /*
+     * // territory cannot contain enemy units
+     * if (!Matches.territoryIsEmptyOfCombatUnits(data, player).match(territory))
+     * return &quot;Territory contains enemy units&quot;;
+     */
+    /*
+     * // territory cannot be in a pending battle
+     * BattleTracker battleTracker = DelegateFinder.battleDelegate(data).getBattleTracker();
+     * if (battleTracker.getPendingBattle(territory, true) != null)
+     * return &quot;Territory contains a pending SBR battle&quot;;
+     * if (battleTracker.getPendingBattle(territory, false) != null)
+     * return &quot;Territory contains a pending battle&quot;;
+     */
+    // territory cannot be in an UndoableMove route
+<span class="nc" id="L47">    final List&lt;UndoableMove&gt; moves = DelegateFinder.moveDelegate(data).getMovesMade();</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">    for (final UndoableMove move : moves) {</span>
+<span class="nc bnc" id="L49" title="All 4 branches missed.">      if (move.getRoute().getStart() == territory || move.getRoute().getEnd() == territory) {</span>
+<span class="nc" id="L50">        return &quot;Territory is start or end of a pending move&quot;;</span>
+      }
+    }
+<span class="nc" id="L53">    return result;</span>
+  }
+
+  public static String validateChangeTerritoryOwner(final GameData data, final Territory territory,
+      final PlayerID player) {
+<span class="nc" id="L58">    String result = null;</span>
+<span class="nc bnc" id="L59" title="All 4 branches missed.">    if (Matches.TerritoryIsWater.match(territory) &amp;&amp; territory.getOwner().equals(PlayerID.NULL_PLAYERID)</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        &amp;&amp; TerritoryAttachment.get(territory) == null) {</span>
+<span class="nc" id="L61">      return &quot;Territory is water and has no attachment&quot;;</span>
+    }
+<span class="nc bnc" id="L63" title="All 2 branches missed.">    if ((result = validateTerritoryBasic(data, territory, player)) != null) {</span>
+<span class="nc" id="L64">      return result;</span>
+    }
+<span class="nc" id="L66">    return result;</span>
+  }
+
+  public static String validateAddUnits(final GameData data, final Territory territory, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L70">    String result = null;</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (units.isEmpty()) {</span>
+<span class="nc" id="L72">      return &quot;No units selected&quot;;</span>
+    }
+<span class="nc" id="L74">    final PlayerID player = units.iterator().next().getOwner();</span>
+    // check land/water sanity
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (territory.isWater()) {</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">      if (!Match.allMatch(units, Matches.UnitIsSea)) {</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">          if (!Match.allMatch(units, Matches.alliedUnit(player, data))) {</span>
+<span class="nc" id="L80">            return &quot;Can't add mixed nationality units to water&quot;;</span>
+          }
+<span class="nc" id="L82">          final Match&lt;Unit&gt; friendlySeaTransports =</span>
+<span class="nc" id="L83">              new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransport, Matches.UnitIsSea, Matches.alliedUnit(player, data));</span>
+<span class="nc" id="L84">          final Collection&lt;Unit&gt; seaTransports = Match.getMatches(units, friendlySeaTransports);</span>
+<span class="nc" id="L85">          final Collection&lt;Unit&gt; landUnitsToAdd = Match.getMatches(units, Matches.UnitIsLand);</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">          if (!Match.allMatch(landUnitsToAdd, Matches.UnitCanBeTransported)) {</span>
+<span class="nc" id="L87">            return &quot;Can't add land units that can't be transported, to water&quot;;</span>
+          }
+<span class="nc" id="L89">          seaTransports.addAll(territory.getUnits().getMatches(friendlySeaTransports));</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">          if (seaTransports.isEmpty()) {</span>
+<span class="nc" id="L91">            return &quot;Can't add land units to water without enough transports&quot;;</span>
+          }
+<span class="nc" id="L93">          final Map&lt;Unit, Unit&gt; mapLoading = TransportUtils.mapTransportsToLoad(landUnitsToAdd, seaTransports);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">          if (!mapLoading.keySet().containsAll(landUnitsToAdd)) {</span>
+<span class="nc" id="L95">            return &quot;Can't add land units to water without enough transports&quot;;</span>
+          }
+        }
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (Match.someMatch(units, Matches.UnitIsAir)) {</span>
+<span class="nc" id="L99">          if (Match.someMatch(units,</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">              new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.UnitCanLandOnCarrier.invert()))) {</span>
+<span class="nc" id="L101">            return &quot;Cannot add air to water unless it can land on carriers&quot;;</span>
+          }
+          // Set up matches
+<span class="nc" id="L104">          final Match&lt;Unit&gt; friendlyCarriers =</span>
+<span class="nc" id="L105">              new CompositeMatchAnd&lt;&gt;(Matches.UnitIsCarrier, Matches.alliedUnit(player, data));</span>
+<span class="nc" id="L106">          final Match&lt;Unit&gt; friendlyAirUnits =</span>
+<span class="nc" id="L107">              new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.alliedUnit(player, data));</span>
+          // Determine transport capacity
+<span class="nc" id="L109">          final int carrierCapacityTotal =</span>
+<span class="nc" id="L110">              AirMovementValidator.carrierCapacity(territory.getUnits().getMatches(friendlyCarriers), territory)</span>
+<span class="nc" id="L111">                  + AirMovementValidator.carrierCapacity(units, territory);</span>
+<span class="nc" id="L112">          final int carrierCost = AirMovementValidator.carrierCost(territory.getUnits().getMatches(friendlyAirUnits))</span>
+<span class="nc" id="L113">              + AirMovementValidator.carrierCost(units);</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">          if (carrierCapacityTotal &lt; carrierCost) {</span>
+<span class="nc" id="L115">            return &quot;Can't add more air units to water without sufficient space&quot;;</span>
+          }
+        }
+      }
+    } else {
+      /*
+       * // Can't add to enemy territory
+       * if (Matches.isTerritoryEnemy(player, data).match(territory) &amp;&amp; !Matches.TerritoryIsWater.match(territory))
+       * return &quot;Can't add units to enemy territory&quot;;
+       */
+<span class="nc bnc" id="L125" title="All 2 branches missed.">      if (Match.someMatch(units, Matches.UnitIsSea)) {</span>
+<span class="nc" id="L126">        return &quot;Can't add sea units to land&quot;;</span>
+      }
+    }
+<span class="nc bnc" id="L129" title="All 2 branches missed.">    if ((result = validateTerritoryBasic(data, territory, player)) != null) {</span>
+<span class="nc" id="L130">      return result;</span>
+    }
+<span class="nc" id="L132">    return result;</span>
+  }
+
+  public static String validateRemoveUnits(final GameData data, final Territory territory,
+      final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L137">    String result = null;</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">    if (units.isEmpty()) {</span>
+<span class="nc" id="L139">      return &quot;No units selected&quot;;</span>
+    }
+<span class="nc" id="L141">    final PlayerID player = units.iterator().next().getOwner();</span>
+    /*
+     * all units should be same owner
+     * if (!Match.allMatch(units, Matches.unitIsOwnedBy(player)))
+     * return &quot;Not all units have the same owner&quot;;
+     */
+<span class="nc bnc" id="L147" title="All 2 branches missed.">    if ((result = validateTerritoryBasic(data, territory, player)) != null) {</span>
+<span class="nc" id="L148">      return result;</span>
+    }
+    // if transport selected, all transported units must be deleted too
+<span class="nc bnc" id="L151" title="All 2 branches missed.">    for (final Unit unit : Match.getMatches(units, Matches.UnitCanTransport)) {</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">      if (!units.containsAll(TransportTracker.transporting(unit))) {</span>
+<span class="nc" id="L153">        return &quot;Can't remove transport without removing transported units&quot;;</span>
+      }
+    }
+    // if transported units selected, transport must be deleted too
+<span class="nc bnc" id="L157" title="All 2 branches missed.">    for (final Unit unit : Match.getMatches(units, Matches.UnitCanBeTransported)) {</span>
+<span class="nc" id="L158">      final Unit transport = TransportTracker.transportedBy(unit);</span>
+<span class="nc bnc" id="L159" title="All 4 branches missed.">      if (transport != null &amp;&amp; !units.contains(transport)) {</span>
+<span class="nc" id="L160">        return &quot;Can't remove transported units without removing transport&quot;;</span>
+      }
+    }
+    // TODO: if carrier selected, all carried planes must be deleted too
+    // TODO: if carried planes selected, carrier must be deleted too
+<span class="nc" id="L165">    return result;</span>
+  }
+
+  public static String validateAddTech(final GameData data, final Collection&lt;TechAdvance&gt; techs,
+      final PlayerID player) {
+<span class="nc" id="L170">    final String result = null;</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">    if (techs == null) {</span>
+<span class="nc" id="L172">      return &quot;No tech selected&quot;;</span>
+    }
+<span class="nc bnc" id="L174" title="All 2 branches missed.">    if (player == null) {</span>
+<span class="nc" id="L175">      return &quot;No player selected&quot;;</span>
+    }
+<span class="nc bnc" id="L177" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getTechDevelopment(data)) {</span>
+<span class="nc" id="L178">      return &quot;Technology not enabled&quot;;</span>
+    }
+<span class="nc bnc" id="L180" title="All 2 branches missed.">    if (player.getAttachment(Constants.TECH_ATTACHMENT_NAME) == null) {</span>
+<span class="nc" id="L181">      return &quot;Player has no Tech Attachment&quot;;</span>
+    }
+<span class="nc bnc" id="L183" title="All 2 branches missed.">    for (final TechAdvance tech : techs) {</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">      if (tech == null) {</span>
+<span class="nc" id="L185">        return &quot;No tech selected&quot;;</span>
+      }
+<span class="nc bnc" id="L187" title="All 2 branches missed.">      if (!TechnologyDelegate.getAvailableTechs(player, data).contains(tech)) {</span>
+<span class="nc" id="L188">        return &quot;Technology not available for this player&quot;;</span>
+      }
+    }
+<span class="nc" id="L191">    return result;</span>
+  }
+
+  public static String validateRemoveTech(final GameData data, final Collection&lt;TechAdvance&gt; techs,
+      final PlayerID player) {
+<span class="nc" id="L196">    final String result = null;</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">    if (techs == null) {</span>
+<span class="nc" id="L198">      return &quot;No tech selected&quot;;</span>
+    }
+<span class="nc bnc" id="L200" title="All 2 branches missed.">    if (player == null) {</span>
+<span class="nc" id="L201">      return &quot;No player selected&quot;;</span>
+    }
+<span class="nc bnc" id="L203" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getTechDevelopment(data)) {</span>
+<span class="nc" id="L204">      return &quot;Technology not enabled&quot;;</span>
+    }
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    for (final TechAdvance tech : techs) {</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">      if (tech == null) {</span>
+<span class="nc" id="L208">        return &quot;No tech selected&quot;;</span>
+      }
+<span class="nc bnc" id="L210" title="All 2 branches missed.">      if (!TechTracker.getCurrentTechAdvances(player, data).contains(tech)) {</span>
+<span class="nc" id="L211">        return &quot;Player does not have this tech&quot;;</span>
+      }
+<span class="nc bnc" id="L213" title="All 2 branches missed.">      if (tech.getProperty().equals(TechAdvance.TECH_PROPERTY_INDUSTRIAL_TECHNOLOGY)) {</span>
+<span class="nc" id="L214">        return &quot;Cannot remove &quot; + TechAdvance.TECH_NAME_INDUSTRIAL_TECHNOLOGY;</span>
+      }
+<span class="nc bnc" id="L216" title="All 2 branches missed.">      if (tech.getProperty().equals(TechAdvance.TECH_PROPERTY_IMPROVED_SHIPYARDS)) {</span>
+<span class="nc" id="L217">        return &quot;Cannot remove &quot; + TechAdvance.TECH_NAME_IMPROVED_SHIPYARDS;</span>
+      }
+    }
+<span class="nc" id="L220">    return result;</span>
+  }
+
+  public static String validateChangeHitDamage(final GameData data, final IntegerMap&lt;Unit&gt; unitDamageMap,
+      final Territory territory) {
+<span class="nc" id="L225">    String result = null;</span>
+<span class="nc bnc" id="L226" title="All 4 branches missed.">    if (unitDamageMap == null || unitDamageMap.isEmpty()) {</span>
+<span class="nc" id="L227">      return &quot;Damage map is empty&quot;;</span>
+    }
+<span class="nc bnc" id="L229" title="All 2 branches missed.">    if ((result = validateTerritoryBasic(data, territory)) != null) {</span>
+<span class="nc" id="L230">      return result;</span>
+    }
+<span class="nc" id="L232">    final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitDamageMap.keySet());</span>
+<span class="nc bnc" id="L233" title="All 2 branches missed.">    if (!territory.getUnits().getUnits().containsAll(units)) {</span>
+<span class="nc" id="L234">      return &quot;Selected Territory does not contain all of the selected units&quot;;</span>
+    }
+<span class="nc" id="L236">    final PlayerID player = units.iterator().next().getOwner();</span>
+    // all units should be same owner
+<span class="nc bnc" id="L238" title="All 2 branches missed.">    if (!Match.allMatch(units, Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc" id="L239">      return &quot;Not all units have the same owner&quot;;</span>
+    }
+<span class="nc bnc" id="L241" title="All 2 branches missed.">    if (!Match.allMatch(units, Matches.UnitHasMoreThanOneHitPointTotal)) {</span>
+<span class="nc" id="L242">      return &quot;Not all units have more than one total hitpoints&quot;;</span>
+    }
+<span class="nc bnc" id="L244" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L245">      final int dmg = unitDamageMap.getInt(u);</span>
+<span class="nc bnc" id="L246" title="All 4 branches missed.">      if (dmg &lt; 0 || dmg &gt;= UnitAttachment.get(u.getType()).getHitPoints()) {</span>
+<span class="nc" id="L247">        return &quot;Damage cannot be less than zero or equal to or greater than unit hitpoints (if you want to kill the unit, use remove unit)&quot;;</span>
+      }
+    }
+<span class="nc" id="L250">    return result;</span>
+  }
+
+  public static String validateChangeBombingDamage(final GameData data, final IntegerMap&lt;Unit&gt; unitDamageMap,
+      final Territory territory) {
+<span class="nc" id="L255">    String result = null;</span>
+<span class="nc bnc" id="L256" title="All 4 branches missed.">    if (unitDamageMap == null || unitDamageMap.isEmpty()) {</span>
+<span class="nc" id="L257">      return &quot;Damage map is empty&quot;;</span>
+    }
+<span class="nc bnc" id="L259" title="All 2 branches missed.">    if ((result = validateTerritoryBasic(data, territory)) != null) {</span>
+<span class="nc" id="L260">      return result;</span>
+    }
+<span class="nc bnc" id="L262" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L263">      return &quot;Game does not allow bombing damage&quot;;</span>
+    }
+<span class="nc" id="L265">    final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitDamageMap.keySet());</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">    if (!territory.getUnits().getUnits().containsAll(units)) {</span>
+<span class="nc" id="L267">      return &quot;Selected Territory does not contain all of the selected units&quot;;</span>
+    }
+<span class="nc" id="L269">    final PlayerID player = units.iterator().next().getOwner();</span>
+    // all units should be same owner
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    if (!Match.allMatch(units, Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc" id="L272">      return &quot;Not all units have the same owner&quot;;</span>
+    }
+<span class="nc bnc" id="L274" title="All 2 branches missed.">    if (!Match.allMatch(units, Matches.UnitCanBeDamaged)) {</span>
+<span class="nc" id="L275">      return &quot;Not all units can take bombing damage&quot;;</span>
+    }
+<span class="nc bnc" id="L277" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L278">      final int dmg = unitDamageMap.getInt(u);</span>
+<span class="nc bnc" id="L279" title="All 4 branches missed.">      if (dmg &lt; 0 || dmg &gt; ((TripleAUnit) u).getHowMuchDamageCanThisUnitTakeTotal(u, territory)) {</span>
+<span class="nc" id="L280">        return &quot;Damage cannot be less than zero or greater than the max damage of the unit&quot;;</span>
+      }
+    }
+<span class="nc" id="L283">    return result;</span>
+  }
+
+  public static String validateChangePoliticalRelationships(final GameData data,
+      final Collection&lt;Triple&lt;PlayerID, PlayerID, RelationshipType&gt;&gt; relationshipChanges) {
+<span class="nc" id="L288">    final String result = null;</span>
+<span class="nc bnc" id="L289" title="All 4 branches missed.">    if (relationshipChanges == null || relationshipChanges.isEmpty()) {</span>
+<span class="nc" id="L290">      return &quot;Relationship Changes are empty&quot;;</span>
+    }
+<span class="nc bnc" id="L292" title="All 2 branches missed.">    for (final Triple&lt;PlayerID, PlayerID, RelationshipType&gt; relationshipChange : relationshipChanges) {</span>
+<span class="nc bnc" id="L293" title="All 4 branches missed.">      if (relationshipChange.getFirst() == null || relationshipChange.getSecond() == null) {</span>
+<span class="nc" id="L294">        return &quot;Players are null&quot;;</span>
+      }
+<span class="nc bnc" id="L296" title="All 2 branches missed.">      if (relationshipChange.getThird() == null) {</span>
+<span class="nc" id="L297">        return &quot;New Relationship is null&quot;;</span>
+      }
+    }
+<span class="nc" id="L300">    return result;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

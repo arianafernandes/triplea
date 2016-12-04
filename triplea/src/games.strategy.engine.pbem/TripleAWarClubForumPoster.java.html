@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TripleAWarClubForumPoster.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.pbem</a> &gt; <span class="el_source">TripleAWarClubForumPoster.java</span></div><h1>TripleAWarClubForumPoster.java</h1><pre class="source lang-java linenums">package games.strategy.engine.pbem;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.apache.commons.httpclient.HostConfiguration;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.HttpState;
+import org.apache.commons.httpclient.NameValuePair;
+import org.apache.commons.httpclient.methods.GetMethod;
+import org.apache.commons.httpclient.methods.PostMethod;
+import org.apache.commons.httpclient.methods.multipart.FilePart;
+import org.apache.commons.httpclient.methods.multipart.MultipartRequestEntity;
+import org.apache.commons.httpclient.methods.multipart.Part;
+import org.apache.commons.httpclient.methods.multipart.StringPart;
+import org.apache.commons.httpclient.params.HttpMethodParams;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.framework.system.HttpProxy;
+import games.strategy.net.OpenFileUtility;
+import games.strategy.triplea.help.HelpSupport;
+
+/**
+ * A poster for www.tripleawarclub.org forum
+ * We log in and out every time we post, so we don't need to keep state.
+ */
+<span class="nc" id="L29">public class TripleAWarClubForumPoster extends AbstractForumPoster {</span>
+  private static final long serialVersionUID = -4017550807078258152L;
+  private static final String WAR_CLUB_FORUM_URL = &quot;http://www.tripleawarclub.org/modules/newbb&quot;;
+<span class="nc" id="L32">  private static Pattern s_XOOPS_TOKEN_REQUEST =</span>
+<span class="nc" id="L33">      Pattern.compile(&quot;.*XOOPS_TOKEN_REQUEST[^&gt;]*value=\&quot;([^\&quot;]*)\&quot;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+  private transient HttpState m_httpState;
+  private transient HostConfiguration m_hostConfiguration;
+  private transient HttpClient m_client;
+
+  /**
+   * Logs into the website
+   *
+   * @throws Exception
+   *         if login fails
+   */
+  private void login() throws Exception {
+<span class="nc" id="L45">    m_client = new HttpClient();</span>
+<span class="nc" id="L46">    m_client.getParams().setParameter(&quot;http.protocol.single-cookie-header&quot;, true);</span>
+<span class="nc" id="L47">    m_client.getParams().setParameter(&quot;http.useragent&quot;,</span>
+<span class="nc" id="L48">        &quot;Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0)&quot;);</span>
+<span class="nc" id="L49">    m_httpState = new HttpState();</span>
+<span class="nc" id="L50">    m_hostConfiguration = new HostConfiguration();</span>
+<span class="nc" id="L51">    HttpProxy.addProxy(m_hostConfiguration);</span>
+<span class="nc" id="L52">    m_hostConfiguration.setHost(&quot;www.tripleawarclub.org&quot;);</span>
+<span class="nc" id="L53">    final PostMethod post = new PostMethod(&quot;http://www.tripleawarclub.org/user.php&quot;);</span>
+<span class="nc" id="L54">    final List&lt;NameValuePair&gt; parameters = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L55">    parameters.add(new NameValuePair(&quot;uname&quot;, getUsername()));</span>
+<span class="nc" id="L56">    parameters.add(new NameValuePair(&quot;pass&quot;, getPassword()));</span>
+<span class="nc" id="L57">    parameters.add(new NameValuePair(&quot;submit&quot;, &quot;Login&quot;));</span>
+<span class="nc" id="L58">    parameters.add(new NameValuePair(&quot;rememberme&quot;, &quot;On&quot;));</span>
+<span class="nc" id="L59">    parameters.add(new NameValuePair(&quot;xoops_redirect&quot;, &quot;/&quot;));</span>
+<span class="nc" id="L60">    parameters.add(new NameValuePair(&quot;op&quot;, &quot;login&quot;));</span>
+<span class="nc" id="L61">    post.setRequestBody(parameters.toArray(new NameValuePair[parameters.size()]));</span>
+<span class="nc" id="L62">    final int status = m_client.executeMethod(m_hostConfiguration, post, m_httpState);</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">    if (status != 200) {</span>
+<span class="nc" id="L64">      throw new Exception(&quot;Login failed, server returned status: &quot; + status);</span>
+    }
+<span class="nc" id="L66">    final String body = post.getResponseBodyAsString();</span>
+<span class="nc" id="L67">    final String lowerBody = body.toLowerCase();</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">    if (lowerBody.contains(&quot;incorrect login!&quot;)) {</span>
+<span class="nc" id="L69">      throw new Exception(&quot;Incorrect login credentials&quot;);</span>
+    }
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (!lowerBody.contains(&quot;thank you for logging in&quot;)) {</span>
+<span class="nc" id="L72">      System.out.println(&quot;Unknown login error, site response &quot; + body);</span>
+<span class="nc" id="L73">      throw new Exception(&quot;Unknown login error&quot;);</span>
+    }
+<span class="nc" id="L75">  }</span>
+
+  /**
+   * Post the turn summary and save game to the forum
+   * After login we must load the post page to get the XOOPS_TOKEN_REQUEST (which I think is CSRF nounce)
+   * then we can post the reply
+   *
+   * @param summary
+   *        the forum summary
+   * @param subject
+   *        the forum subject
+   * @return true if the post was successful
+   */
+  @Override
+  public boolean postTurnSummary(final String summary, final String subject) {
+    try {
+<span class="nc" id="L91">      login();</span>
+      // load the reply page
+<span class="nc" id="L93">      final String s_forumId = &quot;20&quot;;</span>
+<span class="nc" id="L94">      final String url =</span>
+<span class="nc" id="L95">          WAR_CLUB_FORUM_URL + &quot;/reply.php?forum=&quot; + s_forumId + &quot;&amp;topic_id=&quot; + m_topicId;</span>
+<span class="nc" id="L96">      GetMethod get = new GetMethod(url);</span>
+      String XOOPS_TOKEN_REQUEST;
+      try {
+<span class="nc" id="L99">        final int status = m_client.executeMethod(m_hostConfiguration, get, m_httpState);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (status != 200) {</span>
+<span class="nc" id="L101">          throw new Exception(&quot;Could not load reply page: &quot; + url + &quot;. Site returned &quot; + status);</span>
+        }
+<span class="nc" id="L103">        final String body = get.getResponseBodyAsString();</span>
+<span class="nc" id="L104">        final Matcher m = s_XOOPS_TOKEN_REQUEST.matcher(body);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (!m.matches()) {</span>
+<span class="nc" id="L106">          throw new Exception(&quot;Unable to find 'XOOPS_TOKEN_REQUEST' form field on reply page&quot;);</span>
+        }
+<span class="nc" id="L108">        XOOPS_TOKEN_REQUEST = m.group(1);</span>
+<span class="nc" id="L109">      } finally {</span>
+<span class="nc" id="L110">        get.releaseConnection();</span>
+<span class="nc" id="L111">      }</span>
+<span class="nc" id="L112">      final List&lt;Part&gt; parts = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L113">      parts.add(createStringPart(&quot;subject&quot;, subject));</span>
+<span class="nc" id="L114">      parts.add(createStringPart(&quot;message&quot;, summary));</span>
+<span class="nc" id="L115">      parts.add(createStringPart(&quot;forum&quot;, s_forumId));</span>
+<span class="nc" id="L116">      parts.add(createStringPart(&quot;topic_id&quot;, m_topicId));</span>
+<span class="nc" id="L117">      parts.add(createStringPart(&quot;XOOPS_TOKEN_REQUEST&quot;, XOOPS_TOKEN_REQUEST));</span>
+<span class="nc" id="L118">      parts.add(createStringPart(&quot;xoops_upload_file[]&quot;, &quot;userfile&quot;));</span>
+<span class="nc" id="L119">      parts.add(createStringPart(&quot;contents_submit&quot;, &quot;Submit&quot;));</span>
+<span class="nc" id="L120">      parts.add(createStringPart(&quot;doxcode&quot;, &quot;1&quot;));</span>
+<span class="nc" id="L121">      parts.add(createStringPart(&quot;dosmiley&quot;, &quot;1&quot;));</span>
+<span class="nc" id="L122">      parts.add(createStringPart(&quot;dohtml&quot;, &quot;1&quot;));</span>
+<span class="nc" id="L123">      parts.add(createStringPart(&quot;dobr&quot;, &quot;1&quot;));</span>
+<span class="nc" id="L124">      parts.add(createStringPart(&quot;editor&quot;, &quot;dhtmltextarea&quot;));</span>
+<span class="nc bnc" id="L125" title="All 4 branches missed.">      if (m_includeSaveGame &amp;&amp; m_saveGameFile != null) {</span>
+<span class="nc" id="L126">        final FilePart part = new FilePart(&quot;userfile&quot;, m_saveGameFileName, m_saveGameFile);</span>
+<span class="nc" id="L127">        part.setContentType(&quot;application/octet-stream&quot;);</span>
+<span class="nc" id="L128">        part.setTransferEncoding(null);</span>
+<span class="nc" id="L129">        part.setCharSet(null);</span>
+<span class="nc" id="L130">        parts.add(part);</span>
+      }
+<span class="nc" id="L132">      final MultipartRequestEntity entity =</span>
+<span class="nc" id="L133">          new MultipartRequestEntity(parts.toArray(new Part[parts.size()]), new HttpMethodParams());</span>
+<span class="nc" id="L134">      final PostMethod post = new PostMethod(WAR_CLUB_FORUM_URL + &quot;/post.php&quot;);</span>
+<span class="nc" id="L135">      post.setRequestEntity(entity);</span>
+      try {
+<span class="nc" id="L137">        final int status = m_client.executeMethod(m_hostConfiguration, post, m_httpState);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (status != 200) {</span>
+<span class="nc" id="L139">          throw new Exception(&quot;Posting summary failed, the server returned status: &quot; + status);</span>
+        }
+<span class="nc" id="L141">        final String body = post.getResponseBodyAsString();</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (!body.toLowerCase().contains(&quot;thanks for your submission!&quot;)) {</span>
+<span class="nc" id="L143">          throw new Exception(&quot;Posting summary failed, the server didn't respond with thank you message&quot;);</span>
+        }
+<span class="nc" id="L145">        m_turnSummaryRef =</span>
+<span class="nc" id="L146">            &quot;www.tripleawarclub.org/modules/newbb/viewtopic.php?topic_id=&quot; + m_topicId + &quot;&amp;forum=&quot; + s_forumId;</span>
+        // now logout, this is just to be nice, so we don't care if this fails
+<span class="nc" id="L148">        get = new GetMethod(&quot;http://www.tripleawarclub.org/user.php?op=logout&quot;);</span>
+        try {
+<span class="nc" id="L150">          m_client.executeMethod(m_hostConfiguration, get, m_httpState);</span>
+<span class="nc" id="L151">        } finally {</span>
+<span class="nc" id="L152">          get.releaseConnection();</span>
+<span class="nc" id="L153">        }</span>
+<span class="nc" id="L154">      } finally {</span>
+<span class="nc" id="L155">        post.releaseConnection();</span>
+<span class="nc" id="L156">      }</span>
+<span class="nc" id="L157">    } catch (final Exception e) {</span>
+<span class="nc" id="L158">      m_turnSummaryRef = e.getMessage();</span>
+<span class="nc" id="L159">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L160">      return false;</span>
+    }
+<span class="nc" id="L162">    return true;</span>
+  }
+
+  /**
+   * Utility method for creating string parts, since we need to remove transferEncoding and content type to behave like
+   * a browser
+   *
+   * @param name
+   *        the form field name
+   * @param value
+   *        the for field value
+   * @return return the created StringPart
+   */
+  private StringPart createStringPart(final String name, final String value) {
+<span class="nc" id="L176">    final StringPart stringPart = new StringPart(name, value);</span>
+<span class="nc" id="L177">    stringPart.setTransferEncoding(null);</span>
+<span class="nc" id="L178">    stringPart.setContentType(null);</span>
+<span class="nc" id="L179">    return stringPart;</span>
+  }
+
+  @Override
+  public String getTestMessage() {
+<span class="nc" id="L184">    return &quot;Testing, this will take a couple of seconds...&quot;;</span>
+  }
+
+  @Override
+  public String getHelpText() {
+<span class="nc" id="L189">    return HelpSupport.loadHelp(&quot;tripleAWarClubForum.html&quot;);</span>
+  }
+
+  @Override
+  public IForumPoster doClone() {
+<span class="nc" id="L194">    final TripleAWarClubForumPoster clone = new TripleAWarClubForumPoster();</span>
+<span class="nc" id="L195">    clone.setTopicId(getTopicId());</span>
+<span class="nc" id="L196">    clone.setIncludeSaveGame(getIncludeSaveGame());</span>
+<span class="nc" id="L197">    clone.setAlsoPostAfterCombatMove(getAlsoPostAfterCombatMove());</span>
+<span class="nc" id="L198">    clone.setPassword(getPassword());</span>
+<span class="nc" id="L199">    clone.setUsername(getUsername());</span>
+<span class="nc" id="L200">    return clone;</span>
+  }
+
+  @Override
+  public boolean supportsSaveGame() {
+<span class="nc" id="L205">    return true;</span>
+  }
+
+  @Override
+  public String getDisplayName() {
+<span class="nc" id="L210">    return &quot;TripleaWarClub.org&quot;;</span>
+  }
+
+  @Override
+  public void viewPosted() {
+<span class="nc" id="L215">    final String url = WAR_CLUB_FORUM_URL + &quot;/viewtopic.php?topic_id=&quot; + m_topicId;</span>
+<span class="nc" id="L216">    OpenFileUtility.openURL(url);</span>
+<span class="nc" id="L217">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

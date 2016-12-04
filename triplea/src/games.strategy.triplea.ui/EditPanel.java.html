@@ -1,0 +1,871 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EditPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">EditPanel.java</span></div><h1>EditPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Point;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Vector;
+
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.NamedAttachable;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.TechAdvance;
+import games.strategy.triplea.delegate.TechTracker;
+import games.strategy.triplea.delegate.TechnologyDelegate;
+import games.strategy.triplea.delegate.UnitBattleComparator;
+import games.strategy.triplea.delegate.dataObjects.MustMoveWithDetails;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.util.TransportUtils;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Triple;
+
+public class EditPanel extends ActionPanel {
+  private static final long serialVersionUID = 5043639777373556106L;
+  private TripleAFrame m_frame;
+  private Action m_performMoveAction;
+  private Action m_addUnitsAction;
+  private Action m_delUnitsAction;
+  private Action m_changePUsAction;
+  private Action m_addTechAction;
+  private Action m_removeTechAction;
+  private Action m_changeUnitHitDamageAction;
+  private Action m_changeUnitBombingDamageAction;
+  private Action m_changeTerritoryOwnerAction;
+  private Action m_changePoliticalRelationships;
+<span class="nc" id="L81">  private Action m_currentAction = null;</span>
+<span class="nc" id="L82">  private boolean m_active = false;</span>
+  private Point m_mouseSelectedPoint;
+  private Point m_mouseCurrentPoint;
+  // use a LinkedHashSet because we want to know the order
+<span class="nc" id="L86">  private final Set&lt;Unit&gt; m_selectedUnits = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L87">  private Territory m_selectedTerritory = null;</span>
+<span class="nc" id="L88">  private Territory m_currentTerritory = null;</span>
+
+  public EditPanel(final GameData data, final MapPanel map, final TripleAFrame frame) {
+<span class="nc" id="L91">    super(data, map);</span>
+<span class="nc" id="L92">    m_frame = frame;</span>
+<span class="nc" id="L93">    final JLabel m_actionLabel = new JLabel();</span>
+<span class="nc" id="L94">    m_performMoveAction = new AbstractAction(&quot;Perform Move or Other Actions&quot;) {</span>
+      private static final long serialVersionUID = 2205085537962024476L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L99">        m_currentAction = this;</span>
+<span class="nc" id="L100">        m_frame.showActionPanelTab();</span>
+<span class="nc" id="L101">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L102">      }</span>
+    };
+<span class="nc" id="L104">    m_addUnitsAction = new AbstractAction(&quot;Add Units&quot;) {</span>
+      private static final long serialVersionUID = 2205085537962024476L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L109">        m_currentAction = this;</span>
+<span class="nc" id="L110">        setWidgetActivation();</span>
+        // TODO: change cursor to select territory
+        // continued in territorySelected() handler below
+<span class="nc" id="L113">      }</span>
+    };
+<span class="nc" id="L115">    m_delUnitsAction = new AbstractAction(&quot;Remove Selected Units&quot;) {</span>
+      private static final long serialVersionUID = 5127470604727907906L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L120">        m_currentAction = this;</span>
+<span class="nc" id="L121">        setWidgetActivation();</span>
+<span class="nc" id="L122">        final List&lt;Unit&gt; allUnits = new ArrayList&lt;&gt;(m_selectedTerritory.getUnits().getUnits());</span>
+<span class="nc" id="L123">        sortUnitsToRemove(allUnits, m_selectedTerritory);</span>
+        final MustMoveWithDetails mustMoveWithDetails;
+        try {
+<span class="nc" id="L126">          getData().acquireReadLock();</span>
+<span class="nc" id="L127">          mustMoveWithDetails = MoveValidator.getMustMoveWith(m_selectedTerritory, allUnits,</span>
+<span class="nc" id="L128">              new HashMap&lt;&gt;(), getData(), getCurrentPlayer());</span>
+<span class="nc" id="L129">        } finally {</span>
+<span class="nc" id="L130">          getData().releaseReadLock();</span>
+<span class="nc" id="L131">        }</span>
+<span class="nc" id="L132">        boolean mustChoose = false;</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (m_selectedUnits.containsAll(allUnits)) {</span>
+<span class="nc" id="L134">          mustChoose = false;</span>
+<span class="nc" id="L135">        } else {</span>
+          // if the unit choice is ambiguous then ask the user to clarify which units to remove
+          // an ambiguous selection would be if the user selects 1 of 2 tanks, but
+          // the tanks have different movement.
+<span class="nc" id="L139">          final Set&lt;UnitType&gt; selectedUnitTypes = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">          for (final Unit u : m_selectedUnits) {</span>
+<span class="nc" id="L141">            selectedUnitTypes.add(u.getType());</span>
+          }
+<span class="nc" id="L143">          final List&lt;Unit&gt; allOfCorrectType = Match.getMatches(allUnits, new Match&lt;Unit&gt;() {</span>
+            @Override
+            public boolean match(final Unit o) {
+<span class="nc" id="L146">              return selectedUnitTypes.contains(o.getType());</span>
+            }
+          });
+<span class="nc" id="L149">          final int allCategories =</span>
+<span class="nc" id="L150">              UnitSeperator.categorize(allOfCorrectType, mustMoveWithDetails.getMustMoveWith(), true, true).size();</span>
+<span class="nc" id="L151">          final int selectedCategories =</span>
+<span class="nc" id="L152">              UnitSeperator.categorize(m_selectedUnits, mustMoveWithDetails.getMustMoveWith(), true, true).size();</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">          mustChoose = (allCategories != selectedCategories);</span>
+        }
+        Collection&lt;Unit&gt; bestUnits;
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (mustChoose) {</span>
+<span class="nc" id="L157">          final String chooserText = &quot;Remove units from &quot; + m_selectedTerritory + &quot;:&quot;;</span>
+<span class="nc" id="L158">          final UnitChooser chooser = new UnitChooser(allUnits, m_selectedUnits, mustMoveWithDetails.getMustMoveWith(),</span>
+<span class="nc" id="L159">              true, false, getData(), /* allowTwoHit= */false, getMap().getUIContext());</span>
+<span class="nc" id="L160">          final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, chooserText,</span>
+<span class="nc" id="L161">              JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">          if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L163">            CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L164">            return;</span>
+          }
+<span class="nc" id="L166">          bestUnits = chooser.getSelected(true);</span>
+<span class="nc" id="L167">        } else {</span>
+<span class="nc" id="L168">          bestUnits = new ArrayList&lt;&gt;(m_selectedUnits);</span>
+        }
+<span class="nc" id="L170">        final String result = m_frame.getEditDelegate().removeUnits(m_selectedTerritory, bestUnits);</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L172">          JOptionPane.showMessageDialog(getTopLevelAncestor(), result,</span>
+<span class="nc" id="L173">              MyFormatter.pluralize(&quot;Could not remove unit&quot;, m_selectedUnits.size()), JOptionPane.ERROR_MESSAGE);</span>
+        }
+<span class="nc" id="L175">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L176">      }</span>
+    };
+<span class="nc" id="L178">    m_changeTerritoryOwnerAction = new AbstractAction(&quot;Change Territory Owner&quot;) {</span>
+      private static final long serialVersionUID = 8547635747553626362L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L183">        m_currentAction = this;</span>
+<span class="nc" id="L184">        setWidgetActivation();</span>
+        // TODO: change cursor to select territory
+        // continued in territorySelected() handler below
+<span class="nc" id="L187">      }</span>
+    };
+<span class="nc" id="L189">    m_changePUsAction = new AbstractAction(&quot;Change PUs&quot;) {</span>
+      private static final long serialVersionUID = -2751668909341983795L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L194">        m_currentAction = this;</span>
+<span class="nc" id="L195">        setWidgetActivation();</span>
+<span class="nc" id="L196">        final PlayerChooser playerChooser =</span>
+<span class="nc" id="L197">            new PlayerChooser(getData().getPlayerList(), getMap().getUIContext(), false);</span>
+<span class="nc" id="L198">        final JDialog dialog = playerChooser.createDialog(getTopLevelAncestor(), &quot;Select owner PUs to change&quot;);</span>
+<span class="nc" id="L199">        dialog.setVisible(true);</span>
+<span class="nc" id="L200">        final PlayerID player = playerChooser.getSelected();</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (player == null) {</span>
+<span class="nc" id="L202">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L203">          return;</span>
+        }
+<span class="nc" id="L205">        Resource PUs = null;</span>
+<span class="nc" id="L206">        getData().acquireReadLock();</span>
+        try {
+<span class="nc" id="L208">          PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L209">        } finally {</span>
+<span class="nc" id="L210">          getData().releaseReadLock();</span>
+<span class="nc" id="L211">        }</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if (PUs == null) {</span>
+<span class="nc" id="L213">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L214">          return;</span>
+        }
+<span class="nc" id="L216">        final int oldTotal = player.getResources().getQuantity(PUs);</span>
+<span class="nc" id="L217">        int newTotal = oldTotal;</span>
+<span class="nc" id="L218">        final JTextField PUsField = new JTextField(String.valueOf(oldTotal), 4);</span>
+<span class="nc" id="L219">        PUsField.setMaximumSize(PUsField.getPreferredSize());</span>
+<span class="nc" id="L220">        final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), new JScrollPane(PUsField),</span>
+<span class="nc" id="L221">            &quot;Select new number of PUs&quot;, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">        if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L223">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L224">          return;</span>
+        }
+        try {
+<span class="nc" id="L227">          newTotal = Integer.parseInt(PUsField.getText());</span>
+<span class="nc" id="L228">        } catch (final Exception e) {</span>
+        }
+<span class="nc" id="L230">        final String result = m_frame.getEditDelegate().changePUs(player, newTotal);</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L232">          JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L233">              JOptionPane.ERROR_MESSAGE);</span>
+        }
+<span class="nc" id="L235">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L236">      }</span>
+    };
+<span class="nc" id="L238">    m_addTechAction = new AbstractAction(&quot;Add Technology&quot;) {</span>
+      private static final long serialVersionUID = -5536151512828077755L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L243">        m_currentAction = this;</span>
+<span class="nc" id="L244">        setWidgetActivation();</span>
+<span class="nc" id="L245">        final PlayerChooser playerChooser =</span>
+<span class="nc" id="L246">            new PlayerChooser(getData().getPlayerList(), getMap().getUIContext(), false);</span>
+<span class="nc" id="L247">        final JDialog dialog = playerChooser.createDialog(getTopLevelAncestor(), &quot;Select player to get technology&quot;);</span>
+<span class="nc" id="L248">        dialog.setVisible(true);</span>
+<span class="nc" id="L249">        final PlayerID player = playerChooser.getSelected();</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        if (player == null) {</span>
+<span class="nc" id="L251">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L252">          return;</span>
+        }
+<span class="nc" id="L254">        Vector&lt;TechAdvance&gt; techs = null;</span>
+<span class="nc" id="L255">        getData().acquireReadLock();</span>
+        try {
+<span class="nc" id="L257">          techs = new Vector&lt;&gt;(TechnologyDelegate.getAvailableTechs(player, data));</span>
+<span class="nc" id="L258">        } finally {</span>
+<span class="nc" id="L259">          getData().releaseReadLock();</span>
+<span class="nc" id="L260">        }</span>
+<span class="nc bnc" id="L261" title="All 4 branches missed.">        if (techs == null || techs.isEmpty()) {</span>
+<span class="nc" id="L262">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L263">          return;</span>
+        }
+<span class="nc" id="L265">        final JList&lt;?&gt; techList = new JList&lt;&gt;(techs);</span>
+<span class="nc" id="L266">        techList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);</span>
+<span class="nc" id="L267">        techList.setLayoutOrientation(JList.VERTICAL);</span>
+<span class="nc" id="L268">        techList.setVisibleRowCount(10);</span>
+<span class="nc" id="L269">        final JScrollPane scroll = new JScrollPane(techList);</span>
+<span class="nc" id="L270">        final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), scroll, &quot;Select tech to add&quot;,</span>
+<span class="nc" id="L271">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L273">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L274">          return;</span>
+        }
+<span class="nc" id="L276">        final Set&lt;TechAdvance&gt; advance = new HashSet&lt;&gt;();</span>
+        try {
+<span class="nc bnc" id="L278" title="All 2 branches missed.">          for (final Object selection : techList.getSelectedValuesList()) {</span>
+<span class="nc" id="L279">            advance.add((TechAdvance) selection);</span>
+          }
+<span class="nc" id="L281">        } catch (final Exception e) {</span>
+        }
+<span class="nc" id="L283">        final String result = m_frame.getEditDelegate().addTechAdvance(player, advance);</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L285">          JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L286">              JOptionPane.ERROR_MESSAGE);</span>
+        }
+<span class="nc" id="L288">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L289">      }</span>
+    };
+<span class="nc" id="L291">    m_removeTechAction = new AbstractAction(&quot;Remove Technology&quot;) {</span>
+      private static final long serialVersionUID = -2456111915025687825L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L296">        m_currentAction = this;</span>
+<span class="nc" id="L297">        setWidgetActivation();</span>
+<span class="nc" id="L298">        final PlayerChooser playerChooser =</span>
+<span class="nc" id="L299">            new PlayerChooser(getData().getPlayerList(), getMap().getUIContext(), false);</span>
+<span class="nc" id="L300">        final JDialog dialog = playerChooser.createDialog(getTopLevelAncestor(), &quot;Select player to remove technology&quot;);</span>
+<span class="nc" id="L301">        dialog.setVisible(true);</span>
+<span class="nc" id="L302">        final PlayerID player = playerChooser.getSelected();</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        if (player == null) {</span>
+<span class="nc" id="L304">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L305">          return;</span>
+        }
+<span class="nc" id="L307">        Vector&lt;TechAdvance&gt; techs = null;</span>
+<span class="nc" id="L308">        getData().acquireReadLock();</span>
+        try {
+<span class="nc" id="L310">          techs = new Vector&lt;&gt;(TechTracker.getCurrentTechAdvances(player, data));</span>
+          // there is no way to &quot;undo&quot; these two techs, so do not allow them to be removed
+<span class="nc" id="L312">          final Iterator&lt;TechAdvance&gt; iter = techs.iterator();</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">          while (iter.hasNext()) {</span>
+<span class="nc" id="L314">            final TechAdvance ta = iter.next();</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">            if (ta.getProperty().equals(TechAdvance.TECH_PROPERTY_IMPROVED_SHIPYARDS)</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                || ta.getProperty().equals(TechAdvance.TECH_PROPERTY_INDUSTRIAL_TECHNOLOGY)) {</span>
+<span class="nc" id="L317">              iter.remove();</span>
+            }
+          }
+<span class="nc" id="L320">        } finally {</span>
+<span class="nc" id="L321">          getData().releaseReadLock();</span>
+<span class="nc" id="L322">        }</span>
+<span class="nc bnc" id="L323" title="All 4 branches missed.">        if (techs == null || techs.isEmpty()) {</span>
+<span class="nc" id="L324">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L325">          return;</span>
+        }
+<span class="nc" id="L327">        final JList&lt;?&gt; techList = new JList&lt;&gt;(techs);</span>
+<span class="nc" id="L328">        techList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);</span>
+<span class="nc" id="L329">        techList.setLayoutOrientation(JList.VERTICAL);</span>
+<span class="nc" id="L330">        techList.setVisibleRowCount(10);</span>
+<span class="nc" id="L331">        final JScrollPane scroll = new JScrollPane(techList);</span>
+<span class="nc" id="L332">        final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), scroll, &quot;Select tech to remove&quot;,</span>
+<span class="nc" id="L333">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">        if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L335">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L336">          return;</span>
+        }
+<span class="nc" id="L338">        final Set&lt;TechAdvance&gt; advance = new HashSet&lt;&gt;();</span>
+        try {
+<span class="nc bnc" id="L340" title="All 2 branches missed.">          for (final Object selection : techList.getSelectedValuesList()) {</span>
+<span class="nc" id="L341">            advance.add((TechAdvance) selection);</span>
+          }
+<span class="nc" id="L343">        } catch (final Exception e) {</span>
+        }
+<span class="nc" id="L345">        final String result = m_frame.getEditDelegate().removeTechAdvance(player, advance);</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L347">          JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L348">              JOptionPane.ERROR_MESSAGE);</span>
+        }
+<span class="nc" id="L350">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L351">      }</span>
+    };
+<span class="nc" id="L353">    m_changeUnitHitDamageAction = new AbstractAction(&quot;Change Unit Hit Damage&quot;) {</span>
+      private static final long serialVersionUID = 1835547345902760810L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L358">        m_currentAction = this;</span>
+<span class="nc" id="L359">        setWidgetActivation();</span>
+<span class="nc" id="L360">        final List&lt;Unit&gt; units = Match.getMatches(m_selectedUnits, Matches.UnitHasMoreThanOneHitPointTotal);</span>
+<span class="nc bnc" id="L361" title="All 6 branches missed.">        if (units == null || units.isEmpty() || !m_selectedTerritory.getUnits().getUnits().containsAll(units)) {</span>
+<span class="nc" id="L362">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L363">          return;</span>
+        }
+        // all owned by one player
+<span class="nc" id="L366">        units.retainAll(Match.getMatches(units, Matches.unitIsOwnedBy(units.iterator().next().getOwner())));</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        if (units.isEmpty()) {</span>
+<span class="nc" id="L368">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L369">          return;</span>
+        }
+<span class="nc" id="L371">        sortUnitsToRemove(units, m_selectedTerritory);</span>
+<span class="nc" id="L372">        Collections.sort(units, new UnitBattleComparator(false,</span>
+<span class="nc" id="L373">            BattleCalculator.getCostsForTuvForAllPlayersMergedAndAveraged(getData()), null, getData(), true, false));</span>
+<span class="nc" id="L374">        Collections.reverse(units);</span>
+        // unit mapped to &lt;max, min, current&gt;
+<span class="nc" id="L376">        final HashMap&lt;Unit, Triple&lt;Integer, Integer, Integer&gt;&gt; currentDamageMap =</span>
+<span class="nc" id="L377">            new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">        for (final Unit u : units) {</span>
+<span class="nc" id="L379">          currentDamageMap.put(u, Triple.of(UnitAttachment.get(u.getType()).getHitPoints() - 1, 0, u.getHits()));</span>
+        }
+<span class="nc" id="L381">        final IndividualUnitPanel unitPanel = new IndividualUnitPanel(currentDamageMap, &quot;Change Unit Hit Damage&quot;,</span>
+<span class="nc" id="L382">            getData(), getMap().getUIContext(), -1, true, true, null);</span>
+<span class="nc" id="L383">        final JScrollPane scroll = new JScrollPane(unitPanel);</span>
+<span class="nc" id="L384">        final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), scroll, &quot;Change Unit Hit Damage&quot;,</span>
+<span class="nc" id="L385">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">        if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L387">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L388">          return;</span>
+        }
+<span class="nc" id="L390">        final IntegerMap&lt;Unit&gt; newDamageMap = unitPanel.getSelected();</span>
+<span class="nc" id="L391">        final String result = m_frame.getEditDelegate().changeUnitHitDamage(newDamageMap, m_selectedTerritory);</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L393">          JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L394">              JOptionPane.ERROR_MESSAGE);</span>
+        }
+<span class="nc" id="L396">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L397">      }</span>
+    };
+<span class="nc" id="L399">    m_changeUnitBombingDamageAction = new AbstractAction(&quot;Change Unit Bombing Damage&quot;) {</span>
+      private static final long serialVersionUID = 6975869192911780860L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L404">        m_currentAction = this;</span>
+<span class="nc" id="L405">        setWidgetActivation();</span>
+<span class="nc" id="L406">        final List&lt;Unit&gt; units = Match.getMatches(m_selectedUnits, Matches.UnitCanBeDamaged);</span>
+<span class="nc bnc" id="L407" title="All 6 branches missed.">        if (units == null || units.isEmpty() || !m_selectedTerritory.getUnits().getUnits().containsAll(units)) {</span>
+<span class="nc" id="L408">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L409">          return;</span>
+        }
+        // all owned by one player
+<span class="nc" id="L412">        units.retainAll(Match.getMatches(units, Matches.unitIsOwnedBy(units.iterator().next().getOwner())));</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        if (units.isEmpty()) {</span>
+<span class="nc" id="L414">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L415">          return;</span>
+        }
+<span class="nc" id="L417">        sortUnitsToRemove(units, m_selectedTerritory);</span>
+<span class="nc" id="L418">        Collections.sort(units, new UnitBattleComparator(false,</span>
+<span class="nc" id="L419">            BattleCalculator.getCostsForTuvForAllPlayersMergedAndAveraged(getData()), null, getData(), true, false));</span>
+<span class="nc" id="L420">        Collections.reverse(units);</span>
+        // unit mapped to &lt;max, min, current&gt;
+<span class="nc" id="L422">        final HashMap&lt;Unit, Triple&lt;Integer, Integer, Integer&gt;&gt; currentDamageMap =</span>
+<span class="nc" id="L423">            new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">        for (final Unit u : units) {</span>
+<span class="nc" id="L425">          currentDamageMap.put(u,</span>
+<span class="nc" id="L426">              Triple.of(((TripleAUnit) u).getHowMuchDamageCanThisUnitTakeTotal(u, m_selectedTerritory), 0,</span>
+<span class="nc" id="L427">                  ((TripleAUnit) u).getUnitDamage()));</span>
+        }
+<span class="nc" id="L429">        final IndividualUnitPanel unitPanel = new IndividualUnitPanel(currentDamageMap, &quot;Change Unit Bombing Damage&quot;,</span>
+<span class="nc" id="L430">            getData(), getMap().getUIContext(), -1, true, true, null);</span>
+<span class="nc" id="L431">        final JScrollPane scroll = new JScrollPane(unitPanel);</span>
+<span class="nc" id="L432">        final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), scroll, &quot;Change Unit Bombing Damage&quot;,</span>
+<span class="nc" id="L433">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L434" title="All 2 branches missed.">        if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L435">          CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L436">          return;</span>
+        }
+<span class="nc" id="L438">        final IntegerMap&lt;Unit&gt; newDamageMap = unitPanel.getSelected();</span>
+<span class="nc" id="L439">        final String result = m_frame.getEditDelegate().changeUnitBombingDamage(newDamageMap, m_selectedTerritory);</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">        if (result != null) {</span>
+<span class="nc" id="L441">          JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L442">              JOptionPane.ERROR_MESSAGE);</span>
+        }
+<span class="nc" id="L444">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L445">      }</span>
+    };
+<span class="nc" id="L447">    m_changePoliticalRelationships = new AbstractAction(&quot;Change Political Relationships&quot;) {</span>
+      private static final long serialVersionUID = -2950034347058147592L;
+
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L452">        m_currentAction = this;</span>
+<span class="nc" id="L453">        setWidgetActivation();</span>
+<span class="nc" id="L454">        final JPanel panel = new JPanel();</span>
+<span class="nc" id="L455">        panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L456">        panel.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc" id="L457">        final JLabel helpText =</span>
+<span class="nc" id="L458">            new JLabel(</span>
+<span class="nc" id="L459">                &quot;&lt;html&gt;&lt;b&gt;Click the buttons inside the relationship squares to change the relationships between players.&lt;/b&gt;&quot;</span>
+                    + &quot;&lt;br /&gt;Please note that none of this is validated by the engine or map, so the results are not guaranteed to be perfectly what you expect.&quot;
+                    + &quot;&lt;br /&gt;In addition, any maps that use triggers could be royalled messed up by changing editing political relationships:&quot;
+                    + &quot;&lt;br /&gt;&lt;em&gt;Example: Take a map where America gets some benefit (like upgraded factories) after it goes to war for the first time, &quot;
+                    + &quot;&lt;br /&gt;and the american player accidentally clicked to go to war, and now wishes to undo that change. Changing America from being at war to &quot;
+                    + &quot;&lt;br /&gt;not being at war will not undo the benefit if it has already happened. And later, when America goes to war (for real this time), that &quot;
+                    + &quot;&lt;br /&gt;benefit may or may not be applied a second time, totally depending on how the map was coded (and this is not the map's fault either, &quot;
+                    + &quot;&lt;br /&gt;since you are using edit mode).  So if you change anything here, be on the look out for unintended consequences!&lt;/em&gt;&lt;/html&gt;&quot;);
+<span class="nc" id="L467">        panel.add(helpText, BorderLayout.NORTH);</span>
+<span class="nc" id="L468">        final PoliticalStateOverview pui = new PoliticalStateOverview(getData(), m_frame.getUIContext(), true);</span>
+<span class="nc" id="L469">        panel.add(pui, BorderLayout.CENTER);</span>
+<span class="nc" id="L470">        final JScrollPane scroll = new JScrollPane(panel);</span>
+<span class="nc" id="L471">        scroll.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc" id="L472">        final Dimension screenResolution = Toolkit.getDefaultToolkit().getScreenSize();</span>
+        // not only do we have a start bar, but we also have the message dialog to account for
+<span class="nc" id="L474">        final int availHeight = screenResolution.height - 120;</span>
+        // just the scroll bars plus the window sides
+<span class="nc" id="L476">        final int availWidth = screenResolution.width - 40;</span>
+<span class="nc" id="L477">        scroll.setPreferredSize(</span>
+<span class="nc" id="L478">            new Dimension(</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">                (scroll.getPreferredSize().width &gt; availWidth ? availWidth : scroll.getPreferredSize().width),</span>
+<span class="nc bnc" id="L480" title="All 2 branches missed.">                (scroll.getPreferredSize().height &gt; availHeight ? availHeight : scroll.getPreferredSize().height)));</span>
+<span class="nc" id="L481">        final int option = JOptionPane.showConfirmDialog(m_frame, scroll, &quot;Change Political Relationships&quot;,</span>
+<span class="nc" id="L482">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">        if (option == JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L484">          final Collection&lt;Triple&lt;PlayerID, PlayerID, RelationshipType&gt;&gt; relationshipChanges = pui.getEditChanges();</span>
+<span class="nc bnc" id="L485" title="All 4 branches missed.">          if (relationshipChanges != null &amp;&amp; !relationshipChanges.isEmpty()) {</span>
+<span class="nc" id="L486">            final String result = m_frame.getEditDelegate().changePoliticalRelationships(relationshipChanges);</span>
+<span class="nc bnc" id="L487" title="All 2 branches missed.">            if (result != null) {</span>
+<span class="nc" id="L488">              JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L489">                  JOptionPane.ERROR_MESSAGE);</span>
+            }
+          }
+        }
+<span class="nc" id="L493">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L494">      }</span>
+    };
+<span class="nc" id="L496">    m_actionLabel.setText(&quot;Edit Mode Actions&quot;);</span>
+<span class="nc" id="L497">    setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L498">    setBorder(new EmptyBorder(5, 5, 0, 0));</span>
+<span class="nc" id="L499">    add(m_actionLabel);</span>
+<span class="nc" id="L500">    final JButton performMove = new JButton(m_performMoveAction);</span>
+<span class="nc" id="L501">    performMove</span>
+<span class="nc" id="L502">        .setToolTipText(</span>
+<span class="nc" id="L503">            &quot;&lt;html&gt;When in Edit Mode, you can perform special actions according to whatever phase you are in, by switching back to the 'Action' tab.&lt;br /&gt; &quot;</span>
+                + &quot;So if you are in the 'Move' phase, you can move units virtually anywhere, because Edit Mode turns off the movement validation.&lt;br /&gt; &quot;
+                + &quot;You can use 'Action' tab during Edit Mode to do things not available by the other edit buttons.&lt;/html&gt;&quot;);
+<span class="nc" id="L506">    add(performMove);</span>
+<span class="nc" id="L507">    add(new JButton(m_addUnitsAction));</span>
+<span class="nc" id="L508">    add(new JButton(m_delUnitsAction));</span>
+<span class="nc" id="L509">    add(new JButton(m_changeTerritoryOwnerAction));</span>
+<span class="nc" id="L510">    add(new JButton(m_changePUsAction));</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getTechDevelopment(getData())) {</span>
+<span class="nc" id="L512">      add(new JButton(m_addTechAction));</span>
+<span class="nc" id="L513">      add(new JButton(m_removeTechAction));</span>
+    }
+<span class="nc" id="L515">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L517">      final Set&lt;UnitType&gt; allUnitTypes = data.getUnitTypeList().getAllUnitTypes();</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">      if (Match.someMatch(allUnitTypes, Matches.UnitTypeHasMoreThanOneHitPointTotal)) {</span>
+<span class="nc" id="L519">        add(new JButton(m_changeUnitHitDamageAction));</span>
+      }
+<span class="nc bnc" id="L521" title="All 2 branches missed.">      if (games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)</span>
+<span class="nc bnc" id="L522" title="All 2 branches missed.">          &amp;&amp; Match.someMatch(allUnitTypes, Matches.UnitTypeCanBeDamaged)) {</span>
+<span class="nc" id="L523">        add(new JButton(m_changeUnitBombingDamageAction));</span>
+      }
+<span class="nc" id="L525">    } finally {</span>
+<span class="nc" id="L526">      data.releaseReadLock();</span>
+<span class="nc" id="L527">    }</span>
+<span class="nc" id="L528">    add(new JButton(m_changePoliticalRelationships));</span>
+<span class="nc" id="L529">    add(Box.createVerticalStrut(15));</span>
+<span class="nc" id="L530">    setWidgetActivation();</span>
+<span class="nc" id="L531">  }</span>
+
+  private void sortUnitsToRemove(final List&lt;Unit&gt; units,
+      /* final MustMoveWithDetails mustMoveWith, */final Territory territory) {
+<span class="nc bnc" id="L535" title="All 2 branches missed.">    if (units.isEmpty()) {</span>
+<span class="nc" id="L536">      return;</span>
+    }
+    // sort units based on which transports are allowed to unload
+<span class="nc" id="L539">    Collections.sort(units, getRemovableUnitsOrder());</span>
+<span class="nc" id="L540">  }</span>
+
+  private static Comparator&lt;Unit&gt; getRemovableUnitsOrder() {
+<span class="nc" id="L543">    final Comparator&lt;Unit&gt; removableUnitsOrder = (unit1, unit2) -&gt; {</span>
+<span class="nc" id="L544">      final TripleAUnit u1 = TripleAUnit.get(unit1);</span>
+<span class="nc" id="L545">      final TripleAUnit u2 = TripleAUnit.get(unit2);</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">      if (UnitAttachment.get(u1.getType()).getTransportCapacity() != -1) {</span>
+
+        // Sort by decreasing transport capacity
+<span class="nc" id="L549">        final Collection&lt;Unit&gt; transporting1 = u1.getTransporting();</span>
+<span class="nc" id="L550">        final Collection&lt;Unit&gt; transporting2 = u2.getTransporting();</span>
+<span class="nc" id="L551">        final int cost1 = TransportUtils.getTransportCost(transporting1);</span>
+<span class="nc" id="L552">        final int cost2 = TransportUtils.getTransportCost(transporting2);</span>
+<span class="nc bnc" id="L553" title="All 2 branches missed.">        if (cost1 != cost2) {</span>
+<span class="nc" id="L554">          return cost2 - cost1;</span>
+        }
+      }
+
+      // Sort by increasing movement left
+<span class="nc" id="L559">      final int left1 = u1.getMovementLeft();</span>
+<span class="nc" id="L560">      final int left2 = u2.getMovementLeft();</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">      if (left1 != left2) {</span>
+<span class="nc" id="L562">        return left1 - left2;</span>
+      }
+
+<span class="nc" id="L565">      return Integer.compare(u1.hashCode(), u2.hashCode());</span>
+    };
+<span class="nc" id="L567">    return removableUnitsOrder;</span>
+  }
+
+  private void setWidgetActivation() {
+<span class="nc bnc" id="L571" title="All 2 branches missed.">    if (m_frame.getEditDelegate() == null) {</span>
+      // current turn belongs to remote player or AI player
+<span class="nc" id="L573">      m_performMoveAction.setEnabled(false);</span>
+<span class="nc" id="L574">      m_addUnitsAction.setEnabled(false);</span>
+<span class="nc" id="L575">      m_delUnitsAction.setEnabled(false);</span>
+<span class="nc" id="L576">      m_changeTerritoryOwnerAction.setEnabled(false);</span>
+<span class="nc" id="L577">      m_changePUsAction.setEnabled(false);</span>
+<span class="nc" id="L578">      m_addTechAction.setEnabled(false);</span>
+<span class="nc" id="L579">      m_removeTechAction.setEnabled(false);</span>
+<span class="nc" id="L580">      m_changeUnitHitDamageAction.setEnabled(false);</span>
+<span class="nc" id="L581">      m_changeUnitBombingDamageAction.setEnabled(false);</span>
+<span class="nc" id="L582">      m_changePoliticalRelationships.setEnabled(false);</span>
+<span class="nc" id="L583">    } else {</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">      m_performMoveAction.setEnabled(m_currentAction == null);</span>
+<span class="nc bnc" id="L585" title="All 4 branches missed.">      m_addUnitsAction.setEnabled(m_currentAction == null &amp;&amp; m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L586" title="All 4 branches missed.">      m_delUnitsAction.setEnabled(m_currentAction == null &amp;&amp; !m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L587" title="All 4 branches missed.">      m_changeTerritoryOwnerAction.setEnabled(m_currentAction == null &amp;&amp; m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L588" title="All 4 branches missed.">      m_changePUsAction.setEnabled(m_currentAction == null &amp;&amp; m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L589" title="All 4 branches missed.">      m_addTechAction.setEnabled(m_currentAction == null &amp;&amp; m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L590" title="All 4 branches missed.">      m_removeTechAction.setEnabled(m_currentAction == null &amp;&amp; m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L591" title="All 4 branches missed.">      m_changeUnitHitDamageAction.setEnabled(m_currentAction == null &amp;&amp; !m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L592" title="All 4 branches missed.">      m_changeUnitBombingDamageAction.setEnabled(m_currentAction == null &amp;&amp; !m_selectedUnits.isEmpty());</span>
+<span class="nc bnc" id="L593" title="All 4 branches missed.">      m_changePoliticalRelationships.setEnabled(m_currentAction == null &amp;&amp; m_selectedUnits.isEmpty());</span>
+    }
+<span class="nc" id="L595">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L599">    return &quot;EditPanel&quot;;</span>
+  }
+
+  @Override
+  public void setActive(final boolean active) {
+<span class="nc bnc" id="L604" title="All 2 branches missed.">    if (m_frame.getEditDelegate() == null) {</span>
+      // current turn belongs to remote player or AI player
+<span class="nc" id="L606">      getMap().removeMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L607">      getMap().removeUnitSelectionListener(UNIT_SELECTION_LISTENER);</span>
+<span class="nc" id="L608">      getMap().removeMouseOverUnitListener(MOUSE_OVER_UNIT_LISTENER);</span>
+<span class="nc" id="L609">      setWidgetActivation();</span>
+<span class="nc bnc" id="L610" title="All 4 branches missed.">    } else if (!m_active &amp;&amp; active) {</span>
+<span class="nc" id="L611">      getMap().addMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L612">      getMap().addUnitSelectionListener(UNIT_SELECTION_LISTENER);</span>
+<span class="nc" id="L613">      getMap().addMouseOverUnitListener(MOUSE_OVER_UNIT_LISTENER);</span>
+<span class="nc" id="L614">      setWidgetActivation();</span>
+<span class="nc bnc" id="L615" title="All 4 branches missed.">    } else if (!active &amp;&amp; m_active) {</span>
+<span class="nc" id="L616">      getMap().removeMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L617">      getMap().removeUnitSelectionListener(UNIT_SELECTION_LISTENER);</span>
+<span class="nc" id="L618">      getMap().removeMouseOverUnitListener(MOUSE_OVER_UNIT_LISTENER);</span>
+<span class="nc" id="L619">      CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+    }
+<span class="nc" id="L621">    m_active = active;</span>
+<span class="nc" id="L622">  }</span>
+
+  @Override
+  public boolean getActive() {
+<span class="nc" id="L626">    return m_active;</span>
+  }
+
+<span class="nc" id="L629">  private final UnitSelectionListener UNIT_SELECTION_LISTENER = new UnitSelectionListener() {</span>
+    @Override
+    public void unitsSelected(final List&lt;Unit&gt; units, final Territory t, final MouseDetails md) {
+      // check if we can handle this event, are we active?
+<span class="nc bnc" id="L633" title="All 2 branches missed.">      if (!getActive()) {</span>
+<span class="nc" id="L634">        return;</span>
+      }
+<span class="nc bnc" id="L636" title="All 2 branches missed.">      if (t == null) {</span>
+<span class="nc" id="L637">        return;</span>
+      }
+<span class="nc bnc" id="L639" title="All 2 branches missed.">      if (m_currentAction != null) {</span>
+<span class="nc" id="L640">        return;</span>
+      }
+<span class="nc" id="L642">      final boolean rightMouse = md.isRightButton();</span>
+<span class="nc bnc" id="L643" title="All 4 branches missed.">      if (!m_selectedUnits.isEmpty() &amp;&amp; !(m_selectedTerritory == t)) {</span>
+<span class="nc" id="L644">        deselectUnits(new ArrayList&lt;&gt;(m_selectedUnits), t, md);</span>
+<span class="nc" id="L645">        m_selectedTerritory = null;</span>
+      }
+<span class="nc bnc" id="L647" title="All 4 branches missed.">      if (rightMouse &amp;&amp; (m_selectedTerritory == t)) {</span>
+<span class="nc" id="L648">        deselectUnits(units, t, md);</span>
+      }
+<span class="nc bnc" id="L650" title="All 4 branches missed.">      if (!rightMouse &amp;&amp; (m_currentAction == m_addUnitsAction)) {</span>
+        // clicking on unit or territory selects territory
+<span class="nc" id="L652">        m_selectedTerritory = t;</span>
+<span class="nc" id="L653">        MAP_SELECTION_LISTENER.territorySelected(t, md);</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">      } else if (!rightMouse) {</span>
+        // delete units
+<span class="nc" id="L656">        selectUnitsToRemove(units, t, md);</span>
+      }
+<span class="nc" id="L658">      setWidgetActivation();</span>
+<span class="nc" id="L659">    }</span>
+
+    private void deselectUnits(final List&lt;Unit&gt; units, final Territory t, final MouseDetails md) {
+      // no unit selected, deselect the most recent
+<span class="nc bnc" id="L663" title="All 2 branches missed.">      if (units.isEmpty()) {</span>
+<span class="nc bnc" id="L664" title="All 6 branches missed.">        if (md.isControlDown() || t != m_selectedTerritory || m_selectedUnits.isEmpty()) {</span>
+<span class="nc" id="L665">          m_selectedUnits.clear();</span>
+<span class="nc" id="L666">        } else {</span>
+          // remove the last element
+<span class="nc" id="L668">          m_selectedUnits.remove(new ArrayList&lt;&gt;(m_selectedUnits).get(m_selectedUnits.size() - 1));</span>
+        }
+<span class="nc" id="L670">      }</span>
+      // user has clicked on a specific unit
+      else {
+        // deselect all if control is down
+<span class="nc bnc" id="L674" title="All 4 branches missed.">        if (md.isControlDown() || t != m_selectedTerritory) {</span>
+<span class="nc" id="L675">          m_selectedUnits.removeAll(units);</span>
+<span class="nc" id="L676">        }</span>
+        // deselect one
+        else {
+          // remove those with the least movement first
+<span class="nc bnc" id="L680" title="All 2 branches missed.">          for (final Unit unit : units) {</span>
+<span class="nc bnc" id="L681" title="All 2 branches missed.">            if (m_selectedUnits.contains(unit)) {</span>
+<span class="nc" id="L682">              m_selectedUnits.remove(unit);</span>
+<span class="nc" id="L683">              break;</span>
+            }
+          }
+        }
+      }
+      // nothing left, cancel edit
+<span class="nc bnc" id="L689" title="All 2 branches missed.">      if (m_selectedUnits.isEmpty()) {</span>
+<span class="nc" id="L690">        CANCEL_EDIT_ACTION.actionPerformed(null);</span>
+<span class="nc" id="L691">      } else {</span>
+<span class="nc" id="L692">        getMap().setMouseShadowUnits(m_selectedUnits);</span>
+      }
+<span class="nc" id="L694">    }</span>
+
+    private void selectUnitsToRemove(final List&lt;Unit&gt; units, final Territory t, final MouseDetails md) {
+<span class="nc bnc" id="L697" title="All 4 branches missed.">      if (units.isEmpty() &amp;&amp; m_selectedUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L698" title="All 2 branches missed.">        if (!md.isShiftDown()) {</span>
+<span class="nc" id="L699">          final Collection&lt;Unit&gt; unitsToMove = t.getUnits().getUnits();</span>
+<span class="nc bnc" id="L700" title="All 2 branches missed.">          if (unitsToMove.isEmpty()) {</span>
+<span class="nc" id="L701">            return;</span>
+          }
+<span class="nc" id="L703">          final String text = &quot;Remove from &quot; + t.getName();</span>
+<span class="nc" id="L704">          final UnitChooser chooser = new UnitChooser(unitsToMove, m_selectedUnits, null, false, false, getData(),</span>
+<span class="nc" id="L705">              false, getMap().getUIContext());</span>
+<span class="nc" id="L706">          final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, text,</span>
+<span class="nc" id="L707">              JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">          if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L709">            return;</span>
+          }
+<span class="nc bnc" id="L711" title="All 2 branches missed.">          if (chooser.getSelected(false).isEmpty()) {</span>
+<span class="nc" id="L712">            return;</span>
+          }
+<span class="nc" id="L714">          m_selectedUnits.addAll(chooser.getSelected(false));</span>
+        }
+      }
+<span class="nc bnc" id="L717" title="All 2 branches missed.">      if (m_selectedTerritory == null) {</span>
+<span class="nc" id="L718">        m_selectedTerritory = t;</span>
+<span class="nc" id="L719">        m_mouseSelectedPoint = md.getMapPoint();</span>
+<span class="nc" id="L720">        m_mouseCurrentPoint = md.getMapPoint();</span>
+<span class="nc" id="L721">        CANCEL_EDIT_ACTION.setEnabled(true);</span>
+      }
+      // select all
+<span class="nc bnc" id="L724" title="All 2 branches missed.">      if (md.isShiftDown()) {</span>
+<span class="nc" id="L725">        m_selectedUnits.addAll(t.getUnits().getUnits());</span>
+<span class="nc bnc" id="L726" title="All 2 branches missed.">      } else if (md.isControlDown()) {</span>
+<span class="nc" id="L727">        m_selectedUnits.addAll(units);</span>
+<span class="nc" id="L728">      }</span>
+      // select one
+      else {
+<span class="nc bnc" id="L731" title="All 2 branches missed.">        for (final Unit unit : units) {</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">          if (!m_selectedUnits.contains(unit)) {</span>
+<span class="nc" id="L733">            m_selectedUnits.add(unit);</span>
+<span class="nc" id="L734">            break;</span>
+          }
+        }
+      }
+<span class="nc" id="L738">      final Route defaultRoute = getData().getMap().getRoute(m_selectedTerritory, m_selectedTerritory);</span>
+<span class="nc" id="L739">      getMap().setRoute(defaultRoute, m_mouseSelectedPoint, m_mouseCurrentPoint, null);</span>
+<span class="nc" id="L740">      getMap().setMouseShadowUnits(m_selectedUnits);</span>
+<span class="nc" id="L741">    }</span>
+  };
+<span class="nc" id="L743">  private final MouseOverUnitListener MOUSE_OVER_UNIT_LISTENER = (units, territory, md) -&gt; {</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">    if (!getActive()) {</span>
+<span class="nc" id="L745">      return;</span>
+    }
+<span class="nc bnc" id="L747" title="All 2 branches missed.">    if (m_currentAction != null) {</span>
+<span class="nc" id="L748">      return;</span>
+    }
+<span class="nc bnc" id="L750" title="All 2 branches missed.">    if (!units.isEmpty()) {</span>
+<span class="nc" id="L751">      final Map&lt;Territory, List&lt;Unit&gt;&gt; highlight = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L752">      highlight.put(territory, units);</span>
+<span class="nc" id="L753">      getMap().setUnitHighlight(highlight);</span>
+<span class="nc" id="L754">    } else {</span>
+<span class="nc" id="L755">      getMap().setUnitHighlight(null);</span>
+    }
+<span class="nc" id="L757">  };</span>
+<span class="nc" id="L758">  private final MapSelectionListener MAP_SELECTION_LISTENER = new DefaultMapSelectionListener() {</span>
+    @Override
+    public void territorySelected(final Territory territory, final MouseDetails md) {
+<span class="nc bnc" id="L761" title="All 2 branches missed.">      if (territory == null) {</span>
+<span class="nc" id="L762">        return;</span>
+      }
+<span class="nc bnc" id="L764" title="All 2 branches missed.">      if (m_currentAction == m_changeTerritoryOwnerAction) {</span>
+<span class="nc" id="L765">        final TerritoryAttachment ta = TerritoryAttachment.get(territory);</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">        if (ta == null) {</span>
+<span class="nc" id="L767">          JOptionPane.showMessageDialog(getTopLevelAncestor(), &quot;No TerritoryAttachment for &quot; + territory + &quot;.&quot;,</span>
+<span class="nc" id="L768">              &quot;Could not perform edit&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L769">          return;</span>
+        }
+        // PlayerID defaultPlayer = TerritoryAttachment.get(territory).getOriginalOwner();
+<span class="nc" id="L772">        final PlayerID defaultPlayer = ta.getOriginalOwner();</span>
+<span class="nc" id="L773">        final PlayerChooser playerChooser =</span>
+<span class="nc" id="L774">            new PlayerChooser(getData().getPlayerList(), defaultPlayer, getMap().getUIContext(), true);</span>
+<span class="nc" id="L775">        final JDialog dialog = playerChooser.createDialog(getTopLevelAncestor(), &quot;Select new owner for territory&quot;);</span>
+<span class="nc" id="L776">        dialog.setVisible(true);</span>
+<span class="nc" id="L777">        final PlayerID player = playerChooser.getSelected();</span>
+<span class="nc bnc" id="L778" title="All 2 branches missed.">        if (player != null) {</span>
+<span class="nc" id="L779">          final String result = m_frame.getEditDelegate().changeTerritoryOwner(territory, player);</span>
+<span class="nc bnc" id="L780" title="All 2 branches missed.">          if (result != null) {</span>
+<span class="nc" id="L781">            JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L782">                JOptionPane.ERROR_MESSAGE);</span>
+          }
+        }
+<span class="nc" id="L785">        SwingUtilities.invokeLater(() -&gt; CANCEL_EDIT_ACTION.actionPerformed(null));</span>
+<span class="nc bnc" id="L786" title="All 2 branches missed.">      } else if (m_currentAction == m_addUnitsAction) {</span>
+<span class="nc" id="L787">        final boolean allowNeutral = doesPlayerHaveUnitsOnMap(PlayerID.NULL_PLAYERID, getData());</span>
+<span class="nc" id="L788">        final PlayerChooser playerChooser =</span>
+<span class="nc" id="L789">            new PlayerChooser(getData().getPlayerList(), territory.getOwner(), getMap().getUIContext(), allowNeutral);</span>
+<span class="nc" id="L790">        final JDialog dialog = playerChooser.createDialog(getTopLevelAncestor(), &quot;Select owner for new units&quot;);</span>
+<span class="nc" id="L791">        dialog.setVisible(true);</span>
+<span class="nc" id="L792">        final PlayerID player = playerChooser.getSelected();</span>
+<span class="nc bnc" id="L793" title="All 2 branches missed.">        if (player != null) {</span>
+          // open production panel for adding new units
+<span class="nc" id="L795">          final IntegerMap&lt;ProductionRule&gt; production =</span>
+<span class="nc" id="L796">              EditProductionPanel.getProduction(player, m_frame, getData(), getMap().getUIContext());</span>
+<span class="nc" id="L797">          final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L798" title="All 2 branches missed.">          for (final ProductionRule productionRule : production.keySet()) {</span>
+<span class="nc" id="L799">            final int quantity = production.getInt(productionRule);</span>
+<span class="nc" id="L800">            final NamedAttachable resourceOrUnit = productionRule.getResults().keySet().iterator().next();</span>
+<span class="nc bnc" id="L801" title="All 2 branches missed.">            if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L802">              continue;</span>
+            }
+<span class="nc" id="L804">            final UnitType type = (UnitType) resourceOrUnit;</span>
+<span class="nc" id="L805">            units.addAll(type.create(quantity, player));</span>
+          }
+<span class="nc" id="L807">          final String result = m_frame.getEditDelegate().addUnits(territory, units);</span>
+<span class="nc bnc" id="L808" title="All 2 branches missed.">          if (result != null) {</span>
+<span class="nc" id="L809">            JOptionPane.showMessageDialog(getTopLevelAncestor(), result, &quot;Could not perform edit&quot;,</span>
+<span class="nc" id="L810">                JOptionPane.ERROR_MESSAGE);</span>
+          }
+        }
+<span class="nc" id="L813">        SwingUtilities.invokeLater(() -&gt; CANCEL_EDIT_ACTION.actionPerformed(null));</span>
+      }
+<span class="nc" id="L815">    }</span>
+
+    @Override
+    public void mouseMoved(final Territory territory, final MouseDetails md) {
+<span class="nc bnc" id="L819" title="All 2 branches missed.">      if (!getActive()) {</span>
+<span class="nc" id="L820">        return;</span>
+      }
+<span class="nc bnc" id="L822" title="All 2 branches missed.">      if (territory != null) {</span>
+<span class="nc bnc" id="L823" title="All 4 branches missed.">        if (m_currentAction == null &amp;&amp; m_selectedTerritory != null) {</span>
+<span class="nc" id="L824">          m_mouseCurrentPoint = md.getMapPoint();</span>
+<span class="nc" id="L825">          getMap().setMouseShadowUnits(m_selectedUnits);</span>
+        }
+        // highlight territory
+<span class="nc bnc" id="L828" title="All 4 branches missed.">        if (m_currentAction == m_changeTerritoryOwnerAction || m_currentAction == m_addUnitsAction) {</span>
+<span class="nc bnc" id="L829" title="All 2 branches missed.">          if (m_currentTerritory != territory) {</span>
+<span class="nc bnc" id="L830" title="All 2 branches missed.">            if (m_currentTerritory != null) {</span>
+<span class="nc" id="L831">              getMap().clearTerritoryOverlay(m_currentTerritory);</span>
+            }
+<span class="nc" id="L833">            m_currentTerritory = territory;</span>
+<span class="nc" id="L834">            getMap().setTerritoryOverlay(m_currentTerritory, Color.WHITE, 200);</span>
+<span class="nc" id="L835">            getMap().repaint();</span>
+          }
+        }
+      }
+<span class="nc" id="L839">    }</span>
+  };
+<span class="nc" id="L841">  private final AbstractAction CANCEL_EDIT_ACTION = new AbstractAction(&quot;Cancel&quot;) {</span>
+    private static final long serialVersionUID = 6394987295241603443L;
+
+    @Override
+    public void actionPerformed(final ActionEvent e) {
+<span class="nc" id="L846">      m_selectedTerritory = null;</span>
+<span class="nc" id="L847">      m_selectedUnits.clear();</span>
+<span class="nc" id="L848">      this.setEnabled(false);</span>
+<span class="nc" id="L849">      getMap().setRoute(null, m_mouseSelectedPoint, m_mouseCurrentPoint, null);</span>
+<span class="nc" id="L850">      getMap().setMouseShadowUnits(null);</span>
+<span class="nc bnc" id="L851" title="All 2 branches missed.">      if (m_currentTerritory != null) {</span>
+<span class="nc" id="L852">        getMap().clearTerritoryOverlay(m_currentTerritory);</span>
+      }
+<span class="nc" id="L854">      m_currentTerritory = null;</span>
+<span class="nc" id="L855">      m_currentAction = null;</span>
+<span class="nc" id="L856">      setWidgetActivation();</span>
+<span class="nc" id="L857">    }</span>
+  };
+
+  private static boolean doesPlayerHaveUnitsOnMap(final PlayerID player, final GameData data) {
+<span class="nc bnc" id="L861" title="All 2 branches missed.">    for (final Territory t : data.getMap()) {</span>
+<span class="nc bnc" id="L862" title="All 2 branches missed.">      for (final Unit u : t.getUnits()) {</span>
+<span class="nc bnc" id="L863" title="All 2 branches missed.">        if (u.getOwner().equals(player)) {</span>
+<span class="nc" id="L864">          return true;</span>
+        }
+      }
+    }
+<span class="nc" id="L868">    return false;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>NewGameChooserModel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.ui</a> &gt; <span class="el_source">NewGameChooserModel.java</span></div><h1>NewGameChooserModel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework.ui;</span>
+
+import java.awt.Component;
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+import javax.swing.DefaultListModel;
+import javax.swing.JOptionPane;
+
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
+
+import com.google.common.collect.Sets;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.EngineVersionException;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.framework.startup.ui.MainFrame;
+import games.strategy.ui.SwingAction;
+
+public class NewGameChooserModel extends DefaultListModel&lt;NewGameChooserEntry&gt; {
+  private static final long serialVersionUID = -2044689419834812524L;
+
+<span class="fc" id="L38">  private enum ZipProcessingResult {</span>
+<span class="fc" id="L39">    SUCCESS, ERROR</span>
+  }
+
+
+<span class="fc" id="L43">  public NewGameChooserModel() {</span>
+<span class="fc" id="L44">    final Set&lt;NewGameChooserEntry&gt; parsedMapSet = parseMapFiles();</span>
+
+<span class="fc" id="L46">    final List&lt;NewGameChooserEntry&gt; entries = new ArrayList&lt;&gt;(parsedMapSet);</span>
+<span class="fc" id="L47">    Collections.sort(entries, NewGameChooserEntry.getComparator());</span>
+
+<span class="fc bfc" id="L49" title="All 2 branches covered.">    for (final NewGameChooserEntry entry : entries) {</span>
+<span class="fc" id="L50">      addElement(entry);</span>
+    }
+<span class="fc" id="L52">  }</span>
+
+  @Override
+  public NewGameChooserEntry get(final int i) {
+<span class="nc" id="L56">    return super.get(i);</span>
+  }
+
+  public static File getDefaultMapsDir() {
+<span class="fc" id="L60">    return new File(ClientFileSystemHelper.getRootFolder(), &quot;maps&quot;);</span>
+  }
+
+  private static List&lt;File&gt; allMapFiles() {
+<span class="fc" id="L64">    final List&lt;File&gt; rVal = new ArrayList&lt;&gt;();</span>
+    // prioritize user maps folder over root folder
+<span class="fc" id="L66">    rVal.addAll(safeListFiles(ClientFileSystemHelper.getUserMapsFolder()));</span>
+<span class="fc" id="L67">    rVal.addAll(safeListFiles(getDefaultMapsDir()));</span>
+<span class="fc" id="L68">    return rVal;</span>
+  }
+
+  private static List&lt;File&gt; safeListFiles(final File f) {
+<span class="fc" id="L72">    final File[] files = f.listFiles();</span>
+<span class="fc bfc" id="L73" title="All 2 branches covered.">    if (files == null) {</span>
+<span class="fc" id="L74">      return Collections.emptyList();</span>
+    }
+<span class="fc" id="L76">    return Arrays.asList(files);</span>
+  }
+
+
+  private Set&lt;NewGameChooserEntry&gt; parseMapFiles() {
+<span class="fc" id="L81">    final Set&lt;NewGameChooserEntry&gt; parsedMapSet = Sets.newHashSet();</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">    for (final File map : allMapFiles()) {</span>
+<span class="pc bpc" id="L83" title="1 of 2 branches missed.">      if (map.isDirectory()) {</span>
+<span class="nc" id="L84">        parsedMapSet.addAll(populateFromDirectory(map));</span>
+<span class="pc bpc" id="L85" title="1 of 4 branches missed.">      } else if (map.isFile() &amp;&amp; map.getName().toLowerCase().endsWith(&quot;.zip&quot;)) {</span>
+<span class="fc" id="L86">        parsedMapSet.addAll(populateFromZip(map));</span>
+      }
+    }
+<span class="fc" id="L89">    return parsedMapSet;</span>
+  }
+
+
+  private static List&lt;NewGameChooserEntry&gt; populateFromZip(final File map) {
+<span class="fc" id="L94">    boolean badMapZip = false;</span>
+<span class="fc" id="L95">    final List&lt;NewGameChooserEntry&gt; entries = new ArrayList&lt;&gt;();</span>
+
+<span class="fc" id="L97">    try (ZipFile zipFile = new ZipFile(map);</span>
+<span class="fc" id="L98">        final URLClassLoader loader = new URLClassLoader(new URL[] {map.toURI().toURL()})) {</span>
+<span class="fc" id="L99">      final Enumeration&lt;? extends ZipEntry&gt; zipEntryEnumeration = zipFile.entries();</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">      while (zipEntryEnumeration.hasMoreElements()) {</span>
+<span class="fc" id="L101">        final ZipEntry entry = zipEntryEnumeration.nextElement();</span>
+<span class="fc bfc" id="L102" title="All 4 branches covered.">        if (entry.getName().contains(&quot;games/&quot;) &amp;&amp;  entry.getName().toLowerCase().endsWith(&quot;.xml&quot;)) {</span>
+<span class="fc" id="L103">          final ZipProcessingResult result = processZipEntry(loader, entry, entries);</span>
+<span class="pc bpc" id="L104" title="1 of 2 branches missed.">          if (result == ZipProcessingResult.ERROR) {</span>
+<span class="nc" id="L105">            badMapZip = true;</span>
+<span class="nc" id="L106">            break;</span>
+          }
+        }
+      }
+<span class="pc bpc" id="L110" title="14 of 16 branches missed.">    } catch (final IOException e) {</span>
+<span class="nc" id="L111">      confirmWithUserAndThenDeleteCorruptZipFile(map, Optional.of(e.getMessage()));</span>
+    }
+
+<span class="pc bpc" id="L114" title="1 of 2 branches missed.">    if (badMapZip) {</span>
+<span class="nc" id="L115">      confirmWithUserAndThenDeleteCorruptZipFile(map, Optional.empty());</span>
+    }
+<span class="fc" id="L117">    return entries;</span>
+  }
+
+  private static ZipProcessingResult processZipEntry(final URLClassLoader loader, final ZipEntry entry,
+      final List&lt;NewGameChooserEntry&gt; entries) {
+<span class="fc" id="L122">    final URL url = loader.getResource(entry.getName());</span>
+<span class="pc bpc" id="L123" title="1 of 2 branches missed.">    if (url == null) {</span>
+      // not loading the URL means the XML is truncated or otherwise in bad shape
+<span class="nc" id="L125">      return ZipProcessingResult.ERROR;</span>
+    }
+    try {
+<span class="fc" id="L128">      addNewGameChooserEntry(entries, new URI(url.toString().replace(&quot; &quot;, &quot;%20&quot;)));</span>
+<span class="pc" id="L129">    } catch (final URISyntaxException e) {</span>
+      // only happens when URI couldn't be build and therefore no entry was added. That's fine ..
+    }
+<span class="fc" id="L132">    return ZipProcessingResult.SUCCESS;</span>
+  }
+
+  /*
+   * Open up a confirmation dialog, if user says yes, delete the map specified by
+   * parameter, then show confirmation of deletion.
+   */
+  private static void confirmWithUserAndThenDeleteCorruptZipFile(final File map, final Optional&lt;String&gt; errorDetails) {
+<span class="nc" id="L140">    final Runnable deleteMapRunnable = () -&gt; {</span>
+<span class="nc" id="L141">      final Component parentComponent = MainFrame.getInstance();</span>
+<span class="nc" id="L142">      String message = &quot;Could not parse map file correctly, would you like to remove it?\n&quot; + map.getAbsolutePath()</span>
+<span class="nc" id="L143">          + &quot;\n(You may see this error message again if you keep the file)&quot;;</span>
+<span class="nc" id="L144">      String title = &quot;Corrup Map File Found&quot;;</span>
+<span class="nc" id="L145">      final int optionType = JOptionPane.YES_NO_OPTION;</span>
+<span class="nc" id="L146">      int messageType = JOptionPane.WARNING_MESSAGE;</span>
+<span class="nc" id="L147">      final int result = JOptionPane.showConfirmDialog(parentComponent, message, title, optionType, messageType);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (result == JOptionPane.YES_OPTION) {</span>
+<span class="nc" id="L149">        final boolean deleted = map.delete();</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (deleted) {</span>
+<span class="nc" id="L151">          messageType = JOptionPane.INFORMATION_MESSAGE;</span>
+<span class="nc" id="L152">          message = &quot;File was deleted successfully.&quot;;</span>
+<span class="nc bnc" id="L153" title="All 4 branches missed.">        } else if (!deleted &amp;&amp; map.exists()) {</span>
+<span class="nc" id="L154">          message = &quot;Unable to delete file, please remove it in the file system and restart tripleA:\n&quot; + map</span>
+<span class="nc" id="L155">              .getAbsolutePath();</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">          if (errorDetails.isPresent()) {</span>
+<span class="nc" id="L157">            message += &quot;\nError details: &quot; + errorDetails;</span>
+          }
+        }
+<span class="nc" id="L160">        title = &quot;File Removal Result&quot;;</span>
+<span class="nc" id="L161">        JOptionPane.showMessageDialog(parentComponent, message, title, messageType);</span>
+      }
+<span class="nc" id="L163">    };</span>
+
+<span class="nc" id="L165">    SwingAction.invokeAndWait(deleteMapRunnable);</span>
+<span class="nc" id="L166">  }</span>
+
+  /**
+   * @param entries
+   *        list of entries where to add the new entry
+   * @param uri
+   *        URI of the new entry
+   */
+  private static void addNewGameChooserEntry(final List&lt;NewGameChooserEntry&gt; entries, final URI uri) {
+    try {
+<span class="fc" id="L176">      final NewGameChooserEntry newEntry = createEntry(uri);</span>
+<span class="pc bpc" id="L177" title="2 of 4 branches missed.">      if (newEntry != null &amp;&amp; !entries.contains(newEntry)) {</span>
+<span class="fc" id="L178">        entries.add(newEntry);</span>
+      }
+<span class="pc" id="L180">    } catch (final EngineVersionException e) {</span>
+<span class="nc" id="L181">      System.out.println(e.getMessage());</span>
+<span class="nc" id="L182">    } catch (final SAXParseException e) {</span>
+<span class="nc" id="L183">      final String msg =</span>
+<span class="nc" id="L184">          &quot;Could not parse:&quot; + uri + &quot; error at line:&quot; + e.getLineNumber() + &quot; column:&quot; + e.getColumnNumber();</span>
+<span class="nc" id="L185">      System.err.println(msg);</span>
+<span class="nc" id="L186">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L187">    } catch (final Exception e) {</span>
+<span class="nc" id="L188">      System.err.println(&quot;Could not parse:&quot; + uri);</span>
+<span class="nc" id="L189">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="fc" id="L191">  }</span>
+
+  public NewGameChooserEntry findByName(final String name) {
+<span class="nc bnc" id="L194" title="All 2 branches missed.">    for (int i = 0; i &lt; size(); i++) {</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">      if (get(i).getGameData().getGameName().equals(name)) {</span>
+<span class="nc" id="L196">        return get(i);</span>
+      }
+    }
+<span class="nc" id="L199">    return null;</span>
+  }
+
+  private static NewGameChooserEntry createEntry(final URI uri)
+      throws IOException, GameParseException, SAXException, EngineVersionException {
+<span class="fc" id="L204">    return new NewGameChooserEntry(uri);</span>
+  }
+
+  private static List&lt;NewGameChooserEntry&gt; populateFromDirectory(final File mapDir) {
+<span class="nc" id="L208">    final List&lt;NewGameChooserEntry&gt; entries = new ArrayList&lt;&gt;();</span>
+
+    // use contents under a &quot;mapDir/map&quot; folder if present, otherwise use the &quot;mapDir/&quot; contents directly
+<span class="nc" id="L211">    final File mapFolder = new File(mapDir, &quot;map&quot;);</span>
+
+<span class="nc bnc" id="L213" title="All 2 branches missed.">    final File parentFolder = mapFolder.exists() ? mapFolder : mapDir;</span>
+<span class="nc" id="L214">    final File games = new File(parentFolder, &quot;games&quot;);</span>
+
+<span class="nc bnc" id="L216" title="All 2 branches missed.">    if (!games.exists()) {</span>
+      // no games in this map dir
+<span class="nc" id="L218">      return entries;</span>
+    }
+<span class="nc bnc" id="L220" title="All 2 branches missed.">    for (final File game : games.listFiles()) {</span>
+<span class="nc bnc" id="L221" title="All 4 branches missed.">      if (game.isFile() &amp;&amp; game.getName().toLowerCase().endsWith(&quot;xml&quot;)) {</span>
+<span class="nc" id="L222">        addNewGameChooserEntry(entries, game.toURI());</span>
+      }
+    }
+<span class="nc" id="L225">    return entries;</span>
+  }
+
+  public boolean removeEntry(final NewGameChooserEntry entryToBeRemoved) {
+<span class="nc" id="L229">    return this.removeElement(entryToBeRemoved);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

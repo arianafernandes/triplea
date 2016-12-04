@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ChannelMessengerTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.message.unifiedmessenger</a> &gt; <span class="el_source">ChannelMessengerTest.java</span></div><h1>ChannelMessengerTest.java</h1><pre class="source lang-java linenums">package games.strategy.engine.message.unifiedmessenger;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import java.io.IOException;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.message.ChannelMessenger;
+import games.strategy.engine.message.IChannelSubscribor;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.message.UnifiedMessengerHub;
+import games.strategy.net.ClientMessenger;
+import games.strategy.net.IMessenger;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.MacFinder;
+import games.strategy.net.ServerMessenger;
+import games.strategy.test.TestUtil;
+import games.strategy.util.ThreadUtil;
+
+<span class="fc" id="L25">public class ChannelMessengerTest {</span>
+  private IServerMessenger m_server;
+  private IMessenger m_client1;
+<span class="fc" id="L28">  private static int SERVER_PORT = -1;</span>
+  private ChannelMessenger m_serverMessenger;
+  private ChannelMessenger m_clientMessenger;
+  private UnifiedMessengerHub m_hub;
+
+  @Before
+  public void setUp() throws IOException {
+<span class="fc" id="L35">    SERVER_PORT = TestUtil.getUniquePort();</span>
+<span class="fc" id="L36">    m_server = new ServerMessenger(&quot;Server&quot;, SERVER_PORT);</span>
+<span class="fc" id="L37">    m_server.setAcceptNewConnections(true);</span>
+<span class="fc" id="L38">    final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L39">    m_client1 = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client1&quot;, mac);</span>
+<span class="fc" id="L40">    final UnifiedMessenger unifiedMessenger = new UnifiedMessenger(m_server);</span>
+<span class="fc" id="L41">    m_hub = unifiedMessenger.getHub();</span>
+<span class="fc" id="L42">    m_serverMessenger = new ChannelMessenger(unifiedMessenger);</span>
+<span class="fc" id="L43">    m_clientMessenger = new ChannelMessenger(new UnifiedMessenger(m_client1));</span>
+<span class="fc" id="L44">  }</span>
+
+  @After
+  public void tearDown() {
+    try {
+<span class="pc bpc" id="L49" title="1 of 2 branches missed.">      if (m_server != null) {</span>
+<span class="fc" id="L50">        m_server.shutDown();</span>
+      }
+<span class="pc" id="L52">    } catch (final Exception e) {</span>
+<span class="nc" id="L53">      ClientLogger.logQuietly(e);</span>
+    }
+    try {
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">      if (m_client1 != null) {</span>
+<span class="fc" id="L57">        m_client1.shutDown();</span>
+      }
+<span class="pc" id="L59">    } catch (final Exception e) {</span>
+<span class="nc" id="L60">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="fc" id="L62">  }</span>
+
+  @Test
+  public void testLocalCall() {
+<span class="fc" id="L66">    final RemoteName descriptor = new RemoteName(IChannelBase.class, &quot;testLocalCall&quot;);</span>
+<span class="fc" id="L67">    m_serverMessenger.registerChannelSubscriber(new ChannelSubscribor(), descriptor);</span>
+<span class="fc" id="L68">    final IChannelBase subscribor = (IChannelBase) m_serverMessenger.getChannelBroadcastor(descriptor);</span>
+<span class="fc" id="L69">    subscribor.testNoParams();</span>
+<span class="fc" id="L70">    subscribor.testPrimitives(1, (short) 0, 1, (byte) 1, true, (float) 1.0);</span>
+<span class="fc" id="L71">    subscribor.testString(&quot;a&quot;);</span>
+<span class="fc" id="L72">  }</span>
+
+  @Test
+  public void testRemoteCall() {
+<span class="fc" id="L76">    final RemoteName testRemote = new RemoteName(IChannelBase.class, &quot;testRemote&quot;);</span>
+<span class="fc" id="L77">    final ChannelSubscribor subscribor1 = new ChannelSubscribor();</span>
+<span class="fc" id="L78">    m_serverMessenger.registerChannelSubscriber(subscribor1, testRemote);</span>
+<span class="fc" id="L79">    assertHasChannel(testRemote, m_hub);</span>
+<span class="fc" id="L80">    final IChannelBase channelTest = (IChannelBase) m_clientMessenger.getChannelBroadcastor(testRemote);</span>
+<span class="fc" id="L81">    channelTest.testNoParams();</span>
+<span class="fc" id="L82">    assertCallCountIs(subscribor1, 1);</span>
+<span class="fc" id="L83">    channelTest.testString(&quot;a&quot;);</span>
+<span class="fc" id="L84">    assertCallCountIs(subscribor1, 2);</span>
+<span class="fc" id="L85">    channelTest.testPrimitives(1, (short) 0, 1, (byte) 1, true, (float) 1.0);</span>
+<span class="fc" id="L86">    assertCallCountIs(subscribor1, 3);</span>
+<span class="fc" id="L87">    channelTest.testArray(null, null, null, null, null, null);</span>
+<span class="fc" id="L88">    assertCallCountIs(subscribor1, 4);</span>
+<span class="fc" id="L89">  }</span>
+
+  @Test
+  public void testMultipleClients() throws Exception {
+    // set up the client and server
+    // so that the client has 1 subscribor, and the server knows about it
+<span class="fc" id="L95">    final RemoteName test = new RemoteName(IChannelBase.class, &quot;test&quot;);</span>
+<span class="fc" id="L96">    final ChannelSubscribor client1Subscribor = new ChannelSubscribor();</span>
+<span class="fc" id="L97">    m_clientMessenger.registerChannelSubscriber(client1Subscribor, test);</span>
+<span class="fc" id="L98">    assertHasChannel(test, m_hub);</span>
+<span class="fc" id="L99">    assertEquals(1, m_clientMessenger.getUnifiedMessenger().getLocalEndPointCount(test));</span>
+    // add a new client
+<span class="fc" id="L101">    final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L102">    final ClientMessenger clientMessenger2 = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client2&quot;, mac);</span>
+<span class="fc" id="L103">    final ChannelMessenger client2 = new ChannelMessenger(new UnifiedMessenger(clientMessenger2));</span>
+<span class="fc" id="L104">    ((IChannelBase) client2.getChannelBroadcastor(test)).testString(&quot;a&quot;);</span>
+<span class="fc" id="L105">    assertCallCountIs(client1Subscribor, 1);</span>
+<span class="fc" id="L106">  }</span>
+
+  @Test
+  public void testMultipleChannels() {
+<span class="fc" id="L110">    final RemoteName testRemote2 = new RemoteName(IChannelBase.class, &quot;testRemote2&quot;);</span>
+<span class="fc" id="L111">    final RemoteName testRemote3 = new RemoteName(IChannelBase.class, &quot;testRemote3&quot;);</span>
+<span class="fc" id="L112">    final ChannelSubscribor subscribor2 = new ChannelSubscribor();</span>
+<span class="fc" id="L113">    m_clientMessenger.registerChannelSubscriber(subscribor2, testRemote2);</span>
+<span class="fc" id="L114">    final ChannelSubscribor subscribor3 = new ChannelSubscribor();</span>
+<span class="fc" id="L115">    m_clientMessenger.registerChannelSubscriber(subscribor3, testRemote3);</span>
+<span class="fc" id="L116">    assertHasChannel(testRemote2, m_hub);</span>
+<span class="fc" id="L117">    assertHasChannel(testRemote3, m_hub);</span>
+<span class="fc" id="L118">    final IChannelBase channelTest2 = (IChannelBase) m_serverMessenger.getChannelBroadcastor(testRemote2);</span>
+<span class="fc" id="L119">    channelTest2.testNoParams();</span>
+<span class="fc" id="L120">    assertCallCountIs(subscribor2, 1);</span>
+<span class="fc" id="L121">    final IChannelBase channelTest3 = (IChannelBase) m_serverMessenger.getChannelBroadcastor(testRemote3);</span>
+<span class="fc" id="L122">    channelTest3.testNoParams();</span>
+<span class="fc" id="L123">    assertCallCountIs(subscribor3, 1);</span>
+<span class="fc" id="L124">  }</span>
+
+  private void assertHasChannel(final RemoteName descriptor, final UnifiedMessengerHub hub) {
+<span class="fc" id="L127">    int waitCount = 0;</span>
+<span class="pc bpc" id="L128" title="1 of 4 branches missed.">    while (waitCount &lt; 10 &amp;&amp; !hub.hasImplementors(descriptor.getName())) {</span>
+<span class="fc" id="L129">      ThreadUtil.sleep(100);</span>
+<span class="fc" id="L130">      waitCount++;</span>
+    }
+<span class="fc" id="L132">    assertTrue(hub.hasImplementors(descriptor.getName()));</span>
+<span class="fc" id="L133">  }</span>
+
+  private static void assertCallCountIs(final ChannelSubscribor subscribor, final int expected) {
+    // since the method call happens in a seperate thread,
+    // wait for the call to go through, but dont wait too long
+<span class="fc" id="L138">    int waitCount = 0;</span>
+<span class="pc bpc" id="L139" title="1 of 4 branches missed.">    while (waitCount &lt; 20 &amp;&amp; expected != subscribor.getCallCount()) {</span>
+<span class="fc" id="L140">      ThreadUtil.sleep(50);</span>
+<span class="fc" id="L141">      waitCount++;</span>
+    }
+<span class="fc" id="L143">    assertEquals(expected, subscribor.getCallCount());</span>
+<span class="fc" id="L144">  }</span>
+}
+
+
+interface IChannelBase extends IChannelSubscribor {
+  void testNoParams();
+
+  void testPrimitives(int a, short b, long c, byte d, boolean e, float f);
+
+  void testString(String a);
+
+  void testArray(int[] ints, short[] shorts, byte[] bytes, boolean[] bools, float[] floats, Object[] objects);
+}
+
+
+<span class="fc" id="L159">class ChannelSubscribor implements IChannelBase {</span>
+<span class="fc" id="L160">  private int m_callCount = 0;</span>
+
+  private synchronized void incrementCount() {
+<span class="fc" id="L163">    m_callCount++;</span>
+<span class="fc" id="L164">  }</span>
+
+  public synchronized int getCallCount() {
+<span class="fc" id="L167">    return m_callCount;</span>
+  }
+
+  @Override
+  public void testNoParams() {
+<span class="fc" id="L172">    incrementCount();</span>
+<span class="fc" id="L173">  }</span>
+
+  @Override
+  public void testPrimitives(final int a, final short b, final long c, final byte d, final boolean e, final float f) {
+<span class="fc" id="L177">    incrementCount();</span>
+<span class="fc" id="L178">  }</span>
+
+  @Override
+  public void testString(final String a) {
+<span class="fc" id="L182">    incrementCount();</span>
+<span class="fc" id="L183">  }</span>
+
+  @Override
+  public void testArray(final int[] ints, final short[] shorts, final byte[] bytes, final boolean[] bools,
+      final float[] floats, final Object[] objects) {
+<span class="fc" id="L188">    incrementCount();</span>
+<span class="fc" id="L189">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

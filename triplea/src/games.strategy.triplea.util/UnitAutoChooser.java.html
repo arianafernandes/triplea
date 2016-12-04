@@ -1,0 +1,735 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>UnitAutoChooser.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.util</a> &gt; <span class="el_source">UnitAutoChooser.java</span></div><h1>UnitAutoChooser.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.util;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Stack;
+
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+// TODO - the move computation explodes when multiple transports are selected
+// https://sourceforge.net/tracker/index.php?func=detail&amp;aid=1890628&amp;group_id=44492&amp;atid=439737
+// for now this class is not to be used
+class UnitAutoChooser {
+  // m_allUnits:
+  // Set through the constructor and contains all available units for
+  // determining the solution.
+  // The order of these units is preserved throughout the solver so
+  // the order of the units affects the order of the solutions found.
+  private final Collection&lt;Unit&gt; m_allUnits;
+  // m_chosenUnits:
+  // Set through the constructor and contains all chosen units.
+  private final Collection&lt;Unit&gt; m_chosenUnits;
+  // m_candidateUnits:
+  // Determined by solver and set to all units that match a chosen unit
+  // category.
+  // For dependent units, all dependents of units that match
+  // a chosen unit category are included, regardless of whether the
+  // dependent itself matched a chosen unit category.
+  private final Set&lt;Unit&gt; m_candidateUnits;
+  // m_bCategorizeMovement:
+  // Set to true through constructor if movement should be categorized.
+  private final boolean m_bCategorizeMovement;
+  // m_bCategorizeTrnMovement:
+  // Set to true through constructor if transport movement should be categorized
+  // when m_bCategorizeMovment is false.
+  // If m_bCategorizeMovement is true then this setting is ignored.
+  private final boolean m_bCategorizeTrnMovement;
+  // m_bAllowImplicitDependents:
+  // Set to true through constructor if chosenUnits is not required
+  // to include all dependent units. If dependent units ARE included,
+  // then they will still effect the solution filtering.
+  private final boolean m_bAllowImplicitDependents;
+  // m_dependentsMap:
+  // Set to the Map of unit-&gt;dependents for all relevant units
+  private final Map&lt;Unit, Collection&lt;Unit&gt;&gt; m_dependentsMap;
+  // SOLUTION LINGO:
+  // There are three types of solutions the solver may find, in terms of the
+  // completedness of the solution:
+  // 1. EXACT SOLUTION : All chosen units were found and no other units
+  // (ie: dependents) were included.
+  // 2. GREEDY SOLUTION : All chosen units are accounted for, but some
+  // unchosen dependents are also included
+  // 3. INCOMPLETE SOLUTION : Not all chosen units are accounted for.
+  // There are also three ways in which a solution can be found:
+  // 1. COMPOSITE SOLUTION : Dependent units were involved, and at least
+  // one solution was found containing composite categories.
+  // 2. INDEPENDENT SOLUTION : No dependent units were involved, and a
+  // solution was found (all units are independent)
+  // 3. SIMPLE SOLUTION : No composite or independent solution could be found,
+  // so a simple solution is found by searching the sorted
+  // units for each chosen category as if they are all independent.
+  // The resulting solution will usually be a greedy one.
+  // m_bFoundCompleteSolution:
+  // set to true if at least one complete solution (exact or greedy) was found
+<span class="fc" id="L75">  private boolean m_bFoundCompleteSolution = false;</span>
+  // m_selectedUnitSolutions:
+  // Determined by solver and contains all exact
+  // solutions, followed by all greedy solutions.
+  // If no exact or greedy solutions are found, then
+  // it contains the best partial solution.
+  private final List&lt;Set&lt;Unit&gt;&gt; m_selectedUnitSolutions;
+  // m_exactSolutionCount:
+  // Determined by solver and is set to the number of exact solutions found.
+<span class="fc" id="L84">  private int m_exactSolutionCount = 0;</span>
+  // m_chosenCategoryCounts:
+  // Determined by solver and contains a count of all chosen categories
+  private final IntegerMap&lt;UnitCategory&gt; m_chosenCategoryCounts;
+  // m_candidateCategoryCounts:
+  // Determined by solver and contains a count of all candidate categories,
+  // found by categorizing all candidate units.
+  private final IntegerMap&lt;UnitCategory&gt; m_candidateCategoryCounts;
+  // m_candidateCompositeCategories:
+  // Determined by solver and contains all composite category sets that match
+  // chosen categories. This is the main intermediate output of the solver.
+  // A composite category is a List of UnitCategories that together satisfy
+  // all units-having-dependents and dependent-units in the chosen categories.
+  // ie: transports, arm, and inf can be found in here, but battleships
+  // cannot.
+  // The candidate composite categories retain the order in which they
+  // were determined, which is based on the order that m_allUnits was passed
+  // into the constructor.
+  private final LinkedHashSet&lt;List&lt;UnitCategory&gt;&gt; m_candidateCompositeCategories;
+  // m_candidateCategories:
+  // Determined by solver and contains all candidate categories; that is,
+  // categories for candidate units that match chosen categories. The order
+  // of the categories is preserved from the original ordering of m_allUnits.
+  private final LinkedHashSet&lt;UnitCategory&gt; m_candidateCategories;
+  // m_candidateCategoriesWithoutDependents:
+  // Determined by solver and contains all independent units; ie: units that
+  // aren't found in m_candidateCompositeCategories (see above).
+  // The order of the categories is preserved from the original ordering of
+  // m_allUnits.
+  private final Set&lt;UnitCategory&gt; m_candidateCategoriesWithoutDependents;
+  // m_candidateToChosenCategories:
+  // Determined by solver and contains a map of all candidate categories to
+  // their respective chosen categories. A candidate category matches a
+  // chosen category if everything but their dependents match, since chosen
+  // categories don't categorize dependents but candidate categories do.
+  // More than one candidate category may map to a single chosen category.
+  private final Map&lt;UnitCategory, UnitCategory&gt; m_candidateToChosenCategories;
+
+  public UnitAutoChooser(final Collection&lt;Unit&gt; allUnits, final Collection&lt;Unit&gt; chosenUnits,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependentsMap, final boolean bAllowImplicitDependents,
+      final boolean bCategorizeMovement) {
+<span class="fc" id="L125">    this(allUnits, chosenUnits, dependentsMap, bAllowImplicitDependents, bCategorizeMovement, false);</span>
+<span class="fc" id="L126">  }</span>
+
+<span class="fc" id="L128">  public UnitAutoChooser(final Collection&lt;Unit&gt; allUnits, final Collection&lt;Unit&gt; chosenUnits,</span>
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependentsMap, final boolean bAllowImplicitDependents,
+      final boolean bCategorizeMovement, final boolean bCategorizeTrnMovement) {
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">    if (allUnits == null) {</span>
+<span class="nc" id="L132">      m_allUnits = Collections.emptyList();</span>
+<span class="nc" id="L133">    } else {</span>
+<span class="fc" id="L134">      m_allUnits = allUnits;</span>
+    }
+<span class="pc bpc" id="L136" title="1 of 2 branches missed.">    if (chosenUnits == null) {</span>
+<span class="nc" id="L137">      m_chosenUnits = Collections.emptyList();</span>
+<span class="nc" id="L138">    } else {</span>
+<span class="fc" id="L139">      m_chosenUnits = chosenUnits;</span>
+    }
+<span class="fc" id="L141">    m_bCategorizeMovement = bCategorizeMovement;</span>
+<span class="fc" id="L142">    m_bCategorizeTrnMovement = bCategorizeTrnMovement;</span>
+<span class="fc" id="L143">    m_bAllowImplicitDependents = bAllowImplicitDependents;</span>
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">    if (dependentsMap == null) {</span>
+<span class="nc" id="L145">      m_dependentsMap = Collections.emptyMap();</span>
+<span class="nc" id="L146">    } else {</span>
+<span class="fc" id="L147">      m_dependentsMap = dependentsMap;</span>
+    }
+    // preserve insertion order
+<span class="fc" id="L150">    m_candidateUnits = new LinkedHashSet&lt;&gt;(m_allUnits.size() + 1, 1);</span>
+    // some member variables for saving state
+<span class="fc" id="L152">    m_selectedUnitSolutions = new ArrayList&lt;&gt;(m_allUnits.size());</span>
+    // categorize dependents for allCategories
+    // if m_bCategorizeMovement is true then we use allCategoriesWithMovement as well (see below).
+    // tell UnitSeperator not to sort the results since we want to preserve order
+<span class="fc" id="L156">    final Set&lt;UnitCategory&gt; allCategories =</span>
+<span class="fc" id="L157">        UnitSeperator.categorize(m_allUnits, m_dependentsMap, /* ctgzMvmt */false, /* sort */false);</span>
+    // don't categorize dependents for chosenCategories
+    // tell UnitSeperator not to sort the results since we want to preserve order
+<span class="fc" id="L160">    final Set&lt;UnitCategory&gt; chosenCategories =</span>
+<span class="fc" id="L161">        UnitSeperator.categorize(m_chosenUnits, null, /* ctgzMvmt */false, /* sort */false);</span>
+    // store occurrence count for chosen categories
+<span class="fc" id="L163">    m_chosenCategoryCounts = new IntegerMap&lt;&gt;(chosenCategories.size() + 1, 1);</span>
+    // store occurrence count for candidate categories (based on chosen categories)
+<span class="fc" id="L165">    m_candidateCategoryCounts = new IntegerMap&lt;&gt;(allCategories.size() + 1, 1);</span>
+<span class="fc" id="L166">    m_candidateToChosenCategories = new HashMap&lt;&gt;(allCategories.size() + 1, 1);</span>
+    // preserve insertion order
+<span class="fc" id="L168">    m_candidateCompositeCategories = new LinkedHashSet&lt;&gt;(allCategories.size() + 1, 1);</span>
+    // preserve insertion order
+<span class="fc" id="L170">    m_candidateCategories = new LinkedHashSet&lt;&gt;(allCategories.size() + 1, 1);</span>
+    // preserve insertion order
+<span class="fc" id="L172">    m_candidateCategoriesWithoutDependents = new LinkedHashSet&lt;&gt;(allCategories.size() + 1, 1);</span>
+    // do the bulk of the category-related work to find our solutions in terms of categories
+<span class="fc bfc" id="L174" title="All 2 branches covered.">    if (m_bCategorizeMovement) {</span>
+<span class="fc" id="L175">      final Set&lt;UnitCategory&gt; allCategoriesWithMovement =</span>
+<span class="fc" id="L176">          UnitSeperator.categorize(m_allUnits, m_dependentsMap, /* ctgzMvmt */true, /* sort */false);</span>
+<span class="fc" id="L177">      solveCandidateCompositeCategories(allCategories, allCategoriesWithMovement, chosenCategories);</span>
+<span class="pc bpc" id="L178" title="1 of 2 branches missed.">    } else if (m_bCategorizeTrnMovement) {</span>
+<span class="nc" id="L179">      final Set&lt;UnitCategory&gt; allCategoriesWithMovement = UnitSeperator.categorize(m_allUnits, m_dependentsMap,</span>
+<span class="nc" id="L180">          /* ctgzMvmt */false, /* ctgzTrnMvmt */true, /* sort */false);</span>
+<span class="nc" id="L181">      solveCandidateCompositeCategories(allCategories, allCategoriesWithMovement, chosenCategories);</span>
+<span class="nc" id="L182">    } else {</span>
+<span class="fc" id="L183">      solveCandidateCompositeCategories(allCategories, allCategories, chosenCategories);</span>
+    }
+    // assemble the solution and solve the members
+<span class="fc" id="L186">    chooseUnits();</span>
+<span class="fc" id="L187">  }</span>
+
+  public List&lt;Unit&gt; getCandidateUnits(final boolean selectDependents) {
+    // always select dependents for candidate units
+<span class="fc" id="L191">    final List&lt;Unit&gt; candidateUnits = new ArrayList&lt;&gt;(m_allUnits.size());</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">    for (final Unit unit : m_candidateUnits) {</span>
+<span class="fc" id="L193">      candidateUnits.add(unit);</span>
+<span class="pc bpc" id="L194" title="1 of 2 branches missed.">      if (selectDependents) {</span>
+<span class="fc" id="L195">        Collection&lt;Unit&gt; dependents = m_dependentsMap.get(unit);</span>
+<span class="fc bfc" id="L196" title="All 2 branches covered.">        if (dependents == null) {</span>
+<span class="fc" id="L197">          dependents = Collections.emptyList();</span>
+        }
+<span class="fc bfc" id="L199" title="All 2 branches covered.">        for (final Unit dependent : dependents) {</span>
+<span class="fc" id="L200">          candidateUnits.add(dependent);</span>
+        }
+      }
+    }
+<span class="fc" id="L204">    return candidateUnits;</span>
+  }
+
+  public Collection&lt;Unit&gt; getChosenUnits() {
+<span class="nc" id="L208">    return m_chosenUnits;</span>
+  }
+
+  public Iterator&lt;Set&lt;Unit&gt;&gt; solutionIterator() {
+<span class="nc" id="L212">    return m_selectedUnitSolutions.iterator();</span>
+  }
+
+  public int solutionCount() {
+<span class="fc" id="L216">    return m_selectedUnitSolutions.size();</span>
+  }
+
+  public int exactSolutionCount() {
+<span class="fc" id="L220">    return m_exactSolutionCount;</span>
+  }
+
+  public boolean foundCompleteSolution() {
+<span class="fc" id="L224">    return m_bFoundCompleteSolution;</span>
+  }
+
+  public List&lt;Set&lt;Unit&gt;&gt; getAllSolutions(final boolean selectImplicitDependents) {
+<span class="nc" id="L228">    final List&lt;Set&lt;Unit&gt;&gt; allSolutions = new ArrayList&lt;&gt;(solutionCount());</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">    for (int i = 0; i &lt; solutionCount(); i++) {</span>
+<span class="nc" id="L230">      allSolutions.add(getSolution(i, selectImplicitDependents));</span>
+    }
+<span class="nc" id="L232">    return allSolutions;</span>
+  }
+
+  public Set&lt;Unit&gt; getSolution(final int solutionIndex) {
+<span class="nc" id="L236">    return getSolution(solutionIndex, false);</span>
+  }
+
+  public Set&lt;Unit&gt; getSolution(final int solutionIndex, final boolean selectImplicitDependents) {
+<span class="fc" id="L240">    final Set&lt;Unit&gt; selectedUnits = new LinkedHashSet&lt;&gt;(m_allUnits.size() + 1, 1);</span>
+<span class="fc" id="L241">    final List&lt;Unit&gt; dependentUnits = new ArrayList&lt;&gt;(m_allUnits.size());</span>
+<span class="fc" id="L242">    selectedUnits.addAll(m_selectedUnitSolutions.get(solutionIndex));</span>
+<span class="fc bfc" id="L243" title="All 2 branches covered.">    for (final Unit unit : selectedUnits) {</span>
+<span class="fc" id="L244">      Collection&lt;Unit&gt; dependents = m_dependentsMap.get(unit);</span>
+<span class="fc bfc" id="L245" title="All 2 branches covered.">      if (dependents == null) {</span>
+<span class="fc" id="L246">        dependents = Collections.emptyList();</span>
+      }
+<span class="fc bfc" id="L248" title="All 2 branches covered.">      for (final Unit dependent : dependents) {</span>
+<span class="fc" id="L249">        dependentUnits.add(dependent);</span>
+      }
+    }
+<span class="fc bfc" id="L252" title="All 2 branches covered.">    if (!selectImplicitDependents) {</span>
+      // add only the dependent units that were in chosen units
+<span class="fc" id="L254">      final Set&lt;UnitCategory&gt; dependentCategories =</span>
+<span class="fc" id="L255">          UnitSeperator.categorize(dependentUnits, m_dependentsMap, /* ctgzMvmt */false, /* sort */false);</span>
+<span class="fc" id="L256">      final IntegerMap&lt;UnitCategory&gt; usedCategoryCounts =</span>
+<span class="fc" id="L257">          new IntegerMap&lt;&gt;(m_chosenCategoryCounts.size() + 1, 1);</span>
+<span class="fc bfc" id="L258" title="All 2 branches covered.">      for (final UnitCategory chosenCategory : m_chosenCategoryCounts.keySet()) {</span>
+<span class="fc bfc" id="L259" title="All 2 branches covered.">        for (final UnitCategory dependentCategory : dependentCategories) {</span>
+<span class="fc bfc" id="L260" title="All 2 branches covered.">          for (int i = 0; i &lt; dependentCategory.getUnits().size(); i++) {</span>
+<span class="fc bfc" id="L261" title="All 2 branches covered.">            if (chosenCategory.equals(dependentCategory)</span>
+<span class="fc bfc" id="L262" title="All 2 branches covered.">                &amp;&amp; (m_chosenCategoryCounts.getInt(chosenCategory) - usedCategoryCounts.getInt(chosenCategory) &gt; 0)) {</span>
+<span class="fc" id="L263">              usedCategoryCounts.add(chosenCategory, 1);</span>
+<span class="fc" id="L264">              selectedUnits.add(dependentCategory.getUnits().get(i));</span>
+            }
+          }
+        }
+      }
+<span class="fc" id="L269">    } else {</span>
+<span class="fc" id="L270">      selectedUnits.addAll(dependentUnits);</span>
+    }
+<span class="fc" id="L272">    return selectedUnits;</span>
+  }
+
+  public boolean isMovementCategorized() {
+<span class="nc" id="L276">    return m_bCategorizeMovement;</span>
+  }
+
+  public Match&lt;Collection&lt;Unit&gt;&gt; getChooserBoundaryMatch() {
+<span class="nc" id="L280">    final Match&lt;Collection&lt;Unit&gt;&gt; unitCategoryCountMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+      @Override
+      public boolean match(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L283">        final IntegerMap&lt;UnitCategory&gt; currentMap = new IntegerMap&lt;&gt;(units.size() + 1, 1);</span>
+<span class="nc bnc" id="L284" title="All 2 branches missed.">        for (final Unit unit : units) {</span>
+<span class="nc" id="L285">          currentMap.add(new UnitCategory(unit), 1);</span>
+        }
+<span class="nc" id="L287">        return m_chosenCategoryCounts.greaterThanOrEqualTo(currentMap);</span>
+      }
+    };
+<span class="nc" id="L290">    return unitCategoryCountMatch;</span>
+  }
+
+  private void chooseUnits() {
+<span class="fc bfc" id="L294" title="All 2 branches covered.">    for (final List&lt;UnitCategory&gt; compositeCategory : m_candidateCompositeCategories) {</span>
+<span class="fc" id="L295">      final Set&lt;Unit&gt; compositeCategoryUnits = new LinkedHashSet&lt;&gt;(compositeCategory.size() + 1, 1);</span>
+<span class="fc" id="L296">      final IntegerMap&lt;UnitCategory&gt; usedCategoryCounts =</span>
+<span class="fc" id="L297">          new IntegerMap&lt;&gt;(m_chosenCategoryCounts.size() + 1, 1);</span>
+<span class="fc" id="L298">      boolean bUnitsCanAllBeMapped = true;</span>
+<span class="fc bfc" id="L299" title="All 2 branches covered.">      for (final UnitCategory category : compositeCategory) {</span>
+<span class="fc" id="L300">        final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc" id="L301">        boolean bDoneCategory = false;</span>
+<span class="fc bfc" id="L302" title="All 2 branches covered.">        for (final Unit unit : category.getUnits()) {</span>
+<span class="fc bfc" id="L303" title="All 4 branches covered.">          if (!compositeCategoryUnits.contains(unit) &amp;&amp; !bDoneCategory) {</span>
+            // create the mapping and add it to defaultSelections
+<span class="pc bpc" id="L305" title="1 of 2 branches missed.">            if ((m_chosenCategoryCounts.getInt(chosenCategory) - usedCategoryCounts.getInt(chosenCategory)) &gt; 0) {</span>
+<span class="fc" id="L306">              usedCategoryCounts.add(chosenCategory, 1);</span>
+<span class="fc" id="L307">              compositeCategoryUnits.add(unit);</span>
+<span class="fc" id="L308">              Collection&lt;Unit&gt; dependents = m_dependentsMap.get(unit);</span>
+<span class="fc bfc" id="L309" title="All 2 branches covered.">              if (dependents == null) {</span>
+<span class="fc" id="L310">                dependents = Collections.emptyList();</span>
+              }
+<span class="fc bfc" id="L312" title="All 2 branches covered.">              for (final Unit dependent : dependents) {</span>
+<span class="fc" id="L313">                final UnitCategory dependentCategory = new UnitCategory(dependent.getType(), dependent.getOwner());</span>
+<span class="fc" id="L314">                usedCategoryCounts.add(dependentCategory, 1);</span>
+              }
+<span class="fc" id="L316">              bDoneCategory = true;</span>
+<span class="fc" id="L317">            } else {</span>
+<span class="nc" id="L318">              bUnitsCanAllBeMapped = false;</span>
+<span class="nc" id="L319">              break;</span>
+            }
+          }
+<span class="fc" id="L322">          m_candidateUnits.add(unit);</span>
+        }
+      }
+      // Add independent units to solution.
+      // This may also add unsatisfied units for any incomplete solutions.
+<span class="pc bpc" id="L327" title="1 of 2 branches missed.">      if (bUnitsCanAllBeMapped) {</span>
+<span class="fc bfc" id="L328" title="All 2 branches covered.">        for (final UnitCategory category : m_candidateCategoriesWithoutDependents) {</span>
+<span class="fc" id="L329">          final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc bfc" id="L330" title="All 2 branches covered.">          for (final Unit unit : category.getUnits()) {</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">            if (compositeCategoryUnits.contains(unit)) {</span>
+<span class="fc" id="L332">              continue;</span>
+            }
+            // don't add dependents to candidate units
+            // but there will be no dependents in this loop anyway
+<span class="fc" id="L336">            m_candidateUnits.add(unit);</span>
+<span class="fc bfc" id="L337" title="All 2 branches covered.">            if ((m_chosenCategoryCounts.getInt(chosenCategory) - usedCategoryCounts.getInt(chosenCategory)) &gt; 0) {</span>
+<span class="fc" id="L338">              usedCategoryCounts.add(chosenCategory, 1);</span>
+<span class="fc" id="L339">              compositeCategoryUnits.add(unit);</span>
+<span class="fc" id="L340">              Collection&lt;Unit&gt; dependents = m_dependentsMap.get(unit);</span>
+<span class="pc bpc" id="L341" title="1 of 2 branches missed.">              if (dependents == null) {</span>
+<span class="fc" id="L342">                dependents = Collections.emptyList();</span>
+              }
+<span class="pc bpc" id="L344" title="1 of 2 branches missed.">              for (final Unit dependent : dependents) {</span>
+<span class="nc" id="L345">                final UnitCategory dependentCategory = new UnitCategory(dependent.getType(), dependent.getOwner());</span>
+<span class="nc" id="L346">                usedCategoryCounts.add(dependentCategory, 1);</span>
+              }
+            }
+          }
+        }
+<span class="fc" id="L351">        m_selectedUnitSolutions.add(compositeCategoryUnits);</span>
+<span class="fc bfc" id="L352" title="All 2 branches covered.">        if (usedCategoryCounts.equals(m_chosenCategoryCounts)) {</span>
+<span class="fc" id="L353">          m_exactSolutionCount++;</span>
+<span class="fc" id="L354">          m_bFoundCompleteSolution = true;</span>
+<span class="fc bfc" id="L355" title="All 2 branches covered.">        } else if (usedCategoryCounts.greaterThanOrEqualTo(m_chosenCategoryCounts)) {</span>
+<span class="fc" id="L356">          m_bFoundCompleteSolution = true;</span>
+        }
+      }
+    }
+<span class="fc bfc" id="L360" title="All 4 branches covered.">    if (m_candidateCompositeCategories.isEmpty() &amp;&amp; !m_candidateCategoriesWithoutDependents.isEmpty()) {</span>
+      // no composite categories, just add independent units
+<span class="fc" id="L362">      final Set&lt;Unit&gt; independentCategoryUnits = new HashSet&lt;&gt;(m_chosenUnits.size());</span>
+<span class="fc" id="L363">      final IntegerMap&lt;UnitCategory&gt; usedCategoryCounts =</span>
+<span class="fc" id="L364">          new IntegerMap&lt;&gt;(m_chosenCategoryCounts.size() + 1, 1);</span>
+<span class="fc bfc" id="L365" title="All 2 branches covered.">      for (final UnitCategory category : m_candidateCategoriesWithoutDependents) {</span>
+<span class="fc" id="L366">        final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc bfc" id="L367" title="All 2 branches covered.">        for (final Unit unit : category.getUnits()) {</span>
+          // don't add dependents to candidate units
+          // but there will be no dependents in this loop anyway
+<span class="fc" id="L370">          m_candidateUnits.add(unit);</span>
+<span class="fc bfc" id="L371" title="All 2 branches covered.">          if ((m_chosenCategoryCounts.getInt(chosenCategory) - usedCategoryCounts.getInt(chosenCategory)) &gt; 0) {</span>
+<span class="fc" id="L372">            usedCategoryCounts.add(chosenCategory, 1);</span>
+<span class="fc" id="L373">            independentCategoryUnits.add(unit);</span>
+          }
+        }
+      }
+<span class="fc" id="L377">      m_selectedUnitSolutions.add(independentCategoryUnits);</span>
+<span class="fc bfc" id="L378" title="All 2 branches covered.">      if (m_chosenCategoryCounts.equals(usedCategoryCounts)) {</span>
+<span class="fc" id="L379">        m_exactSolutionCount++;</span>
+<span class="fc" id="L380">        m_bFoundCompleteSolution = true;</span>
+      }
+<span class="fc bfc" id="L382" title="All 2 branches covered.">    } else if (m_selectedUnitSolutions.isEmpty()) {</span>
+      // We can get here if there are no solutions found.
+      // An example would be where m_bAllowImplicitDependents is false,
+      // and only a transport is selected, but every candidate transport
+      // is carrying at least one dependent. In a case like this we
+      // just find the first transport in our list and return it as a
+      // greedy solution.
+      // There were composite categories, but none could be satisfied
+      // Add the simple solution if there is no other solution
+<span class="fc" id="L391">      final Set&lt;Unit&gt; simpleSolutionUnits = new HashSet&lt;&gt;(m_chosenUnits.size());</span>
+<span class="fc" id="L392">      final IntegerMap&lt;UnitCategory&gt; usedCategoryCounts =</span>
+<span class="fc" id="L393">          new IntegerMap&lt;&gt;(m_chosenCategoryCounts.size() + 1, 1);</span>
+      // preserve original category order
+<span class="fc bfc" id="L395" title="All 2 branches covered.">      for (final UnitCategory category : m_candidateCategories) {</span>
+<span class="fc bfc" id="L396" title="All 2 branches covered.">        for (final Unit unit : category.getUnits()) {</span>
+<span class="fc" id="L397">          m_candidateUnits.add(unit);</span>
+<span class="fc" id="L398">          final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc" id="L399">          final int chosenCategoryCount = m_chosenCategoryCounts.getInt(chosenCategory);</span>
+<span class="fc bfc" id="L400" title="All 2 branches covered.">          if ((chosenCategoryCount - usedCategoryCounts.getInt(chosenCategory)) &gt; 0) {</span>
+<span class="fc" id="L401">            usedCategoryCounts.add(chosenCategory, 1);</span>
+<span class="fc" id="L402">            simpleSolutionUnits.add(unit);</span>
+          }
+        }
+      }
+<span class="fc" id="L406">      m_selectedUnitSolutions.add(simpleSolutionUnits);</span>
+<span class="pc bpc" id="L407" title="1 of 2 branches missed.">      if (m_chosenCategoryCounts.equals(usedCategoryCounts)) {</span>
+<span class="fc" id="L408">        m_bFoundCompleteSolution = true;</span>
+      }
+    }
+<span class="fc" id="L411">  }</span>
+
+  // solveCandidateCompositeCategories()
+  // IN: allCategoriesNoMovement (with dependents, movement not categorized)
+  // IN: allCategories (with dependents, movement may be categorized)
+  // IN: chosenCategories (no dependents, movement not categorized)
+  // OUT: n/a
+  // This method will populate m_candidateCompositeCategories, which is
+  // a Set of Lists of UnitCategories. Each inner-List groups the categories of all of
+  // our chosen units that are dependent on, or are depended on by other units.
+  // The categories are grouped such that each inner-list contains all the categories
+  // required to satisfy the chosenCategories completely for these unit categories.
+  // If no exact groupings are found, the closest greedy grouping is used
+  // and the solution is not marked as exact.
+  private void solveCandidateCompositeCategories(final Collection&lt;UnitCategory&gt; allCategoriesNoMovement,
+      final Collection&lt;UnitCategory&gt; allCategories, final Collection&lt;UnitCategory&gt; chosenCategories) {
+    // Don't preserve insertion order. It will be preserved via m_candidateCategories.
+<span class="fc" id="L428">    final Set&lt;UnitCategory&gt; candidateCategoriesWithDependents = new HashSet&lt;&gt;(allCategories.size() + 1, 1);</span>
+    // keep track of total count for array allocation later
+<span class="fc" id="L430">    int candidateCategoryCountWithDependents = 0;</span>
+    // Don't need to preserve insertion order; only used for testing intersections
+<span class="fc" id="L432">    final Set&lt;UnitCategory&gt; chosenDependentCategories = new HashSet&lt;&gt;(allCategories.size() + 1, 1);</span>
+<span class="fc" id="L433">    final Map&lt;UnitCategory, UnitCategory&gt; allCategoriesToCategoriesWithoutMovement =</span>
+<span class="fc" id="L434">        new HashMap&lt;&gt;(allCategories.size() + 1, 1);</span>
+
+    // Build a map of allCategoriesWithMovementCategorized -&gt; allCategoriesWithoutMovementCategorized
+    // We do this because if m_bCategorizeMovement is true, then we can't compare chosen and candidate
+    // categories effectively since candidate categories include movement and chosen categories don't.
+    // So, we maintain this mapping so we can easily find the corresponding candidate category without
+    // movement categorized for comparisons with chosen categories.
+<span class="fc bfc" id="L441" title="All 2 branches covered.">    for (final UnitCategory categoryWithMovement : allCategories) {</span>
+<span class="fc bfc" id="L442" title="All 2 branches covered.">      if (m_bCategorizeMovement</span>
+<span class="pc bpc" id="L443" title="3 of 4 branches missed.">          || (m_bCategorizeTrnMovement &amp;&amp; Match.someMatch(categoryWithMovement.getUnits(), Matches.UnitIsTransport))) {</span>
+<span class="pc bpc" id="L444" title="1 of 2 branches missed.">        for (final UnitCategory categoryNoMovement : allCategoriesNoMovement) {</span>
+<span class="fc bfc" id="L445" title="All 2 branches covered.">          if (categoryWithMovement.equalsIgnoreMovement(categoryNoMovement)) {</span>
+<span class="fc" id="L446">            allCategoriesToCategoriesWithoutMovement.put(categoryWithMovement, categoryNoMovement);</span>
+<span class="fc" id="L447">            break;</span>
+          }
+        }
+<span class="nc" id="L450">      } else {</span>
+        // if movement isn't categorized then just map key-&gt;key
+<span class="fc" id="L452">        allCategoriesToCategoriesWithoutMovement.put(categoryWithMovement, categoryWithMovement);</span>
+      }
+    }
+    // populate our category lists/sets and calculate counts
+<span class="fc bfc" id="L456" title="All 2 branches covered.">    for (final UnitCategory chosenCategory : chosenCategories) {</span>
+<span class="fc" id="L457">      m_chosenCategoryCounts.add(chosenCategory, chosenCategory.getUnits().size());</span>
+      // find all matching candidate categories
+      // there can be more than one because chosen categories
+      // don't categorize dependents, but candidate categories do
+      // Iterator&lt;UnitCategory&gt; categoryIter = allCategoriesNoMovement.iterator();
+<span class="fc" id="L462">      final Iterator&lt;UnitCategory&gt; categoryIter = allCategories.iterator();</span>
+<span class="fc bfc" id="L463" title="All 2 branches covered.">      while (categoryIter.hasNext()) {</span>
+<span class="fc" id="L464">        final UnitCategory candidateCategory = categoryIter.next();</span>
+<span class="fc" id="L465">        final UnitCategory candidateCategoryNoMovement =</span>
+<span class="fc" id="L466">            allCategoriesToCategoriesWithoutMovement.get(candidateCategory);</span>
+<span class="fc bfc" id="L467" title="All 2 branches covered.">        if (chosenCategory.equalsIgnoreDependents(candidateCategoryNoMovement)) {</span>
+          // m_candidateCategories preserves insertion order
+<span class="fc" id="L469">          m_candidateCategories.add(candidateCategory);</span>
+<span class="fc" id="L470">          m_candidateCategoryCounts.add(candidateCategory, candidateCategory.getUnits().size());</span>
+<span class="fc" id="L471">          m_candidateToChosenCategories.put(candidateCategory, chosenCategory);</span>
+<span class="fc bfc" id="L472" title="All 2 branches covered.">          for (int i = 0; i &lt; candidateCategory.getUnits().size(); i++) {</span>
+<span class="fc bfc" id="L473" title="All 2 branches covered.">            if (!candidateCategory.getDependents().isEmpty()) {</span>
+              // Process dependents and determine if all dependents are in our
+              // chosen categories.
+<span class="fc" id="L476">              boolean bAllDependentsAreCategorized = true;</span>
+<span class="fc bfc" id="L477" title="All 2 branches covered.">              for (final UnitOwner unitOwner : candidateCategory.getDependents()) {</span>
+<span class="fc" id="L478">                final UnitCategory dependentCategory = new UnitCategory(unitOwner.getType(), unitOwner.getOwner());</span>
+<span class="fc bfc" id="L479" title="All 2 branches covered.">                if (!chosenCategories.contains(dependentCategory)) {</span>
+<span class="fc" id="L480">                  bAllDependentsAreCategorized = false;</span>
+<span class="fc" id="L481">                } else {</span>
+<span class="fc" id="L482">                  chosenDependentCategories.add(dependentCategory);</span>
+                }
+              }
+              // If bAllDependentsAreCategorized is true, then we want to save this
+              // category as a candidate-with-dependents for later processing,
+              // otherwise we ignore it as it won't be part of the solution.
+              // If bAllowImplicitDependents is true however, then we always save the
+              // category as a candidate, since we allow greedy solutions in that case.
+<span class="fc bfc" id="L490" title="All 4 branches covered.">              if (bAllDependentsAreCategorized || m_bAllowImplicitDependents) {</span>
+<span class="fc" id="L491">                candidateCategoriesWithDependents.add(candidateCategory);</span>
+<span class="fc" id="L492">                candidateCategoryCountWithDependents++;</span>
+              }
+              // add category to end of independents list in case there are no
+              // composite solutions
+<span class="fc bfc" id="L496" title="All 2 branches covered.">              if (m_bAllowImplicitDependents) {</span>
+<span class="fc" id="L497">                m_candidateCategoriesWithoutDependents.add(candidateCategory);</span>
+              }
+<span class="fc" id="L499">            } else {</span>
+              // Add the unit if it has no dependents
+              // This will also add dependent units themselves, which
+              // we don't want. We will remove dependent units
+              // after processing this while loop, below.
+<span class="fc" id="L504">              m_candidateCategoriesWithoutDependents.add(candidateCategory);</span>
+            }
+          }
+        }
+      }
+    }
+    // remove dependents from independent categories
+<span class="fc" id="L511">    final Iterator&lt;UnitCategory&gt; categoryIter = m_candidateCategoriesWithoutDependents.iterator();</span>
+<span class="fc bfc" id="L512" title="All 2 branches covered.">    while (categoryIter.hasNext()) {</span>
+<span class="fc" id="L513">      final UnitCategory candidateCategory = categoryIter.next();</span>
+<span class="fc" id="L514">      final UnitCategory chosenCategory = m_candidateToChosenCategories.get(candidateCategory);</span>
+<span class="fc bfc" id="L515" title="All 2 branches covered.">      for (final UnitCategory chosenDependentCategory : chosenDependentCategories) {</span>
+<span class="fc bfc" id="L516" title="All 2 branches covered.">        if (chosenCategory.equalsIgnoreMovement(chosenDependentCategory)) {</span>
+<span class="fc" id="L517">          categoryIter.remove();</span>
+<span class="fc" id="L518">          break;</span>
+        }
+      }
+    }
+    // Find all categories without dependents that have the same chosen category
+    // as other categories with dependents, and copy them over to that set.
+    // An example is an empty transport among non-empty transports.
+    // We still keep them in the without-dependents set as well since
+    // they'll be processed with the units without dependents at the end
+    // if there are still unclaimed categories to fill after processing the
+    // composite solutions. They also end up in m_candidateUnits that way.
+    // Note that we mess up the category order doing it this way, but we
+    // reinstate the proper ordering afterwards, in the next step.
+<span class="fc" id="L531">    final Set&lt;UnitCategory&gt; categoriesToCopy =</span>
+<span class="fc" id="L532">        new HashSet&lt;&gt;(m_candidateCategoriesWithoutDependents.size() + 1, 1);</span>
+<span class="fc bfc" id="L533" title="All 2 branches covered.">    for (final UnitCategory category : candidateCategoriesWithDependents) {</span>
+<span class="fc" id="L534">      final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc bfc" id="L535" title="All 2 branches covered.">      for (final UnitCategory candidateCategory : m_candidateCategoriesWithoutDependents) {</span>
+<span class="fc" id="L536">        final UnitCategory candidateCategoryNoMovement =</span>
+<span class="fc" id="L537">            allCategoriesToCategoriesWithoutMovement.get(candidateCategory);</span>
+<span class="fc bfc" id="L538" title="All 2 branches covered.">        if (chosenCategory.equalsIgnoreDependents(candidateCategoryNoMovement)) {</span>
+<span class="fc" id="L539">          categoriesToCopy.add(candidateCategory);</span>
+        }
+      }
+    }
+<span class="fc" id="L543">    candidateCategoriesWithDependents.addAll(categoriesToCopy);</span>
+    // create a count of chosenCategories without dependents
+<span class="fc" id="L545">    final IntegerMap&lt;UnitCategory&gt; chosenCategoryCountsNoDependents =</span>
+<span class="fc" id="L546">        new IntegerMap&lt;&gt;(chosenCategories.size() + 1, 1);</span>
+<span class="fc bfc" id="L547" title="All 2 branches covered.">    for (final UnitCategory candidateCategory : candidateCategoriesWithDependents) {</span>
+<span class="fc" id="L548">      final UnitCategory chosenCategory = m_candidateToChosenCategories.get(candidateCategory);</span>
+<span class="pc bpc" id="L549" title="1 of 2 branches missed.">      if (!chosenDependentCategories.contains(chosenCategory)) {</span>
+<span class="fc" id="L550">        chosenCategoryCountsNoDependents.put(chosenCategory, chosenCategory.getUnits().size());</span>
+      }
+    }
+    // expand the Set of candidate categories with dependents into a list for easy linear processing
+    // preserve original order from m_candidateCategories
+<span class="fc" id="L555">    final List&lt;UnitCategory&gt; candidateCategoriesWithDependentsList =</span>
+<span class="fc" id="L556">        new ArrayList&lt;&gt;(candidateCategoryCountWithDependents);</span>
+<span class="fc bfc" id="L557" title="All 2 branches covered.">    for (final UnitCategory category : m_candidateCategories) {</span>
+<span class="fc bfc" id="L558" title="All 2 branches covered.">      if (candidateCategoriesWithDependents.contains(category)) {</span>
+<span class="fc bfc" id="L559" title="All 2 branches covered.">        for (int i = 0; i &lt; m_candidateCategoryCounts.getInt(category); i++) {</span>
+<span class="fc" id="L560">          candidateCategoriesWithDependentsList.add(category);</span>
+        }
+      }
+    }
+
+    // create and populate an IntegerMap for chosen categories with dependents
+<span class="fc" id="L566">    final IntegerMap&lt;UnitCategory&gt; chosenCategoryCountsWithDependents =</span>
+<span class="fc" id="L567">        new IntegerMap&lt;&gt;(m_chosenCategoryCounts.size() + 1, 1);</span>
+<span class="fc bfc" id="L568" title="All 2 branches covered.">    for (final UnitCategory category : candidateCategoriesWithDependents) {</span>
+<span class="fc" id="L569">      final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc" id="L570">      chosenCategoryCountsWithDependents.put(chosenCategory, m_chosenCategoryCounts.getInt(chosenCategory));</span>
+<span class="fc bfc" id="L571" title="All 2 branches covered.">      if (!category.getDependents().isEmpty()) {</span>
+<span class="fc bfc" id="L572" title="All 2 branches covered.">        for (final UnitOwner dependent : category.getDependents()) {</span>
+<span class="fc" id="L573">          final UnitCategory dependentCategory = new UnitCategory(dependent.getType(), dependent.getOwner());</span>
+<span class="fc" id="L574">          final int dependentCount = m_chosenCategoryCounts.getInt(dependentCategory);</span>
+<span class="fc bfc" id="L575" title="All 2 branches covered.">          if (dependentCount &gt; 0) {</span>
+<span class="fc" id="L576">            chosenCategoryCountsWithDependents.put(dependentCategory, dependentCount);</span>
+          }
+        }
+      }
+    }
+
+    // The remainder of this method implements a recursive algorithm (without recursion)
+    // to group individual categories into composite category solutions.
+    // A composite category solution is just a List&lt;UnitCategory&gt;, where every category in the list
+    // is required to satisfy the constraints. The solution may be marked as exact, or greedy.
+    // Exact solutions are always added to the beginning of the composite category LinkedHashSet,
+    // followed by greedy solutions, so a later on a given solution can be determined to be exact or
+    // greedy by comparing its index in the solution set to the total number of exact solutions.
+    // Here's a simple example:
+    // The following units are in a sea zone: trn, trn[inf,arm], trn[inf]
+    // The user chose trn, inf, inf, arm with the mouse.
+    // This algorithm will determine which transports and units they really want.
+    // The resulting solution set contains one exact solution: [trn[inf,arm],trn[inf]]
+    // That was a simple example but it can get much more complicated.
+    // This algorithm should satisfy all cases.
+    // See test cases for more examples.
+    // intitialize structures for use during recursive processing
+<span class="fc" id="L598">    final List&lt;UnitCategory&gt; currentCandidateCategories =</span>
+<span class="fc" id="L599">        new ArrayList&lt;&gt;(candidateCategoriesWithDependents.size());</span>
+<span class="fc" id="L600">    final IntegerMap&lt;UnitCategory&gt; currentCandidateCategoryCounts =</span>
+<span class="fc" id="L601">        new IntegerMap&lt;&gt;(candidateCategoriesWithDependents.size() + 1, 1);</span>
+<span class="fc" id="L602">    final IntegerMap&lt;UnitCategory&gt; currentChosenCategoryCounts =</span>
+<span class="fc" id="L603">        new IntegerMap&lt;&gt;(candidateCategoriesWithDependents.size() + 1, 1);</span>
+<span class="fc" id="L604">    final IntegerMap&lt;UnitCategory&gt; currentChosenCategoryCountsWithDependents =</span>
+<span class="fc" id="L605">        new IntegerMap&lt;&gt;(candidateCategoriesWithDependents.size() + 1, 1);</span>
+<span class="fc" id="L606">    final IntegerMap&lt;UnitCategory&gt; currentChosenCategoryCountsNoDependents =</span>
+<span class="fc" id="L607">        new IntegerMap&lt;&gt;(candidateCategoriesWithDependents.size() + 1, 1);</span>
+    // Keep candidate composite categories for greedy solutions seperate, so we can discard them
+    // if an exact solution is found.
+    // preserve insertion order
+<span class="fc" id="L611">    final LinkedHashSet&lt;List&lt;UnitCategory&gt;&gt; greedyCandidateCompositeCategories =</span>
+<span class="fc" id="L612">        new LinkedHashSet&lt;&gt;(candidateCategoriesWithDependents.size() + 1, 1);</span>
+    // keep an ongoing reference to the current best solution
+<span class="fc" id="L614">    List&lt;UnitCategory&gt; bestCandidateSolution = null;</span>
+<span class="fc" id="L615">    int bestUnitCount = 0;</span>
+    // setup a simple stack of List indexes to avoid the overhead of actual recursion
+<span class="fc" id="L617">    final Stack&lt;Integer&gt; indexStack = new Stack&lt;&gt;();</span>
+<span class="fc" id="L618">    int curIndex = 0;</span>
+    // do it
+<span class="fc" id="L620">    while (true) {</span>
+      // handle stopping condition
+<span class="fc bfc" id="L622" title="All 2 branches covered.">      if (curIndex == candidateCategoriesWithDependentsList.size()) {</span>
+<span class="fc bfc" id="L623" title="All 2 branches covered.">        if (indexStack.empty()) {</span>
+          // finished!
+<span class="fc" id="L625">          break;</span>
+        }
+<span class="fc" id="L627">        curIndex = indexStack.pop();</span>
+<span class="fc" id="L628">      } else {</span>
+        // push our state on the stack
+<span class="fc" id="L630">        indexStack.push(curIndex);</span>
+
+        // clear current state ready for processing
+<span class="fc" id="L633">        currentCandidateCategories.clear();</span>
+<span class="fc" id="L634">        currentCandidateCategoryCounts.clear();</span>
+<span class="fc" id="L635">        currentChosenCategoryCounts.clear();</span>
+<span class="fc" id="L636">        currentChosenCategoryCountsWithDependents.clear();</span>
+<span class="fc" id="L637">        currentChosenCategoryCountsNoDependents.clear();</span>
+<span class="fc" id="L638">        int currentUnitCount = 0;</span>
+        // Populate all structures from our stack of list indexes
+<span class="fc bfc" id="L640" title="All 2 branches covered.">        for (final int i : indexStack) {</span>
+<span class="fc" id="L641">          final UnitCategory category = candidateCategoriesWithDependentsList.get(i);</span>
+<span class="fc" id="L642">          final UnitCategory chosenCategory = m_candidateToChosenCategories.get(category);</span>
+<span class="fc" id="L643">          currentCandidateCategories.add(category);</span>
+<span class="fc" id="L644">          currentCandidateCategoryCounts.add(category, 1);</span>
+<span class="fc" id="L645">          currentChosenCategoryCountsWithDependents.add(chosenCategory, 1);</span>
+<span class="fc" id="L646">          currentChosenCategoryCounts.add(chosenCategory, 1);</span>
+<span class="pc bpc" id="L647" title="1 of 2 branches missed.">          if (!chosenDependentCategories.contains(chosenCategory)) {</span>
+<span class="fc" id="L648">            currentChosenCategoryCountsNoDependents.add(chosenCategory, 1);</span>
+          }
+<span class="fc" id="L650">          currentUnitCount++;</span>
+          // populate counts of dependents
+<span class="fc bfc" id="L652" title="All 2 branches covered.">          if (!category.getDependents().isEmpty()) {</span>
+<span class="fc bfc" id="L653" title="All 2 branches covered.">            for (final UnitOwner unitOwner : category.getDependents()) {</span>
+<span class="fc" id="L654">              final UnitCategory dependentCategory = new UnitCategory(unitOwner.getType(), unitOwner.getOwner());</span>
+              // add all dependents to this map, regardless of whether they are implicit or not
+<span class="fc" id="L656">              currentChosenCategoryCountsWithDependents.add(dependentCategory, 1);</span>
+              // add dependents to this map only if they were actually chosen
+<span class="fc bfc" id="L658" title="All 2 branches covered.">              if (m_chosenCategoryCounts.getInt(dependentCategory) &gt; 0) {</span>
+<span class="fc" id="L659">                currentChosenCategoryCounts.add(dependentCategory, 1);</span>
+              }
+              // add all dependents to this map
+<span class="fc" id="L662">              currentCandidateCategoryCounts.add(dependentCategory, 1);</span>
+<span class="fc" id="L663">              currentUnitCount++;</span>
+            }
+          }
+        }
+
+        // Determine whether chosen category counts with dependents match the current chosen category counts
+        // and proceed appropriately.
+        // Implicit dependents are not included in either of these counts, thus they are ignored here.
+        // We ignore implicit dependents here because they are handled below inside the first block,
+        // where we determine whether an exact or greedy solution was found.
+<span class="fc bfc" id="L673" title="All 2 branches covered.">        if ((m_bAllowImplicitDependents</span>
+<span class="fc bfc" id="L674" title="All 2 branches covered.">            &amp;&amp; chosenCategoryCountsNoDependents.equals(currentChosenCategoryCountsNoDependents)</span>
+<span class="fc bfc" id="L675" title="All 2 branches covered.">            &amp;&amp; currentChosenCategoryCounts.greaterThanOrEqualTo(chosenCategoryCountsWithDependents))</span>
+<span class="fc bfc" id="L676" title="All 2 branches covered.">            || (!m_bAllowImplicitDependents</span>
+<span class="fc bfc" id="L677" title="All 2 branches covered.">                &amp;&amp; chosenCategoryCountsWithDependents.equals(currentChosenCategoryCounts))) {</span>
+          // Found match.
+          // Decide whether to save this solution as an exact solution or as a greedy solution.
+          // Explanation:
+          // If solver is not allowing implicit dependents, then all solutions are exact
+          // solutions since the chosen category counts must match the current category counts exactly.
+          // If solver is allowing implicit dependents, then all chosen category counts with dependents
+          // must match the current category counts with dependents for an exact solution,
+          // since we are trying to account for all dependents.
+          // Note that in the case where there are no dependent units in the territory at all, the List we are
+          // processing
+          // in this while loop would be empty so this algo would be skipped and an independent solution would be found
+          // later.
+<span class="fc bfc" id="L690" title="All 2 branches covered.">          if (!m_bAllowImplicitDependents</span>
+<span class="fc bfc" id="L691" title="All 2 branches covered.">              || (chosenCategoryCountsWithDependents.equals(currentChosenCategoryCountsWithDependents))) {</span>
+            // save the current candidate categories but don't save the dependent units
+<span class="fc" id="L693">            final List&lt;UnitCategory&gt; newCandidateCompositeCategory =</span>
+<span class="fc" id="L694">                new ArrayList&lt;&gt;(currentCandidateCategories);</span>
+<span class="fc bfc" id="L695" title="All 2 branches covered.">            if (!m_candidateCompositeCategories.contains(newCandidateCompositeCategory)) {</span>
+<span class="fc" id="L696">              m_candidateCompositeCategories.add(newCandidateCompositeCategory);</span>
+            }
+<span class="fc" id="L698">          }</span>
+          // This must be a greedy solution.
+          else {
+            // only applicable if bAllowImplicitDependents is true
+<span class="fc" id="L702">            greedyCandidateCompositeCategories.add(new ArrayList&lt;&gt;(currentCandidateCategories));</span>
+          }
+          // pop the stack, we've gone as far as we can go
+<span class="fc" id="L705">          curIndex = indexStack.pop();</span>
+<span class="fc bfc" id="L706" title="All 2 branches covered.">        } else if ((m_bAllowImplicitDependents</span>
+<span class="fc bfc" id="L707" title="All 2 branches covered.">            &amp;&amp; !chosenCategoryCountsNoDependents.greaterThanOrEqualTo(currentChosenCategoryCountsNoDependents)</span>
+<span class="fc bfc" id="L708" title="All 2 branches covered.">            &amp;&amp; currentChosenCategoryCounts.greaterThanOrEqualTo(chosenCategoryCountsWithDependents))</span>
+<span class="fc bfc" id="L709" title="All 2 branches covered.">            || (!m_bAllowImplicitDependents</span>
+<span class="fc bfc" id="L710" title="All 2 branches covered.">                &amp;&amp; !chosenCategoryCountsWithDependents.greaterThanOrEqualTo(currentChosenCategoryCounts))) {</span>
+          // Too many categories.
+          // pop the stack, we've gone as far as we can go
+<span class="fc" id="L713">          curIndex = indexStack.pop();</span>
+<span class="fc" id="L714">        } else {</span>
+          // Found room but not exact yet
+          // Save this as the best incomplete solution if it has the highest unit count
+<span class="fc bfc" id="L717" title="All 2 branches covered.">          if (currentUnitCount &gt; bestUnitCount) {</span>
+<span class="fc" id="L718">            bestUnitCount = currentUnitCount;</span>
+<span class="fc" id="L719">            bestCandidateSolution = new ArrayList&lt;&gt;(currentCandidateCategories);</span>
+          }
+          // don't pop the stack, we are still growing!
+        }
+      }
+      // increment index and continue
+<span class="fc" id="L725">      curIndex = Integer.valueOf(curIndex + 1);</span>
+    }
+    // append greedy solutions if we have any
+<span class="fc" id="L728">    m_candidateCompositeCategories.addAll(greedyCandidateCompositeCategories);</span>
+    // if no exact or greedy solutions, use best incomplete solution
+<span class="fc bfc" id="L730" title="All 4 branches covered.">    if (m_candidateCompositeCategories.isEmpty() &amp;&amp; bestCandidateSolution != null) {</span>
+<span class="fc" id="L731">      m_candidateCompositeCategories.add(bestCandidateSolution);</span>
+    }
+<span class="fc" id="L733">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

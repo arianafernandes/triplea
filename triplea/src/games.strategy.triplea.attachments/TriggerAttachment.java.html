@@ -1,0 +1,2797 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TriggerAttachment.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.attachments</a> &gt; <span class="el_source">TriggerAttachment.java</span></div><h1>TriggerAttachment.java</h1><pre class="source lang-java linenums"><span class="pc" id="L1">package games.strategy.triplea.attachments;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.Attachable;
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.data.IAttachment;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionFrontier;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.TechnologyFrontier;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.annotations.GameProperty;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegate;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.delegate.AbstractMoveDelegate;
+import games.strategy.triplea.delegate.BattleTracker;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.EndRoundDelegate;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.OriginalOwnerTracker;
+import games.strategy.triplea.delegate.TechAdvance;
+import games.strategy.triplea.delegate.TechTracker;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.ui.NotificationMessages;
+import games.strategy.triplea.ui.display.ITripleADisplay;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+@MapSupport
+public class TriggerAttachment extends AbstractTriggerAttachment {
+  private static final long serialVersionUID = -3327739180569606093L;
+  private static final String PREFIX_CLEAR = &quot;-clear-&quot;;
+  private static final String PREFIX_RESET = &quot;-reset-&quot;;
+<span class="fc" id="L60">  private ProductionFrontier m_frontier = null;</span>
+<span class="fc" id="L61">  private ArrayList&lt;String&gt; m_productionRule = null;</span>
+<span class="fc" id="L62">  private ArrayList&lt;TechAdvance&gt; m_tech = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L63">  private HashMap&lt;String, LinkedHashMap&lt;TechAdvance, Boolean&gt;&gt; m_availableTech = null;</span>
+<span class="fc" id="L64">  private HashMap&lt;Territory, IntegerMap&lt;UnitType&gt;&gt; m_placement = null;</span>
+<span class="fc" id="L65">  private HashMap&lt;Territory, IntegerMap&lt;UnitType&gt;&gt; m_removeUnits = null;</span>
+<span class="fc" id="L66">  private IntegerMap&lt;UnitType&gt; m_purchase = null;</span>
+<span class="fc" id="L67">  private String m_resource = null;</span>
+<span class="fc" id="L68">  private int m_resourceCount = 0;</span>
+<span class="fc" id="L69">  private LinkedHashMap&lt;String, Boolean&gt; m_support = null; // never use a map of other attachments, inside of an</span>
+                                                           // attachment. java will not be able to deserialize it.
+<span class="fc" id="L71">  private ArrayList&lt;String&gt; m_relationshipChange = new ArrayList&lt;&gt;(); // List of relationshipChanges that should be</span>
+                                                                      // executed when this trigger hits.
+<span class="fc" id="L73">  private String m_victory = null;</span>
+<span class="fc" id="L74">  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; m_activateTrigger = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L75">  private ArrayList&lt;String&gt; m_changeOwnership = new ArrayList&lt;&gt;();</span>
+  // raw property changes below:
+<span class="fc" id="L77">  private ArrayList&lt;UnitType&gt; m_unitType = new ArrayList&lt;&gt;(); // really m_unitTypes, but we are not going to rename</span>
+                                                              // because it will break all existing maps
+<span class="fc" id="L79">  private Tuple&lt;String, String&gt; m_unitAttachmentName = null; // covers UnitAttachment, UnitSupportAttachment</span>
+<span class="fc" id="L80">  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; m_unitProperty = null;</span>
+<span class="fc" id="L81">  private ArrayList&lt;Territory&gt; m_territories = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L82">  private Tuple&lt;String, String&gt; m_territoryAttachmentName = null; // covers TerritoryAttachment, CanalAttachment</span>
+<span class="fc" id="L83">  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; m_territoryProperty = null;</span>
+<span class="fc" id="L84">  private ArrayList&lt;PlayerID&gt; m_players = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L85">  private Tuple&lt;String, String&gt; m_playerAttachmentName = null; // covers PlayerAttachment, TriggerAttachment,</span>
+                                                               // RulesAttachment, TechAttachment, UserActionAttachment
+<span class="fc" id="L87">  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; m_playerProperty = null;</span>
+<span class="fc" id="L88">  private ArrayList&lt;RelationshipType&gt; m_relationshipTypes = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L89">  private Tuple&lt;String, String&gt; m_relationshipTypeAttachmentName = null; // covers RelationshipTypeAttachment</span>
+<span class="fc" id="L90">  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; m_relationshipTypeProperty = null;</span>
+<span class="fc" id="L91">  private ArrayList&lt;TerritoryEffect&gt; m_territoryEffects = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L92">  private Tuple&lt;String, String&gt; m_territoryEffectAttachmentName = null; // covers TerritoryEffectAttachment</span>
+<span class="fc" id="L93">  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; m_territoryEffectProperty = null;</span>
+
+  public TriggerAttachment(final String name, final Attachable attachable, final GameData gameData) {
+<span class="fc" id="L96">    super(name, attachable, gameData);</span>
+<span class="fc" id="L97">  }</span>
+
+  /**
+   * Convenience method for returning TriggerAttachments.
+   *
+   * @param player
+   * @param nameOfAttachment
+   * @return a new trigger attachment
+   */
+  public static TriggerAttachment get(final PlayerID player, final String nameOfAttachment) {
+<span class="nc" id="L107">    return get(player, nameOfAttachment, null);</span>
+  }
+
+  public static TriggerAttachment get(final PlayerID player, final String nameOfAttachment,
+      final Collection&lt;PlayerID&gt; playersToSearch) {
+<span class="nc" id="L112">    TriggerAttachment rVal = (TriggerAttachment) player.getAttachment(nameOfAttachment);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">    if (rVal == null) {</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">      if (playersToSearch == null) {</span>
+<span class="nc" id="L115">        throw new IllegalStateException(</span>
+<span class="nc" id="L116">            &quot;Triggers: No trigger attachment for:&quot; + player.getName() + &quot; with name: &quot; + nameOfAttachment);</span>
+      } else {
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        for (final PlayerID otherPlayer : playersToSearch) {</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">          if (otherPlayer == player) {</span>
+<span class="nc" id="L120">            continue;</span>
+          }
+<span class="nc" id="L122">          rVal = (TriggerAttachment) otherPlayer.getAttachment(nameOfAttachment);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">          if (rVal != null) {</span>
+<span class="nc" id="L124">            return rVal;</span>
+          }
+        }
+<span class="nc" id="L127">        throw new IllegalStateException(</span>
+<span class="nc" id="L128">            &quot;Triggers: No trigger attachment for:&quot; + player.getName() + &quot; with name: &quot; + nameOfAttachment);</span>
+      }
+    }
+<span class="nc" id="L131">    return rVal;</span>
+  }
+
+  /**
+   * Convenience method for return all TriggerAttachments attached to a player.
+   *
+   * @param player
+   * @param data
+   * @param cond
+   * @return set of trigger attachments (If you use null for the match condition, you will get all triggers for this
+   *         player)
+   */
+  public static Set&lt;TriggerAttachment&gt; getTriggers(final PlayerID player, final GameData data,
+      final Match&lt;TriggerAttachment&gt; cond) {
+<span class="fc" id="L145">    final Set&lt;TriggerAttachment&gt; trigs = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L146">    final Map&lt;String, IAttachment&gt; map = player.getAttachments();</span>
+<span class="fc" id="L147">    final Iterator&lt;String&gt; iter = map.keySet().iterator();</span>
+<span class="fc bfc" id="L148" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L149">      final IAttachment a = map.get(iter.next());</span>
+<span class="fc bfc" id="L150" title="All 2 branches covered.">      if (a instanceof TriggerAttachment) {</span>
+<span class="fc bfc" id="L151" title="All 4 branches covered.">        if (cond == null || cond.match((TriggerAttachment) a)) {</span>
+<span class="fc" id="L152">          trigs.add((TriggerAttachment) a);</span>
+        }
+      }
+    }
+<span class="fc" id="L156">    return trigs;</span>
+  }
+
+  /**
+   * This will collect all triggers for the desired players, based on a match provided,
+   * and then it will gather all the conditions necessary, then test all the conditions,
+   * and then it will fire all the conditions which are satisfied.
+   *
+   * @param players
+   * @param triggerMatch
+   * @param aBridge
+   */
+  public static void collectAndFireTriggers(final HashSet&lt;PlayerID&gt; players,
+      final Match&lt;TriggerAttachment&gt; triggerMatch, final IDelegateBridge aBridge, final String beforeOrAfter,
+      final String stepName) {
+<span class="fc" id="L171">    final HashSet&lt;TriggerAttachment&gt; toFirePossible = collectForAllTriggersMatching(players, triggerMatch, aBridge);</span>
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">    if (toFirePossible.isEmpty()) {</span>
+<span class="fc" id="L173">      return;</span>
+    }
+<span class="nc" id="L175">    final HashMap&lt;ICondition, Boolean&gt; testedConditions = collectTestsForAllTriggers(toFirePossible, aBridge);</span>
+<span class="nc" id="L176">    final List&lt;TriggerAttachment&gt; toFireTestedAndSatisfied =</span>
+<span class="nc" id="L177">        Match.getMatches(toFirePossible, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions));</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    if (toFireTestedAndSatisfied.isEmpty()) {</span>
+<span class="nc" id="L179">      return;</span>
+    }
+<span class="nc" id="L181">    TriggerAttachment.fireTriggers(new HashSet&lt;&gt;(toFireTestedAndSatisfied), testedConditions, aBridge,</span>
+<span class="nc" id="L182">        beforeOrAfter, stepName, true, true, true, true);</span>
+<span class="nc" id="L183">  }</span>
+
+  public static HashSet&lt;TriggerAttachment&gt; collectForAllTriggersMatching(final HashSet&lt;PlayerID&gt; players,
+      final Match&lt;TriggerAttachment&gt; triggerMatch, final IDelegateBridge aBridge) {
+<span class="fc" id="L187">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L188">    final HashSet&lt;TriggerAttachment&gt; toFirePossible = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L189" title="All 2 branches covered.">    for (final PlayerID player : players) {</span>
+<span class="fc" id="L190">      toFirePossible.addAll(TriggerAttachment.getTriggers(player, data, triggerMatch));</span>
+    }
+<span class="fc" id="L192">    return toFirePossible;</span>
+  }
+
+  public static HashMap&lt;ICondition, Boolean&gt; collectTestsForAllTriggers(final HashSet&lt;TriggerAttachment&gt; toFirePossible,
+      final IDelegateBridge aBridge) {
+<span class="fc" id="L197">    return collectTestsForAllTriggers(toFirePossible, aBridge, null, null);</span>
+  }
+
+  public static HashMap&lt;ICondition, Boolean&gt; collectTestsForAllTriggers(final HashSet&lt;TriggerAttachment&gt; toFirePossible,
+      final IDelegateBridge aBridge, final HashSet&lt;ICondition&gt; allConditionsNeededSoFar,
+      final HashMap&lt;ICondition, Boolean&gt; allConditionsTestedSoFar) {
+<span class="fc" id="L203">    final HashSet&lt;ICondition&gt; allConditionsNeeded = AbstractConditionsAttachment</span>
+<span class="fc" id="L204">        .getAllConditionsRecursive(new HashSet&lt;&gt;(toFirePossible), allConditionsNeededSoFar);</span>
+<span class="fc" id="L205">    return AbstractConditionsAttachment.testAllConditionsRecursive(allConditionsNeeded, allConditionsTestedSoFar,</span>
+<span class="fc" id="L206">        aBridge);</span>
+  }
+
+  /**
+   * This will fire all triggers, and it will not test to see if they are satisfied or not first. Please use
+   * collectAndFireTriggers instead
+   * of using this directly.
+   * To see if they are satisfied, first create the list of triggers using Matches + TriggerAttachment.getTriggers.
+   * Then test the triggers using RulesAttachment.getAllConditionsRecursive, and RulesAttachment.testAllConditions
+   *
+   * @param triggersToBeFired
+   * @param aBridge
+   * @param beforeOrAfter
+   * @param stepName
+   */
+  public static void fireTriggers(final HashSet&lt;TriggerAttachment&gt; triggersToBeFired,
+      final HashMap&lt;ICondition, Boolean&gt; testedConditionsSoFar, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+    // all triggers at this point have their conditions satisfied
+    // so we now test chance (because we test chance last), and remove any conditions that do not succeed in their dice
+    // rolls
+<span class="nc" id="L228">    final HashSet&lt;TriggerAttachment&gt; triggersToFire = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">    for (final TriggerAttachment t : triggersToBeFired) {</span>
+<span class="nc bnc" id="L230" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L231">        continue;</span>
+      }
+<span class="nc" id="L233">      triggersToFire.add(t);</span>
+    }
+    // Order: Notifications, Attachment Property Changes (Player, Relationship, Territory, TerritoryEffect, Unit),
+    // Relationship,
+    // AvailableTech, Tech, ProductionFrontier, ProductionEdit, Support, Purchase, UnitPlacement, Resource, Victory
+    // Notifications to current player
+<span class="nc" id="L239">    triggerNotifications(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+    // Attachment property changes
+<span class="nc" id="L241">    triggerPlayerPropertyChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L242">    triggerRelationshipTypePropertyChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false,</span>
+<span class="nc" id="L243">        testWhen);</span>
+<span class="nc" id="L244">    triggerTerritoryPropertyChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false,</span>
+<span class="nc" id="L245">        testWhen);</span>
+<span class="nc" id="L246">    triggerTerritoryEffectPropertyChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false,</span>
+<span class="nc" id="L247">        testWhen);</span>
+<span class="nc" id="L248">    triggerUnitPropertyChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+    // Misc changes that only need to happen once (twice or more is meaningless)
+<span class="nc" id="L250">    triggerRelationshipChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L251">    triggerAvailableTechChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L252">    triggerTechChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L253">    triggerProductionChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L254">    triggerProductionFrontierEditChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false,</span>
+<span class="nc" id="L255">        testWhen);</span>
+<span class="nc" id="L256">    triggerSupportChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L257">    triggerChangeOwnership(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+    // Misc changes that can happen multiple times, because they add or subtract, something from the game (and therefore
+    // can use &quot;each&quot;)
+<span class="nc" id="L260">    triggerUnitRemoval(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L261">    triggerPurchase(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L262">    triggerUnitPlacement(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+<span class="nc" id="L263">    triggerResourceChange(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+    // Activating other triggers, and trigger victory, should ALWAYS be LAST in this list!
+<span class="nc" id="L265">    triggerActivateTriggerOther(testedConditionsSoFar, triggersToFire, aBridge, beforeOrAfter, stepName, useUses,</span>
+<span class="nc" id="L266">        testUses, false, testWhen); // Triggers firing other triggers</span>
+    // Victory messages and recording of winners
+<span class="nc" id="L268">    triggerVictory(triggersToFire, aBridge, beforeOrAfter, stepName, useUses, testUses, false, testWhen);</span>
+    // for both 'when' and 'activated triggers', we can change the uses now. (for other triggers, we change at end of
+    // each round)
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    if (useUses) {</span>
+<span class="nc" id="L272">      setUsesForWhenTriggers(triggersToFire, aBridge, useUses);</span>
+    }
+<span class="nc" id="L274">  }</span>
+
+  protected static void setUsesForWhenTriggers(final HashSet&lt;TriggerAttachment&gt; triggersToBeFired,
+      final IDelegateBridge aBridge, final boolean useUses) {
+<span class="nc bnc" id="L278" title="All 2 branches missed.">    if (!useUses) {</span>
+<span class="nc" id="L279">      return;</span>
+    }
+<span class="nc" id="L281">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">    for (final TriggerAttachment trig : triggersToBeFired) {</span>
+<span class="nc" id="L283">      final int currentUses = trig.getUses();</span>
+      // we only care about triggers that have WHEN set. Triggers without When set are changed during EndRoundDelegate.
+<span class="nc bnc" id="L285" title="All 4 branches missed.">      if (currentUses &gt; 0 &amp;&amp; !trig.getWhen().isEmpty()) {</span>
+<span class="nc" id="L286">        change.add(ChangeFactory.attachmentPropertyChange(trig, Integer.toString(currentUses - 1), &quot;uses&quot;));</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        if (trig.getUsedThisRound()) {</span>
+<span class="nc" id="L288">          change.add(ChangeFactory.attachmentPropertyChange(trig, false, &quot;usedThisRound&quot;));</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L292" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L293">      aBridge.getHistoryWriter().startEvent(&quot;Setting uses for triggers used this phase.&quot;);</span>
+<span class="nc" id="L294">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L296">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setActivateTrigger(final String value) throws GameParseException {
+    // triggerName:numberOfTimes:useUses:testUses:testConditions:testChance
+<span class="fc" id="L307">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L308" title="1 of 2 branches missed.">    if (s.length != 6) {</span>
+<span class="nc" id="L309">      throw new GameParseException(</span>
+<span class="nc" id="L310">          &quot;activateTrigger must have 6 parts: triggerName:numberOfTimes:useUses:testUses:testConditions:testChance&quot;</span>
+<span class="nc" id="L311">              + thisErrorMsg());</span>
+    }
+<span class="fc" id="L313">    TriggerAttachment trigger = null;</span>
+<span class="pc bpc" id="L314" title="1 of 2 branches missed.">    for (final PlayerID player : getData().getPlayerList().getPlayers()) {</span>
+<span class="fc bfc" id="L315" title="All 2 branches covered.">      for (final TriggerAttachment ta : getTriggers(player, getData(), null)) {</span>
+<span class="fc bfc" id="L316" title="All 2 branches covered.">        if (ta.getName().equals(s[0])) {</span>
+<span class="fc" id="L317">          trigger = ta;</span>
+<span class="fc" id="L318">          break;</span>
+        }
+      }
+<span class="fc bfc" id="L321" title="All 2 branches covered.">      if (trigger != null) {</span>
+<span class="fc" id="L322">        break;</span>
+      }
+    }
+<span class="pc bpc" id="L325" title="1 of 2 branches missed.">    if (trigger == null) {</span>
+<span class="nc" id="L326">      throw new GameParseException(&quot;No TriggerAttachment named: &quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L328" title="1 of 2 branches missed.">    if (trigger == this) {</span>
+<span class="nc" id="L329">      throw new GameParseException(&quot;Cannot have a trigger activate itself!&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L331">    String options = value;</span>
+<span class="fc" id="L332">    options = options.replaceFirst((s[0] + &quot;:&quot;), &quot;&quot;);</span>
+<span class="fc" id="L333">    final int numberOfTimes = getInt(s[1]);</span>
+<span class="pc bpc" id="L334" title="1 of 2 branches missed.">    if (numberOfTimes &lt; 0) {</span>
+<span class="nc" id="L335">      throw new GameParseException(</span>
+<span class="nc" id="L336">          &quot;activateTrigger must be positive for the number of times to fire: &quot; + s[1] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L338">    getBool(s[2]);</span>
+<span class="fc" id="L339">    getBool(s[3]);</span>
+<span class="fc" id="L340">    getBool(s[4]);</span>
+<span class="fc" id="L341">    getBool(s[5]);</span>
+<span class="fc" id="L342">    m_activateTrigger.add(Tuple.of(s[0], options));</span>
+<span class="fc" id="L343">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setActivateTrigger(final ArrayList&lt;Tuple&lt;String, String&gt;&gt; value) {
+<span class="nc" id="L347">    m_activateTrigger = value;</span>
+<span class="nc" id="L348">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, String&gt;&gt; getActivateTrigger() {
+<span class="nc" id="L351">    return m_activateTrigger;</span>
+  }
+
+  public void clearActivateTrigger() {
+<span class="nc" id="L355">    m_activateTrigger.clear();</span>
+<span class="nc" id="L356">  }</span>
+
+  public void resetActivateTrigger() {
+<span class="nc" id="L359">    m_activateTrigger = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L360">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setFrontier(final String s) throws GameParseException {
+<span class="pc bpc" id="L364" title="1 of 2 branches missed.">    if (s == null) {</span>
+<span class="nc" id="L365">      m_frontier = null;</span>
+<span class="nc" id="L366">      return;</span>
+    }
+<span class="fc" id="L368">    final ProductionFrontier front = getData().getProductionFrontierList().getProductionFrontier(s);</span>
+<span class="pc bpc" id="L369" title="1 of 2 branches missed.">    if (front == null) {</span>
+<span class="nc" id="L370">      throw new GameParseException(&quot;Could not find frontier. name:&quot; + s + thisErrorMsg());</span>
+    }
+<span class="fc" id="L372">    m_frontier = front;</span>
+<span class="fc" id="L373">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setFrontier(final ProductionFrontier value) {
+<span class="nc" id="L377">    m_frontier = value;</span>
+<span class="nc" id="L378">  }</span>
+
+  public ProductionFrontier getFrontier() {
+<span class="fc" id="L381">    return m_frontier;</span>
+  }
+
+  public void resetFrontier() {
+<span class="nc" id="L385">    m_frontier = null;</span>
+<span class="nc" id="L386">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param prop
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setProductionRule(final String prop) throws GameParseException {
+<span class="pc bpc" id="L396" title="1 of 2 branches missed.">    if (prop == null) {</span>
+<span class="nc" id="L397">      m_productionRule = null;</span>
+<span class="nc" id="L398">      return;</span>
+    }
+<span class="fc" id="L400">    final String[] s = prop.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L401" title="1 of 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L402">      throw new GameParseException(&quot;Invalid productionRule declaration: &quot; + prop + thisErrorMsg());</span>
+    }
+<span class="fc bfc" id="L404" title="All 2 branches covered.">    if (m_productionRule == null) {</span>
+<span class="fc" id="L405">      m_productionRule = new ArrayList&lt;&gt;();</span>
+    }
+<span class="pc bpc" id="L407" title="1 of 2 branches missed.">    if (getData().getProductionFrontierList().getProductionFrontier(s[0]) == null) {</span>
+<span class="nc" id="L408">      throw new GameParseException(&quot;Could not find frontier. name:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L410">    String rule = s[1];</span>
+<span class="fc bfc" id="L411" title="All 2 branches covered.">    if (rule.startsWith(&quot;-&quot;)) {</span>
+<span class="fc" id="L412">      rule = rule.replaceFirst(&quot;-&quot;, &quot;&quot;);</span>
+    }
+<span class="pc bpc" id="L414" title="1 of 2 branches missed.">    if (getData().getProductionRuleList().getProductionRule(rule) == null) {</span>
+<span class="nc" id="L415">      throw new GameParseException(&quot;Could not find production rule. name:&quot; + rule + thisErrorMsg());</span>
+    }
+<span class="fc" id="L417">    m_productionRule.add(prop);</span>
+<span class="fc" id="L418">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setProductionRule(final ArrayList&lt;String&gt; value) {
+<span class="nc" id="L422">    m_productionRule = value;</span>
+<span class="nc" id="L423">  }</span>
+
+  public ArrayList&lt;String&gt; getProductionRule() {
+<span class="fc" id="L426">    return m_productionRule;</span>
+  }
+
+  public void clearProductionRule() {
+<span class="nc" id="L430">    m_productionRule.clear();</span>
+<span class="nc" id="L431">  }</span>
+
+  public void resetProductionRule() {
+<span class="nc" id="L434">    m_productionRule = null;</span>
+<span class="nc" id="L435">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setResourceCount(final String s) {
+<span class="fc" id="L439">    m_resourceCount = getInt(s);</span>
+<span class="fc" id="L440">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setResourceCount(final Integer s) {
+<span class="fc" id="L444">    m_resourceCount = s;</span>
+<span class="fc" id="L445">  }</span>
+
+  public int getResourceCount() {
+<span class="fc" id="L448">    return m_resourceCount;</span>
+  }
+
+  public void resetResourceCount() {
+<span class="nc" id="L452">    m_resourceCount = 0;</span>
+<span class="nc" id="L453">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setVictory(final String s) {
+<span class="pc bpc" id="L457" title="1 of 2 branches missed.">    if (s == null) {</span>
+<span class="nc" id="L458">      m_victory = null;</span>
+<span class="nc" id="L459">      return;</span>
+    }
+<span class="fc" id="L461">    m_victory = s;</span>
+<span class="fc" id="L462">  }</span>
+
+  public String getVictory() {
+<span class="fc" id="L465">    return m_victory;</span>
+  }
+
+  public void resetVictory() {
+<span class="nc" id="L469">    m_victory = null;</span>
+<span class="nc" id="L470">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param techs
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setTech(final String techs) throws GameParseException {
+<span class="fc bfc" id="L480" title="All 2 branches covered.">    for (final String subString : techs.split(&quot;:&quot;)) {</span>
+<span class="fc" id="L481">      TechAdvance ta = getData().getTechnologyFrontier().getAdvanceByProperty(subString);</span>
+<span class="pc bpc" id="L482" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L483">        ta = getData().getTechnologyFrontier().getAdvanceByName(subString);</span>
+      }
+<span class="pc bpc" id="L485" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L486">        throw new GameParseException(&quot;Technology not found :&quot; + subString + thisErrorMsg());</span>
+      }
+<span class="fc" id="L488">      m_tech.add(ta);</span>
+    }
+<span class="fc" id="L490">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTech(final ArrayList&lt;TechAdvance&gt; value) {
+<span class="nc" id="L494">    m_tech = value;</span>
+<span class="nc" id="L495">  }</span>
+
+  public ArrayList&lt;TechAdvance&gt; getTech() {
+<span class="nc" id="L498">    return m_tech;</span>
+  }
+
+  public void clearTech() {
+<span class="nc" id="L502">    m_tech.clear();</span>
+<span class="nc" id="L503">  }</span>
+
+  public void resetTech() {
+<span class="nc" id="L506">    m_tech = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L507">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param techs
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setAvailableTech(final String techs) throws GameParseException {
+<span class="pc bpc" id="L517" title="1 of 2 branches missed.">    if (techs == null) {</span>
+<span class="nc" id="L518">      m_availableTech = null;</span>
+<span class="nc" id="L519">      return;</span>
+    }
+<span class="fc" id="L521">    final String[] s = techs.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L522" title="1 of 2 branches missed.">    if (s.length &lt; 2) {</span>
+<span class="nc" id="L523">      throw new GameParseException(</span>
+<span class="nc" id="L524">          &quot;Invalid tech availability: &quot; + techs + &quot; should be category:techs&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L526">    final String cat = s[0];</span>
+<span class="fc" id="L527">    final LinkedHashMap&lt;TechAdvance, Boolean&gt; tlist = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L528" title="All 2 branches covered.">    for (int i = 1; i &lt; s.length; i++) {</span>
+<span class="fc" id="L529">      boolean add = true;</span>
+<span class="fc bfc" id="L530" title="All 2 branches covered.">      if (s[i].startsWith(&quot;-&quot;)) {</span>
+<span class="fc" id="L531">        add = false;</span>
+<span class="fc" id="L532">        s[i] = s[i].substring(1);</span>
+      }
+<span class="fc" id="L534">      TechAdvance ta = getData().getTechnologyFrontier().getAdvanceByProperty(s[i]);</span>
+<span class="pc bpc" id="L535" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L536">        ta = getData().getTechnologyFrontier().getAdvanceByName(s[i]);</span>
+      }
+<span class="pc bpc" id="L538" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L539">        throw new GameParseException(&quot;Technology not found :&quot; + s[i] + thisErrorMsg());</span>
+      }
+<span class="fc" id="L541">      tlist.put(ta, add);</span>
+    }
+<span class="pc bpc" id="L543" title="1 of 2 branches missed.">    if (m_availableTech == null) {</span>
+<span class="fc" id="L544">      m_availableTech = new HashMap&lt;&gt;();</span>
+    }
+<span class="pc bpc" id="L546" title="1 of 2 branches missed.">    if (m_availableTech.containsKey(cat)) {</span>
+<span class="nc" id="L547">      tlist.putAll(m_availableTech.get(cat));</span>
+    }
+<span class="fc" id="L549">    m_availableTech.put(cat, tlist);</span>
+<span class="fc" id="L550">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAvailableTech(final HashMap&lt;String, LinkedHashMap&lt;TechAdvance, Boolean&gt;&gt; value) {
+<span class="nc" id="L554">    m_availableTech = value;</span>
+<span class="nc" id="L555">  }</span>
+
+  public HashMap&lt;String, LinkedHashMap&lt;TechAdvance, Boolean&gt;&gt; getAvailableTech() {
+<span class="nc" id="L558">    return m_availableTech;</span>
+  }
+
+  public void clearAvailableTech() {
+<span class="nc" id="L562">    m_availableTech.clear();</span>
+<span class="nc" id="L563">  }</span>
+
+  public void resetAvailableTech() {
+<span class="nc" id="L566">    m_availableTech = null;</span>
+<span class="nc" id="L567">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param sup
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setSupport(final String sup) throws GameParseException {
+<span class="pc bpc" id="L577" title="1 of 2 branches missed.">    if (sup == null) {</span>
+<span class="nc" id="L578">      m_support = null;</span>
+<span class="nc" id="L579">      return;</span>
+    }
+<span class="fc" id="L581">    final String[] s = sup.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L582" title="All 2 branches covered.">    for (int i = 0; i &lt; s.length; i++) {</span>
+<span class="fc" id="L583">      boolean add = true;</span>
+<span class="fc bfc" id="L584" title="All 2 branches covered.">      if (s[i].startsWith(&quot;-&quot;)) {</span>
+<span class="fc" id="L585">        add = false;</span>
+<span class="fc" id="L586">        s[i] = s[i].substring(1);</span>
+      }
+<span class="fc" id="L588">      boolean found = false;</span>
+<span class="pc bpc" id="L589" title="1 of 2 branches missed.">      for (final UnitSupportAttachment support : UnitSupportAttachment.get(getData())) {</span>
+<span class="fc bfc" id="L590" title="All 2 branches covered.">        if (support.getName().equals(s[i])) {</span>
+<span class="fc" id="L591">          found = true;</span>
+<span class="pc bpc" id="L592" title="1 of 2 branches missed.">          if (m_support == null) {</span>
+<span class="fc" id="L593">            m_support = new LinkedHashMap&lt;&gt;();</span>
+          }
+<span class="fc" id="L595">          m_support.put(s[i], add);</span>
+<span class="fc" id="L596">          break;</span>
+        }
+      }
+<span class="pc bpc" id="L599" title="1 of 2 branches missed.">      if (!found) {</span>
+<span class="nc" id="L600">        throw new GameParseException(&quot;Could not find unitSupportAttachment. name:&quot; + s[i] + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L603">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setSupport(final LinkedHashMap&lt;String, Boolean&gt; value) {
+<span class="nc" id="L607">    m_support = value;</span>
+<span class="nc" id="L608">  }</span>
+
+  public LinkedHashMap&lt;String, Boolean&gt; getSupport() {
+<span class="nc" id="L611">    return m_support;</span>
+  }
+
+  public void clearSupport() {
+<span class="nc" id="L615">    m_support.clear();</span>
+<span class="nc" id="L616">  }</span>
+
+  public void resetSupport() {
+<span class="nc" id="L619">    m_support = null;</span>
+<span class="nc" id="L620">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setResource(final String s) throws GameParseException {
+<span class="pc bpc" id="L624" title="1 of 2 branches missed.">    if (s == null) {</span>
+<span class="nc" id="L625">      m_resource = null;</span>
+<span class="nc" id="L626">      return;</span>
+    }
+<span class="fc" id="L628">    final Resource r = getData().getResourceList().getResource(s);</span>
+<span class="pc bpc" id="L629" title="1 of 2 branches missed.">    if (r == null) {</span>
+<span class="nc" id="L630">      throw new GameParseException(&quot;Invalid resource: &quot; + s + thisErrorMsg());</span>
+    } else {
+<span class="fc" id="L632">      m_resource = s;</span>
+    }
+<span class="fc" id="L634">  }</span>
+
+  public String getResource() {
+<span class="nc" id="L637">    return m_resource;</span>
+  }
+
+  public void resetResource() {
+<span class="nc" id="L641">    m_resource = null;</span>
+<span class="nc" id="L642">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param relChange
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setRelationshipChange(final String relChange) throws GameParseException {
+<span class="fc" id="L652">    final String[] s = relChange.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L653" title="1 of 2 branches missed.">    if (s.length != 4) {</span>
+<span class="nc" id="L654">      throw new GameParseException(&quot;Invalid relationshipChange declaration: &quot; + relChange</span>
+<span class="nc" id="L655">          + &quot; \n Use: player1:player2:oldRelation:newRelation\n&quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L657" title="1 of 2 branches missed.">    if (getData().getPlayerList().getPlayerID(s[0]) == null) {</span>
+<span class="nc" id="L658">      throw new GameParseException(&quot;Invalid relationshipChange declaration: &quot; + relChange + &quot; \n player: &quot; + s[0]</span>
+<span class="nc" id="L659">          + &quot; unknown &quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L661" title="1 of 2 branches missed.">    if (getData().getPlayerList().getPlayerID(s[1]) == null) {</span>
+<span class="nc" id="L662">      throw new GameParseException(&quot;Invalid relationshipChange declaration: &quot; + relChange + &quot; \n player: &quot; + s[1]</span>
+<span class="nc" id="L663">          + &quot; unknown &quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L665" title="3 of 4 branches missed.">    if (!(s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_NEUTRAL) || s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY)</span>
+<span class="nc bnc" id="L666" title="All 2 branches missed.">        || s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_ALLIED)</span>
+<span class="nc bnc" id="L667" title="All 2 branches missed.">        || s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_WAR)</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">        || Matches.isValidRelationshipName(getData()).match(s[2]))) {</span>
+<span class="nc" id="L669">      throw new GameParseException(&quot;Invalid relationshipChange declaration: &quot; + relChange + &quot; \n relationshipType: &quot;</span>
+<span class="nc" id="L670">          + s[2] + &quot; unknown &quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L672" title="1 of 2 branches missed.">    if (Matches.isValidRelationshipName(getData()).invert().match(s[3])) {</span>
+<span class="nc" id="L673">      throw new GameParseException(&quot;Invalid relationshipChange declaration: &quot; + relChange + &quot; \n relationshipType: &quot;</span>
+<span class="nc" id="L674">          + s[3] + &quot; unknown &quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L676">    m_relationshipChange.add(relChange);</span>
+<span class="fc" id="L677">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRelationshipChange(final ArrayList&lt;String&gt; value) {
+<span class="nc" id="L681">    m_relationshipChange = value;</span>
+<span class="nc" id="L682">  }</span>
+
+  public ArrayList&lt;String&gt; getRelationshipChange() {
+<span class="nc" id="L685">    return m_relationshipChange;</span>
+  }
+
+  public void clearRelationshipChange() {
+<span class="nc" id="L689">    m_relationshipChange.clear();</span>
+<span class="nc" id="L690">  }</span>
+
+  public void resetRelationshipChange() {
+<span class="nc" id="L693">    m_relationshipChange = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L694">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param names
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setUnitType(final String names) throws GameParseException {
+<span class="fc" id="L704">    final String[] s = names.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L705" title="All 2 branches covered.">    for (final String element : s) {</span>
+<span class="fc" id="L706">      final UnitType type = getData().getUnitTypeList().getUnitType(element);</span>
+<span class="pc bpc" id="L707" title="1 of 2 branches missed.">      if (type == null) {</span>
+<span class="nc" id="L708">        throw new GameParseException(&quot;Could not find unitType. name:&quot; + element + thisErrorMsg());</span>
+      }
+<span class="fc" id="L710">      m_unitType.add(type);</span>
+    }
+<span class="fc" id="L712">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setUnitType(final ArrayList&lt;UnitType&gt; value) {
+<span class="nc" id="L716">    m_unitType = value;</span>
+<span class="nc" id="L717">  }</span>
+
+  public ArrayList&lt;UnitType&gt; getUnitType() {
+<span class="nc" id="L720">    return m_unitType;</span>
+  }
+
+  public void clearUnitType() {
+<span class="nc" id="L724">    m_unitType.clear();</span>
+<span class="nc" id="L725">  }</span>
+
+  public void resetUnitType() {
+<span class="nc" id="L728">    m_unitType = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L729">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setUnitAttachmentName(final String name) throws GameParseException {
+<span class="nc bnc" id="L733" title="All 2 branches missed.">    if (name == null) {</span>
+<span class="nc" id="L734">      m_unitAttachmentName = null;</span>
+<span class="nc" id="L735">      return;</span>
+    }
+<span class="nc" id="L737">    final String[] s = name.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L738" title="All 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L739">      throw new GameParseException(</span>
+<span class="nc" id="L740">          &quot;unitAttachmentName must have 2 entries, the type of attachment and the name of the attachment.&quot;</span>
+<span class="nc" id="L741">              + thisErrorMsg());</span>
+    }
+    // covers UnitAttachment, UnitSupportAttachment
+<span class="nc bnc" id="L744" title="All 4 branches missed.">    if (!(s[1].equals(&quot;UnitAttachment&quot;) || s[1].equals(&quot;UnitSupportAttachment&quot;))) {</span>
+<span class="nc" id="L745">      throw new GameParseException(</span>
+<span class="nc" id="L746">          &quot;unitAttachmentName value must be UnitAttachment or UnitSupportAttachment&quot; + thisErrorMsg());</span>
+    }
+    // TODO validate attachment exists?
+<span class="nc bnc" id="L749" title="All 2 branches missed.">    if (s[0].length() &lt; 1) {</span>
+<span class="nc" id="L750">      throw new GameParseException(&quot;unitAttachmentName count must be a valid attachment name&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L752" title="All 4 branches missed.">    if (s[1].equals(&quot;UnitAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.UNIT_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L753">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L755" title="All 4 branches missed.">    if (s[1].equals(&quot;UnitSupportAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.SUPPORT_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L756">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="nc" id="L758">    m_unitAttachmentName = Tuple.of(s[1], s[0]);</span>
+<span class="nc" id="L759">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setUnitAttachmentName(final Tuple&lt;String, String&gt; value) {
+<span class="nc" id="L763">    m_unitAttachmentName = value;</span>
+<span class="nc" id="L764">  }</span>
+
+  public Tuple&lt;String, String&gt; getUnitAttachmentName() {
+<span class="nc bnc" id="L767" title="All 2 branches missed.">    if (m_unitAttachmentName == null) {</span>
+<span class="nc" id="L768">      return Tuple.of(&quot;UnitAttachment&quot;, Constants.UNIT_ATTACHMENT_NAME);</span>
+    }
+<span class="nc" id="L770">    return m_unitAttachmentName;</span>
+  }
+
+  public void resetUnitAttachmentName() {
+<span class="nc" id="L774">    m_unitAttachmentName = null;</span>
+<span class="nc" id="L775">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param prop
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setUnitProperty(final String prop) throws GameParseException {
+<span class="pc bpc" id="L785" title="1 of 2 branches missed.">    if (prop == null) {</span>
+<span class="nc" id="L786">      m_unitProperty = null;</span>
+<span class="nc" id="L787">      return;</span>
+    }
+<span class="fc" id="L789">    final String[] s = prop.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L790" title="All 2 branches covered.">    if (m_unitProperty == null) {</span>
+<span class="fc" id="L791">      m_unitProperty = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L793">    final String property = s[s.length - 1]; // the last one is the property we are changing, while the rest is the</span>
+                                             // string we are changing
+                                             // it to
+<span class="fc" id="L796">    m_unitProperty.add(Tuple.of(property, getValueFromStringArrayForAllExceptLastSubstring(s)));</span>
+<span class="fc" id="L797">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setUnitProperty(final ArrayList&lt;Tuple&lt;String, String&gt;&gt; value) {
+<span class="nc" id="L801">    m_unitProperty = value;</span>
+<span class="nc" id="L802">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, String&gt;&gt; getUnitProperty() {
+<span class="nc" id="L805">    return m_unitProperty;</span>
+  }
+
+  public void clearUnitProperty() {
+<span class="nc" id="L809">    m_unitProperty.clear();</span>
+<span class="nc" id="L810">  }</span>
+
+  public void resetUnitProperty() {
+<span class="nc" id="L813">    m_unitProperty = null;</span>
+<span class="nc" id="L814">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param names
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setTerritories(final String names) throws GameParseException {
+<span class="fc" id="L824">    final String[] s = names.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L825" title="All 2 branches covered.">    for (final String element : s) {</span>
+<span class="fc" id="L826">      final Territory terr = getData().getMap().getTerritory(element);</span>
+<span class="pc bpc" id="L827" title="1 of 2 branches missed.">      if (terr == null) {</span>
+<span class="nc" id="L828">        throw new GameParseException(&quot;Could not find territory. name:&quot; + element + thisErrorMsg());</span>
+      }
+<span class="fc" id="L830">      m_territories.add(terr);</span>
+    }
+<span class="fc" id="L832">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritories(final ArrayList&lt;Territory&gt; value) {
+<span class="nc" id="L836">    m_territories = value;</span>
+<span class="nc" id="L837">  }</span>
+
+  public ArrayList&lt;Territory&gt; getTerritories() {
+<span class="fc" id="L840">    return m_territories;</span>
+  }
+
+  public void clearTerritories() {
+<span class="nc" id="L844">    m_territories.clear();</span>
+<span class="nc" id="L845">  }</span>
+
+  public void resetTerritories() {
+<span class="nc" id="L848">    m_territories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L849">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryAttachmentName(final String name) throws GameParseException {
+<span class="pc bpc" id="L853" title="1 of 2 branches missed.">    if (name == null) {</span>
+<span class="nc" id="L854">      m_territoryAttachmentName = null;</span>
+<span class="nc" id="L855">      return;</span>
+    }
+<span class="fc" id="L857">    final String[] s = name.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L858" title="1 of 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L859">      throw new GameParseException(</span>
+<span class="nc" id="L860">          &quot;territoryAttachmentName must have 2 entries, the type of attachment and the name of the attachment.&quot;</span>
+<span class="nc" id="L861">              + thisErrorMsg());</span>
+    }
+    // covers TerritoryAttachment, CanalAttachment
+<span class="pc bpc" id="L864" title="3 of 4 branches missed.">    if (!(s[1].equals(&quot;TerritoryAttachment&quot;) || s[1].equals(&quot;CanalAttachment&quot;))) {</span>
+<span class="nc" id="L865">      throw new GameParseException(</span>
+<span class="nc" id="L866">          &quot;territoryAttachmentName value must be TerritoryAttachment or CanalAttachment&quot; + thisErrorMsg());</span>
+    }
+    // TODO validate attachment exists?
+<span class="pc bpc" id="L869" title="1 of 2 branches missed.">    if (s[0].length() &lt; 1) {</span>
+<span class="nc" id="L870">      throw new GameParseException(&quot;territoryAttachmentName count must be a valid attachment name&quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L872" title="2 of 4 branches missed.">    if (s[1].equals(&quot;TerritoryAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.TERRITORY_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L873">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L875" title="3 of 4 branches missed.">    if (s[1].equals(&quot;CanalAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.CANAL_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L876">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L878">    m_territoryAttachmentName = Tuple.of(s[1], s[0]);</span>
+<span class="fc" id="L879">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryAttachmentName(final Tuple&lt;String, String&gt; value) {
+<span class="nc" id="L883">    m_territoryAttachmentName = value;</span>
+<span class="nc" id="L884">  }</span>
+
+  public Tuple&lt;String, String&gt; getTerritoryAttachmentName() {
+<span class="nc bnc" id="L887" title="All 2 branches missed.">    if (m_territoryAttachmentName == null) {</span>
+<span class="nc" id="L888">      return Tuple.of(&quot;TerritoryAttachment&quot;, Constants.TERRITORY_ATTACHMENT_NAME);</span>
+    }
+<span class="nc" id="L890">    return m_territoryAttachmentName;</span>
+  }
+
+  public void resetTerritoryAttachmentName() {
+<span class="nc" id="L894">    m_territoryAttachmentName = null;</span>
+<span class="nc" id="L895">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param prop
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setTerritoryProperty(final String prop) throws GameParseException {
+<span class="pc bpc" id="L905" title="1 of 2 branches missed.">    if (prop == null) {</span>
+<span class="nc" id="L906">      m_territoryProperty = null;</span>
+<span class="nc" id="L907">      return;</span>
+    }
+<span class="fc" id="L909">    final String[] s = prop.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L910" title="1 of 2 branches missed.">    if (m_territoryProperty == null) {</span>
+<span class="fc" id="L911">      m_territoryProperty = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L913">    final String property = s[s.length - 1]; // the last one is the property we are changing, while the rest is the</span>
+                                             // string we are changing
+                                             // it to
+<span class="fc" id="L916">    m_territoryProperty.add(Tuple.of(property, getValueFromStringArrayForAllExceptLastSubstring(s)));</span>
+<span class="fc" id="L917">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryProperty(final ArrayList&lt;Tuple&lt;String, String&gt;&gt; value) {
+<span class="nc" id="L921">    m_territoryProperty = value;</span>
+<span class="nc" id="L922">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, String&gt;&gt; getTerritoryProperty() {
+<span class="nc" id="L925">    return m_territoryProperty;</span>
+  }
+
+  public void clearTerritoryProperty() {
+<span class="nc" id="L929">    m_territoryProperty.clear();</span>
+<span class="nc" id="L930">  }</span>
+
+  public void resetTerritoryProperty() {
+<span class="nc" id="L933">    m_territoryProperty = null;</span>
+<span class="nc" id="L934">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param names
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setPlayers(final String names) throws GameParseException {
+<span class="fc" id="L944">    final String[] s = names.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L945" title="All 2 branches covered.">    for (final String element : s) {</span>
+<span class="fc" id="L946">      final PlayerID player = getData().getPlayerList().getPlayerID(element);</span>
+<span class="pc bpc" id="L947" title="1 of 2 branches missed.">      if (player == null) {</span>
+<span class="nc" id="L948">        throw new GameParseException(&quot;Could not find player. name:&quot; + element + thisErrorMsg());</span>
+      }
+<span class="fc" id="L950">      m_players.add(player);</span>
+    }
+<span class="fc" id="L952">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPlayers(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L956">    m_players = value;</span>
+<span class="nc" id="L957">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getPlayers() {
+<span class="nc bnc" id="L960" title="All 2 branches missed.">    if (m_players.isEmpty()) {</span>
+<span class="nc" id="L961">      return new ArrayList&lt;&gt;(Collections.singletonList((PlayerID) getAttachedTo()));</span>
+    } else {
+<span class="nc" id="L963">      return m_players;</span>
+    }
+  }
+
+  public void clearPlayers() {
+<span class="nc" id="L968">    m_players.clear();</span>
+<span class="nc" id="L969">  }</span>
+
+  public void resetPlayers() {
+<span class="nc" id="L972">    m_players = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L973">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPlayerAttachmentName(final String name) throws GameParseException {
+<span class="pc bpc" id="L977" title="1 of 2 branches missed.">    if (name == null) {</span>
+<span class="nc" id="L978">      m_playerAttachmentName = null;</span>
+<span class="nc" id="L979">      return;</span>
+    }
+<span class="fc" id="L981">    final String[] s = name.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L982" title="1 of 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L983">      throw new GameParseException(</span>
+<span class="nc" id="L984">          &quot;playerAttachmentName must have 2 entries, the type of attachment and the name of the attachment.&quot;</span>
+<span class="nc" id="L985">              + thisErrorMsg());</span>
+    }
+    // covers PlayerAttachment, TriggerAttachment, RulesAttachment, TechAttachment
+<span class="pc bpc" id="L988" title="3 of 6 branches missed.">    if (!(s[1].equals(&quot;PlayerAttachment&quot;) || s[1].equals(&quot;RulesAttachment&quot;) || s[1].equals(&quot;TriggerAttachment&quot;)</span>
+<span class="nc bnc" id="L989" title="All 4 branches missed.">        || s[1].equals(&quot;TechAttachment&quot;) || s[1].equals(&quot;PoliticalActionAttachment&quot;)</span>
+<span class="nc bnc" id="L990" title="All 2 branches missed.">        || s[1].equals(&quot;UserActionAttachment&quot;))) {</span>
+<span class="nc" id="L991">      throw new GameParseException(</span>
+<span class="nc" id="L992">          &quot;playerAttachmentName value must be PlayerAttachment or RulesAttachment or TriggerAttachment or TechAttachment or PoliticalActionAttachment or UserActionAttachment&quot;</span>
+<span class="nc" id="L993">              + thisErrorMsg());</span>
+    }
+    // TODO validate attachment exists?
+<span class="pc bpc" id="L996" title="1 of 2 branches missed.">    if (s[0].length() &lt; 1) {</span>
+<span class="nc" id="L997">      throw new GameParseException(&quot;playerAttachmentName count must be a valid attachment name&quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L999" title="1 of 4 branches missed.">    if (s[1].equals(&quot;PlayerAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.PLAYER_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L1000">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="fc bfc" id="L1002" title="All 4 branches covered.">    if (s[1].equals(&quot;RulesAttachment&quot;) &amp;&amp; !(s[0].startsWith(Constants.RULES_ATTACHMENT_NAME)</span>
+<span class="pc bpc" id="L1003" title="2 of 4 branches missed.">        || s[0].startsWith(Constants.RULES_OBJECTIVE_PREFIX) || s[0].startsWith(Constants.RULES_CONDITION_PREFIX))) {</span>
+<span class="nc" id="L1004">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L1006" title="3 of 4 branches missed.">    if (s[1].equals(&quot;TriggerAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.TRIGGER_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L1007">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L1009" title="3 of 4 branches missed.">    if (s[1].equals(&quot;TechAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.TECH_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L1010">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L1012" title="3 of 4 branches missed.">    if (s[1].equals(&quot;PoliticalActionAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.POLITICALACTION_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L1013">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L1015" title="3 of 4 branches missed.">    if (s[1].equals(&quot;UserActionAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.USERACTION_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L1016">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L1018">    m_playerAttachmentName = Tuple.of(s[1], s[0]);</span>
+<span class="fc" id="L1019">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPlayerAttachmentName(final Tuple&lt;String, String&gt; value) {
+<span class="nc" id="L1023">    m_playerAttachmentName = value;</span>
+<span class="nc" id="L1024">  }</span>
+
+  public Tuple&lt;String, String&gt; getPlayerAttachmentName() {
+<span class="nc bnc" id="L1027" title="All 2 branches missed.">    if (m_playerAttachmentName == null) {</span>
+<span class="nc" id="L1028">      return Tuple.of(&quot;PlayerAttachment&quot;, Constants.PLAYER_ATTACHMENT_NAME);</span>
+    }
+<span class="nc" id="L1030">    return m_playerAttachmentName;</span>
+  }
+
+  public void resetPlayerAttachmentName() {
+<span class="nc" id="L1034">    m_playerAttachmentName = null;</span>
+<span class="nc" id="L1035">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param prop
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setPlayerProperty(final String prop) throws GameParseException {
+<span class="pc bpc" id="L1045" title="1 of 2 branches missed.">    if (prop == null) {</span>
+<span class="nc" id="L1046">      m_playerProperty = null;</span>
+<span class="nc" id="L1047">      return;</span>
+    }
+<span class="fc" id="L1049">    final String[] s = prop.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L1050" title="All 2 branches covered.">    if (m_playerProperty == null) {</span>
+<span class="fc" id="L1051">      m_playerProperty = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L1053">    final String property = s[s.length - 1]; // the last one is the property we are changing, while the rest is the</span>
+                                             // string we are changing
+                                             // it to
+<span class="fc" id="L1056">    m_playerProperty.add(Tuple.of(property, getValueFromStringArrayForAllExceptLastSubstring(s)));</span>
+<span class="fc" id="L1057">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPlayerProperty(final ArrayList&lt;Tuple&lt;String, String&gt;&gt; value) {
+<span class="nc" id="L1061">    m_playerProperty = value;</span>
+<span class="nc" id="L1062">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, String&gt;&gt; getPlayerProperty() {
+<span class="fc" id="L1065">    return m_playerProperty;</span>
+  }
+
+  public void clearPlayerProperty() {
+<span class="nc" id="L1069">    m_playerProperty.clear();</span>
+<span class="nc" id="L1070">  }</span>
+
+  public void resetPlayerProperty() {
+<span class="nc" id="L1073">    m_playerProperty = null;</span>
+<span class="nc" id="L1074">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param names
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setRelationshipTypes(final String names) throws GameParseException {
+<span class="nc" id="L1084">    final String[] s = names.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L1085" title="All 2 branches missed.">    for (final String element : s) {</span>
+<span class="nc" id="L1086">      final RelationshipType relation = getData().getRelationshipTypeList().getRelationshipType(element);</span>
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">      if (relation == null) {</span>
+<span class="nc" id="L1088">        throw new GameParseException(&quot;Could not find relationshipType. name:&quot; + element + thisErrorMsg());</span>
+      }
+<span class="nc" id="L1090">      m_relationshipTypes.add(relation);</span>
+    }
+<span class="nc" id="L1092">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRelationshipTypes(final ArrayList&lt;RelationshipType&gt; value) {
+<span class="nc" id="L1096">    m_relationshipTypes = value;</span>
+<span class="nc" id="L1097">  }</span>
+
+  public ArrayList&lt;RelationshipType&gt; getRelationshipTypes() {
+<span class="fc" id="L1100">    return m_relationshipTypes;</span>
+  }
+
+  public void clearRelationshipTypes() {
+<span class="nc" id="L1104">    m_relationshipTypes.clear();</span>
+<span class="nc" id="L1105">  }</span>
+
+  public void resetRelationshipTypes() {
+<span class="nc" id="L1108">    m_relationshipTypes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1109">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRelationshipTypeAttachmentName(final String name) throws GameParseException {
+<span class="nc bnc" id="L1113" title="All 2 branches missed.">    if (name == null) {</span>
+<span class="nc" id="L1114">      m_relationshipTypeAttachmentName = null;</span>
+<span class="nc" id="L1115">      return;</span>
+    }
+<span class="nc" id="L1117">    final String[] s = name.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L1118" title="All 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L1119">      throw new GameParseException(</span>
+<span class="nc" id="L1120">          &quot;relationshipTypeAttachmentName must have 2 entries, the type of attachment and the name of the attachment.&quot;</span>
+<span class="nc" id="L1121">              + thisErrorMsg());</span>
+    }
+    // covers RelationshipTypeAttachment
+<span class="nc bnc" id="L1124" title="All 2 branches missed.">    if (!(s[1].equals(&quot;RelationshipTypeAttachment&quot;))) {</span>
+<span class="nc" id="L1125">      throw new GameParseException(</span>
+<span class="nc" id="L1126">          &quot;relationshipTypeAttachmentName value must be RelationshipTypeAttachment&quot; + thisErrorMsg());</span>
+    }
+    // TODO validate attachment exists?
+<span class="nc bnc" id="L1129" title="All 2 branches missed.">    if (s[0].length() &lt; 1) {</span>
+<span class="nc" id="L1130">      throw new GameParseException(</span>
+<span class="nc" id="L1131">          &quot;relationshipTypeAttachmentName count must be a valid attachment name&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L1133" title="All 4 branches missed.">    if (s[1].equals(&quot;RelationshipTypeAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.RELATIONSHIPTYPE_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L1134">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="nc" id="L1136">    m_relationshipTypeAttachmentName = Tuple.of(s[1], s[0]);</span>
+<span class="nc" id="L1137">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRelationshipTypeAttachmentName(final Tuple&lt;String, String&gt; value) {
+<span class="nc" id="L1141">    m_relationshipTypeAttachmentName = value;</span>
+<span class="nc" id="L1142">  }</span>
+
+  public Tuple&lt;String, String&gt; getRelationshipTypeAttachmentName() {
+<span class="nc bnc" id="L1145" title="All 2 branches missed.">    if (m_relationshipTypeAttachmentName == null) {</span>
+<span class="nc" id="L1146">      return Tuple.of(&quot;RelationshipTypeAttachment&quot;, Constants.RELATIONSHIPTYPE_ATTACHMENT_NAME);</span>
+    }
+<span class="nc" id="L1148">    return m_relationshipTypeAttachmentName;</span>
+  }
+
+  public void resetRelationshipTypeAttachmentName() {
+<span class="nc" id="L1152">    m_relationshipTypeAttachmentName = null;</span>
+<span class="nc" id="L1153">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param prop
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setRelationshipTypeProperty(final String prop) throws GameParseException {
+<span class="nc bnc" id="L1163" title="All 2 branches missed.">    if (prop == null) {</span>
+<span class="nc" id="L1164">      m_relationshipTypeProperty = null;</span>
+<span class="nc" id="L1165">      return;</span>
+    }
+<span class="nc" id="L1167">    final String[] s = prop.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L1168" title="All 2 branches missed.">    if (m_relationshipTypeProperty == null) {</span>
+<span class="nc" id="L1169">      m_relationshipTypeProperty = new ArrayList&lt;&gt;();</span>
+    }
+<span class="nc" id="L1171">    final String property = s[s.length - 1]; // the last one is the property we are changing, while the rest is the</span>
+                                             // string we are changing
+                                             // it to
+<span class="nc" id="L1174">    m_relationshipTypeProperty</span>
+<span class="nc" id="L1175">        .add(Tuple.of(property, getValueFromStringArrayForAllExceptLastSubstring(s)));</span>
+<span class="nc" id="L1176">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRelationshipTypeProperty(final ArrayList&lt;Tuple&lt;String, String&gt;&gt; value) {
+<span class="nc" id="L1180">    m_relationshipTypeProperty = value;</span>
+<span class="nc" id="L1181">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, String&gt;&gt; getRelationshipTypeProperty() {
+<span class="nc" id="L1184">    return m_relationshipTypeProperty;</span>
+  }
+
+  public void clearRelationshipTypeProperty() {
+<span class="nc" id="L1188">    m_relationshipTypeProperty.clear();</span>
+<span class="nc" id="L1189">  }</span>
+
+  public void resetRelationshipTypeProperty() {
+<span class="nc" id="L1192">    m_relationshipTypeProperty = null;</span>
+<span class="nc" id="L1193">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param names
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setTerritoryEffects(final String names) throws GameParseException {
+<span class="nc" id="L1203">    final String[] s = names.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L1204" title="All 2 branches missed.">    for (final String element : s) {</span>
+<span class="nc" id="L1205">      final TerritoryEffect effect = getData().getTerritoryEffectList().get(element);</span>
+<span class="nc bnc" id="L1206" title="All 2 branches missed.">      if (effect == null) {</span>
+<span class="nc" id="L1207">        throw new GameParseException(&quot;Could not find territoryEffect. name:&quot; + element + thisErrorMsg());</span>
+      }
+<span class="nc" id="L1209">      m_territoryEffects.add(effect);</span>
+    }
+<span class="nc" id="L1211">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryEffects(final ArrayList&lt;TerritoryEffect&gt; value) {
+<span class="nc" id="L1215">    m_territoryEffects = value;</span>
+<span class="nc" id="L1216">  }</span>
+
+  public ArrayList&lt;TerritoryEffect&gt; getTerritoryEffects() {
+<span class="fc" id="L1219">    return m_territoryEffects;</span>
+  }
+
+  public void clearTerritoryEffects() {
+<span class="nc" id="L1223">    m_territoryEffects.clear();</span>
+<span class="nc" id="L1224">  }</span>
+
+  public void resetTerritoryEffects() {
+<span class="nc" id="L1227">    m_territoryEffects = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1228">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryEffectAttachmentName(final String name) throws GameParseException {
+<span class="nc bnc" id="L1232" title="All 2 branches missed.">    if (name == null) {</span>
+<span class="nc" id="L1233">      m_territoryEffectAttachmentName = null;</span>
+<span class="nc" id="L1234">      return;</span>
+    }
+<span class="nc" id="L1236">    final String[] s = name.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L1237" title="All 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L1238">      throw new GameParseException(</span>
+<span class="nc" id="L1239">          &quot;territoryEffectAttachmentName must have 2 entries, the type of attachment and the name of the attachment.&quot;</span>
+<span class="nc" id="L1240">              + thisErrorMsg());</span>
+    }
+    // covers TerritoryEffectAttachment
+<span class="nc bnc" id="L1243" title="All 2 branches missed.">    if (!(s[1].equals(&quot;TerritoryEffectAttachment&quot;))) {</span>
+<span class="nc" id="L1244">      throw new GameParseException(</span>
+<span class="nc" id="L1245">          &quot;territoryEffectAttachmentName value must be TerritoryEffectAttachment&quot; + thisErrorMsg());</span>
+    }
+    // TODO validate attachment exists?
+<span class="nc bnc" id="L1248" title="All 2 branches missed.">    if (s[0].length() &lt; 1) {</span>
+<span class="nc" id="L1249">      throw new GameParseException(</span>
+<span class="nc" id="L1250">          &quot;territoryEffectAttachmentName count must be a valid attachment name&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L1252" title="All 4 branches missed.">    if (s[1].equals(&quot;TerritoryEffectAttachment&quot;) &amp;&amp; !s[0].startsWith(Constants.TERRITORYEFFECT_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L1253">      throw new GameParseException(&quot;attachment incorrectly named:&quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="nc" id="L1255">    m_territoryEffectAttachmentName = Tuple.of(s[1], s[0]);</span>
+<span class="nc" id="L1256">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryEffectAttachmentName(final Tuple&lt;String, String&gt; value) {
+<span class="nc" id="L1260">    m_territoryEffectAttachmentName = value;</span>
+<span class="nc" id="L1261">  }</span>
+
+  public Tuple&lt;String, String&gt; getTerritoryEffectAttachmentName() {
+<span class="nc bnc" id="L1264" title="All 2 branches missed.">    if (m_territoryEffectAttachmentName == null) {</span>
+<span class="nc" id="L1265">      return Tuple.of(&quot;TerritoryEffectAttachment&quot;, Constants.TERRITORYEFFECT_ATTACHMENT_NAME);</span>
+    }
+<span class="nc" id="L1267">    return m_territoryEffectAttachmentName;</span>
+  }
+
+  public void resetTerritoryEffectAttachmentName() {
+<span class="nc" id="L1271">    m_territoryEffectAttachmentName = null;</span>
+<span class="nc" id="L1272">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param prop
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setTerritoryEffectProperty(final String prop) throws GameParseException {
+<span class="nc bnc" id="L1282" title="All 2 branches missed.">    if (prop == null) {</span>
+<span class="nc" id="L1283">      m_territoryEffectProperty = null;</span>
+<span class="nc" id="L1284">      return;</span>
+    }
+<span class="nc" id="L1286">    final String[] s = prop.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L1287" title="All 2 branches missed.">    if (m_territoryEffectProperty == null) {</span>
+<span class="nc" id="L1288">      m_territoryEffectProperty = new ArrayList&lt;&gt;();</span>
+    }
+<span class="nc" id="L1290">    final String property = s[s.length - 1]; // the last one is the property we are changing, while the rest is the</span>
+                                             // string we are changing
+                                             // it to
+<span class="nc" id="L1293">    m_territoryEffectProperty</span>
+<span class="nc" id="L1294">        .add(Tuple.of(property, getValueFromStringArrayForAllExceptLastSubstring(s)));</span>
+<span class="nc" id="L1295">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryEffectProperty(final ArrayList&lt;Tuple&lt;String, String&gt;&gt; value) {
+<span class="nc" id="L1299">    m_territoryEffectProperty = value;</span>
+<span class="nc" id="L1300">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, String&gt;&gt; getTerritoryEffectProperty() {
+<span class="nc" id="L1303">    return m_territoryEffectProperty;</span>
+  }
+
+  public void clearTerritoryEffectProperty() {
+<span class="nc" id="L1307">    m_territoryEffectProperty.clear();</span>
+<span class="nc" id="L1308">  }</span>
+
+  public void resetTerritoryEffectProperty() {
+<span class="nc" id="L1311">    m_territoryEffectProperty = null;</span>
+<span class="nc" id="L1312">  }</span>
+
+  /**
+   * Fudging this, it really represents adding placements.
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param place
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setPlacement(final String place) throws GameParseException {
+<span class="pc bpc" id="L1323" title="1 of 2 branches missed.">    if (place == null) {</span>
+<span class="nc" id="L1324">      m_placement = null;</span>
+<span class="nc" id="L1325">      return;</span>
+    }
+<span class="fc" id="L1327">    final String[] s = place.split(&quot;:&quot;);</span>
+<span class="fc" id="L1328">    int count = -1, i = 0;</span>
+<span class="pc bpc" id="L1329" title="1 of 2 branches missed.">    if (s.length &lt; 1) {</span>
+<span class="nc" id="L1330">      throw new GameParseException(&quot;Empty placement list&quot; + thisErrorMsg());</span>
+    }
+    try {
+<span class="fc" id="L1333">      count = getInt(s[0]);</span>
+<span class="fc" id="L1334">      i++;</span>
+<span class="fc" id="L1335">    } catch (final Exception e) {</span>
+<span class="fc" id="L1336">      count = 1;</span>
+    }
+<span class="pc bpc" id="L1338" title="4 of 6 branches missed.">    if (s.length &lt; 1 || s.length == 1 &amp;&amp; count != -1) {</span>
+<span class="nc" id="L1339">      throw new GameParseException(&quot;Empty placement list&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L1341">    final Territory territory = getData().getMap().getTerritory(s[i]);</span>
+<span class="pc bpc" id="L1342" title="1 of 2 branches missed.">    if (territory == null) {</span>
+<span class="nc" id="L1343">      throw new GameParseException(&quot;Territory does not exist &quot; + s[i] + thisErrorMsg());</span>
+    } else {
+<span class="fc" id="L1345">      i++;</span>
+<span class="fc" id="L1346">      final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L1347" title="All 2 branches covered.">      for (; i &lt; s.length; i++) {</span>
+<span class="fc" id="L1348">        final UnitType type = getData().getUnitTypeList().getUnitType(s[i]);</span>
+<span class="pc bpc" id="L1349" title="1 of 2 branches missed.">        if (type == null) {</span>
+<span class="nc" id="L1350">          throw new GameParseException(&quot;UnitType does not exist &quot; + s[i] + thisErrorMsg());</span>
+        } else {
+<span class="fc" id="L1352">          map.add(type, count);</span>
+        }
+      }
+<span class="fc bfc" id="L1355" title="All 2 branches covered.">      if (m_placement == null) {</span>
+<span class="fc" id="L1356">        m_placement = new HashMap&lt;&gt;();</span>
+      }
+<span class="fc bfc" id="L1358" title="All 2 branches covered.">      if (m_placement.containsKey(territory)) {</span>
+<span class="fc" id="L1359">        map.add(m_placement.get(territory));</span>
+      }
+<span class="fc" id="L1361">      m_placement.put(territory, map);</span>
+    }
+<span class="fc" id="L1363">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPlacement(final HashMap&lt;Territory, IntegerMap&lt;UnitType&gt;&gt; value) {
+<span class="nc" id="L1367">    m_placement = value;</span>
+<span class="nc" id="L1368">  }</span>
+
+  public HashMap&lt;Territory, IntegerMap&lt;UnitType&gt;&gt; getPlacement() {
+<span class="fc" id="L1371">    return m_placement;</span>
+  }
+
+  public void clearPlacement() {
+<span class="nc" id="L1375">    m_placement.clear();</span>
+<span class="nc" id="L1376">  }</span>
+
+  public void resetPlacement() {
+<span class="nc" id="L1379">    m_placement = null;</span>
+<span class="nc" id="L1380">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setRemoveUnits(final String value) throws GameParseException {
+<span class="pc bpc" id="L1390" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L1391">      m_removeUnits = null;</span>
+<span class="nc" id="L1392">      return;</span>
+    }
+<span class="pc bpc" id="L1394" title="1 of 2 branches missed.">    if (m_removeUnits == null) {</span>
+<span class="fc" id="L1395">      m_removeUnits = new HashMap&lt;&gt;();</span>
+    }
+<span class="fc" id="L1397">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L1398">    int count = -1, i = 0;</span>
+<span class="pc bpc" id="L1399" title="1 of 2 branches missed.">    if (s.length &lt; 1) {</span>
+<span class="nc" id="L1400">      throw new GameParseException(&quot;Empty removeUnits list&quot; + thisErrorMsg());</span>
+    }
+    try {
+<span class="fc" id="L1403">      count = getInt(s[0]);</span>
+<span class="fc" id="L1404">      i++;</span>
+<span class="fc" id="L1405">    } catch (final Exception e) {</span>
+<span class="fc" id="L1406">      count = 1;</span>
+    }
+<span class="pc bpc" id="L1408" title="4 of 6 branches missed.">    if (s.length &lt; 1 || s.length == 1 &amp;&amp; count != -1) {</span>
+<span class="nc" id="L1409">      throw new GameParseException(&quot;Empty removeUnits list&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L1411">    final Collection&lt;Territory&gt; territories = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1412">    final Territory terr = getData().getMap().getTerritory(s[i]);</span>
+<span class="pc bpc" id="L1413" title="1 of 2 branches missed.">    if (terr == null) {</span>
+<span class="nc bnc" id="L1414" title="All 2 branches missed.">      if (s[i].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="nc" id="L1415">        territories.addAll(getData().getMap().getTerritories());</span>
+<span class="nc" id="L1416">      } else {</span>
+<span class="nc" id="L1417">        throw new GameParseException(&quot;Territory does not exist &quot; + s[i] + thisErrorMsg());</span>
+      }
+    } else {
+<span class="fc" id="L1420">      territories.add(terr);</span>
+    }
+<span class="fc" id="L1422">    i++;</span>
+<span class="fc" id="L1423">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L1424" title="All 2 branches covered.">    for (; i &lt; s.length; i++) {</span>
+<span class="fc" id="L1425">      final Collection&lt;UnitType&gt; types = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1426">      final UnitType tp = getData().getUnitTypeList().getUnitType(s[i]);</span>
+<span class="pc bpc" id="L1427" title="1 of 2 branches missed.">      if (tp == null) {</span>
+<span class="nc bnc" id="L1428" title="All 2 branches missed.">        if (s[i].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="nc" id="L1429">          types.addAll(getData().getUnitTypeList().getAllUnitTypes());</span>
+<span class="nc" id="L1430">        } else {</span>
+<span class="nc" id="L1431">          throw new GameParseException(&quot;UnitType does not exist &quot; + s[i] + thisErrorMsg());</span>
+        }
+      } else {
+<span class="fc" id="L1434">        types.add(tp);</span>
+      }
+<span class="fc bfc" id="L1436" title="All 2 branches covered.">      for (final UnitType type : types) {</span>
+<span class="fc" id="L1437">        map.add(type, count);</span>
+      }
+    }
+<span class="fc bfc" id="L1440" title="All 2 branches covered.">    for (final Territory t : territories) {</span>
+<span class="pc bpc" id="L1441" title="1 of 2 branches missed.">      if (m_removeUnits.containsKey(t)) {</span>
+<span class="nc" id="L1442">        map.add(m_removeUnits.get(t));</span>
+      }
+<span class="fc" id="L1444">      m_removeUnits.put(t, map);</span>
+    }
+<span class="fc" id="L1446">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRemoveUnits(final HashMap&lt;Territory, IntegerMap&lt;UnitType&gt;&gt; value) {
+<span class="nc" id="L1450">    m_removeUnits = value;</span>
+<span class="nc" id="L1451">  }</span>
+
+  public HashMap&lt;Territory, IntegerMap&lt;UnitType&gt;&gt; getRemoveUnits() {
+<span class="fc" id="L1454">    return m_removeUnits;</span>
+  }
+
+  public void clearRemoveUnits() {
+<span class="nc" id="L1458">    m_removeUnits.clear();</span>
+<span class="nc" id="L1459">  }</span>
+
+  public void resetRemoveUnits() {
+<span class="nc" id="L1462">    m_removeUnits = null;</span>
+<span class="nc" id="L1463">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param place
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setPurchase(final String place) throws GameParseException {
+<span class="pc bpc" id="L1473" title="1 of 2 branches missed.">    if (place == null) {</span>
+<span class="nc" id="L1474">      m_purchase = null;</span>
+<span class="nc" id="L1475">      return;</span>
+    }
+<span class="fc" id="L1477">    final String[] s = place.split(&quot;:&quot;);</span>
+<span class="fc" id="L1478">    int count = -1, i = 0;</span>
+<span class="pc bpc" id="L1479" title="1 of 2 branches missed.">    if (s.length &lt; 1) {</span>
+<span class="nc" id="L1480">      throw new GameParseException(&quot;Empty purchase list&quot; + thisErrorMsg());</span>
+    }
+    try {
+<span class="fc" id="L1483">      count = getInt(s[0]);</span>
+<span class="fc" id="L1484">      i++;</span>
+<span class="pc" id="L1485">    } catch (final Exception e) {</span>
+<span class="nc" id="L1486">      count = 1;</span>
+    }
+<span class="pc bpc" id="L1488" title="4 of 6 branches missed.">    if (s.length &lt; 1 || s.length == 1 &amp;&amp; count != -1) {</span>
+<span class="nc" id="L1489">      throw new GameParseException(&quot;Empty purchase list&quot; + thisErrorMsg());</span>
+    } else {
+<span class="pc bpc" id="L1491" title="1 of 2 branches missed.">      if (m_purchase == null) {</span>
+<span class="fc" id="L1492">        m_purchase = new IntegerMap&lt;&gt;();</span>
+      }
+<span class="fc bfc" id="L1494" title="All 2 branches covered.">      for (; i &lt; s.length; i++) {</span>
+<span class="fc" id="L1495">        final UnitType type = getData().getUnitTypeList().getUnitType(s[i]);</span>
+<span class="pc bpc" id="L1496" title="1 of 2 branches missed.">        if (type == null) {</span>
+<span class="nc" id="L1497">          throw new GameParseException(&quot;UnitType does not exist &quot; + s[i] + thisErrorMsg());</span>
+        } else {
+<span class="fc" id="L1499">          m_purchase.add(type, count);</span>
+        }
+      }
+    }
+<span class="fc" id="L1503">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPurchase(final IntegerMap&lt;UnitType&gt; value) {
+<span class="nc" id="L1507">    m_purchase = value;</span>
+<span class="nc" id="L1508">  }</span>
+
+  public IntegerMap&lt;UnitType&gt; getPurchase() {
+<span class="fc" id="L1511">    return m_purchase;</span>
+  }
+
+  public void clearPurchase() {
+<span class="nc" id="L1515">    m_purchase.clear();</span>
+<span class="nc" id="L1516">  }</span>
+
+  public void resetPurchase() {
+<span class="nc" id="L1519">    m_purchase = null;</span>
+<span class="nc" id="L1520">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param place
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setChangeOwnership(final String value) throws GameParseException {
+    // territory:oldOwner:newOwner:booleanConquered
+    // can have &quot;all&quot; for territory and &quot;any&quot; for oldOwner
+<span class="fc" id="L1532">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L1533" title="1 of 2 branches missed.">    if (s.length &lt; 4) {</span>
+<span class="nc" id="L1534">      throw new GameParseException(</span>
+<span class="nc" id="L1535">          &quot;changeOwnership must have 4 fields: territory:oldOwner:newOwner:booleanConquered&quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L1537" title="1 of 2 branches missed.">    if (!s[0].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="fc" id="L1538">      final Territory t = getData().getMap().getTerritory(s[0]);</span>
+<span class="pc bpc" id="L1539" title="1 of 2 branches missed.">      if (t == null) {</span>
+<span class="nc" id="L1540">        throw new GameParseException(&quot;No such territory: &quot; + s[0] + thisErrorMsg());</span>
+      }
+    }
+<span class="pc bpc" id="L1543" title="1 of 2 branches missed.">    if (!s[1].equalsIgnoreCase(&quot;any&quot;)) {</span>
+<span class="fc" id="L1544">      final PlayerID oldOwner = getData().getPlayerList().getPlayerID(s[1]);</span>
+<span class="pc bpc" id="L1545" title="1 of 2 branches missed.">      if (oldOwner == null) {</span>
+<span class="nc" id="L1546">        throw new GameParseException(&quot;No such player: &quot; + s[1] + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L1549">    final PlayerID newOwner = getData().getPlayerList().getPlayerID(s[2]);</span>
+<span class="pc bpc" id="L1550" title="1 of 2 branches missed.">    if (newOwner == null) {</span>
+<span class="nc" id="L1551">      throw new GameParseException(&quot;No such player: &quot; + s[2] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L1553">    getBool(s[3]);</span>
+<span class="fc" id="L1554">    m_changeOwnership.add(value);</span>
+<span class="fc" id="L1555">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setChangeOwnership(final ArrayList&lt;String&gt; value) {
+<span class="nc" id="L1559">    m_changeOwnership = value;</span>
+<span class="nc" id="L1560">  }</span>
+
+  public ArrayList&lt;String&gt; getChangeOwnership() {
+<span class="fc" id="L1563">    return m_changeOwnership;</span>
+  }
+
+  public void clearChangeOwnership() {
+<span class="nc" id="L1567">    m_changeOwnership.clear();</span>
+<span class="nc" id="L1568">  }</span>
+
+  public void resetChangeOwnership() {
+<span class="nc" id="L1571">    m_changeOwnership = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1572">  }</span>
+
+  private static void removeUnits(final TriggerAttachment t, final Territory terr, final IntegerMap&lt;UnitType&gt; uMap,
+      final PlayerID player, final IDelegateBridge aBridge) {
+<span class="nc" id="L1576">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L1577">    final Collection&lt;Unit&gt; totalRemoved = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1578" title="All 2 branches missed.">    for (final UnitType ut : uMap.keySet()) {</span>
+<span class="nc" id="L1579">      final int removeNum = uMap.getInt(ut);</span>
+<span class="nc" id="L1580">      final Collection&lt;Unit&gt; toRemove = Match.getNMatches(terr.getUnits().getUnits(), removeNum,</span>
+<span class="nc" id="L1581">          new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.unitIsOfType(ut)));</span>
+<span class="nc bnc" id="L1582" title="All 2 branches missed.">      if (!toRemove.isEmpty()) {</span>
+<span class="nc" id="L1583">        totalRemoved.addAll(toRemove);</span>
+<span class="nc" id="L1584">        change.add(ChangeFactory.removeUnits(terr, toRemove));</span>
+      }
+    }
+<span class="nc bnc" id="L1587" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1588">      final String transcriptText = MyFormatter.attachmentNameToText(t.getName()) + &quot;: has removed &quot;</span>
+<span class="nc" id="L1589">          + MyFormatter.unitsToTextNoOwner(totalRemoved) + &quot; owned by &quot; + player.getName() + &quot; in &quot; + terr.getName();</span>
+<span class="nc" id="L1590">      aBridge.getHistoryWriter().startEvent(transcriptText, totalRemoved);</span>
+<span class="nc" id="L1591">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L1593">  }</span>
+
+  private static void placeUnits(final TriggerAttachment t, final Territory terr, final IntegerMap&lt;UnitType&gt; uMap,
+      final PlayerID player, final GameData data, final IDelegateBridge aBridge) {
+    // createUnits
+<span class="nc" id="L1598">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1599" title="All 2 branches missed.">    for (final UnitType u : uMap.keySet()) {</span>
+<span class="nc" id="L1600">      units.addAll(u.create(uMap.getInt(u), player));</span>
+    }
+<span class="nc" id="L1602">    final CompositeChange change = new CompositeChange();</span>
+    // mark no movement
+<span class="nc bnc" id="L1604" title="All 2 branches missed.">    for (final Unit unit : units) {</span>
+<span class="nc" id="L1605">      change.add(ChangeFactory.markNoMovementChange(unit));</span>
+    }
+    // place units
+<span class="nc" id="L1608">    final Collection&lt;Unit&gt; factoryAndInfrastructure = Match.getMatches(units, Matches.UnitIsInfrastructure);</span>
+<span class="nc" id="L1609">    change.add(OriginalOwnerTracker.addOriginalOwnerChange(factoryAndInfrastructure, player));</span>
+<span class="nc" id="L1610">    final String transcriptText = MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + player.getName() + &quot; has &quot;</span>
+<span class="nc" id="L1611">        + MyFormatter.unitsToTextNoOwner(units) + &quot; placed in &quot; + terr.getName();</span>
+<span class="nc" id="L1612">    aBridge.getHistoryWriter().startEvent(transcriptText, units);</span>
+<span class="nc" id="L1613">    final Change place = ChangeFactory.addUnits(terr, units);</span>
+<span class="nc" id="L1614">    change.add(place);</span>
+<span class="nc" id="L1615">    aBridge.addChange(change);</span>
+<span class="nc" id="L1616">  }</span>
+
+  // And now for the actual triggers, as called throughout the engine.
+  // Each trigger should be called exactly twice, once in BaseDelegate (for use with 'when'), and a second time as the
+  // default location for
+  // when 'when' is not used.
+  // Should be void.
+  public static void triggerNotifications(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L1626">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L1627">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, notificationMatch());</span>
+<span class="nc bnc" id="L1628" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L1629">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L1631" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L1632">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L1634">    final Set&lt;String&gt; notifications = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1635" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L1636" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L1637">        continue;</span>
+      }
+<span class="nc bnc" id="L1639" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L1640">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L1642" title="All 2 branches missed.">      if (!notifications.contains(t.getNotification())) {</span>
+<span class="nc" id="L1643">        notifications.add(t.getNotification());</span>
+<span class="nc" id="L1644">        final String notificationMessageKey = t.getNotification().trim();</span>
+<span class="nc" id="L1645">        final String sounds = NotificationMessages.getInstance().getSoundsKey(notificationMessageKey);</span>
+<span class="nc bnc" id="L1646" title="All 2 branches missed.">        if (sounds != null) {</span>
+<span class="nc" id="L1647">          aBridge.getSoundChannelBroadcaster().playSoundToPlayers(</span>
+<span class="nc" id="L1648">              SoundPath.CLIP_TRIGGERED_NOTIFICATION_SOUND + sounds.trim(), t.getPlayers(), null,</span>
+<span class="nc" id="L1649">              t.getPlayers().containsAll(data.getPlayerList().getPlayers())); // play to observers if we are playing to</span>
+                                                                              // everyone
+        }
+<span class="nc" id="L1652">        final String message = NotificationMessages.getInstance().getMessage(notificationMessageKey);</span>
+<span class="nc bnc" id="L1653" title="All 2 branches missed.">        if (message != null) {</span>
+<span class="nc" id="L1654">          String messageForRecord = message.trim();</span>
+<span class="nc bnc" id="L1655" title="All 2 branches missed.">          if (messageForRecord.length() &gt; 190) {</span>
+            // We don't want to record a giant string in the history panel, so just put a shortened version in instead.
+<span class="nc" id="L1657">            messageForRecord = messageForRecord.replaceAll(&quot;\\&lt;br.*?&gt;&quot;, &quot; &quot;);</span>
+<span class="nc" id="L1658">            messageForRecord = messageForRecord.replaceAll(&quot;\\&lt;.*?&gt;&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L1659" title="All 2 branches missed.">            if (messageForRecord.length() &gt; 195) {</span>
+<span class="nc" id="L1660">              messageForRecord = messageForRecord.substring(0, 190) + &quot;....&quot;;</span>
+            }
+          }
+<span class="nc" id="L1663">          aBridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L1664">              &quot;Note to players &quot; + MyFormatter.defaultNamedToTextList(t.getPlayers()) + &quot;: &quot; + messageForRecord);</span>
+<span class="nc" id="L1665">          ((ITripleADisplay) aBridge.getDisplayChannelBroadcaster()).reportMessageToPlayers(t.getPlayers(), null,</span>
+<span class="nc" id="L1666">              (&quot;&lt;html&gt;&quot; + message.trim() + &quot;&lt;/html&gt;&quot;), NOTIFICATION);</span>
+        }
+      }
+    }
+<span class="nc" id="L1670">  }</span>
+
+  public static void triggerPlayerPropertyChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L1675">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, playerPropertyMatch());</span>
+<span class="nc bnc" id="L1676" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L1677">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L1679" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L1680">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L1682">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L1683" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L1684" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L1685">        continue;</span>
+      }
+<span class="nc bnc" id="L1687" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L1688">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L1690" title="All 2 branches missed.">      for (final Tuple&lt;String, String&gt; property : t.getPlayerProperty()) {</span>
+<span class="nc bnc" id="L1691" title="All 2 branches missed.">        for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc" id="L1692">          String newValue = property.getSecond();</span>
+<span class="nc" id="L1693">          boolean clearFirst = false;</span>
+          // test if we are resetting the variable first, and if so, remove the leading &quot;-reset-&quot; or &quot;-clear-&quot;
+<span class="nc bnc" id="L1695" title="All 6 branches missed.">          if (newValue.length() &gt; 0 &amp;&amp; (newValue.startsWith(PREFIX_CLEAR) || newValue.startsWith(PREFIX_RESET))) {</span>
+<span class="nc" id="L1696">            newValue = newValue.replaceFirst(PREFIX_CLEAR, &quot;&quot;).replaceFirst(PREFIX_RESET, &quot;&quot;);</span>
+<span class="nc" id="L1697">            clearFirst = true;</span>
+          }
+          // covers PlayerAttachment, TriggerAttachment, RulesAttachment, TechAttachment
+<span class="nc bnc" id="L1700" title="All 2 branches missed.">          if (t.getPlayerAttachmentName().getFirst().equals(&quot;PlayerAttachment&quot;)) {</span>
+<span class="nc" id="L1701">            final PlayerAttachment attachment = PlayerAttachment.get(aPlayer, t.getPlayerAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1702" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1703">              continue;</span>
+            }
+<span class="nc bnc" id="L1705" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1706">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1707">            } else {</span>
+<span class="nc" id="L1708">              change.add(</span>
+<span class="nc" id="L1709">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1711">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1712">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1713" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1714">                    + t.getPlayerAttachmentName().getSecond() + &quot; attached to &quot; + aPlayer.getName());</span>
+<span class="nc bnc" id="L1715" title="All 2 branches missed.">          } else if (t.getPlayerAttachmentName().getFirst().equals(&quot;RulesAttachment&quot;)) {</span>
+<span class="nc" id="L1716">            final RulesAttachment attachment = RulesAttachment.get(aPlayer, t.getPlayerAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1717" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1718">              continue;</span>
+            }
+<span class="nc bnc" id="L1720" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1721">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1722">            } else {</span>
+<span class="nc" id="L1723">              change.add(</span>
+<span class="nc" id="L1724">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1726">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1727">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1728" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1729">                    + t.getPlayerAttachmentName().getSecond() + &quot; attached to &quot; + aPlayer.getName());</span>
+<span class="nc bnc" id="L1730" title="All 2 branches missed.">          } else if (t.getPlayerAttachmentName().getFirst().equals(&quot;TriggerAttachment&quot;)) {</span>
+<span class="nc" id="L1731">            final TriggerAttachment attachment =</span>
+<span class="nc" id="L1732">                TriggerAttachment.get(aPlayer, t.getPlayerAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1733" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1734">              continue;</span>
+            }
+<span class="nc bnc" id="L1736" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1737">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1738">            } else {</span>
+<span class="nc" id="L1739">              change.add(</span>
+<span class="nc" id="L1740">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1742">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1743">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1744" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1745">                    + t.getPlayerAttachmentName().getSecond() + &quot; attached to &quot; + aPlayer.getName());</span>
+<span class="nc bnc" id="L1746" title="All 2 branches missed.">          } else if (t.getPlayerAttachmentName().getFirst().equals(&quot;TechAttachment&quot;)) {</span>
+<span class="nc" id="L1747">            final TechAttachment attachment = TechAttachment.get(aPlayer, t.getPlayerAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1748" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1749">              continue;</span>
+            }
+<span class="nc bnc" id="L1751" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1752">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1753">            } else {</span>
+<span class="nc" id="L1754">              change.add(</span>
+<span class="nc" id="L1755">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1757">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1758">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1759" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1760">                    + t.getPlayerAttachmentName().getSecond() + &quot; attached to &quot; + aPlayer.getName());</span>
+<span class="nc bnc" id="L1761" title="All 2 branches missed.">          } else if (t.getPlayerAttachmentName().getFirst().equals(&quot;PoliticalActionAttachment&quot;)) {</span>
+<span class="nc" id="L1762">            final PoliticalActionAttachment attachment =</span>
+<span class="nc" id="L1763">                PoliticalActionAttachment.get(aPlayer, t.getPlayerAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1764" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1765">              continue;</span>
+            }
+<span class="nc bnc" id="L1767" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1768">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1769">            } else {</span>
+<span class="nc" id="L1770">              change.add(</span>
+<span class="nc" id="L1771">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1773">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1774">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1775" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1776">                    + t.getPlayerAttachmentName().getSecond() + &quot; attached to &quot; + aPlayer.getName());</span>
+<span class="nc bnc" id="L1777" title="All 2 branches missed.">          } else if (t.getPlayerAttachmentName().getFirst().equals(&quot;UserActionAttachment&quot;)) {</span>
+<span class="nc" id="L1778">            final UserActionAttachment attachment =</span>
+<span class="nc" id="L1779">                UserActionAttachment.get(aPlayer, t.getPlayerAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1780" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1781">              continue;</span>
+            }
+<span class="nc bnc" id="L1783" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1784">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1785">            } else {</span>
+<span class="nc" id="L1786">              change.add(</span>
+<span class="nc" id="L1787">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1789">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1790">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1791" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1792">                    + t.getPlayerAttachmentName().getSecond() + &quot; attached to &quot; + aPlayer.getName());</span>
+          }
+          // TODO add other attachment changes here if they attach to a player
+        }
+      }
+    }
+<span class="nc bnc" id="L1798" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1799">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L1801">  }</span>
+
+  public static void triggerRelationshipTypePropertyChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L1806">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, relationshipTypePropertyMatch());</span>
+<span class="nc bnc" id="L1807" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L1808">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L1810" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L1811">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L1813">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L1814" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L1815" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L1816">        continue;</span>
+      }
+<span class="nc bnc" id="L1818" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L1819">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L1821" title="All 2 branches missed.">      for (final Tuple&lt;String, String&gt; property : t.getRelationshipTypeProperty()) {</span>
+<span class="nc bnc" id="L1822" title="All 2 branches missed.">        for (final RelationshipType aRelationshipType : t.getRelationshipTypes()) {</span>
+<span class="nc" id="L1823">          String newValue = property.getSecond();</span>
+<span class="nc" id="L1824">          boolean clearFirst = false;</span>
+          // test if we are resetting the variable first, and if so, remove the leading &quot;-reset-&quot; or &quot;-clear-&quot;
+<span class="nc bnc" id="L1826" title="All 6 branches missed.">          if (newValue.length() &gt; 0 &amp;&amp; (newValue.startsWith(PREFIX_CLEAR) || newValue.startsWith(PREFIX_RESET))) {</span>
+<span class="nc" id="L1827">            newValue = newValue.replaceFirst(PREFIX_CLEAR, &quot;&quot;).replaceFirst(PREFIX_RESET, &quot;&quot;);</span>
+<span class="nc" id="L1828">            clearFirst = true;</span>
+          }
+          // covers RelationshipTypeAttachment
+<span class="nc bnc" id="L1831" title="All 2 branches missed.">          if (t.getRelationshipTypeAttachmentName().getFirst().equals(&quot;RelationshipTypeAttachment&quot;)) {</span>
+<span class="nc" id="L1832">            final RelationshipTypeAttachment attachment =</span>
+<span class="nc" id="L1833">                RelationshipTypeAttachment.get(aRelationshipType, t.getRelationshipTypeAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1834" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1835">              continue;</span>
+            }
+<span class="nc bnc" id="L1837" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1838">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1839">            } else {</span>
+<span class="nc" id="L1840">              change.add(</span>
+<span class="nc" id="L1841">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1843">            aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot;</span>
+<span class="nc bnc" id="L1844" title="All 2 branches missed.">                + property.getFirst() + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1845">                + t.getRelationshipTypeAttachmentName().getSecond() + &quot; attached to &quot; + aRelationshipType.getName());</span>
+          }
+          // TODO add other attachment changes here if they attach to a territory
+        }
+      }
+    }
+<span class="nc bnc" id="L1851" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1852">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L1854">  }</span>
+
+  public static void triggerTerritoryPropertyChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L1859">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, territoryPropertyMatch());</span>
+<span class="nc bnc" id="L1860" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L1861">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L1863" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L1864">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L1866">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L1867">    final HashSet&lt;Territory&gt; territoriesNeedingReDraw = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1868" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L1869" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L1870">        continue;</span>
+      }
+<span class="nc bnc" id="L1872" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L1873">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L1875" title="All 2 branches missed.">      for (final Tuple&lt;String, String&gt; property : t.getTerritoryProperty()) {</span>
+<span class="nc bnc" id="L1876" title="All 2 branches missed.">        for (final Territory aTerritory : t.getTerritories()) {</span>
+<span class="nc" id="L1877">          territoriesNeedingReDraw.add(aTerritory);</span>
+<span class="nc" id="L1878">          String newValue = property.getSecond();</span>
+<span class="nc" id="L1879">          boolean clearFirst = false;</span>
+          // test if we are resetting the variable first, and if so, remove the leading &quot;-reset-&quot; or &quot;-clear-&quot;
+<span class="nc bnc" id="L1881" title="All 6 branches missed.">          if (newValue.length() &gt; 0 &amp;&amp; (newValue.startsWith(PREFIX_CLEAR) || newValue.startsWith(PREFIX_RESET))) {</span>
+<span class="nc" id="L1882">            newValue = newValue.replaceFirst(PREFIX_CLEAR, &quot;&quot;).replaceFirst(PREFIX_RESET, &quot;&quot;);</span>
+<span class="nc" id="L1883">            clearFirst = true;</span>
+          }
+          // covers TerritoryAttachment, CanalAttachment
+<span class="nc bnc" id="L1886" title="All 2 branches missed.">          if (t.getTerritoryAttachmentName().getFirst().equals(&quot;TerritoryAttachment&quot;)) {</span>
+<span class="nc" id="L1887">            final TerritoryAttachment attachment =</span>
+<span class="nc" id="L1888">                TerritoryAttachment.get(aTerritory, t.getTerritoryAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1889" title="All 2 branches missed.">            if (attachment == null) {</span>
+<span class="nc" id="L1890">              throw new IllegalStateException(&quot;Triggers: No territory attachment for:&quot; + aTerritory.getName()); // water</span>
+                                                                                                                // territories
+                                                                                                                // may
+                                                                                                                // not
+                                                                                                                // have
+                                                                                                                // an
+                                                                                                                // attachment,
+                                                                                                                // so
+                                                                                                                // this
+                                                                                                                // could
+                                                                                                                // be
+                                                                                                                // null
+            }
+<span class="nc bnc" id="L1903" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1904">              continue;</span>
+            }
+<span class="nc bnc" id="L1906" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1907">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1908">            } else {</span>
+<span class="nc" id="L1909">              change.add(</span>
+<span class="nc" id="L1910">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1912">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1913">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1914" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1915">                    + t.getTerritoryAttachmentName().getSecond() + &quot; attached to &quot; + aTerritory.getName());</span>
+<span class="nc bnc" id="L1916" title="All 2 branches missed.">          } else if (t.getTerritoryAttachmentName().getFirst().equals(&quot;CanalAttachment&quot;)) {</span>
+<span class="nc" id="L1917">            final CanalAttachment attachment =</span>
+<span class="nc" id="L1918">                CanalAttachment.get(aTerritory, t.getTerritoryAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1919" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1920">              continue;</span>
+            }
+<span class="nc bnc" id="L1922" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1923">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1924">            } else {</span>
+<span class="nc" id="L1925">              change.add(</span>
+<span class="nc" id="L1926">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1928">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1929">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1930" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1931">                    + t.getTerritoryAttachmentName().getSecond() + &quot; attached to &quot; + aTerritory.getName());</span>
+          }
+          // TODO add other attachment changes here if they attach to a territory
+        }
+      }
+    }
+<span class="nc bnc" id="L1937" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1938">      aBridge.addChange(change);</span>
+<span class="nc bnc" id="L1939" title="All 2 branches missed.">      for (final Territory aTerritory : territoriesNeedingReDraw) {</span>
+<span class="nc" id="L1940">        aTerritory.notifyAttachmentChanged();</span>
+      }
+    }
+<span class="nc" id="L1943">  }</span>
+
+  public static void triggerTerritoryEffectPropertyChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L1948">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, territoryEffectPropertyMatch());</span>
+<span class="nc bnc" id="L1949" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L1950">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L1952" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L1953">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L1955">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L1956" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L1957" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L1958">        continue;</span>
+      }
+<span class="nc bnc" id="L1960" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L1961">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L1963" title="All 2 branches missed.">      for (final Tuple&lt;String, String&gt; property : t.getTerritoryEffectProperty()) {</span>
+<span class="nc bnc" id="L1964" title="All 2 branches missed.">        for (final TerritoryEffect aTerritoryEffect : t.getTerritoryEffects()) {</span>
+<span class="nc" id="L1965">          String newValue = property.getSecond();</span>
+<span class="nc" id="L1966">          boolean clearFirst = false;</span>
+          // test if we are resetting the variable first, and if so, remove the leading &quot;-reset-&quot; or &quot;-clear-&quot;
+<span class="nc bnc" id="L1968" title="All 6 branches missed.">          if (newValue.length() &gt; 0 &amp;&amp; (newValue.startsWith(PREFIX_CLEAR) || newValue.startsWith(PREFIX_RESET))) {</span>
+<span class="nc" id="L1969">            newValue = newValue.replaceFirst(PREFIX_CLEAR, &quot;&quot;).replaceFirst(PREFIX_RESET, &quot;&quot;);</span>
+<span class="nc" id="L1970">            clearFirst = true;</span>
+          }
+          // covers TerritoryEffectAttachment
+<span class="nc bnc" id="L1973" title="All 2 branches missed.">          if (t.getTerritoryEffectAttachmentName().getFirst().equals(&quot;TerritoryEffectAttachment&quot;)) {</span>
+<span class="nc" id="L1974">            final TerritoryEffectAttachment attachment =</span>
+<span class="nc" id="L1975">                TerritoryEffectAttachment.get(aTerritoryEffect, t.getTerritoryEffectAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L1976" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L1977">              continue;</span>
+            }
+<span class="nc bnc" id="L1979" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L1980">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L1981">            } else {</span>
+<span class="nc" id="L1982">              change.add(</span>
+<span class="nc" id="L1983">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L1985">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L1986">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L1987" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L1988">                    + t.getTerritoryEffectAttachmentName().getSecond() + &quot; attached to &quot; + aTerritoryEffect.getName());</span>
+          }
+          // TODO add other attachment changes here if they attach to a territory
+        }
+      }
+    }
+<span class="nc bnc" id="L1994" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1995">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L1997">  }</span>
+
+  public static void triggerUnitPropertyChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2002">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, unitPropertyMatch());</span>
+<span class="nc bnc" id="L2003" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2004">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2006" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2007">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L2009">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L2010" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2011" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2012">        continue;</span>
+      }
+<span class="nc bnc" id="L2014" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2015">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2017" title="All 2 branches missed.">      for (final Tuple&lt;String, String&gt; property : t.getUnitProperty()) {</span>
+<span class="nc bnc" id="L2018" title="All 2 branches missed.">        for (final UnitType aUnitType : t.getUnitType()) {</span>
+<span class="nc" id="L2019">          String newValue = property.getSecond();</span>
+<span class="nc" id="L2020">          boolean clearFirst = false;</span>
+          // test if we are resetting the variable first, and if so, remove the leading &quot;-reset-&quot; or &quot;-clear-&quot;
+<span class="nc bnc" id="L2022" title="All 6 branches missed.">          if (newValue.length() &gt; 0 &amp;&amp; (newValue.startsWith(PREFIX_CLEAR) || newValue.startsWith(PREFIX_RESET))) {</span>
+<span class="nc" id="L2023">            newValue = newValue.replaceFirst(PREFIX_CLEAR, &quot;&quot;).replaceFirst(PREFIX_RESET, &quot;&quot;);</span>
+<span class="nc" id="L2024">            clearFirst = true;</span>
+          }
+          // covers UnitAttachment, UnitSupportAttachment
+<span class="nc bnc" id="L2027" title="All 2 branches missed.">          if (t.getUnitAttachmentName().getFirst().equals(&quot;UnitAttachment&quot;)) {</span>
+<span class="nc" id="L2028">            final UnitAttachment attachment = UnitAttachment.get(aUnitType, t.getUnitAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L2029" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L2030">              continue;</span>
+            }
+<span class="nc bnc" id="L2032" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L2033">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L2034">            } else {</span>
+<span class="nc" id="L2035">              change.add(</span>
+<span class="nc" id="L2036">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L2038">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L2039">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L2040" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L2041">                    + t.getUnitAttachmentName().getSecond() + &quot; attached to &quot; + aUnitType.getName());</span>
+<span class="nc bnc" id="L2042" title="All 2 branches missed.">          } else if (t.getUnitAttachmentName().getFirst().equals(&quot;UnitSupportAttachment&quot;)) {</span>
+<span class="nc" id="L2043">            final UnitSupportAttachment attachment =</span>
+<span class="nc" id="L2044">                UnitSupportAttachment.get(aUnitType, t.getUnitAttachmentName().getSecond());</span>
+<span class="nc bnc" id="L2045" title="All 2 branches missed.">            if (newValue.equals(attachment.getRawPropertyString(property.getFirst()))) {</span>
+<span class="nc" id="L2046">              continue;</span>
+            }
+<span class="nc bnc" id="L2048" title="All 4 branches missed.">            if (clearFirst &amp;&amp; newValue.length() &lt; 1) {</span>
+<span class="nc" id="L2049">              change.add(ChangeFactory.attachmentPropertyReset(attachment, property.getFirst()));</span>
+<span class="nc" id="L2050">            } else {</span>
+<span class="nc" id="L2051">              change.add(</span>
+<span class="nc" id="L2052">                  ChangeFactory.attachmentPropertyChange(attachment, newValue, property.getFirst(), clearFirst));</span>
+            }
+<span class="nc" id="L2054">            aBridge.getHistoryWriter()</span>
+<span class="nc" id="L2055">                .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Setting &quot; + property.getFirst()</span>
+<span class="nc bnc" id="L2056" title="All 2 branches missed.">                    + (newValue.length() &gt; 0 ? &quot; to &quot; + newValue : &quot; cleared &quot;) + &quot; for &quot;</span>
+<span class="nc" id="L2057">                    + t.getUnitAttachmentName().getSecond() + &quot; attached to &quot; + aUnitType.getName());</span>
+          }
+          // TODO add other attachment changes here if they attach to a unitType
+        }
+      }
+    }
+<span class="nc bnc" id="L2063" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L2064">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L2066">  }</span>
+
+  public static void triggerRelationshipChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2071">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2072">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, relationshipChangeMatch());</span>
+<span class="nc bnc" id="L2073" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2074">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2076" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2077">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L2079">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L2080" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2081" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2082">        continue;</span>
+      }
+<span class="nc bnc" id="L2084" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2085">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2087" title="All 2 branches missed.">      for (final String relationshipChange : t.getRelationshipChange()) {</span>
+<span class="nc" id="L2088">        final String[] s = relationshipChange.split(&quot;:&quot;);</span>
+<span class="nc" id="L2089">        final PlayerID player1 = data.getPlayerList().getPlayerID(s[0]);</span>
+<span class="nc" id="L2090">        final PlayerID player2 = data.getPlayerList().getPlayerID(s[1]);</span>
+<span class="nc" id="L2091">        final RelationshipType currentRelation = data.getRelationshipTracker().getRelationshipType(player1, player2);</span>
+<span class="nc bnc" id="L2092" title="All 2 branches missed.">        if (s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY)</span>
+<span class="nc bnc" id="L2093" title="All 2 branches missed.">            || (s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_NEUTRAL)</span>
+<span class="nc bnc" id="L2094" title="All 2 branches missed.">                &amp;&amp; Matches.RelationshipTypeIsNeutral.match(currentRelation))</span>
+<span class="nc bnc" id="L2095" title="All 2 branches missed.">            || (s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_ALLIED)</span>
+<span class="nc bnc" id="L2096" title="All 2 branches missed.">                &amp;&amp; Matches.RelationshipTypeIsAllied.match(currentRelation))</span>
+<span class="nc bnc" id="L2097" title="All 2 branches missed.">            || (s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_WAR)</span>
+<span class="nc bnc" id="L2098" title="All 2 branches missed.">                &amp;&amp; Matches.RelationshipTypeIsAtWar.match(currentRelation))</span>
+<span class="nc bnc" id="L2099" title="All 2 branches missed.">            || currentRelation.equals(data.getRelationshipTypeList().getRelationshipType(s[2]))) {</span>
+<span class="nc" id="L2100">          final RelationshipType triggerNewRelation = data.getRelationshipTypeList().getRelationshipType(s[3]);</span>
+<span class="nc" id="L2101">          change.add(ChangeFactory.relationshipChange(player1, player2, currentRelation, triggerNewRelation));</span>
+<span class="nc" id="L2102">          aBridge.getHistoryWriter()</span>
+<span class="nc" id="L2103">              .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: Changing Relationship for &quot;</span>
+<span class="nc" id="L2104">                  + player1.getName() + &quot; and &quot; + player2.getName() + &quot; from &quot; + currentRelation.getName() + &quot; to &quot;</span>
+<span class="nc" id="L2105">                  + triggerNewRelation.getName());</span>
+<span class="nc" id="L2106">          AbstractMoveDelegate.getBattleTracker(data).addRelationshipChangesThisTurn(player1, player2, currentRelation,</span>
+<span class="nc" id="L2107">              triggerNewRelation);</span>
+          /*
+           * creation of new battles is handled at the beginning of the battle delegate, in
+           * &quot;setupUnitsInSameTerritoryBattles&quot;, not here.
+           * if (Matches.RelationshipTypeIsAtWar.match(triggerNewRelation))
+           * triggerMustFightBattle(player1, player2, aBridge);
+           */
+        }
+      }
+    }
+<span class="nc bnc" id="L2117" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L2118">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L2120">  }</span>
+
+  public static void triggerAvailableTechChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2125">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, techAvailableMatch());</span>
+<span class="nc bnc" id="L2126" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2127">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2129" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2130">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc bnc" id="L2132" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2133" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2134">        continue;</span>
+      }
+<span class="nc bnc" id="L2136" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2137">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2139" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2140" title="All 2 branches missed.">        for (final String cat : t.getAvailableTech().keySet()) {</span>
+<span class="nc" id="L2141">          final TechnologyFrontier tf = aPlayer.getTechnologyFrontierList().getTechnologyFrontier(cat);</span>
+<span class="nc bnc" id="L2142" title="All 2 branches missed.">          if (tf == null) {</span>
+<span class="nc" id="L2143">            throw new IllegalStateException(&quot;Triggers: tech category doesn't exist:&quot; + cat + &quot; for player:&quot; + aPlayer);</span>
+          }
+<span class="nc bnc" id="L2145" title="All 2 branches missed.">          for (final TechAdvance ta : t.getAvailableTech().get(cat).keySet()) {</span>
+<span class="nc bnc" id="L2146" title="All 2 branches missed.">            if (t.getAvailableTech().get(cat).get(ta)) {</span>
+<span class="nc" id="L2147">              aBridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L2148">                  MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + aPlayer.getName() + &quot; gains access to &quot; + ta);</span>
+<span class="nc" id="L2149">              final Change change = ChangeFactory.addAvailableTech(tf, ta, aPlayer);</span>
+<span class="nc" id="L2150">              aBridge.addChange(change);</span>
+<span class="nc" id="L2151">            } else {</span>
+<span class="nc" id="L2152">              aBridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L2153">                  MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + aPlayer.getName() + &quot; loses access to &quot; + ta);</span>
+<span class="nc" id="L2154">              final Change change = ChangeFactory.removeAvailableTech(tf, ta, aPlayer);</span>
+<span class="nc" id="L2155">              aBridge.addChange(change);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L2161">  }</span>
+
+  public static void triggerTechChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+    // final GameData data = aBridge.getData();
+<span class="nc" id="L2167">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, techMatch());</span>
+<span class="nc bnc" id="L2168" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2169">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2171" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2172">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc bnc" id="L2174" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2175" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2176">        continue;</span>
+      }
+<span class="nc bnc" id="L2178" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2179">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2181" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2182" title="All 2 branches missed.">        for (final TechAdvance ta : t.getTech()) {</span>
+<span class="nc bnc" id="L2183" title="All 2 branches missed.">          if (ta.hasTech(TechAttachment.get(aPlayer))) {</span>
+<span class="nc" id="L2184">            continue;</span>
+          }
+<span class="nc" id="L2186">          aBridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L2187">              MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + aPlayer.getName() + &quot; activates &quot; + ta);</span>
+<span class="nc" id="L2188">          TechTracker.addAdvance(aPlayer, aBridge, ta);</span>
+        }
+      }
+    }
+<span class="nc" id="L2192">  }</span>
+
+  public static void triggerProductionChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="fc" id="L2197">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, prodMatch());</span>
+<span class="pc bpc" id="L2198" title="1 of 2 branches missed.">    if (testWhen) {</span>
+<span class="fc" id="L2199">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="pc bpc" id="L2201" title="1 of 2 branches missed.">    if (testUses) {</span>
+<span class="fc" id="L2202">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="fc" id="L2204">    final CompositeChange change = new CompositeChange();</span>
+<span class="pc bpc" id="L2205" title="1 of 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2206" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2207">        continue;</span>
+      }
+<span class="nc bnc" id="L2209" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2210">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2212" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc" id="L2213">        change.add(ChangeFactory.changeProductionFrontier(aPlayer, t.getFrontier()));</span>
+<span class="nc" id="L2214">        aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + aPlayer.getName()</span>
+<span class="nc" id="L2215">            + &quot; has their production frontier changed to: &quot; + t.getFrontier().getName());</span>
+      }
+    }
+<span class="pc bpc" id="L2218" title="1 of 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L2219">      aBridge.addChange(change);</span>
+    }
+<span class="fc" id="L2221">  }</span>
+
+  public static void triggerProductionFrontierEditChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="fc" id="L2226">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L2227">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, prodFrontierEditMatch());</span>
+<span class="pc bpc" id="L2228" title="1 of 2 branches missed.">    if (testWhen) {</span>
+<span class="fc" id="L2229">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="pc bpc" id="L2231" title="1 of 2 branches missed.">    if (testUses) {</span>
+<span class="fc" id="L2232">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="fc" id="L2234">    final CompositeChange change = new CompositeChange();</span>
+<span class="pc bpc" id="L2235" title="1 of 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2236" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2237">        continue;</span>
+      }
+<span class="nc bnc" id="L2239" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2240">        t.use(aBridge);</span>
+      }
+<span class="nc" id="L2242">      final Iterator&lt;String&gt; iter = t.getProductionRule().iterator();</span>
+<span class="nc bnc" id="L2243" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L2244">        boolean add = true;</span>
+<span class="nc" id="L2245">        final String[] s = iter.next().split(&quot;:&quot;);</span>
+<span class="nc" id="L2246">        final ProductionFrontier front = data.getProductionFrontierList().getProductionFrontier(s[0]);</span>
+<span class="nc" id="L2247">        String rule = s[1];</span>
+<span class="nc bnc" id="L2248" title="All 2 branches missed.">        if (rule.startsWith(&quot;-&quot;)) {</span>
+<span class="nc" id="L2249">          rule = rule.replaceFirst(&quot;-&quot;, &quot;&quot;);</span>
+<span class="nc" id="L2250">          add = false;</span>
+        }
+<span class="nc" id="L2252">        final ProductionRule pRule = data.getProductionRuleList().getProductionRule(rule);</span>
+<span class="nc bnc" id="L2253" title="All 2 branches missed.">        if (add) {</span>
+<span class="nc bnc" id="L2254" title="All 2 branches missed.">          if (!front.getRules().contains(pRule)) {</span>
+<span class="nc" id="L2255">            change.add(ChangeFactory.addProductionRule(pRule, front));</span>
+<span class="nc" id="L2256">            aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + pRule.getName()</span>
+<span class="nc" id="L2257">                + &quot; added to &quot; + front.getName());</span>
+          }
+<span class="nc" id="L2259">        } else {</span>
+<span class="nc bnc" id="L2260" title="All 2 branches missed.">          if (front.getRules().contains(pRule)) {</span>
+<span class="nc" id="L2261">            change.add(ChangeFactory.removeProductionRule(pRule, front));</span>
+<span class="nc" id="L2262">            aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + pRule.getName()</span>
+<span class="nc" id="L2263">                + &quot; removed from &quot; + front.getName());</span>
+          }
+        }
+      }
+    }
+<span class="pc bpc" id="L2268" title="1 of 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L2269">      aBridge.addChange(change); // TODO: we should sort the frontier list if we make changes to it...</span>
+    }
+<span class="fc" id="L2271">  }</span>
+
+  public static void triggerSupportChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2276">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2277">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, supportMatch());</span>
+<span class="nc bnc" id="L2278" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2279">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2281" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2282">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L2284">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L2285" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2286" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2287">        continue;</span>
+      }
+<span class="nc bnc" id="L2289" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2290">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2292" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2293" title="All 2 branches missed.">        for (final String usaString : t.getSupport().keySet()) {</span>
+<span class="nc" id="L2294">          UnitSupportAttachment usa = null;</span>
+<span class="nc bnc" id="L2295" title="All 2 branches missed.">          for (final UnitSupportAttachment support : UnitSupportAttachment.get(data)) {</span>
+<span class="nc bnc" id="L2296" title="All 2 branches missed.">            if (support.getName().equals(usaString)) {</span>
+<span class="nc" id="L2297">              usa = support;</span>
+<span class="nc" id="L2298">              break;</span>
+            }
+          }
+<span class="nc bnc" id="L2301" title="All 2 branches missed.">          if (usa == null) {</span>
+<span class="nc" id="L2302">            throw new IllegalStateException(&quot;Could not find unitSupportAttachment. name:&quot; + usaString);</span>
+          }
+<span class="nc" id="L2304">          final List&lt;PlayerID&gt; p = new ArrayList&lt;&gt;(usa.getPlayers());</span>
+<span class="nc bnc" id="L2305" title="All 2 branches missed.">          if (p.contains(aPlayer)) {</span>
+<span class="nc bnc" id="L2306" title="All 2 branches missed.">            if (!t.getSupport().get(usa.getName())) {</span>
+<span class="nc" id="L2307">              p.remove(aPlayer);</span>
+<span class="nc" id="L2308">              change.add(ChangeFactory.attachmentPropertyChange(usa, p, &quot;players&quot;));</span>
+<span class="nc" id="L2309">              aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot;</span>
+<span class="nc" id="L2310">                  + aPlayer.getName() + &quot; is removed from &quot; + usa.toString());</span>
+            }
+<span class="nc" id="L2312">          } else {</span>
+<span class="nc bnc" id="L2313" title="All 2 branches missed.">            if (t.getSupport().get(usa.getName())) {</span>
+<span class="nc" id="L2314">              p.add(aPlayer);</span>
+<span class="nc" id="L2315">              change.add(ChangeFactory.attachmentPropertyChange(usa, p, &quot;players&quot;));</span>
+<span class="nc" id="L2316">              aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot;</span>
+<span class="nc" id="L2317">                  + aPlayer.getName() + &quot; is added to &quot; + usa.toString());</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L2323" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L2324">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L2326">  }</span>
+
+  public static void triggerChangeOwnership(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2331">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2332">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, changeOwnershipMatch());</span>
+<span class="nc bnc" id="L2333" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2334">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2336" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2337">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L2339">    final BattleTracker bt = DelegateFinder.battleDelegate(data).getBattleTracker();</span>
+<span class="nc bnc" id="L2340" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2341" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2342">        continue;</span>
+      }
+<span class="nc bnc" id="L2344" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2345">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2347" title="All 2 branches missed.">      for (final String value : t.getChangeOwnership()) {</span>
+<span class="nc" id="L2348">        final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc" id="L2349">        final Collection&lt;Territory&gt; territories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L2350" title="All 2 branches missed.">        if (s[0].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="nc" id="L2351">          territories.addAll(data.getMap().getTerritories());</span>
+<span class="nc" id="L2352">        } else {</span>
+<span class="nc" id="L2353">          final Territory territorySet = data.getMap().getTerritory(s[0]);</span>
+<span class="nc" id="L2354">          territories.add(territorySet);</span>
+        }
+<span class="nc" id="L2356">        final PlayerID oldOwner = data.getPlayerList().getPlayerID(s[1]); // if null, then is must be &quot;any&quot;, so then any</span>
+                                                                          // player
+<span class="nc" id="L2358">        final PlayerID newOwner = data.getPlayerList().getPlayerID(s[2]);</span>
+<span class="nc" id="L2359">        final boolean captured = getBool(s[3]);</span>
+<span class="nc bnc" id="L2360" title="All 2 branches missed.">        for (final Territory terr : territories) {</span>
+<span class="nc" id="L2361">          final PlayerID currentOwner = terr.getOwner();</span>
+<span class="nc bnc" id="L2362" title="All 2 branches missed.">          if (TerritoryAttachment.get(terr) == null) {</span>
+<span class="nc" id="L2363">            continue; // any territory that has no territory attachment should definitely not be changed</span>
+          }
+<span class="nc bnc" id="L2365" title="All 4 branches missed.">          if (oldOwner != null &amp;&amp; !oldOwner.equals(currentOwner)) {</span>
+<span class="nc" id="L2366">            continue;</span>
+          }
+<span class="nc" id="L2368">          aBridge.getHistoryWriter()</span>
+<span class="nc" id="L2369">              .startEvent(MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + newOwner.getName()</span>
+<span class="nc bnc" id="L2370" title="All 2 branches missed.">                  + (captured ? &quot; captures territory &quot; : &quot; takes ownership of territory &quot;) + terr.getName());</span>
+<span class="nc bnc" id="L2371" title="All 2 branches missed.">          if (!captured) {</span>
+<span class="nc" id="L2372">            aBridge.addChange(ChangeFactory.changeOwner(terr, newOwner));</span>
+<span class="nc" id="L2373">          } else {</span>
+<span class="nc" id="L2374">            bt.takeOver(terr, newOwner, aBridge, null, null);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L2379">  }</span>
+
+  public static void triggerPurchase(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+<span class="fc" id="L2384">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, purchaseMatch());</span>
+<span class="pc bpc" id="L2385" title="1 of 2 branches missed.">    if (testWhen) {</span>
+<span class="fc" id="L2386">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="pc bpc" id="L2388" title="1 of 2 branches missed.">    if (testUses) {</span>
+<span class="fc" id="L2389">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="pc bpc" id="L2391" title="1 of 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2392" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2393">        continue;</span>
+      }
+<span class="nc bnc" id="L2395" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2396">        t.use(aBridge);</span>
+      }
+<span class="nc" id="L2398">      final int eachMultiple = getEachMultiple(t);</span>
+<span class="nc bnc" id="L2399" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2400" title="All 2 branches missed.">        for (int i = 0; i &lt; eachMultiple; ++i) {</span>
+<span class="nc" id="L2401">          final List&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L2402" title="All 2 branches missed.">          for (final UnitType u : t.getPurchase().keySet()) {</span>
+<span class="nc" id="L2403">            units.addAll(u.create(t.getPurchase().getInt(u), aPlayer));</span>
+          }
+<span class="nc bnc" id="L2405" title="All 2 branches missed.">          if (!units.isEmpty()) {</span>
+<span class="nc" id="L2406">            final String transcriptText = MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot;</span>
+<span class="nc" id="L2407">                + MyFormatter.unitsToTextNoOwner(units) + &quot; gained by &quot; + aPlayer;</span>
+<span class="nc" id="L2408">            aBridge.getHistoryWriter().startEvent(transcriptText, units);</span>
+<span class="nc" id="L2409">            final Change place = ChangeFactory.addUnits(aPlayer, units);</span>
+<span class="nc" id="L2410">            aBridge.addChange(place);</span>
+          }
+        }
+      }
+    }
+<span class="fc" id="L2415">  }</span>
+
+  public static void triggerUnitRemoval(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2420">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, removeUnitsMatch());</span>
+<span class="nc bnc" id="L2421" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2422">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2424" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2425">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc bnc" id="L2427" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2428" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2429">        continue;</span>
+      }
+<span class="nc bnc" id="L2431" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2432">        t.use(aBridge);</span>
+      }
+<span class="nc" id="L2434">      final int eachMultiple = getEachMultiple(t);</span>
+<span class="nc bnc" id="L2435" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2436" title="All 2 branches missed.">        for (final Territory ter : t.getRemoveUnits().keySet()) {</span>
+<span class="nc bnc" id="L2437" title="All 2 branches missed.">          for (int i = 0; i &lt; eachMultiple; ++i) {</span>
+<span class="nc" id="L2438">            removeUnits(t, ter, t.getRemoveUnits().get(ter), aPlayer, aBridge);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L2443">  }</span>
+
+  public static void triggerUnitPlacement(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2448">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2449">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, placeMatch());</span>
+<span class="nc bnc" id="L2450" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2451">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2453" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2454">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc bnc" id="L2456" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2457" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2458">        continue;</span>
+      }
+<span class="nc bnc" id="L2460" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2461">        t.use(aBridge);</span>
+      }
+<span class="nc" id="L2463">      final int eachMultiple = getEachMultiple(t);</span>
+<span class="nc bnc" id="L2464" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2465" title="All 2 branches missed.">        for (final Territory ter : t.getPlacement().keySet()) {</span>
+<span class="nc bnc" id="L2466" title="All 2 branches missed.">          for (int i = 0; i &lt; eachMultiple; ++i) {</span>
+<span class="nc" id="L2467">            placeUnits(t, ter, t.getPlacement().get(ter), aPlayer, data, aBridge);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L2472">  }</span>
+
+  public static String triggerResourceChange(final Set&lt;TriggerAttachment&gt; satisfiedTriggers,
+      final IDelegateBridge aBridge, final String beforeOrAfter, final String stepName, final boolean useUses,
+      final boolean testUses, final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2477">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2478">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, resourceMatch());</span>
+<span class="nc bnc" id="L2479" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2480">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2482" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2483">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc" id="L2485">    final StringBuilder strbuf = new StringBuilder();</span>
+<span class="nc bnc" id="L2486" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2487" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2488">        continue;</span>
+      }
+<span class="nc bnc" id="L2490" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2491">        t.use(aBridge);</span>
+      }
+<span class="nc" id="L2493">      final int eachMultiple = getEachMultiple(t);</span>
+<span class="nc bnc" id="L2494" title="All 2 branches missed.">      for (final PlayerID aPlayer : t.getPlayers()) {</span>
+<span class="nc bnc" id="L2495" title="All 2 branches missed.">        for (int i = 0; i &lt; eachMultiple; ++i) {</span>
+<span class="nc" id="L2496">          int toAdd = t.getResourceCount();</span>
+<span class="nc bnc" id="L2497" title="All 2 branches missed.">          if (t.getResource().equals(Constants.PUS)) {</span>
+<span class="nc" id="L2498">            toAdd *= Properties.getPU_Multiplier(data);</span>
+          }
+<span class="nc" id="L2500">          int total = aPlayer.getResources().getQuantity(t.getResource()) + toAdd;</span>
+<span class="nc bnc" id="L2501" title="All 2 branches missed.">          if (total &lt; 0) {</span>
+<span class="nc" id="L2502">            toAdd -= total;</span>
+<span class="nc" id="L2503">            total = 0;</span>
+          }
+<span class="nc" id="L2505">          aBridge.addChange(</span>
+<span class="nc" id="L2506">              ChangeFactory.changeResourcesChange(aPlayer, data.getResourceList().getResource(t.getResource()), toAdd));</span>
+<span class="nc" id="L2507">          final String PUMessage = MyFormatter.attachmentNameToText(t.getName()) + &quot;: &quot; + aPlayer.getName()</span>
+<span class="nc" id="L2508">              + &quot; met a national objective for an additional &quot; + t.getResourceCount() + &quot; &quot; + t.getResource()</span>
+<span class="nc" id="L2509">              + &quot;; end with &quot; + total + &quot; &quot; + t.getResource();</span>
+<span class="nc" id="L2510">          aBridge.getHistoryWriter().startEvent(PUMessage);</span>
+<span class="nc" id="L2511">          strbuf.append(PUMessage).append(&quot; &lt;br /&gt;&quot;);</span>
+        }
+      }
+    }
+<span class="nc" id="L2515">    return strbuf.toString();</span>
+  }
+
+  public static void triggerActivateTriggerOther(final HashMap&lt;ICondition, Boolean&gt; testedConditionsSoFar,
+      final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge, final String beforeOrAfter,
+      final String stepName, final boolean useUses, final boolean testUses, final boolean testChance,
+      final boolean testWhen) {
+<span class="nc" id="L2522">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2523">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, activateTriggerMatch());</span>
+<span class="nc bnc" id="L2524" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2525">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2527" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2528">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc bnc" id="L2530" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2531" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2532">        continue;</span>
+      }
+<span class="nc bnc" id="L2534" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2535">        t.use(aBridge);</span>
+      }
+<span class="nc" id="L2537">      final int eachMultiple = getEachMultiple(t);</span>
+<span class="nc bnc" id="L2538" title="All 2 branches missed.">      for (final Tuple&lt;String, String&gt; tuple : t.getActivateTrigger()) {</span>
+        // numberOfTimes:useUses:testUses:testConditions:testChance
+<span class="nc" id="L2540">        TriggerAttachment toFire = null;</span>
+<span class="nc bnc" id="L2541" title="All 2 branches missed.">        for (final PlayerID player : data.getPlayerList().getPlayers()) {</span>
+<span class="nc bnc" id="L2542" title="All 2 branches missed.">          for (final TriggerAttachment ta : TriggerAttachment.getTriggers(player, data, null)) {</span>
+<span class="nc bnc" id="L2543" title="All 2 branches missed.">            if (ta.getName().equals(tuple.getFirst())) {</span>
+<span class="nc" id="L2544">              toFire = ta;</span>
+<span class="nc" id="L2545">              break;</span>
+            }
+          }
+<span class="nc bnc" id="L2548" title="All 2 branches missed.">          if (toFire != null) {</span>
+<span class="nc" id="L2549">            break;</span>
+          }
+        }
+<span class="nc" id="L2552">        final HashSet&lt;TriggerAttachment&gt; toFireSet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L2553">        toFireSet.add(toFire);</span>
+<span class="nc" id="L2554">        final String[] options = tuple.getSecond().split(&quot;:&quot;);</span>
+<span class="nc" id="L2555">        final int numberOfTimesToFire = getInt(options[0]);</span>
+<span class="nc" id="L2556">        final boolean useUsesToFire = getBool(options[1]);</span>
+<span class="nc" id="L2557">        final boolean testUsesToFire = getBool(options[2]);</span>
+<span class="nc" id="L2558">        final boolean testConditionsToFire = getBool(options[3]);</span>
+<span class="nc" id="L2559">        final boolean testChanceToFire = getBool(options[4]);</span>
+<span class="nc bnc" id="L2560" title="All 2 branches missed.">        if (testConditionsToFire) {</span>
+<span class="nc bnc" id="L2561" title="All 2 branches missed.">          if (!testedConditionsSoFar.containsKey(toFire)) {</span>
+            // this should directly add the new tests to testConditionsToFire...
+<span class="nc" id="L2563">            collectTestsForAllTriggers(toFireSet, aBridge, new HashSet&lt;&gt;(testedConditionsSoFar.keySet()),</span>
+<span class="nc" id="L2564">                testedConditionsSoFar);</span>
+          }
+<span class="nc bnc" id="L2566" title="All 2 branches missed.">          if (!isSatisfiedMatch(testedConditionsSoFar).match(toFire)) {</span>
+<span class="nc" id="L2567">            continue;</span>
+          }
+        }
+<span class="nc bnc" id="L2570" title="All 2 branches missed.">        for (int i = 0; i &lt; numberOfTimesToFire * eachMultiple; ++i) {</span>
+<span class="nc" id="L2571">          aBridge.getHistoryWriter().startEvent(MyFormatter.attachmentNameToText(t.getName())</span>
+<span class="nc" id="L2572">              + &quot; activates a trigger called: &quot; + MyFormatter.attachmentNameToText(toFire.getName()));</span>
+<span class="nc" id="L2573">          fireTriggers(toFireSet, testedConditionsSoFar, aBridge, beforeOrAfter, stepName, useUsesToFire,</span>
+<span class="nc" id="L2574">              testUsesToFire, testChanceToFire, false);</span>
+        }
+      }
+    }
+<span class="nc" id="L2578">  }</span>
+
+  public static void triggerVictory(final Set&lt;TriggerAttachment&gt; satisfiedTriggers, final IDelegateBridge aBridge,
+      final String beforeOrAfter, final String stepName, final boolean useUses, final boolean testUses,
+      final boolean testChance, final boolean testWhen) {
+<span class="nc" id="L2583">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L2584">    Collection&lt;TriggerAttachment&gt; trigs = Match.getMatches(satisfiedTriggers, victoryMatch());</span>
+<span class="nc bnc" id="L2585" title="All 2 branches missed.">    if (testWhen) {</span>
+<span class="nc" id="L2586">      trigs = Match.getMatches(trigs, whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+    }
+<span class="nc bnc" id="L2588" title="All 2 branches missed.">    if (testUses) {</span>
+<span class="nc" id="L2589">      trigs = Match.getMatches(trigs, availableUses);</span>
+    }
+<span class="nc bnc" id="L2591" title="All 2 branches missed.">    for (final TriggerAttachment t : trigs) {</span>
+<span class="nc bnc" id="L2592" title="All 4 branches missed.">      if (testChance &amp;&amp; !t.testChance(aBridge)) {</span>
+<span class="nc" id="L2593">        continue;</span>
+      }
+<span class="nc bnc" id="L2595" title="All 2 branches missed.">      if (useUses) {</span>
+<span class="nc" id="L2596">        t.use(aBridge);</span>
+      }
+<span class="nc bnc" id="L2598" title="All 4 branches missed.">      if (t.getVictory() == null || t.getPlayers() == null) {</span>
+<span class="nc" id="L2599">        continue;</span>
+      }
+<span class="nc" id="L2601">      final String victoryMessage = NotificationMessages.getInstance().getMessage(t.getVictory().trim());</span>
+<span class="nc" id="L2602">      final String sounds = NotificationMessages.getInstance().getSoundsKey(t.getVictory().trim());</span>
+<span class="nc bnc" id="L2603" title="All 2 branches missed.">      if (victoryMessage != null) {</span>
+<span class="nc bnc" id="L2604" title="All 2 branches missed.">        if (sounds != null) { // only play the sound if we are also notifying everyone</span>
+<span class="nc" id="L2605">          aBridge.getSoundChannelBroadcaster().playSoundToPlayers(</span>
+<span class="nc" id="L2606">              SoundPath.CLIP_TRIGGERED_VICTORY_SOUND + sounds.trim(), t.getPlayers(), null, true);</span>
+<span class="nc" id="L2607">          aBridge.getSoundChannelBroadcaster().playSoundToPlayers(SoundPath.CLIP_TRIGGERED_DEFEAT_SOUND + sounds.trim(),</span>
+<span class="nc" id="L2608">              data.getPlayerList().getPlayers(), t.getPlayers(), false);</span>
+        }
+<span class="nc" id="L2610">        String messageForRecord = victoryMessage.trim();</span>
+<span class="nc bnc" id="L2611" title="All 2 branches missed.">        if (messageForRecord.length() &gt; 150) {</span>
+<span class="nc" id="L2612">          messageForRecord = messageForRecord.replaceAll(&quot;\\&lt;br.*?&gt;&quot;, &quot; &quot;);</span>
+<span class="nc" id="L2613">          messageForRecord = messageForRecord.replaceAll(&quot;\\&lt;.*?&gt;&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L2614" title="All 2 branches missed.">          if (messageForRecord.length() &gt; 155) {</span>
+<span class="nc" id="L2615">            messageForRecord = messageForRecord.substring(0, 150) + &quot;....&quot;;</span>
+          }
+        }
+        try {
+<span class="nc" id="L2619">          aBridge.getHistoryWriter().startEvent(&quot;Players: &quot; + MyFormatter.defaultNamedToTextList(t.getPlayers())</span>
+<span class="nc" id="L2620">              + &quot; have just won the game, with this victory: &quot; + messageForRecord);</span>
+<span class="nc" id="L2621">          final IDelegate delegateEndRound = data.getDelegateList().getDelegate(&quot;endRound&quot;);</span>
+<span class="nc" id="L2622">          ((EndRoundDelegate) delegateEndRound).signalGameOver(victoryMessage.trim(), t.getPlayers(), aBridge);</span>
+<span class="nc" id="L2623">        } catch (final Exception e) {</span>
+<span class="nc" id="L2624">          ClientLogger.logQuietly(e);</span>
+        }
+      }
+    }
+<span class="nc" id="L2628">  }</span>
+
+  public static Match&lt;TriggerAttachment&gt; prodMatch() {
+<span class="fc" id="L2631">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2634" title="1 of 2 branches missed.">        return t.getFrontier() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; prodFrontierEditMatch() {
+<span class="fc" id="L2640">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2643" title="1 of 4 branches missed.">        return t.getProductionRule() != null &amp;&amp; t.getProductionRule().size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; techMatch() {
+<span class="nc" id="L2649">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2652" title="All 2 branches missed.">        return !t.getTech().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; techAvailableMatch() {
+<span class="nc" id="L2658">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2661" title="All 2 branches missed.">        return t.getAvailableTech() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; removeUnitsMatch() {
+<span class="fc" id="L2667">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2670" title="1 of 2 branches missed.">        return t.getRemoveUnits() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; placeMatch() {
+<span class="fc" id="L2676">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2679" title="1 of 2 branches missed.">        return t.getPlacement() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; purchaseMatch() {
+<span class="fc" id="L2685">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="fc bfc" id="L2688" title="All 2 branches covered.">        return t.getPurchase() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; resourceMatch() {
+<span class="nc" id="L2694">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2697" title="All 4 branches missed.">        return t.getResource() != null &amp;&amp; t.getResourceCount() != 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; supportMatch() {
+<span class="nc" id="L2703">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2706" title="All 2 branches missed.">        return t.getSupport() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; changeOwnershipMatch() {
+<span class="fc" id="L2712">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2715" title="1 of 2 branches missed.">        return !t.getChangeOwnership().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; unitPropertyMatch() {
+<span class="nc" id="L2721">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2724" title="All 4 branches missed.">        return !t.getUnitType().isEmpty() &amp;&amp; t.getUnitProperty() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; territoryPropertyMatch() {
+<span class="fc" id="L2730">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2733" title="3 of 4 branches missed.">        return !t.getTerritories().isEmpty() &amp;&amp; t.getTerritoryProperty() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; playerPropertyMatch() {
+<span class="fc" id="L2739">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2742" title="1 of 2 branches missed.">        return t.getPlayerProperty() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; relationshipTypePropertyMatch() {
+<span class="fc" id="L2748">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2751" title="3 of 4 branches missed.">        return !t.getRelationshipTypes().isEmpty() &amp;&amp; t.getRelationshipTypeProperty() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; territoryEffectPropertyMatch() {
+<span class="fc" id="L2757">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="pc bpc" id="L2760" title="3 of 4 branches missed.">        return !t.getTerritoryEffects().isEmpty() &amp;&amp; t.getTerritoryEffectProperty() != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; relationshipChangeMatch() {
+<span class="nc" id="L2766">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2769" title="All 2 branches missed.">        return !t.getRelationshipChange().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; victoryMatch() {
+<span class="nc" id="L2775">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2778" title="All 4 branches missed.">        return t.getVictory() != null &amp;&amp; t.getVictory().length() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;TriggerAttachment&gt; activateTriggerMatch() {
+<span class="nc" id="L2784">    return new Match&lt;TriggerAttachment&gt;() {</span>
+      @Override
+      public boolean match(final TriggerAttachment t) {
+<span class="nc bnc" id="L2787" title="All 2 branches missed.">        return !t.getActivateTrigger().isEmpty();</span>
+      }
+    };
+  }
+
+  @Override
+  public void validate(final GameData data) throws GameParseException {
+<span class="fc" id="L2794">    super.validate(data);</span>
+<span class="fc" id="L2795">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

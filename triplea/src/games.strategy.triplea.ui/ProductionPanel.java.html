@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProductionPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">ProductionPanel.java</span></div><h1>ProductionPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.Toolkit;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+import javax.swing.Action;
+import javax.swing.BorderFactory;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.border.EtchedBorder;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.NamedAttachable;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.ResourceCollection;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.ui.ScrollableTextField;
+import games.strategy.ui.ScrollableTextFieldListener;
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.SwingComponents;
+import games.strategy.util.IntegerMap;
+
+public class ProductionPanel extends JPanel {
+  private static final long serialVersionUID = -1539053979479586609L;
+
+  protected final IUIContext m_uiContext;
+<span class="nc" id="L48">  protected List&lt;Rule&gt; m_rules = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L49">  protected JLabel m_left = new JLabel();</span>
+  protected JButton m_done;
+  protected PlayerID m_id;
+  protected GameData m_data;
+
+  private JDialog m_dialog;
+  private boolean m_bid;
+
+
+  public static IntegerMap&lt;ProductionRule&gt; getProduction(final PlayerID id, final JFrame parent, final GameData data,
+      final boolean bid, final IntegerMap&lt;ProductionRule&gt; initialPurchase, final IUIContext context) {
+<span class="nc" id="L60">    return new ProductionPanel(context).show(id, parent, data, bid, initialPurchase);</span>
+  }
+
+<span class="nc" id="L63">  protected ProductionPanel(final IUIContext uiContext) {</span>
+<span class="nc" id="L64">    m_uiContext = uiContext;</span>
+<span class="nc" id="L65">  }</span>
+
+
+  /**
+   * Shows the production panel, and returns a map of selected rules.
+   */
+  public IntegerMap&lt;ProductionRule&gt; show(final PlayerID id, final JFrame parent, final GameData data, final boolean bid,
+      final IntegerMap&lt;ProductionRule&gt; initialPurchase) {
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (parent != null) {</span>
+<span class="nc" id="L74">      final String title = &quot;Produce&quot;;</span>
+<span class="nc" id="L75">      final JPanel contents = this;</span>
+<span class="nc" id="L76">      m_dialog = SwingComponents.newJDialogModal(parent, title, contents);</span>
+    }
+<span class="nc" id="L78">    this.m_bid = bid;</span>
+<span class="nc" id="L79">    this.m_data = data;</span>
+<span class="nc" id="L80">    this.initRules(id, data, initialPurchase);</span>
+<span class="nc" id="L81">    this.initLayout();</span>
+<span class="nc" id="L82">    this.calculateLimits();</span>
+<span class="nc" id="L83">    m_dialog.pack();</span>
+<span class="nc" id="L84">    m_dialog.setLocationRelativeTo(parent);</span>
+<span class="nc" id="L85">    SwingUtilities.invokeLater(() -&gt; m_done.requestFocusInWindow());</span>
+    // making the dialog visible will block until it is closed
+<span class="nc" id="L87">    m_dialog.setVisible(true);</span>
+<span class="nc" id="L88">    m_dialog.dispose();</span>
+<span class="nc" id="L89">    return getProduction();</span>
+  }
+
+  // this method can be accessed by subclasses
+  protected List&lt;Rule&gt; getRules() {
+<span class="nc" id="L94">    return m_rules;</span>
+  }
+
+
+  // made this protected so can be extended by edit production panel
+  protected void initRules(final PlayerID player, final GameData data,
+      final IntegerMap&lt;ProductionRule&gt; initialPurchase) {
+<span class="nc" id="L101">    m_data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L103">      m_id = player;</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">      for (final ProductionRule productionRule : player.getProductionFrontier()) {</span>
+<span class="nc" id="L105">        final Rule rule = new Rule(productionRule, player);</span>
+<span class="nc" id="L106">        final int initialQuantity = initialPurchase.getInt(productionRule);</span>
+<span class="nc" id="L107">        rule.setQuantity(initialQuantity);</span>
+<span class="nc" id="L108">        m_rules.add(rule);</span>
+      }
+<span class="nc" id="L110">    } finally {</span>
+<span class="nc" id="L111">      m_data.releaseReadLock();</span>
+<span class="nc" id="L112">    }</span>
+<span class="nc" id="L113">  }</span>
+
+  protected void initLayout() {
+<span class="nc" id="L116">    final Insets nullInsets = new Insets(0, 0, 0, 0);</span>
+<span class="nc" id="L117">    this.removeAll();</span>
+<span class="nc" id="L118">    this.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L119">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L120">    panel.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L121">    final ResourceCollection totalWithoutTechTokensOrVPs = new ResourceCollection(getResources());</span>
+<span class="nc" id="L122">    m_data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L124">      totalWithoutTechTokensOrVPs.removeAllOfResource(m_data.getResourceList().getResource(Constants.VPS));</span>
+<span class="nc" id="L125">      totalWithoutTechTokensOrVPs.removeAllOfResource(m_data.getResourceList().getResource(Constants.TECH_TOKENS));</span>
+<span class="nc" id="L126">    } finally {</span>
+<span class="nc" id="L127">      m_data.releaseReadLock();</span>
+<span class="nc" id="L128">    }</span>
+<span class="nc" id="L129">    final JLabel legendLabel = new JLabel(</span>
+<span class="nc" id="L130">        &quot;&lt;html&gt;Attack/Defense/Movement. &amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp; (Total Resources: &quot;</span>
+<span class="nc" id="L131">            + totalWithoutTechTokensOrVPs.toString() + &quot;)&lt;/html&gt;&quot;);</span>
+<span class="nc" id="L132">    this.add(legendLabel, new GridBagConstraints(0, 0, 30, 1, 1, 1, GridBagConstraints.EAST,</span>
+<span class="nc" id="L133">        GridBagConstraints.HORIZONTAL, new Insets(8, 8, 8, 0), 0, 0));</span>
+<span class="nc" id="L134">    int rows = m_rules.size() / 7;</span>
+<span class="nc" id="L135">    rows = Math.max(2, rows);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    for (int x = 0; x &lt; m_rules.size(); x++) {</span>
+<span class="nc" id="L137">      panel.add(m_rules.get(x).getPanelComponent(), new GridBagConstraints(x / rows, (x % rows), 1, 1, 10, 10,</span>
+<span class="nc" id="L138">          GridBagConstraints.EAST, GridBagConstraints.BOTH, nullInsets, 0, 0));</span>
+    }
+<span class="nc" id="L140">    final Dimension screenResolution = Toolkit.getDefaultToolkit().getScreenSize();</span>
+<span class="nc" id="L141">    final int availHeight = screenResolution.height - 80;</span>
+<span class="nc" id="L142">    final int availWidth = screenResolution.width - 30;</span>
+<span class="nc" id="L143">    final int availHeightRules = availHeight - 116;</span>
+<span class="nc" id="L144">    final int availWidthRules = availWidth - 16;</span>
+<span class="nc" id="L145">    final JScrollPane scroll = new JScrollPane(panel);</span>
+<span class="nc" id="L146">    scroll.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc" id="L147">    scroll</span>
+<span class="nc" id="L148">        .setPreferredSize(</span>
+<span class="nc" id="L149">            new Dimension(</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">                (scroll.getPreferredSize().width &gt; availWidthRules</span>
+<span class="nc" id="L151">                    ? availWidthRules</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">                    : scroll.getPreferredSize().width + (scroll.getPreferredSize().height &gt; availHeightRules ? 25 : 0)),</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">                (scroll.getPreferredSize().height &gt; availHeightRules ? availHeightRules</span>
+<span class="nc" id="L154">                    : scroll.getPreferredSize().height</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">                        + (scroll.getPreferredSize().width &gt; availWidthRules ? 25 : 0))));</span>
+<span class="nc" id="L156">    this.add(scroll, new GridBagConstraints(0, 1, 30, 1, 100, 100, GridBagConstraints.WEST, GridBagConstraints.BOTH,</span>
+<span class="nc" id="L157">        new Insets(8, 8, 8, 4), 0, 0));</span>
+    // final int startY = m_rules.size() / rows;
+<span class="nc" id="L159">    this.add(m_left, new GridBagConstraints(0, 2, 30, 1, 1, 1, GridBagConstraints.WEST, GridBagConstraints.NONE,</span>
+<span class="nc" id="L160">        new Insets(8, 8, 0, 12), 0, 0));</span>
+<span class="nc" id="L161">    m_done = new JButton(m_done_action);</span>
+<span class="nc" id="L162">    this.add(m_done, new GridBagConstraints(0, 3, 30, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L163">        new Insets(0, 0, 8, 0), 0, 0));</span>
+<span class="nc" id="L164">    this.setMaximumSize(new Dimension(availWidth, availHeight));</span>
+<span class="nc" id="L165">  }</span>
+
+  // This method can be overridden by subclasses
+  protected void setLeft(final ResourceCollection left, final int totalUnits) {
+<span class="nc" id="L169">    final ResourceCollection leftWithoutTechTokensOrVPs = new ResourceCollection(left);</span>
+<span class="nc" id="L170">    m_data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L172">      leftWithoutTechTokensOrVPs.removeAllOfResource(m_data.getResourceList().getResource(Constants.VPS));</span>
+<span class="nc" id="L173">      leftWithoutTechTokensOrVPs.removeAllOfResource(m_data.getResourceList().getResource(Constants.TECH_TOKENS));</span>
+<span class="nc" id="L174">    } finally {</span>
+<span class="nc" id="L175">      m_data.releaseReadLock();</span>
+<span class="nc" id="L176">    }</span>
+<span class="nc" id="L177">    m_left.setText(totalUnits + &quot; total units purchased.  You have &quot; + leftWithoutTechTokensOrVPs.toString() + &quot; left&quot;);</span>
+<span class="nc" id="L178">  }</span>
+
+<span class="nc" id="L180">  Action m_done_action = SwingAction.of(&quot;Done&quot;, e -&gt; m_dialog.setVisible(false));</span>
+
+  private IntegerMap&lt;ProductionRule&gt; getProduction() {
+<span class="nc" id="L183">    final IntegerMap&lt;ProductionRule&gt; prod = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">    for (final Rule rule : m_rules) {</span>
+<span class="nc" id="L185">      final int quantity = rule.getQuantity();</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">      if (quantity != 0) {</span>
+<span class="nc" id="L187">        prod.put(rule.getProductionRule(), quantity);</span>
+      }
+    }
+<span class="nc" id="L190">    return prod;</span>
+  }
+
+  // This method can be overridden by subclasses
+  protected void calculateLimits() {
+    // final IntegerMap&lt;Resource&gt; cost;
+<span class="nc" id="L196">    final ResourceCollection resources = getResources();</span>
+<span class="nc" id="L197">    final ResourceCollection spent = new ResourceCollection(m_data);</span>
+<span class="nc" id="L198">    int totalUnits = 0;</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">    for (final Rule current : m_rules) {</span>
+<span class="nc" id="L200">      spent.add(current.getCost(), current.getQuantity());</span>
+<span class="nc" id="L201">      totalUnits += current.getQuantity() * current.getProductionRule().getResults().totalValues();</span>
+    }
+<span class="nc" id="L203">    final ResourceCollection leftToSpend = resources.difference(spent);</span>
+<span class="nc" id="L204">    setLeft(leftToSpend, totalUnits);</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">    for (final Rule current : m_rules) {</span>
+<span class="nc" id="L206">      int max = leftToSpend.fitsHowOften(current.getCost());</span>
+<span class="nc" id="L207">      max += current.getQuantity();</span>
+<span class="nc" id="L208">      current.setMax(max);</span>
+    }
+<span class="nc" id="L210">  }</span>
+
+  protected ResourceCollection getResources() {
+<span class="nc bnc" id="L213" title="All 2 branches missed.">    if (m_bid) {</span>
+      // TODO bid only allows you to add PU's to the bid... maybe upgrading Bids so multiple resources can be given?
+<span class="nc" id="L215">      final String propertyName = m_id.getName() + &quot; bid&quot;;</span>
+<span class="nc" id="L216">      final int bid = m_data.getProperties().get(propertyName, 0);</span>
+<span class="nc" id="L217">      final ResourceCollection bidCollection = new ResourceCollection(m_data);</span>
+<span class="nc" id="L218">      m_data.acquireReadLock();</span>
+      try {
+<span class="nc" id="L220">        bidCollection.addResource(m_data.getResourceList().getResource(Constants.PUS), bid);</span>
+<span class="nc" id="L221">      } finally {</span>
+<span class="nc" id="L222">        m_data.releaseReadLock();</span>
+<span class="nc" id="L223">      }</span>
+<span class="nc" id="L224">      return bidCollection;</span>
+    } else {
+<span class="nc bnc" id="L226" title="All 4 branches missed.">      if (m_id == null || m_id.isNull()) {</span>
+<span class="nc" id="L227">        return new ResourceCollection(m_data);</span>
+      }
+<span class="nc" id="L229">      return m_id.getResources();</span>
+    }
+  }
+
+  class Rule {
+    private final IntegerMap&lt;Resource&gt; m_cost;
+    private int m_quantity;
+    private final ProductionRule m_rule;
+    private final PlayerID id;
+<span class="nc" id="L238">    private final Set&lt;ScrollableTextField&gt; m_textFields = new HashSet&lt;&gt;();</span>
+
+    protected JPanel getPanelComponent() {
+<span class="nc" id="L241">      final JPanel panel = new JPanel();</span>
+<span class="nc" id="L242">      final ScrollableTextField i_text = new ScrollableTextField(0, Integer.MAX_VALUE);</span>
+<span class="nc" id="L243">      i_text.setValue(m_quantity);</span>
+<span class="nc" id="L244">      panel.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L245">      final JLabel info = new JLabel(&quot;  &quot;);</span>
+<span class="nc" id="L246">      final JLabel name = new JLabel(&quot;  &quot;);</span>
+<span class="nc" id="L247">      final Color defaultForegroundLabelColor = name.getForeground();</span>
+<span class="nc" id="L248">      Optional&lt;ImageIcon&gt; icon = Optional.empty();</span>
+<span class="nc" id="L249">      final StringBuilder tooltip = new StringBuilder();</span>
+<span class="nc" id="L250">      final Set&lt;NamedAttachable&gt; results = new HashSet&lt;&gt;(m_rule.getResults().keySet());</span>
+<span class="nc" id="L251">      final Iterator&lt;NamedAttachable&gt; iter = results.iterator();</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L253">        final NamedAttachable resourceOrUnit = iter.next();</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">        if (resourceOrUnit instanceof UnitType) {</span>
+<span class="nc" id="L255">          final UnitType type = (UnitType) resourceOrUnit;</span>
+<span class="nc" id="L256">          icon = m_uiContext.getUnitImageFactory().getIcon(type, id, m_data, false, false);</span>
+<span class="nc" id="L257">          final UnitAttachment attach = UnitAttachment.get(type);</span>
+<span class="nc" id="L258">          final int attack = attach.getAttack(id);</span>
+<span class="nc" id="L259">          final int movement = attach.getMovement(id);</span>
+<span class="nc" id="L260">          final int defense = attach.getDefense(id);</span>
+<span class="nc" id="L261">          info.setText(attack + &quot;/&quot; + defense + &quot;/&quot; + movement);</span>
+<span class="nc" id="L262">          tooltip.append(type.getName()).append(&quot;: &quot;).append(type.getTooltip(id));</span>
+<span class="nc" id="L263">          name.setText(type.getName());</span>
+<span class="nc bnc" id="L264" title="All 4 branches missed.">          if (attach.getConsumesUnits() != null &amp;&amp; attach.getConsumesUnits().totalValues() == 1) {</span>
+<span class="nc" id="L265">            name.setForeground(Color.CYAN);</span>
+<span class="nc bnc" id="L266" title="All 4 branches missed.">          } else if (attach.getConsumesUnits() != null &amp;&amp; attach.getConsumesUnits().totalValues() &gt; 1) {</span>
+<span class="nc" id="L267">            name.setForeground(Color.BLUE);</span>
+<span class="nc" id="L268">          } else {</span>
+<span class="nc" id="L269">            name.setForeground(defaultForegroundLabelColor);</span>
+          }
+<span class="nc bnc" id="L271" title="All 2 branches missed.">        } else if (resourceOrUnit instanceof Resource) {</span>
+<span class="nc" id="L272">          final Resource resource = (Resource) resourceOrUnit;</span>
+<span class="nc" id="L273">          icon = Optional.of(m_uiContext.getResourceImageFactory().getIcon(resource, m_data, true));</span>
+<span class="nc" id="L274">          info.setText(&quot;resource&quot;);</span>
+<span class="nc" id="L275">          tooltip.append(resource.getName()).append(&quot;: resource&quot;);</span>
+<span class="nc" id="L276">          name.setText(resource.getName());</span>
+<span class="nc" id="L277">          name.setForeground(Color.GREEN);</span>
+        }
+<span class="nc bnc" id="L279" title="All 2 branches missed.">        if (iter.hasNext()) {</span>
+<span class="nc" id="L280">          tooltip.append(&quot;&lt;br /&gt;&lt;br /&gt;&lt;br /&gt;&lt;br /&gt;&quot;);</span>
+        }
+      }
+<span class="nc" id="L283">      final int numberOfUnitsGiven = m_rule.getResults().totalValues();</span>
+      String text;
+<span class="nc bnc" id="L285" title="All 2 branches missed.">      if (numberOfUnitsGiven &gt; 1) {</span>
+<span class="nc" id="L286">        text = &quot;&lt;html&gt; x &quot; + ResourceCollection.toStringForHTML(m_cost, m_data) + &quot;&lt;br&gt;&quot; + &quot;for &quot; + numberOfUnitsGiven</span>
+<span class="nc" id="L287">            + &quot;&lt;br&gt;&quot; + &quot; units&lt;/html&gt;&quot;;</span>
+<span class="nc" id="L288">      } else {</span>
+<span class="nc" id="L289">        text = &quot;&lt;html&gt; x &quot; + ResourceCollection.toStringForHTML(m_cost, m_data) + &quot;&lt;/html&gt;&quot;;</span>
+      }
+<span class="nc" id="L291">      final JLabel label =</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">          icon.isPresent() ? new JLabel(text, icon.get(), SwingConstants.LEFT) : new JLabel(text, SwingConstants.LEFT);</span>
+<span class="nc" id="L293">      final String toolTipText = &quot;&lt;html&gt;&quot; + tooltip.toString() + &quot;&lt;/html&gt;&quot;;</span>
+<span class="nc" id="L294">      info.setToolTipText(toolTipText);</span>
+<span class="nc" id="L295">      label.setToolTipText(toolTipText);</span>
+<span class="nc" id="L296">      final int space = 8;</span>
+      // change name color for 'upgrades and consumes' unit types
+<span class="nc" id="L298">      panel.add(name, new GridBagConstraints(0, 0, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L299">          new Insets(2, 0, 0, 0), 0, 0));</span>
+<span class="nc" id="L300">      panel.add(label, new GridBagConstraints(0, 1, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L301">          new Insets(5, space, space, space), 0, 0));</span>
+<span class="nc" id="L302">      panel.add(info, new GridBagConstraints(0, 2, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L303">          new Insets(5, space, space, space), 0, 0));</span>
+<span class="nc" id="L304">      panel.add(i_text, new GridBagConstraints(0, 3, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L305">          new Insets(10, space, space, space), 0, 0));</span>
+<span class="nc" id="L306">      i_text.addChangeListener(m_listener);</span>
+<span class="nc" id="L307">      m_textFields.add(i_text);</span>
+<span class="nc" id="L308">      panel.setBorder(new EtchedBorder());</span>
+<span class="nc" id="L309">      return panel;</span>
+    }
+
+<span class="nc" id="L312">    Rule(final ProductionRule rule, final PlayerID id) {</span>
+<span class="nc" id="L313">      m_rule = rule;</span>
+<span class="nc" id="L314">      m_cost = rule.getCosts();</span>
+<span class="nc" id="L315">      this.id = id;</span>
+<span class="nc" id="L316">    }</span>
+
+    IntegerMap&lt;Resource&gt; getCost() {
+<span class="nc" id="L319">      return m_cost;</span>
+    }
+
+    int getQuantity() {
+<span class="nc" id="L323">      return m_quantity;</span>
+    }
+
+    void setQuantity(final int quantity) {
+<span class="nc" id="L327">      m_quantity = quantity;</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">      for (final ScrollableTextField textField : m_textFields) {</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (textField.getValue() != quantity) {</span>
+<span class="nc" id="L330">          textField.setValue(quantity);</span>
+        }
+      }
+<span class="nc" id="L333">    }</span>
+
+    ProductionRule getProductionRule() {
+<span class="nc" id="L336">      return m_rule;</span>
+    }
+
+    void setMax(final int max) {
+<span class="nc bnc" id="L340" title="All 2 branches missed.">      for (final ScrollableTextField textField : m_textFields) {</span>
+<span class="nc" id="L341">        textField.setMax(max);</span>
+      }
+<span class="nc" id="L343">    }</span>
+
+<span class="nc" id="L345">    private final ScrollableTextFieldListener m_listener = new ScrollableTextFieldListener() {</span>
+      @Override
+      public void changedValue(final ScrollableTextField stf) {
+<span class="nc bnc" id="L348" title="All 2 branches missed.">        if (stf.getValue() != m_quantity) {</span>
+<span class="nc" id="L349">          m_quantity = stf.getValue();</span>
+<span class="nc" id="L350">          calculateLimits();</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">          for (final ScrollableTextField textField : m_textFields) {</span>
+<span class="nc bnc" id="L352" title="All 2 branches missed.">            if (!stf.equals(textField)) {</span>
+<span class="nc" id="L353">              textField.setValue(m_quantity);</span>
+            }
+          }
+        }
+<span class="nc" id="L357">      }</span>
+    };
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

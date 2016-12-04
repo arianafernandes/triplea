@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>LobbyFrame.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.client.ui</a> &gt; <span class="el_source">LobbyFrame.java</span></div><h1>LobbyFrame.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.lobby.client.ui;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+
+import javax.swing.Action;
+import javax.swing.BoxLayout;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JSpinner;
+import javax.swing.JSplitPane;
+import javax.swing.JTextPane;
+import javax.swing.SpinnerNumberModel;
+
+import games.strategy.engine.chat.Chat;
+import games.strategy.engine.chat.ChatMessagePanel;
+import games.strategy.engine.chat.ChatPlayerPanel;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.lobby.client.LobbyClient;
+import games.strategy.engine.lobby.client.login.LobbyServerProperties;
+import games.strategy.engine.lobby.server.IModeratorController;
+import games.strategy.engine.lobby.server.LobbyServer;
+import games.strategy.engine.lobby.server.ModeratorController;
+import games.strategy.net.INode;
+import games.strategy.triplea.ui.menubar.LobbyMenu;
+import games.strategy.ui.SwingAction;
+import games.strategy.util.CountDownLatchHandler;
+import games.strategy.util.EventThreadJOptionPane;
+import games.strategy.util.MD5Crypt;
+
+public class LobbyFrame extends JFrame {
+  private static final long serialVersionUID = -388371674076362572L;
+  private final LobbyClient m_client;
+  private final ChatMessagePanel m_chatMessagePanel;
+
+  public LobbyFrame(final LobbyClient client, final LobbyServerProperties props) {
+<span class="nc" id="L45">    super(&quot;TripleA Lobby&quot;);</span>
+<span class="nc" id="L46">    setIconImage(GameRunner.getGameIcon(this));</span>
+<span class="nc" id="L47">    m_client = client;</span>
+<span class="nc" id="L48">    setJMenuBar(new LobbyMenu(this));</span>
+<span class="nc" id="L49">    final Chat chat = new Chat(m_client.getMessenger(), LobbyServer.LOBBY_CHAT, m_client.getChannelMessenger(),</span>
+<span class="nc" id="L50">        m_client.getRemoteMessenger(), Chat.CHAT_SOUND_PROFILE.LOBBY_CHATROOM);</span>
+<span class="nc" id="L51">    m_chatMessagePanel = new ChatMessagePanel(chat);</span>
+<span class="nc" id="L52">    showServerMessage(props);</span>
+<span class="nc" id="L53">    m_chatMessagePanel.setShowTime(true);</span>
+<span class="nc" id="L54">    final ChatPlayerPanel chatPlayers = new ChatPlayerPanel(null);</span>
+<span class="nc" id="L55">    chatPlayers.addHiddenPlayerName(LobbyServer.ADMIN_USERNAME);</span>
+<span class="nc" id="L56">    chatPlayers.setChat(chat);</span>
+<span class="nc" id="L57">    chatPlayers.setPreferredSize(new Dimension(200, 600));</span>
+<span class="nc" id="L58">    chatPlayers.addActionFactory(clickedOn -&gt; createAdminActions(clickedOn));</span>
+<span class="nc" id="L59">    final LobbyGamePanel gamePanel = new LobbyGamePanel(m_client.getMessengers());</span>
+<span class="nc" id="L60">    final JSplitPane leftSplit = new JSplitPane();</span>
+<span class="nc" id="L61">    leftSplit.setOrientation(JSplitPane.VERTICAL_SPLIT);</span>
+<span class="nc" id="L62">    leftSplit.setTopComponent(gamePanel);</span>
+<span class="nc" id="L63">    leftSplit.setBottomComponent(m_chatMessagePanel);</span>
+<span class="nc" id="L64">    leftSplit.setResizeWeight(0.8);</span>
+<span class="nc" id="L65">    gamePanel.setPreferredSize(new Dimension(700, 200));</span>
+<span class="nc" id="L66">    m_chatMessagePanel.setPreferredSize(new Dimension(700, 400));</span>
+<span class="nc" id="L67">    final JSplitPane mainSplit = new JSplitPane();</span>
+<span class="nc" id="L68">    mainSplit.setOrientation(JSplitPane.HORIZONTAL_SPLIT);</span>
+<span class="nc" id="L69">    mainSplit.setLeftComponent(leftSplit);</span>
+<span class="nc" id="L70">    mainSplit.setRightComponent(chatPlayers);</span>
+<span class="nc" id="L71">    add(mainSplit, BorderLayout.CENTER);</span>
+<span class="nc" id="L72">    pack();</span>
+<span class="nc" id="L73">    m_chatMessagePanel.requestFocusInWindow();</span>
+<span class="nc" id="L74">    setLocationRelativeTo(null);</span>
+<span class="nc" id="L75">    m_client.getMessenger().addErrorListener((messenger, reason) -&gt; connectionToServerLost());</span>
+<span class="nc" id="L76">    addWindowListener(new WindowAdapter() {</span>
+      @Override
+      public void windowClosing(final WindowEvent e) {
+<span class="nc" id="L79">        shutdown();</span>
+<span class="nc" id="L80">      }</span>
+    });
+<span class="nc" id="L82">  }</span>
+
+  public ChatMessagePanel getChatMessagePanel() {
+<span class="nc" id="L85">    return m_chatMessagePanel;</span>
+  }
+
+  private void showServerMessage(final LobbyServerProperties props) {
+<span class="nc bnc" id="L89" title="All 4 branches missed.">    if (props.serverMessage != null &amp;&amp; props.serverMessage.length() &gt; 0) {</span>
+<span class="nc" id="L90">      m_chatMessagePanel.addServerMessage(props.serverMessage);</span>
+    }
+<span class="nc" id="L92">  }</span>
+
+  private List&lt;Action&gt; createAdminActions(final INode clickedOn) {
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    if (!m_client.isAdmin()) {</span>
+<span class="nc" id="L96">      return Collections.emptyList();</span>
+    }
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    if (clickedOn.equals(m_client.getMessenger().getLocalNode())) {</span>
+<span class="nc" id="L99">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L101">    final IModeratorController controller = (IModeratorController) m_client.getRemoteMessenger()</span>
+<span class="nc" id="L102">        .getRemote(ModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L103">    final List&lt;Action&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L104">    rVal.add(SwingAction.of(&quot;Boot &quot; + clickedOn.getName(), e -&gt; {</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">      if (!confirm(&quot;Boot &quot; + clickedOn.getName())) {</span>
+<span class="nc" id="L106">        return;</span>
+      }
+<span class="nc" id="L108">      controller.boot(clickedOn);</span>
+<span class="nc" id="L109">    }));</span>
+<span class="nc" id="L110">    rVal.add(SwingAction.of(&quot;Ban Player&quot;, e -&gt; {</span>
+<span class="nc" id="L111">      final List&lt;String&gt; banTypes = new ArrayList&lt;&gt;();</span>
+      // too many choices is confusing our mods, just give them 3 choices: name, everything, or cancel.
+      // banTypes.add(&quot;IP Address&quot;);
+      // banTypes.add(&quot;Mac Address&quot;);
+<span class="nc" id="L115">      banTypes.add(&quot;Username only&quot;);</span>
+      // banTypes.add(&quot;IP, Mac&quot;);
+      // banTypes.add(&quot;Name, IP&quot;);
+      // banTypes.add(&quot;Name, Mac&quot;);
+<span class="nc" id="L119">      banTypes.add(&quot;Name, IP, Mac&quot;);</span>
+<span class="nc" id="L120">      banTypes.add(&quot;Cancel&quot;);</span>
+<span class="nc" id="L121">      final int resultBT = JOptionPane.showOptionDialog(LobbyFrame.this,</span>
+<span class="nc" id="L122">          &quot;&lt;html&gt;Select the type of ban: &lt;br&gt;Please consult other admins before banning longer than 1 day. &lt;br&gt;And please remember to report this ban.&lt;/html&gt;&quot;,</span>
+<span class="nc" id="L123">          &quot;Select Ban Type&quot;, JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, banTypes.toArray(),</span>
+<span class="nc" id="L124">          banTypes.toArray()[banTypes.size() - 1]);</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">      if (resultBT &lt; 0) {</span>
+<span class="nc" id="L126">        return;</span>
+      }
+<span class="nc" id="L128">      final String selectedBanType = (String) banTypes.toArray()[resultBT];</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">      if (selectedBanType.equals(&quot;Cancel&quot;)) {</span>
+<span class="nc" id="L130">        return;</span>
+      }
+<span class="nc" id="L132">      final List&lt;String&gt; timeUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L133">      timeUnits.add(&quot;Minute&quot;);</span>
+<span class="nc" id="L134">      timeUnits.add(&quot;Hour&quot;);</span>
+<span class="nc" id="L135">      timeUnits.add(&quot;Day&quot;);</span>
+<span class="nc" id="L136">      timeUnits.add(&quot;Week&quot;);</span>
+<span class="nc" id="L137">      timeUnits.add(&quot;Month&quot;);</span>
+<span class="nc" id="L138">      timeUnits.add(&quot;Year&quot;);</span>
+<span class="nc" id="L139">      timeUnits.add(&quot;Forever&quot;);</span>
+<span class="nc" id="L140">      timeUnits.add(&quot;Cancel&quot;);</span>
+<span class="nc" id="L141">      final int resultTU = JOptionPane.showOptionDialog(LobbyFrame.this, &quot;Select the unit of measurement: &quot;,</span>
+<span class="nc" id="L142">          &quot;Select Timespan Unit&quot;, JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null,</span>
+<span class="nc" id="L143">          timeUnits.toArray(), timeUnits.toArray()[timeUnits.size() - 1]);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">      if (resultTU &lt; 0) {</span>
+<span class="nc" id="L145">        return;</span>
+      }
+<span class="nc" id="L147">      final String selectedTimeUnit = (String) timeUnits.toArray()[resultTU];</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (selectedTimeUnit.equals(&quot;Cancel&quot;)) {</span>
+<span class="nc" id="L149">        return;</span>
+      }
+<span class="nc bnc" id="L151" title="All 2 branches missed.">      if (selectedTimeUnit.equals(&quot;Forever&quot;)) {</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (selectedBanType.toLowerCase().contains(&quot;name&quot;)) {</span>
+<span class="nc" id="L153">          controller.banUsername(clickedOn, null);</span>
+        }
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (selectedBanType.toLowerCase().contains(&quot;ip&quot;)) {</span>
+<span class="nc" id="L156">          controller.banIp(clickedOn, null);</span>
+        }
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (selectedBanType.toLowerCase().contains(&quot;mac&quot;)) {</span>
+<span class="nc" id="L159">          controller.banMac(clickedOn, null);</span>
+        }
+        // Should we keep this auto?
+<span class="nc" id="L162">        controller.boot(clickedOn);</span>
+<span class="nc" id="L163">        return;</span>
+      }
+<span class="nc" id="L165">      final String resultLOT = JOptionPane.showInputDialog(LobbyFrame.this,</span>
+<span class="nc" id="L166">          &quot;Now please enter the length of time to ban the player: (In &quot; + selectedTimeUnit + &quot;s) &quot;, 1);</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">      if (resultLOT == null) {</span>
+<span class="nc" id="L168">        return;</span>
+      }
+<span class="nc" id="L170">      final long result2 = Long.parseLong(resultLOT);</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">      if (result2 &lt; 0) {</span>
+<span class="nc" id="L172">        return;</span>
+      }
+<span class="nc" id="L174">      long ticks = 0;</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">      if (selectedTimeUnit.equals(&quot;Minute&quot;)) {</span>
+<span class="nc" id="L176">        ticks = result2 * 1000 * 60;</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Hour&quot;)) {</span>
+<span class="nc" id="L178">        ticks = result2 * 1000 * 60 * 60;</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Day&quot;)) {</span>
+<span class="nc" id="L180">        ticks = result2 * 1000 * 60 * 60 * 24;</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Week&quot;)) {</span>
+<span class="nc" id="L182">        ticks = result2 * 1000 * 60 * 60 * 24 * 7;</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Month&quot;)) {</span>
+<span class="nc" id="L184">        ticks = result2 * 1000 * 60 * 60 * 24 * 30;</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Year&quot;)) {</span>
+<span class="nc" id="L186">        ticks = result2 * 1000 * 60 * 60 * 24 * 365;</span>
+      }
+<span class="nc" id="L188">      final long expire = System.currentTimeMillis() + ticks;</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">      if (selectedBanType.toLowerCase().contains(&quot;name&quot;)) {</span>
+<span class="nc" id="L190">        controller.banUsername(clickedOn, new Date(expire));</span>
+      }
+<span class="nc bnc" id="L192" title="All 2 branches missed.">      if (selectedBanType.toLowerCase().contains(&quot;ip&quot;)) {</span>
+<span class="nc" id="L193">        controller.banIp(clickedOn, new Date(expire));</span>
+      }
+<span class="nc bnc" id="L195" title="All 2 branches missed.">      if (selectedBanType.toLowerCase().contains(&quot;mac&quot;)) {</span>
+<span class="nc" id="L196">        controller.banMac(clickedOn, new Date(expire));</span>
+      }
+      // Should we keep this auto?
+<span class="nc" id="L199">      controller.boot(clickedOn);</span>
+<span class="nc" id="L200">    }));</span>
+<span class="nc" id="L201">    rVal.add(SwingAction.of(&quot;Mute Player&quot;, e -&gt; {</span>
+<span class="nc" id="L202">      final List&lt;String&gt; muteTypes = new ArrayList&lt;&gt;();</span>
+      // too many choices is confusing our mods, just give them 3 choices: name, everything, or cancel.
+      // muteTypes.add(&quot;IP Address&quot;);
+      // muteTypes.add(&quot;Mac Address&quot;);
+<span class="nc" id="L206">      muteTypes.add(&quot;Username only&quot;);</span>
+      // muteTypes.add(&quot;IP, Mac&quot;);
+      // muteTypes.add(&quot;Name, IP&quot;);
+      // muteTypes.add(&quot;Name, Mac&quot;);
+<span class="nc" id="L210">      muteTypes.add(&quot;Name, IP, Mac&quot;);</span>
+<span class="nc" id="L211">      muteTypes.add(&quot;Cancel&quot;);</span>
+<span class="nc" id="L212">      final int resultMT = JOptionPane.showOptionDialog(LobbyFrame.this,</span>
+<span class="nc" id="L213">          &quot;&lt;html&gt;Select the type of mute: &lt;br&gt;Please consult other admins before muting longer than 1 day.&lt;/html&gt;&quot;,</span>
+<span class="nc" id="L214">          &quot;Select Mute Type&quot;, JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null, muteTypes.toArray(),</span>
+<span class="nc" id="L215">          muteTypes.toArray()[muteTypes.size() - 1]);</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">      if (resultMT &lt; 0) {</span>
+<span class="nc" id="L217">        return;</span>
+      }
+<span class="nc" id="L219">      final String selectedMuteType = (String) muteTypes.toArray()[resultMT];</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">      if (selectedMuteType.equals(&quot;Cancel&quot;)) {</span>
+<span class="nc" id="L221">        return;</span>
+      }
+<span class="nc" id="L223">      final List&lt;String&gt; timeUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L224">      timeUnits.add(&quot;Minute&quot;);</span>
+<span class="nc" id="L225">      timeUnits.add(&quot;Hour&quot;);</span>
+<span class="nc" id="L226">      timeUnits.add(&quot;Day&quot;);</span>
+<span class="nc" id="L227">      timeUnits.add(&quot;Week&quot;);</span>
+<span class="nc" id="L228">      timeUnits.add(&quot;Month&quot;);</span>
+<span class="nc" id="L229">      timeUnits.add(&quot;Year&quot;);</span>
+<span class="nc" id="L230">      timeUnits.add(&quot;Forever&quot;);</span>
+<span class="nc" id="L231">      timeUnits.add(&quot;Cancel&quot;);</span>
+<span class="nc" id="L232">      final int resultTU = JOptionPane.showOptionDialog(LobbyFrame.this, &quot;Select the unit of measurement: &quot;,</span>
+<span class="nc" id="L233">          &quot;Select Timespan Unit&quot;, JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null,</span>
+<span class="nc" id="L234">          timeUnits.toArray(), timeUnits.toArray()[timeUnits.size() - 1]);</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">      if (resultTU &lt; 0) {</span>
+<span class="nc" id="L236">        return;</span>
+      }
+<span class="nc" id="L238">      final String selectedTimeUnit = (String) timeUnits.toArray()[resultTU];</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">      if (selectedTimeUnit.equals(&quot;Cancel&quot;)) {</span>
+<span class="nc" id="L240">        return;</span>
+      }
+<span class="nc bnc" id="L242" title="All 2 branches missed.">      if (selectedTimeUnit.equals(&quot;Forever&quot;)) {</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">        if (selectedMuteType.toLowerCase().contains(&quot;name&quot;)) {</span>
+<span class="nc" id="L244">          controller.muteUsername(clickedOn, null);</span>
+        }
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (selectedMuteType.toLowerCase().contains(&quot;ip&quot;)) {</span>
+<span class="nc" id="L247">          controller.muteIp(clickedOn, null);</span>
+        }
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        if (selectedMuteType.toLowerCase().contains(&quot;mac&quot;)) {</span>
+<span class="nc" id="L250">          controller.muteMac(clickedOn, null);</span>
+        }
+<span class="nc" id="L252">        return;</span>
+      }
+<span class="nc" id="L254">      final String resultLOT = JOptionPane.showInputDialog(LobbyFrame.this,</span>
+<span class="nc" id="L255">          &quot;Now please enter the length of time to mute the player: (In &quot; + selectedTimeUnit + &quot;s) &quot;, 1);</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">      if (resultLOT == null) {</span>
+<span class="nc" id="L257">        return;</span>
+      }
+<span class="nc" id="L259">      final long result2 = Long.parseLong(resultLOT);</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">      if (result2 &lt; 0) {</span>
+<span class="nc" id="L261">        return;</span>
+      }
+<span class="nc" id="L263">      long ticks = 0;</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">      if (selectedTimeUnit.equals(&quot;Minute&quot;)) {</span>
+<span class="nc" id="L265">        ticks = result2 * 1000 * 60;</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Hour&quot;)) {</span>
+<span class="nc" id="L267">        ticks = result2 * 1000 * 60 * 60;</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Day&quot;)) {</span>
+<span class="nc" id="L269">        ticks = result2 * 1000 * 60 * 60 * 24;</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Week&quot;)) {</span>
+<span class="nc" id="L271">        ticks = result2 * 1000 * 60 * 60 * 24 * 7;</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Month&quot;)) {</span>
+<span class="nc" id="L273">        ticks = result2 * 1000 * 60 * 60 * 24 * 30;</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">      } else if (selectedTimeUnit.equals(&quot;Year&quot;)) {</span>
+<span class="nc" id="L275">        ticks = result2 * 1000 * 60 * 60 * 24 * 365;</span>
+      }
+<span class="nc" id="L277">      final long expire = System.currentTimeMillis() + ticks;</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">      if (selectedMuteType.toLowerCase().contains(&quot;name&quot;)) {</span>
+<span class="nc" id="L279">        controller.muteUsername(clickedOn, new Date(expire));</span>
+      }
+<span class="nc bnc" id="L281" title="All 2 branches missed.">      if (selectedMuteType.toLowerCase().contains(&quot;ip&quot;)) {</span>
+<span class="nc" id="L282">        controller.muteIp(clickedOn, new Date(expire));</span>
+      }
+<span class="nc bnc" id="L284" title="All 2 branches missed.">      if (selectedMuteType.toLowerCase().contains(&quot;mac&quot;)) {</span>
+<span class="nc" id="L285">        controller.muteMac(clickedOn, new Date(expire));</span>
+      }
+<span class="nc" id="L287">    }));</span>
+<span class="nc" id="L288">    rVal.add(SwingAction.of(&quot;Quick Mute&quot;, e -&gt; {</span>
+<span class="nc" id="L289">      final JLabel label = new JLabel(&quot;How many minutes should this player be muted?&quot;);</span>
+<span class="nc" id="L290">      final JSpinner spinner = new JSpinner(new SpinnerNumberModel(10, 0, 60 * 24 * 2, 1));</span>
+<span class="nc" id="L291">      final JPanel panel = new JPanel();</span>
+<span class="nc" id="L292">      panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));</span>
+<span class="nc" id="L293">      panel.add(label);</span>
+<span class="nc" id="L294">      panel.add(spinner);</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">      if (JOptionPane.showConfirmDialog(LobbyFrame.this, panel, &quot;Mute Player&quot;,</span>
+<span class="nc" id="L296">          JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L297">        final Object value = spinner.getValue();</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L299">          return;</span>
+        }
+<span class="nc" id="L301">        final long resultML = Long.parseLong(value.toString());</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        if (resultML &lt; 0) {</span>
+<span class="nc" id="L303">          return;</span>
+        }
+<span class="nc" id="L305">        final long ticks = resultML * 1000 * 60;</span>
+<span class="nc" id="L306">        final long expire = System.currentTimeMillis() + ticks;</span>
+<span class="nc" id="L307">        controller.muteUsername(clickedOn, new Date(expire));</span>
+<span class="nc" id="L308">        controller.muteIp(clickedOn, new Date(expire));</span>
+<span class="nc" id="L309">        controller.muteMac(clickedOn, new Date(expire));</span>
+      }
+<span class="nc" id="L311">    }));</span>
+<span class="nc" id="L312">    rVal.add(SwingAction.of(&quot;Show player information&quot;, e -&gt; {</span>
+<span class="nc" id="L313">      final String text = controller.getInformationOn(clickedOn);</span>
+<span class="nc" id="L314">      final JTextPane textPane = new JTextPane();</span>
+<span class="nc" id="L315">      textPane.setEditable(false);</span>
+<span class="nc" id="L316">      textPane.setText(text);</span>
+<span class="nc" id="L317">      JOptionPane.showMessageDialog(null, textPane, &quot;Player Info&quot;, JOptionPane.INFORMATION_MESSAGE);</span>
+<span class="nc" id="L318">    }));</span>
+<span class="nc" id="L319">    rVal.add(SwingAction.of(&quot;Reset password&quot;, e -&gt; {</span>
+<span class="nc" id="L320">      final String newPassword =</span>
+<span class="nc" id="L321">          JOptionPane.showInputDialog(JOptionPane.getFrameForComponent(LobbyFrame.this), &quot;Enter new password&quot;);</span>
+<span class="nc bnc" id="L322" title="All 4 branches missed.">      if (newPassword == null || newPassword.length() &lt; 2) {</span>
+<span class="nc" id="L323">        return;</span>
+      }
+<span class="nc" id="L325">      final String error = controller.setPassword(clickedOn, MD5Crypt.crypt(newPassword));</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">      final String msg = error == null ? &quot;Password set&quot; : error;</span>
+<span class="nc" id="L327">      JOptionPane.showMessageDialog(JOptionPane.getFrameForComponent(LobbyFrame.this), msg);</span>
+<span class="nc" id="L328">    }));</span>
+<span class="nc" id="L329">    return rVal;</span>
+
+  }
+
+  private boolean confirm(final String question) {
+<span class="nc" id="L334">    final int rVal = JOptionPane.showConfirmDialog(JOptionPane.getFrameForComponent(this), question, &quot;Question&quot;,</span>
+<span class="nc" id="L335">        JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">    return rVal == JOptionPane.OK_OPTION;</span>
+  }
+
+  public LobbyClient getLobbyClient() {
+<span class="nc" id="L340">    return m_client;</span>
+  }
+
+  public void setShowChatTime(final boolean showTime) {
+<span class="nc bnc" id="L344" title="All 2 branches missed.">    if (m_chatMessagePanel != null) {</span>
+<span class="nc" id="L345">      m_chatMessagePanel.setShowTime(showTime);</span>
+    }
+<span class="nc" id="L347">  }</span>
+
+  public void shutdown() {
+<span class="nc" id="L350">    System.exit(0);</span>
+<span class="nc" id="L351">  }</span>
+
+  private void connectionToServerLost() {
+<span class="nc" id="L354">    EventThreadJOptionPane.showMessageDialog(LobbyFrame.this,</span>
+<span class="nc" id="L355">        &quot;Connection to Server Lost.  Please close this instance and reconnect to the lobby.&quot;, &quot;Connection Lost&quot;,</span>
+<span class="nc" id="L356">        JOptionPane.ERROR_MESSAGE, new CountDownLatchHandler(true));</span>
+<span class="nc" id="L357">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

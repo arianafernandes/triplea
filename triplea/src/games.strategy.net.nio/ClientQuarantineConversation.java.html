@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ClientQuarantineConversation.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net.nio</a> &gt; <span class="el_source">ClientQuarantineConversation.java</span></div><h1>ClientQuarantineConversation.java</h1><pre class="source lang-java linenums"><span class="pc" id="L1">package games.strategy.net.nio;</span>
+
+import java.io.Serializable;
+import java.net.InetSocketAddress;
+import java.nio.channels.SocketChannel;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.net.IConnectionLogin;
+import games.strategy.net.MessageHeader;
+import games.strategy.net.Node;
+
+public class ClientQuarantineConversation extends QuarantineConversation {
+<span class="fc" id="L16">  private static final Logger s_logger = Logger.getLogger(ClientQuarantineConversation.class.getName());</span>
+
+<span class="fc" id="L18">  private enum STEP {</span>
+<span class="fc" id="L19">    READ_CHALLENGE, READ_ERROR, READ_NAMES, READ_ADDRESS</span>
+  }
+
+  private final IConnectionLogin login;
+  private final SocketChannel channel;
+  private final NIOSocket socket;
+<span class="fc" id="L25">  private final CountDownLatch showLatch = new CountDownLatch(1);</span>
+<span class="fc" id="L26">  private final CountDownLatch doneShowLatch = new CountDownLatch(1);</span>
+  private final String macAddress;
+<span class="fc" id="L28">  private STEP step = STEP.READ_CHALLENGE;</span>
+  private String localName;
+  private String serverName;
+  private InetSocketAddress networkVisibleAddress;
+  private InetSocketAddress serverLocalAddress;
+  private Map&lt;String, String&gt; challengeProperties;
+  private Map&lt;String, String&gt; challengeResponse;
+<span class="fc" id="L35">  private volatile boolean isClosed = false;</span>
+  private volatile String errorMessage;
+
+<span class="fc" id="L38">  public ClientQuarantineConversation(final IConnectionLogin login, final SocketChannel channel, final NIOSocket socket,</span>
+      final String localName, final String mac) {
+<span class="fc" id="L40">    this.login = login;</span>
+<span class="fc" id="L41">    this.localName = localName;</span>
+<span class="fc" id="L42">    macAddress = mac;</span>
+<span class="fc" id="L43">    this.socket = socket;</span>
+<span class="fc" id="L44">    this.channel = channel;</span>
+    // Send the local name
+<span class="fc" id="L46">    send(this.localName);</span>
+    // Send the mac address
+<span class="fc" id="L48">    send(macAddress);</span>
+<span class="fc" id="L49">  }</span>
+
+  public String getLocalName() {
+<span class="fc" id="L52">    return localName;</span>
+  }
+
+  public String getMacAddress() {
+<span class="nc" id="L56">    return macAddress;</span>
+  }
+
+  public String getErrorMessage() {
+<span class="fc" id="L60">    return errorMessage;</span>
+  }
+
+  public String getServerName() {
+<span class="fc" id="L64">    return serverName;</span>
+  }
+
+  public void showCredentials() {
+    /**
+     * We need to do this in the thread that created the socket, since
+     * the thread that creates the socket will often be, or will block the
+     * swing event thread, but the getting of a username/password
+     * must be done in the swing event thread.
+     * So we have complex code to switch back and forth.
+     */
+    try {
+<span class="fc" id="L76">      showLatch.await();</span>
+<span class="pc" id="L77">    } catch (final InterruptedException e) {</span>
+    }
+<span class="pc bpc" id="L79" title="1 of 4 branches missed.">    if (login != null &amp;&amp; challengeProperties != null) {</span>
+      try {
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">        if (isClosed) {</span>
+<span class="nc" id="L82">          return;</span>
+        }
+<span class="fc" id="L84">        challengeResponse = login.getProperties(challengeProperties);</span>
+<span class="pc" id="L85">      } finally {</span>
+<span class="pc" id="L86">        doneShowLatch.countDown();</span>
+<span class="nc" id="L87">      }</span>
+    }
+<span class="fc" id="L89">  }</span>
+
+  @Override
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public ACTION message(final Object o) {
+    try {
+<span class="pc bpc" id="L95" title="1 of 5 branches missed.">      switch (step) {</span>
+        case READ_CHALLENGE:
+          // read name, send challenge
+<span class="fc" id="L98">          final Map&lt;String, String&gt; challenge = (Map&lt;String, String&gt;) o;</span>
+<span class="pc bpc" id="L99" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L100">            s_logger.log(Level.FINER, &quot;read challenge:&quot; + challenge);</span>
+          }
+<span class="fc bfc" id="L102" title="All 2 branches covered.">          if (challenge != null) {</span>
+<span class="fc" id="L103">            challengeProperties = challenge;</span>
+<span class="fc" id="L104">            showLatch.countDown();</span>
+            try {
+<span class="fc" id="L106">              doneShowLatch.await();</span>
+<span class="pc" id="L107">            } catch (final InterruptedException e) {</span>
+              // ignore
+            }
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">            if (isClosed) {</span>
+<span class="nc" id="L111">              return ACTION.NONE;</span>
+            }
+<span class="pc bpc" id="L113" title="1 of 2 branches missed.">            if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L114">              s_logger.log(Level.FINER, &quot;writing response&quot; + challengeResponse);</span>
+            }
+<span class="fc" id="L116">            send((Serializable) challengeResponse);</span>
+<span class="fc" id="L117">          } else {</span>
+<span class="fc" id="L118">            showLatch.countDown();</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">            if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L120">              s_logger.log(Level.FINER, &quot;sending null response&quot;);</span>
+            }
+<span class="fc" id="L122">            send(null);</span>
+          }
+<span class="fc" id="L124">          step = STEP.READ_ERROR;</span>
+<span class="fc" id="L125">          return ACTION.NONE;</span>
+        case READ_ERROR:
+<span class="fc bfc" id="L127" title="All 2 branches covered.">          if (o != null) {</span>
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">            if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L129">              s_logger.log(Level.FINER, &quot;error:&quot; + o);</span>
+            }
+<span class="fc" id="L131">            errorMessage = (String) o;</span>
+            // acknowledge the error
+<span class="fc" id="L133">            send(null);</span>
+<span class="fc" id="L134">            return ACTION.TERMINATE;</span>
+          }
+<span class="fc" id="L136">          step = STEP.READ_NAMES;</span>
+<span class="fc" id="L137">          return ACTION.NONE;</span>
+        case READ_NAMES:
+<span class="fc" id="L139">          final String[] strings = ((String[]) o);</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L141">            s_logger.log(Level.FINER, &quot;new local name:&quot; + strings[0]);</span>
+          }
+<span class="fc" id="L143">          localName = strings[0];</span>
+<span class="fc" id="L144">          serverName = strings[1];</span>
+<span class="fc" id="L145">          step = STEP.READ_ADDRESS;</span>
+<span class="fc" id="L146">          return ACTION.NONE;</span>
+        case READ_ADDRESS:
+          // this is the adress that others see us as
+<span class="fc" id="L149">          final InetSocketAddress[] address = (InetSocketAddress[]) o;</span>
+          // this is the address the server thinks he is
+<span class="fc" id="L151">          networkVisibleAddress = address[0];</span>
+<span class="fc" id="L152">          serverLocalAddress = address[1];</span>
+<span class="pc bpc" id="L153" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L154">            s_logger.log(Level.FINE, &quot;Server local address:&quot; + serverLocalAddress);</span>
+<span class="nc" id="L155">            s_logger.log(Level.FINE, &quot;channel remote address:&quot; + channel.socket().getRemoteSocketAddress());</span>
+<span class="nc" id="L156">            s_logger.log(Level.FINE, &quot;network visible address:&quot; + networkVisibleAddress);</span>
+<span class="nc" id="L157">            s_logger.log(Level.FINE, &quot;channel local adresss:&quot; + channel.socket().getLocalSocketAddress());</span>
+          }
+<span class="fc" id="L159">          return ACTION.UNQUARANTINE;</span>
+        default:
+<span class="nc" id="L161">          throw new IllegalStateException(&quot;Invalid state&quot;);</span>
+      }
+<span class="nc" id="L163">    } catch (final Throwable t) {</span>
+<span class="nc" id="L164">      isClosed = true;</span>
+<span class="nc" id="L165">      showLatch.countDown();</span>
+<span class="nc" id="L166">      doneShowLatch.countDown();</span>
+<span class="nc" id="L167">      s_logger.log(Level.SEVERE, &quot;error with connection&quot;, t);</span>
+<span class="nc" id="L168">      return ACTION.TERMINATE;</span>
+    }
+  }
+
+  private void send(final Serializable object) {
+    // this messenger is quarantined, so to and from dont matter
+<span class="fc" id="L174">    final MessageHeader header = new MessageHeader(Node.NULL_NODE, Node.NULL_NODE, object);</span>
+<span class="fc" id="L175">    socket.send(channel, header);</span>
+<span class="fc" id="L176">  }</span>
+
+  public InetSocketAddress getNetworkVisibleSocketAdress() {
+<span class="fc" id="L179">    return networkVisibleAddress;</span>
+  }
+
+  public InetSocketAddress getServerLocalAddress() {
+<span class="fc" id="L183">    return serverLocalAddress;</span>
+  }
+
+  @Override
+  public void close() {
+<span class="fc" id="L188">    isClosed = true;</span>
+<span class="fc" id="L189">    showLatch.countDown();</span>
+<span class="fc" id="L190">    doneShowLatch.countDown();</span>
+<span class="fc" id="L191">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,369 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ImageScrollerLargeView.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.ui</a> &gt; <span class="el_source">ImageScrollerLargeView.java</span></div><h1>ImageScrollerLargeView.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.ui;</span>
+
+import java.awt.Dimension;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.ComponentListener;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.event.MouseMotionListener;
+import java.awt.event.MouseWheelListener;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.swing.JComponent;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.engine.ClientContext;
+import games.strategy.triplea.settings.scrolling.ScrollSettings;
+
+/**
+ * A large image that can be scrolled according to a ImageScrollModel.
+ * Generally used in conjunction with a ImageScrollerSmallView.
+ * We do not take care of drawing ourselves. All we do is keep track of
+ * our location and size. Subclasses must take care of rendering
+ */
+public class ImageScrollerLargeView extends JComponent {
+
+  private static final long serialVersionUID = -7212817233833868483L;
+
+  // bit flags for determining which way we are scrolling
+  final static int NONE = 0;
+  final static int LEFT = 1;
+  final static int RIGHT = 2;
+  final static int TOP = 4;
+  final static int BOTTOM = 8;
+
+  private final ScrollSettings scrollSettings;
+
+  protected final ImageScrollModel m_model;
+<span class="nc" id="L45">  protected double m_scale = 1;</span>
+
+  private int m_drag_scrolling_lastx;
+  private int m_drag_scrolling_lasty;
+
+<span class="nc" id="L50">  private final ActionListener m_timerAction = new ActionListener() {</span>
+    @Override
+    public final void actionPerformed(final ActionEvent e) {
+<span class="nc bnc" id="L53" title="All 2 branches missed.">      if (JOptionPane.getFrameForComponent(ImageScrollerLargeView.this).getFocusOwner() == null) {</span>
+<span class="nc" id="L54">        m_insideCount = 0;</span>
+<span class="nc" id="L55">        return;</span>
+      }
+<span class="nc bnc" id="L57" title="All 4 branches missed.">      if (m_inside &amp;&amp; m_edge != NONE) {</span>
+<span class="nc" id="L58">        m_insideCount++;</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">        if (m_insideCount &gt; 6) {</span>
+          // Scroll the map when the mouse has hovered inside the scroll zone for long enough
+<span class="nc" id="L61">          SwingUtilities.invokeLater(new Scroller());</span>
+        }
+      }
+<span class="nc" id="L64">    }</span>
+  };
+  // scrolling
+<span class="nc" id="L67">  private final javax.swing.Timer m_timer = new javax.swing.Timer(50, m_timerAction);</span>
+<span class="nc" id="L68">  private boolean m_inside = false;</span>
+<span class="nc" id="L69">  private int m_insideCount = 0;</span>
+<span class="nc" id="L70">  private int m_edge = NONE;</span>
+<span class="nc" id="L71">  private final List&lt;ScrollListener&gt; m_scrollListeners = new ArrayList&lt;&gt;();</span>
+
+  public ImageScrollerLargeView(final Dimension dimension, final ImageScrollModel model) {
+<span class="nc" id="L74">    super();</span>
+<span class="nc" id="L75">    scrollSettings = ClientContext.scrollSettings();</span>
+<span class="nc" id="L76">    m_model = model;</span>
+<span class="nc" id="L77">    m_model.setMaxBounds((int) dimension.getWidth(), (int) dimension.getHeight());</span>
+<span class="nc" id="L78">    setPreferredSize(getImageDimensions());</span>
+<span class="nc" id="L79">    setMaximumSize(getImageDimensions());</span>
+<span class="nc" id="L80">    final MouseWheelListener MOUSE_WHEEL_LISTENER = e -&gt; {</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">      if (!e.isAltDown()) {</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">        if (m_edge == NONE) {</span>
+<span class="nc" id="L83">          m_insideCount = 0;</span>
+        }
+        // compute the amount to move
+<span class="nc" id="L86">        int dx = 0;</span>
+<span class="nc" id="L87">        int dy = 0;</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if ((e.getModifiersEx() &amp; InputEvent.SHIFT_DOWN_MASK) == InputEvent.SHIFT_DOWN_MASK) {</span>
+<span class="nc" id="L89">          dx = e.getWheelRotation() * scrollSettings.getWheelScrollAmount();</span>
+<span class="nc" id="L90">        } else {</span>
+<span class="nc" id="L91">          dy = e.getWheelRotation() * scrollSettings.getWheelScrollAmount();</span>
+        }
+        // move left and right and test for wrap
+<span class="nc" id="L94">        int newX = (m_model.getX() + dx);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">        if (newX &gt; m_model.getMaxWidth() - getWidth()) {</span>
+<span class="nc" id="L96">          newX -= m_model.getMaxWidth();</span>
+        }
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (newX &lt; -getWidth()) {</span>
+<span class="nc" id="L99">          newX += m_model.getMaxWidth();</span>
+        }
+        // move up and down and test for edges
+<span class="nc" id="L102">        final int newY = m_model.getY() + dy;</span>
+        // update the map
+<span class="nc" id="L104">        m_model.set(newX, newY);</span>
+<span class="nc" id="L105">      } else {</span>
+<span class="nc" id="L106">        double value = m_scale;</span>
+<span class="nc" id="L107">        int positive = 1;</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (e.getUnitsToScroll() &gt; 0) {</span>
+<span class="nc" id="L109">          positive = -1;</span>
+        }
+<span class="nc bnc" id="L111" title="All 8 branches missed.">        if ((positive &gt; 0 &amp;&amp; value == 1) || (positive &lt; 0 &amp;&amp; value &lt;= .21)) {</span>
+<span class="nc" id="L112">          return;</span>
+        }
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (positive &gt; 0) {</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">          if (value &gt;= .79) {</span>
+<span class="nc" id="L116">            value = 1.0;</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">          } else if (value &gt;= .59) {</span>
+<span class="nc" id="L118">            value = .8;</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">          } else if (value &gt;= .39) {</span>
+<span class="nc" id="L120">            value = .6;</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">          } else if (value &gt;= .19) {</span>
+<span class="nc" id="L122">            value = .4;</span>
+<span class="nc" id="L123">          } else {</span>
+<span class="nc" id="L124">            value = .2;</span>
+          }
+<span class="nc" id="L126">        } else {</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">          if (value &lt;= .41) {</span>
+<span class="nc" id="L128">            value = .2;</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">          } else if (value &lt;= .61) {</span>
+<span class="nc" id="L130">            value = .4;</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">          } else if (value &lt;= .81) {</span>
+<span class="nc" id="L132">            value = .6;</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">          } else if (value &lt;= 1.0) {</span>
+<span class="nc" id="L134">            value = .8;</span>
+<span class="nc" id="L135">          } else {</span>
+<span class="nc" id="L136">            value = 1.0;</span>
+          }
+        }
+<span class="nc" id="L139">        setScale(value);</span>
+      }
+<span class="nc" id="L141">    };</span>
+<span class="nc" id="L142">    addMouseWheelListener(MOUSE_WHEEL_LISTENER);</span>
+<span class="nc" id="L143">    final MouseAdapter MOUSE_LISTENER = new MouseAdapter() {</span>
+      @Override
+      public void mouseEntered(final MouseEvent e) {
+<span class="nc" id="L146">        m_timer.start();</span>
+<span class="nc" id="L147">      }</span>
+
+      @Override
+      public void mouseExited(final MouseEvent e) {
+<span class="nc" id="L151">        m_inside = false;</span>
+<span class="nc" id="L152">        m_timer.stop();</span>
+<span class="nc" id="L153">      }</span>
+
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc" id="L157">        requestFocusInWindow();</span>
+<span class="nc" id="L158">      }</span>
+
+      @Override
+      public void mouseReleased(final MouseEvent e) {
+<span class="nc" id="L162">        requestFocusInWindow();</span>
+<span class="nc" id="L163">      }</span>
+    };
+<span class="nc" id="L165">    addMouseListener(MOUSE_LISTENER);</span>
+<span class="nc" id="L166">    final MouseAdapter MOUSE_LISTENER_DRAG_SCROLLING = new MouseAdapter() {</span>
+      @Override
+      public void mousePressed(final MouseEvent e) {
+        // try to center around the click
+<span class="nc" id="L170">        m_drag_scrolling_lastx = e.getX();</span>
+<span class="nc" id="L171">        m_drag_scrolling_lasty = e.getY();</span>
+<span class="nc" id="L172">      }</span>
+    };
+<span class="nc" id="L174">    addMouseListener(MOUSE_LISTENER_DRAG_SCROLLING);</span>
+<span class="nc" id="L175">    final MouseMotionListener MOUSE_MOTION_LISTENER = new MouseMotionAdapter() {</span>
+      @Override
+      public void mouseMoved(final MouseEvent e) {
+<span class="nc" id="L178">        m_inside = true;</span>
+<span class="nc" id="L179">        final int x = e.getX();</span>
+<span class="nc" id="L180">        final int y = e.getY();</span>
+<span class="nc" id="L181">        final int height = getHeight();</span>
+<span class="nc" id="L182">        final int width = getWidth();</span>
+<span class="nc" id="L183">        m_edge = getNewEdge(x, y, width, height);</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">        if (m_edge == NONE) {</span>
+<span class="nc" id="L185">          m_insideCount = 0;</span>
+        }
+<span class="nc" id="L187">      }</span>
+    };
+<span class="nc" id="L189">    addMouseMotionListener(MOUSE_MOTION_LISTENER);</span>
+    /*
+     * this is used to detect drag scrolling
+     */
+<span class="nc" id="L193">    final MouseMotionListener MOUSE_DRAG_LISTENER = new MouseMotionAdapter() {</span>
+      @Override
+      public void mouseDragged(final MouseEvent e) {
+<span class="nc" id="L196">        requestFocusInWindow();</span>
+        // the right button must be the one down
+<span class="nc bnc" id="L198" title="All 2 branches missed.">        if ((e.getModifiers() &amp; InputEvent.BUTTON3_MASK) != 0) {</span>
+<span class="nc" id="L199">          m_inside = false;</span>
+          // read in location
+<span class="nc" id="L201">          final int x = e.getX();</span>
+<span class="nc" id="L202">          final int y = e.getY();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">          if (m_edge == NONE) {</span>
+<span class="nc" id="L204">            m_insideCount = 0;</span>
+          }
+          // compute the amount to move
+<span class="nc" id="L207">          final int dx = (m_drag_scrolling_lastx - x);</span>
+<span class="nc" id="L208">          final int dy = (m_drag_scrolling_lasty - y);</span>
+          // move left and right and test for wrap
+<span class="nc" id="L210">          final int newX = (m_model.getX() + dx);</span>
+          // move up and down and test for edges
+<span class="nc" id="L212">          final int newY = m_model.getY() + dy;</span>
+          // update the map
+<span class="nc" id="L214">          m_model.set(newX, newY);</span>
+          // store the location of the mouse for the next move
+<span class="nc" id="L216">          m_drag_scrolling_lastx = e.getX();</span>
+<span class="nc" id="L217">          m_drag_scrolling_lasty = e.getY();</span>
+        }
+<span class="nc" id="L219">      }</span>
+    };
+<span class="nc" id="L221">    addMouseMotionListener(MOUSE_DRAG_LISTENER);</span>
+<span class="nc" id="L222">    final ComponentListener COMPONENT_LISTENER = new ComponentAdapter() {</span>
+      @Override
+      public void componentResized(final ComponentEvent e) {
+<span class="nc" id="L225">        refreshBoxSize();</span>
+<span class="nc" id="L226">      }</span>
+    };
+<span class="nc" id="L228">    addComponentListener(COMPONENT_LISTENER);</span>
+<span class="nc" id="L229">    m_timer.start();</span>
+<span class="nc" id="L230">    m_model.addObserver((o, arg) -&gt; {</span>
+<span class="nc" id="L231">      repaint();</span>
+<span class="nc" id="L232">      notifyScollListeners();</span>
+<span class="nc" id="L233">    });</span>
+<span class="nc" id="L234">  }</span>
+
+  /**
+   * For subclasses needing to set the location of the image.
+   */
+  protected void setTopLeft(final int x, final int y) {
+<span class="nc" id="L240">    m_model.set(x, y);</span>
+<span class="nc" id="L241">  }</span>
+
+  protected void setTopLeftNoWrap(int x, int y) {
+<span class="nc bnc" id="L244" title="All 2 branches missed.">    if (x &lt; 0) {</span>
+<span class="nc" id="L245">      x = 0;</span>
+    }
+<span class="nc bnc" id="L247" title="All 2 branches missed.">    if (y &lt; 0) {</span>
+<span class="nc" id="L248">      y = 0;</span>
+    }
+<span class="nc" id="L250">    m_model.set(x, y);</span>
+<span class="nc" id="L251">  }</span>
+
+  public int getImageWidth() {
+<span class="nc" id="L254">    return m_model.getMaxWidth();</span>
+  }
+
+  public int getImageHeight() {
+<span class="nc" id="L258">    return m_model.getMaxHeight();</span>
+  }
+
+  public void addScrollListener(final ScrollListener s) {
+<span class="nc" id="L262">    m_scrollListeners.add(s);</span>
+<span class="nc" id="L263">  }</span>
+
+  public void removeScrollListener(final ScrollListener s) {
+<span class="nc" id="L266">    m_scrollListeners.remove(s);</span>
+<span class="nc" id="L267">  }</span>
+
+  private void notifyScollListeners() {
+<span class="nc bnc" id="L270" title="All 2 branches missed.">    for (final ScrollListener element : new ArrayList&lt;&gt;(m_scrollListeners)) {</span>
+<span class="nc" id="L271">      element.scrolled(m_model.getX(), m_model.getY());</span>
+    }
+<span class="nc" id="L273">  }</span>
+
+  private void scroll() {
+<span class="nc" id="L276">    int dy = 0;</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">    if ((m_edge &amp; TOP) != 0) {</span>
+<span class="nc" id="L278">      dy = -scrollSettings.getMapEdgeScrollSpeed();</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">    } else if ((m_edge &amp; BOTTOM) != 0) {</span>
+<span class="nc" id="L280">      dy = scrollSettings.getMapEdgeScrollSpeed();</span>
+    }
+<span class="nc" id="L282">    int dx = 0;</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">    if ((m_edge &amp; LEFT) != 0) {</span>
+<span class="nc" id="L284">      dx = -scrollSettings.getMapEdgeScrollSpeed();</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">    } else if ((m_edge &amp; RIGHT) != 0) {</span>
+<span class="nc" id="L286">      dx = scrollSettings.getMapEdgeScrollSpeed();</span>
+    }
+
+<span class="nc" id="L289">    dx = (int) (dx / m_scale);</span>
+<span class="nc" id="L290">    dy = (int) (dy / m_scale);</span>
+<span class="nc" id="L291">    final int newX = (m_model.getX() + dx);</span>
+<span class="nc" id="L292">    final int newY = m_model.getY() + dy;</span>
+<span class="nc" id="L293">    m_model.set(newX, newY);</span>
+<span class="nc" id="L294">  }</span>
+
+  public Dimension getImageDimensions() {
+<span class="nc" id="L297">    return new Dimension(m_model.getMaxWidth(), m_model.getMaxHeight());</span>
+  }
+
+  private int getNewEdge(final int x, final int y, final int width, final int height) {
+<span class="nc" id="L301">    int newEdge = NONE;</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">    if (x &lt; scrollSettings.getMapEdgeScrollZoneSize()) {</span>
+<span class="nc" id="L303">      newEdge += LEFT;</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">    } else if (width - x &lt; scrollSettings.getMapEdgeScrollZoneSize()) {</span>
+<span class="nc" id="L305">      newEdge += RIGHT;</span>
+    }
+<span class="nc bnc" id="L307" title="All 2 branches missed.">    if (y &lt; scrollSettings.getMapEdgeScrollZoneSize()) {</span>
+<span class="nc" id="L308">      newEdge += TOP;</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">    } else if (height - y &lt; scrollSettings.getMapEdgeScrollZoneSize()) {</span>
+<span class="nc" id="L310">      newEdge += BOTTOM;</span>
+    }
+<span class="nc" id="L312">    return newEdge;</span>
+  }
+
+  protected void refreshBoxSize() {
+<span class="nc" id="L316">    m_model.setBoxDimensions((int) (getWidth() / m_scale), (int) (getHeight() / m_scale));</span>
+<span class="nc" id="L317">  }</span>
+
+  /**
+   * @param value The new scale value. Constrained to the bounds of no less than 0.15 and no greater than 1.
+   *        If out of bounds the nearest boundary value is used.
+   */
+  public void setScale(double value) {
+<span class="nc bnc" id="L324" title="All 2 branches missed.">    if (value &lt; 0.15) {</span>
+<span class="nc" id="L325">      value = 0.15;</span>
+    }
+<span class="nc bnc" id="L327" title="All 2 branches missed.">    if (value &gt; 1) {</span>
+<span class="nc" id="L328">      value = 1;</span>
+    }
+    // we want the ratio to be a multiple of 1/256
+    // so that the tiles have integer widths and heights
+<span class="nc" id="L332">    value = ((int) (value * 256)) / ((double) 256);</span>
+<span class="nc" id="L333">    m_scale = value;</span>
+<span class="nc" id="L334">    refreshBoxSize();</span>
+<span class="nc" id="L335">  }</span>
+
+  /**
+   * Update will not be seen until update is called. Resets the offscreen
+   * image to the original.
+   */
+  public int getXOffset() {
+<span class="nc" id="L342">    return m_model.getX();</span>
+  }
+
+  public int getYOffset() {
+<span class="nc" id="L346">    return m_model.getY();</span>
+  }
+
+<span class="nc" id="L349">  private class Scroller implements Runnable {</span>
+    @Override
+    public void run() {
+<span class="nc" id="L352">      scroll();</span>
+<span class="nc" id="L353">    }</span>
+  }
+
+  protected double getScaledWidth() {
+<span class="nc" id="L357">    return getWidth() / m_scale;</span>
+  }
+
+  protected double getScaledHeight() {
+<span class="nc" id="L361">    return getHeight() / m_scale;</span>
+  }
+
+  public void deactivate() {
+<span class="nc" id="L365">    m_timer.stop();</span>
+<span class="nc" id="L366">    m_timer.removeActionListener(m_timerAction);</span>
+<span class="nc" id="L367">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,682 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai</a> &gt; <span class="el_source">AbstractAI.java</span></div><h1>AbstractAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.logging.Logger;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.net.GUID;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.PoliticalActionAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.PoliticsDelegate;
+import games.strategy.triplea.delegate.dataObjects.BattleListing;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.delegate.remote.IAbstractForumPosterDelegate;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IBattleDelegate;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.triplea.delegate.remote.IPoliticsDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.triplea.player.AbstractBaseAI;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Base class for ais.
+ * &lt;p&gt;
+ * Control pausing with the AI pause menu option
+ * AI's should note that any data that is stored in the ai instance, will be lost when the game is restarted.
+ * We cannot save data with an AI, since the player may choose to restart the game with a different ai,
+ * or with a human player.
+ * &lt;p&gt;
+ * If an ai finds itself starting in the middle of a move phase, or the middle of a purchase phase,
+ * (as would happen if a player saved the game during the middle of an AI's move phase) it is acceptable
+ * for the ai to play badly for a turn, but the ai should recover, and play correctly when the next phase
+ * of the game starts.
+ * &lt;p&gt;
+ * As a rule, nothing that changes GameData should be in here (it should be in a delegate, and done
+ * through an IDelegate using a change).
+ * &lt;p&gt;
+ */
+public abstract class AbstractAI extends AbstractBaseAI implements ITripleAPlayer {
+<span class="fc" id="L67">  private final static Logger s_logger = Logger.getLogger(AbstractAI.class.getName());</span>
+
+  /**
+   * @param name
+   *        - the name of the player (the nation)
+   * @param type
+   *        - the type of player we are
+   */
+  public AbstractAI(final String name, final String type) {
+<span class="fc" id="L76">    super(name, type);</span>
+<span class="fc" id="L77">  }</span>
+
+  public final Class&lt;ITripleAPlayer&gt; getRemotePlayerType() {
+<span class="nc" id="L80">    return ITripleAPlayer.class;</span>
+  }
+
+  /************************
+   * The following methods are called when the AI starts a phase.
+   *************************/
+  /**
+   * It is the AI's turn to purchase units.
+   *
+   * @param purcahseForBid
+   *        - is this a bid purchase, or a normal purchase
+   * @param PUsToSpend
+   *        - how many PUs we have to spend
+   * @param purchaseDelegate
+   *        - the purchase delgate to buy things with
+   * @param data
+   *        - the GameData
+   * @param player
+   *        - the player to buy for
+   */
+  protected abstract void purchase(boolean purchaseForBid, int PUsToSpend, IPurchaseDelegate purchaseDelegate,
+      GameData data, PlayerID player);
+
+  /**
+   * It is the AI's turn to roll for technology.
+   *
+   * @param techDelegate
+   *        - the tech delegate to roll for
+   * @param data
+   *        - the game data
+   * @param player
+   *        - the player to roll tech for
+   */
+  protected abstract void tech(ITechDelegate techDelegate, GameData data, PlayerID player);
+
+  /**
+   * It is the AI's turn to move. Make all moves before returning from this method.
+   *
+   * @param nonCombat
+   *        - are we moving in combat, or non combat
+   * @param moveDel
+   *        - the move delegate to make moves with
+   * @param data
+   *        - the current game data
+   * @param player
+   *        - the player to move with
+   */
+  protected abstract void move(boolean nonCombat, IMoveDelegate moveDel, GameData data, PlayerID player);
+
+  /**
+   * It is the AI's turn to place units. get the units available to place with player.getUnits()
+   *
+   * @param placeForBid
+   *        - is this a placement for bid
+   * @param placeDelegate
+   *        - the place delegate to place with
+   * @param data
+   *        - the current Game Data
+   * @param player
+   *        - the player to place for
+   */
+  protected abstract void place(boolean placeForBid, IAbstractPlaceDelegate placeDelegate, GameData data,
+      PlayerID player);
+
+  /******************************************
+   * The following methods the AI may choose to implemenmt,
+   * but in general won't
+   *******************************************/
+  @Override
+  public Territory selectBombardingTerritory(final Unit unit, final Territory unitTerritory,
+      final Collection&lt;Territory&gt; territories, final boolean noneAvailable) {
+    // return the first one
+<span class="nc" id="L152">    return territories.iterator().next();</span>
+  }
+
+  @Override
+  public boolean selectAttackSubs(final Territory unitTerritory) {
+<span class="nc" id="L157">    return true;</span>
+  }
+
+  @Override
+  public boolean selectAttackTransports(final Territory unitTerritory) {
+<span class="nc" id="L162">    return true;</span>
+  }
+
+  @Override
+  public boolean selectAttackUnits(final Territory unitTerritory) {
+<span class="nc" id="L167">    return true;</span>
+  }
+
+  @Override
+  public boolean selectShoreBombard(final Territory unitTerritory) {
+<span class="nc" id="L172">    return true;</span>
+  }
+
+  @Override
+  public boolean confirmMoveKamikaze() {
+<span class="nc" id="L177">    return false;</span>
+  }
+
+  @Override
+  public boolean confirmMoveHariKari() {
+<span class="nc" id="L182">    return false;</span>
+  }
+
+  @Override
+  public Territory whereShouldRocketsAttack(final Collection&lt;Territory&gt; candidates, final Territory from) {
+    // just use the first one
+<span class="nc" id="L188">    return candidates.iterator().next();</span>
+  }
+
+  @Override
+  public CasualtyDetails selectCasualties(final Collection&lt;Unit&gt; selectFrom,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents, final int count, final String message, final DiceRoll dice,
+      final PlayerID hit, final Collection&lt;Unit&gt; friendlyUnits, final PlayerID enemyPlayer,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers,
+      final CasualtyList defaultCasualties, final GUID battleID, final Territory battlesite,
+      final boolean allowMultipleHitsPerUnit) {
+<span class="nc bnc" id="L198" title="All 2 branches missed.">    if (defaultCasualties.size() != count) {</span>
+<span class="nc" id="L199">      throw new IllegalStateException(</span>
+<span class="nc" id="L200">          &quot;Select Casualties showing different numbers for number of hits to take vs total size of default casualty selections&quot;);</span>
+    }
+<span class="nc bnc" id="L202" title="All 2 branches missed.">    if (defaultCasualties.getKilled().size() &lt;= 0) {</span>
+<span class="nc" id="L203">      return new CasualtyDetails(defaultCasualties, false);</span>
+    }
+    // TODO: determine which planes we plan to fly to land afterwards (if we are the attacker or moving player)
+<span class="nc" id="L206">    final int numberOfPlanesThatDoNotNeedToLandOnCarriers = 0;</span>
+<span class="nc" id="L207">    final CasualtyDetails myCasualties = new CasualtyDetails(false);</span>
+<span class="nc" id="L208">    myCasualties.addToDamaged(defaultCasualties.getDamaged());</span>
+    // the list we receive should already be sorted
+<span class="nc" id="L210">    final List&lt;Unit&gt; selectFromSorted = new ArrayList&lt;&gt;(selectFrom);</span>
+<span class="nc" id="L211">    final List&lt;Unit&gt; interleavedTargetList = new ArrayList&lt;&gt;(</span>
+<span class="nc" id="L212">        AdvancedUtils.interleaveCarriersAndPlanes(selectFromSorted, numberOfPlanesThatDoNotNeedToLandOnCarriers));</span>
+    // TODO: if we are going to lose this battle by a wide margin, we may not want to interleave these units
+<span class="nc bnc" id="L214" title="All 2 branches missed.">    for (int i = 0; i &lt; defaultCasualties.getKilled().size(); ++i) {</span>
+<span class="nc" id="L215">      myCasualties.addToKilled(interleavedTargetList.get(i));</span>
+    }
+<span class="nc bnc" id="L217" title="All 2 branches missed.">    if (count != myCasualties.size()) {</span>
+<span class="nc" id="L218">      throw new IllegalStateException(&quot;AI chose wrong number of casualties&quot;);</span>
+    }
+<span class="nc" id="L220">    return myCasualties;</span>
+  }
+
+  @Override
+  public Unit whatShouldBomberBomb(final Territory territory, final Collection&lt;Unit&gt; potentialTargets,
+      final Collection&lt;Unit&gt; bombers) {
+<span class="nc bnc" id="L226" title="All 4 branches missed.">    if (potentialTargets == null || potentialTargets.isEmpty()) {</span>
+<span class="nc" id="L227">      return null;</span>
+    }
+<span class="nc" id="L229">    final Collection&lt;Unit&gt; factories = Match.getMatches(potentialTargets, Matches.UnitCanProduceUnitsAndCanBeDamaged);</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">    if (factories.isEmpty()) {</span>
+<span class="nc" id="L231">      return potentialTargets.iterator().next();</span>
+    }
+<span class="nc" id="L233">    return factories.iterator().next();</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getNumberOfFightersToMoveToNewCarrier(final Collection&lt;Unit&gt; fightersThatCanBeMoved,
+      final Territory from) {
+<span class="nc" id="L239">    final List&lt;Unit&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">    for (final Unit fighter : fightersThatCanBeMoved) {</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">      if (Math.random() &lt; 0.8) {</span>
+<span class="nc" id="L242">        rVal.add(fighter);</span>
+      }
+    }
+<span class="nc" id="L245">    return rVal;</span>
+  }
+
+  @Override
+  public Territory selectTerritoryForAirToLand(final Collection&lt;Territory&gt; candidates, final Territory currentTerritory,
+      final String unitMessage) {
+<span class="nc" id="L251">    return candidates.iterator().next();</span>
+  }
+
+  @Override
+  public boolean confirmMoveInFaceOfAA(final Collection&lt;Territory&gt; aaFiringTerritories) {
+<span class="nc" id="L256">    return true;</span>
+  }
+
+  @Override
+  public Territory retreatQuery(final GUID battleID, final boolean submerge, final Territory battleTerritory,
+      final Collection&lt;Territory&gt; possibleTerritories, final String message) {
+<span class="nc" id="L262">    return null;</span>
+  }
+
+  @Override
+  public HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleUnitsQuery(final Territory scrambleTo,
+      final Map&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; possibleScramblers) {
+<span class="nc" id="L268">    return null;</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; selectUnitsQuery(final Territory current, final Collection&lt;Unit&gt; possible,
+      final String message) {
+<span class="nc" id="L274">    return null;</span>
+  }
+
+  @Override
+  public abstract boolean shouldBomberBomb(final Territory territory);
+
+  @Override
+  public boolean acceptAction(final PlayerID playerSendingProposal, final String acceptanceQuestion,
+      final boolean politics) {
+    // we are dead, just accept
+<span class="nc bnc" id="L284" title="All 2 branches missed.">    if (!getPlayerID().amNotDeadYet(getGameData())) {</span>
+<span class="nc" id="L285">      return true;</span>
+    }
+    // not related to politics? just accept i guess
+<span class="nc bnc" id="L288" title="All 2 branches missed.">    if (!politics) {</span>
+<span class="nc" id="L289">      return true;</span>
+    }
+    // politics
+    // from ally? accept
+<span class="nc bnc" id="L293" title="All 2 branches missed.">    if (Matches.isAllied(getPlayerID(), getGameData()).match(playerSendingProposal)) {</span>
+<span class="nc" id="L294">      return true;</span>
+    }
+    // would we normally be allies?
+<span class="nc" id="L297">    final List&lt;String&gt; allies = Arrays.asList(new String[] {Constants.PLAYER_NAME_AMERICANS,</span>
+<span class="nc" id="L298">        Constants.PLAYER_NAME_AUSTRALIANS, Constants.PLAYER_NAME_BRITISH, Constants.PLAYER_NAME_CANADIANS,</span>
+<span class="nc" id="L299">        Constants.PLAYER_NAME_CHINESE, Constants.PLAYER_NAME_FRENCH, Constants.PLAYER_NAME_RUSSIANS});</span>
+<span class="nc bnc" id="L300" title="All 4 branches missed.">    if (allies.contains(getPlayerID().getName()) &amp;&amp; allies.contains(playerSendingProposal.getName())) {</span>
+<span class="nc" id="L301">      return true;</span>
+    }
+<span class="nc" id="L303">    final List&lt;String&gt; axis = Arrays.asList(new String[] {Constants.PLAYER_NAME_GERMANS, Constants.PLAYER_NAME_ITALIANS,</span>
+<span class="nc" id="L304">        Constants.PLAYER_NAME_JAPANESE, Constants.PLAYER_NAME_PUPPET_STATES});</span>
+<span class="nc bnc" id="L305" title="All 4 branches missed.">    if (axis.contains(getPlayerID().getName()) &amp;&amp; axis.contains(playerSendingProposal.getName())) {</span>
+<span class="nc" id="L306">      return true;</span>
+    }
+<span class="nc" id="L308">    final Collection&lt;String&gt; myAlliances =</span>
+<span class="nc" id="L309">        new HashSet&lt;&gt;(getGameData().getAllianceTracker().getAlliancesPlayerIsIn(getPlayerID()));</span>
+<span class="nc" id="L310">    myAlliances.retainAll(getGameData().getAllianceTracker().getAlliancesPlayerIsIn(playerSendingProposal));</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">    if (!myAlliances.isEmpty()) {</span>
+<span class="nc" id="L312">      return true;</span>
+    }
+<span class="nc bnc" id="L314" title="All 2 branches missed.">    return Math.random() &lt; .5;</span>
+  }
+
+  @Override
+  public HashMap&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; selectKamikazeSuicideAttacks(
+      final HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; possibleUnitsToAttack) {
+<span class="nc" id="L320">    final PlayerID id = getPlayerID();</span>
+    // we are going to just assign random attacks to each unit randomly, til we run out of tokens to attack with.
+<span class="nc" id="L322">    final PlayerAttachment pa = PlayerAttachment.get(id);</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">    if (pa == null) {</span>
+<span class="nc" id="L324">      return null;</span>
+    }
+<span class="nc" id="L326">    final IntegerMap&lt;Resource&gt; resourcesAndAttackValues = pa.getSuicideAttackResources();</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">    if (resourcesAndAttackValues.size() &lt;= 0) {</span>
+<span class="nc" id="L328">      return null;</span>
+    }
+<span class="nc" id="L330">    final IntegerMap&lt;Resource&gt; playerResourceCollection = id.getResources().getResourcesCopy();</span>
+<span class="nc" id="L331">    final IntegerMap&lt;Resource&gt; attackTokens = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">    for (final Resource possible : resourcesAndAttackValues.keySet()) {</span>
+<span class="nc" id="L333">      final int amount = playerResourceCollection.getInt(possible);</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">      if (amount &gt; 0) {</span>
+<span class="nc" id="L335">        attackTokens.put(possible, amount);</span>
+      }
+    }
+<span class="nc bnc" id="L338" title="All 2 branches missed.">    if (attackTokens.size() &lt;= 0) {</span>
+<span class="nc" id="L339">      return null;</span>
+    }
+<span class="nc" id="L341">    final HashMap&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; rVal = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">    for (final Entry&lt;Territory, Collection&lt;Unit&gt;&gt; entry : possibleUnitsToAttack.entrySet()) {</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">      if (attackTokens.size() &lt;= 0) {</span>
+<span class="nc" id="L344">        continue;</span>
+      }
+<span class="nc" id="L346">      final Territory t = entry.getKey();</span>
+<span class="nc" id="L347">      final List&lt;Unit&gt; targets = new ArrayList&lt;&gt;(entry.getValue());</span>
+<span class="nc" id="L348">      Collections.shuffle(targets);</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">      for (final Unit u : targets) {</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">        if (attackTokens.size() &lt;= 0) {</span>
+<span class="nc" id="L351">          continue;</span>
+        }
+<span class="nc" id="L353">        final IntegerMap&lt;Resource&gt; rMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L354">        final Resource r = attackTokens.keySet().iterator().next();</span>
+<span class="nc" id="L355">        final int num = Math.min(attackTokens.getInt(r),</span>
+<span class="nc bnc" id="L356" title="All 4 branches missed.">            (UnitAttachment.get(u.getType()).getHitPoints() * (Math.random() &lt; .3 ? 1 : (Math.random() &lt; .5 ? 2 : 3))));</span>
+<span class="nc" id="L357">        rMap.put(r, num);</span>
+<span class="nc" id="L358">        HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt; attMap = rVal.get(t);</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">        if (attMap == null) {</span>
+<span class="nc" id="L360">          attMap = new HashMap&lt;&gt;();</span>
+        }
+<span class="nc" id="L362">        attMap.put(u, rMap);</span>
+<span class="nc" id="L363">        rVal.put(t, attMap);</span>
+<span class="nc" id="L364">        attackTokens.add(r, -num);</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">        if (attackTokens.getInt(r) &lt;= 0) {</span>
+<span class="nc" id="L366">          attackTokens.removeKey(r);</span>
+        }
+      }
+    }
+<span class="nc" id="L370">    return rVal;</span>
+  }
+
+  /*****************************************
+   * The following methods are more for the ui, and the
+   * ai will generally not care
+   *****************************************/
+<span class="nc" id="L377">  public void battleInfoMessage(final String shortMessage, final DiceRoll dice) {}</span>
+
+  @Override
+<span class="nc" id="L380">  public void confirmEnemyCasualties(final GUID battleId, final String message, final PlayerID hitPlayer) {}</span>
+
+<span class="nc" id="L382">  public void retreatNotificationMessage(final Collection&lt;Unit&gt; units) {}</span>
+
+  @Override
+<span class="nc" id="L385">  public void reportError(final String error) {}</span>
+
+  @Override
+<span class="nc" id="L388">  public void reportMessage(final String message, final String title) {}</span>
+
+  @Override
+  public void confirmOwnCasualties(final GUID battleId, final String message) {
+<span class="nc" id="L392">    pause();</span>
+<span class="nc" id="L393">  }</span>
+
+  @Override
+  public int[] selectFixedDice(final int numRolls, final int hitAt, final boolean hitOnlyIfEquals, final String message,
+      final int diceSides) {
+<span class="nc" id="L398">    final int[] dice = new int[numRolls];</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">    for (int i = 0; i &lt; numRolls; i++) {</span>
+<span class="nc" id="L400">      dice[i] = (int) Math.ceil(Math.random() * diceSides);</span>
+    }
+<span class="nc" id="L402">    return dice;</span>
+  }
+
+  /*****************************************
+   * Game Player Methods
+   *****************************************/
+  /**
+   * The given phase has started. We parse the phase name and call the apropiate method.
+   */
+  @Override
+  public final void start(final String name) {
+    // must call super.start
+<span class="nc" id="L414">    super.start(name);</span>
+<span class="nc" id="L415">    final PlayerID id = getPlayerID();</span>
+<span class="nc bnc" id="L416" title="All 2 branches missed.">    if (name.endsWith(&quot;Bid&quot;)) {</span>
+<span class="nc" id="L417">      final IPurchaseDelegate purchaseDelegate = (IPurchaseDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L418">      final String propertyName = id.getName() + &quot; bid&quot;;</span>
+<span class="nc" id="L419">      final int bidAmount = getGameData().getProperties().get(propertyName, 0);</span>
+<span class="nc" id="L420">      purchase(true, bidAmount, purchaseDelegate, getGameData(), id);</span>
+<span class="nc bnc" id="L421" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Purchase&quot;)) {</span>
+<span class="nc" id="L422">      final IPurchaseDelegate purchaseDelegate = (IPurchaseDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L423">      final Resource PUs = getGameData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L424">      final int leftToSpend = id.getResources().getQuantity(PUs);</span>
+<span class="nc" id="L425">      purchase(false, leftToSpend, purchaseDelegate, getGameData(), id);</span>
+<span class="nc bnc" id="L426" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Tech&quot;)) {</span>
+<span class="nc" id="L427">      final ITechDelegate techDelegate = (ITechDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L428">      tech(techDelegate, getGameData(), id);</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Move&quot;)) {</span>
+<span class="nc" id="L430">      final IMoveDelegate moveDel = (IMoveDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">      if (name.endsWith(&quot;AirborneCombatMove&quot;)) {</span>
+      } else {
+<span class="nc" id="L433">        move(name.endsWith(&quot;NonCombatMove&quot;), moveDel, getGameData(), id);</span>
+      }
+<span class="nc bnc" id="L435" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Battle&quot;)) {</span>
+<span class="nc" id="L436">      battle((IBattleDelegate) getPlayerBridge().getRemoteDelegate(), getGameData(), id);</span>
+<span class="nc bnc" id="L437" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Politics&quot;)) {</span>
+<span class="nc" id="L438">      politicalActions();</span>
+<span class="nc bnc" id="L439" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Place&quot;)) {</span>
+<span class="nc" id="L440">      final IAbstractPlaceDelegate placeDel = (IAbstractPlaceDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc bnc" id="L441" title="All 2 branches missed.">      place(name.indexOf(&quot;Bid&quot;) != -1, placeDel, getGameData(), id);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">    } else if (name.endsWith(&quot;EndTurn&quot;)) {</span>
+<span class="nc" id="L443">      endTurn((IAbstractForumPosterDelegate) getPlayerBridge().getRemoteDelegate(), getGameData(), id);</span>
+    }
+<span class="nc" id="L445">  }</span>
+
+  /**
+   * No need to override this.
+   */
+  protected void endTurn(final IAbstractForumPosterDelegate endTurnForumPosterDelegate, final GameData data,
+      final PlayerID player) {
+    // we should not override this...
+<span class="nc" id="L453">  }</span>
+
+  /**
+   * It is the AI's turn to fight. Subclasses may override this if they want, but
+   * generally the AI does not need to worry about the order of fighting battles.
+   *
+   * @param battleDelegate
+   *        the battle delegate to query for battles not fought and the
+   * @param data
+   *        - the current GameData
+   * @param player
+   *        - the player to fight for
+   */
+  protected void battle(final IBattleDelegate battleDelegate, final GameData data, final PlayerID player) {
+    // generally all AI's will follow the same logic.
+    // loop until all battles are fought.
+    // rather than try to analyze battles to figure out which must be fought before others
+    // as in the case of a naval battle preceding an amphibious attack,
+    // keep trying to fight every battle
+<span class="nc" id="L472">    while (true) {</span>
+<span class="nc" id="L473">      final BattleListing listing = battleDelegate.getBattles();</span>
+      // all fought
+<span class="nc bnc" id="L475" title="All 2 branches missed.">      if (listing.isEmpty()) {</span>
+<span class="nc" id="L476">        return;</span>
+      }
+<span class="nc bnc" id="L478" title="All 2 branches missed.">      for (final Entry&lt;BattleType, Collection&lt;Territory&gt;&gt; entry : listing.getBattles().entrySet()) {</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">        for (final Territory current : entry.getValue()) {</span>
+<span class="nc" id="L480">          final String error = battleDelegate.fightBattle(current, entry.getKey().isBombingRun(), entry.getKey());</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">          if (error != null) {</span>
+<span class="nc" id="L482">            s_logger.fine(error);</span>
+          }
+        }
+      }
+    }
+  }
+
+  public void politicalActions() {
+<span class="nc" id="L490">    final IPoliticsDelegate iPoliticsDelegate = (IPoliticsDelegate) getPlayerBridge().getRemoteDelegate();</span>
+
+<span class="nc" id="L492">    final GameData data = getGameData();</span>
+<span class="nc" id="L493">    final PlayerID id = getPlayerID();</span>
+<span class="nc" id="L494">    final float numPlayers = data.getPlayerList().getPlayers().size();</span>
+<span class="nc" id="L495">    final PoliticsDelegate politicsDelegate = DelegateFinder.politicsDelegate(data);</span>
+    // We want to test the conditions each time to make sure they are still valid
+<span class="nc bnc" id="L497" title="All 2 branches missed.">    if (Math.random() &lt; .5) {</span>
+<span class="nc" id="L498">      final List&lt;PoliticalActionAttachment&gt; actionChoicesTowardsWar =</span>
+<span class="nc" id="L499">          BasicPoliticalAI.getPoliticalActionsTowardsWar(id, politicsDelegate.getTestedConditions(), data);</span>
+<span class="nc bnc" id="L500" title="All 4 branches missed.">      if (actionChoicesTowardsWar != null &amp;&amp; !actionChoicesTowardsWar.isEmpty()) {</span>
+<span class="nc" id="L501">        Collections.shuffle(actionChoicesTowardsWar);</span>
+<span class="nc" id="L502">        int i = 0;</span>
+        // should we use bridge's random source here?
+<span class="nc" id="L504">        final double random = Math.random();</span>
+<span class="nc" id="L505">        int MAX_WAR_ACTIONS_PER_TURN =</span>
+<span class="nc bnc" id="L506" title="All 6 branches missed.">            (random &lt; .5 ? 0 : (random &lt; .9 ? 1 : (random &lt; .99 ? 2 : (int) numPlayers / 2)));</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">        if ((MAX_WAR_ACTIONS_PER_TURN &gt; 0)</span>
+<span class="nc" id="L508">            &amp;&amp; (Match.countMatches(data.getRelationshipTracker().getRelationships(id), Matches.RelationshipIsAtWar))</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">                / numPlayers &lt; 0.4) {</span>
+<span class="nc bnc" id="L510" title="All 2 branches missed.">          if (Math.random() &lt; .9) {</span>
+<span class="nc" id="L511">            MAX_WAR_ACTIONS_PER_TURN = 0;</span>
+<span class="nc" id="L512">          } else {</span>
+<span class="nc" id="L513">            MAX_WAR_ACTIONS_PER_TURN = 1;</span>
+          }
+        }
+<span class="nc" id="L516">        final Iterator&lt;PoliticalActionAttachment&gt; actionWarIter = actionChoicesTowardsWar.iterator();</span>
+<span class="nc bnc" id="L517" title="All 4 branches missed.">        while (actionWarIter.hasNext() &amp;&amp; MAX_WAR_ACTIONS_PER_TURN &gt; 0) {</span>
+<span class="nc" id="L518">          final PoliticalActionAttachment action = actionWarIter.next();</span>
+<span class="nc" id="L519">          if (!Matches.AbstractUserActionAttachmentCanBeAttempted(politicsDelegate.getTestedConditions())</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">              .match(action)) {</span>
+<span class="nc" id="L521">            continue;</span>
+          }
+<span class="nc" id="L523">          i++;</span>
+<span class="nc bnc" id="L524" title="All 2 branches missed.">          if (i &gt; MAX_WAR_ACTIONS_PER_TURN) {</span>
+<span class="nc" id="L525">            break;</span>
+          }
+<span class="nc" id="L527">          iPoliticsDelegate.attemptAction(action);</span>
+        }
+      }
+<span class="nc" id="L530">    } else {</span>
+<span class="nc" id="L531">      final List&lt;PoliticalActionAttachment&gt; actionChoicesOther =</span>
+<span class="nc" id="L532">          BasicPoliticalAI.getPoliticalActionsOther(id, politicsDelegate.getTestedConditions(), data);</span>
+<span class="nc bnc" id="L533" title="All 4 branches missed.">      if (actionChoicesOther != null &amp;&amp; !actionChoicesOther.isEmpty()) {</span>
+<span class="nc" id="L534">        Collections.shuffle(actionChoicesOther);</span>
+<span class="nc" id="L535">        int i = 0;</span>
+        // should we use bridge's random source here?
+<span class="nc" id="L537">        final double random = Math.random();</span>
+<span class="nc" id="L538">        final int MAX_OTHER_ACTIONS_PER_TURN =</span>
+<span class="nc bnc" id="L539" title="All 8 branches missed.">            (random &lt; .3 ? 0 : (random &lt; .6 ? 1 : (random &lt; .9 ? 2 : (random &lt; .99 ? 3 : (int) numPlayers))));</span>
+<span class="nc" id="L540">        final Iterator&lt;PoliticalActionAttachment&gt; actionOtherIter = actionChoicesOther.iterator();</span>
+<span class="nc bnc" id="L541" title="All 4 branches missed.">        while (actionOtherIter.hasNext() &amp;&amp; MAX_OTHER_ACTIONS_PER_TURN &gt; 0) {</span>
+<span class="nc" id="L542">          final PoliticalActionAttachment action = actionOtherIter.next();</span>
+<span class="nc" id="L543">          if (!Matches.AbstractUserActionAttachmentCanBeAttempted(politicsDelegate.getTestedConditions())</span>
+<span class="nc bnc" id="L544" title="All 2 branches missed.">              .match(action)) {</span>
+<span class="nc" id="L545">            continue;</span>
+          }
+<span class="nc bnc" id="L547" title="All 4 branches missed.">          if (action.getCostPU() &gt; 0 &amp;&amp; action.getCostPU() &gt; id.getResources().getQuantity(Constants.PUS)) {</span>
+<span class="nc" id="L548">            continue;</span>
+          }
+<span class="nc" id="L550">          i++;</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">          if (i &gt; MAX_OTHER_ACTIONS_PER_TURN) {</span>
+<span class="nc" id="L552">            break;</span>
+          }
+<span class="nc" id="L554">          iPoliticsDelegate.attemptAction(action);</span>
+        }
+      }
+    }
+<span class="nc" id="L558">  }</span>
+
+  @Override
+  public Tuple&lt;Territory, Set&lt;Unit&gt;&gt; pickTerritoryAndUnits(final List&lt;Territory&gt; territoryChoices,
+      final List&lt;Unit&gt; unitChoices, final int unitsPerPick) {
+<span class="nc" id="L563">    pause();</span>
+<span class="nc" id="L564">    final GameData data = getGameData();</span>
+<span class="nc" id="L565">    final PlayerID me = getPlayerID();</span>
+    final Territory picked;
+<span class="nc bnc" id="L567" title="All 4 branches missed.">    if (territoryChoices == null || territoryChoices.isEmpty()) {</span>
+<span class="nc" id="L568">      picked = null;</span>
+<span class="nc bnc" id="L569" title="All 2 branches missed.">    } else if (territoryChoices.size() == 1) {</span>
+<span class="nc" id="L570">      picked = territoryChoices.get(0);</span>
+<span class="nc" id="L571">    } else {</span>
+<span class="nc" id="L572">      Collections.shuffle(territoryChoices);</span>
+<span class="nc" id="L573">      final List&lt;Territory&gt; notOwned = Match.getMatches(territoryChoices, Matches.isTerritoryOwnedBy(me).invert());</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">      if (notOwned.isEmpty()) {</span>
+        // only owned territories left
+<span class="nc" id="L576">        final boolean nonFactoryUnitsLeft = Match.someMatch(unitChoices, Matches.UnitCanProduceUnits.invert());</span>
+<span class="nc" id="L577">        final Match&lt;Unit&gt; ownedFactories =</span>
+<span class="nc" id="L578">            new CompositeMatchAnd&lt;&gt;(Matches.UnitCanProduceUnits, Matches.unitIsOwnedBy(me));</span>
+<span class="nc" id="L579">        final List&lt;Territory&gt; capitals = TerritoryAttachment.getAllCapitals(me, data);</span>
+<span class="nc" id="L580">        final List&lt;Territory&gt; test = new ArrayList&lt;&gt;(capitals);</span>
+<span class="nc" id="L581">        test.retainAll(territoryChoices);</span>
+<span class="nc" id="L582">        final List&lt;Territory&gt; territoriesWithFactories =</span>
+<span class="nc" id="L583">            Match.getMatches(territoryChoices, Matches.territoryHasUnitsThatMatch(ownedFactories));</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">        if (!nonFactoryUnitsLeft) {</span>
+<span class="nc" id="L585">          test.retainAll(Match.getMatches(test, Matches.territoryHasUnitsThatMatch(ownedFactories).invert()));</span>
+<span class="nc bnc" id="L586" title="All 2 branches missed.">          if (!test.isEmpty()) {</span>
+<span class="nc" id="L587">            picked = test.get(0);</span>
+<span class="nc" id="L588">          } else {</span>
+<span class="nc bnc" id="L589" title="All 2 branches missed.">            if (capitals.isEmpty()) {</span>
+<span class="nc" id="L590">              capitals.addAll(Match.getMatches(data.getMap().getTerritories(), new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L591">                  Matches.isTerritoryOwnedBy(me), Matches.territoryHasUnitsOwnedBy(me), Matches.TerritoryIsLand)));</span>
+            }
+<span class="nc" id="L593">            final List&lt;Territory&gt; doesNotHaveFactoryYet =</span>
+<span class="nc" id="L594">                Match.getMatches(territoryChoices, Matches.territoryHasUnitsThatMatch(ownedFactories).invert());</span>
+<span class="nc bnc" id="L595" title="All 4 branches missed.">            if (capitals.isEmpty() || doesNotHaveFactoryYet.isEmpty()) {</span>
+<span class="nc" id="L596">              picked = territoryChoices.get(0);</span>
+<span class="nc" id="L597">            } else {</span>
+<span class="nc" id="L598">              final IntegerMap&lt;Territory&gt; distanceMap =</span>
+<span class="nc" id="L599">                  data.getMap().getDistance(capitals.get(0), doesNotHaveFactoryYet, Match.getAlwaysMatch());</span>
+<span class="nc" id="L600">              picked = distanceMap.lowestKey();</span>
+            }
+          }
+<span class="nc" id="L603">        } else {</span>
+<span class="nc" id="L604">          final int maxTerritoriesToPopulate = Math.min(territoryChoices.size(),</span>
+<span class="nc" id="L605">              Math.max(4, Match.countMatches(unitChoices, Matches.UnitCanProduceUnits)));</span>
+<span class="nc" id="L606">          test.addAll(territoriesWithFactories);</span>
+<span class="nc bnc" id="L607" title="All 2 branches missed.">          if (!test.isEmpty()) {</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">            if (test.size() &lt; maxTerritoriesToPopulate) {</span>
+<span class="nc" id="L609">              final IntegerMap&lt;Territory&gt; distanceMap =</span>
+<span class="nc" id="L610">                  data.getMap().getDistance(test.get(0), territoryChoices, Match.getAlwaysMatch());</span>
+<span class="nc bnc" id="L611" title="All 2 branches missed.">              for (int i = 0; i &lt; maxTerritoriesToPopulate; i++) {</span>
+<span class="nc" id="L612">                final Territory choice = distanceMap.lowestKey();</span>
+<span class="nc" id="L613">                distanceMap.removeKey(choice);</span>
+<span class="nc" id="L614">                test.add(choice);</span>
+              }
+            }
+<span class="nc" id="L617">            Collections.shuffle(test);</span>
+<span class="nc" id="L618">            picked = test.get(0);</span>
+<span class="nc" id="L619">          } else {</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">            if (capitals.isEmpty()) {</span>
+<span class="nc" id="L621">              capitals.addAll(Match.getMatches(data.getMap().getTerritories(), new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L622">                  Matches.isTerritoryOwnedBy(me), Matches.territoryHasUnitsOwnedBy(me), Matches.TerritoryIsLand)));</span>
+            }
+<span class="nc bnc" id="L624" title="All 2 branches missed.">            if (capitals.isEmpty()) {</span>
+<span class="nc" id="L625">              picked = territoryChoices.get(0);</span>
+<span class="nc" id="L626">            } else {</span>
+<span class="nc" id="L627">              final IntegerMap&lt;Territory&gt; distanceMap =</span>
+<span class="nc" id="L628">                  data.getMap().getDistance(capitals.get(0), territoryChoices, Match.getAlwaysMatch());</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">              if (territoryChoices.contains(capitals.get(0))) {</span>
+<span class="nc" id="L630">                distanceMap.put(capitals.get(0), 0);</span>
+              }
+<span class="nc" id="L632">              final List&lt;Territory&gt; choices = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">              for (int i = 0; i &lt; maxTerritoriesToPopulate; i++) {</span>
+<span class="nc" id="L634">                final Territory choice = distanceMap.lowestKey();</span>
+<span class="nc" id="L635">                distanceMap.removeKey(choice);</span>
+<span class="nc" id="L636">                choices.add(choice);</span>
+              }
+<span class="nc" id="L638">              Collections.shuffle(choices);</span>
+<span class="nc" id="L639">              picked = choices.get(0);</span>
+            }
+          }
+        }
+<span class="nc" id="L643">      } else {</span>
+        // pick a not owned territory if possible
+<span class="nc" id="L645">        final List&lt;Territory&gt; capitals = TerritoryAttachment.getAllCapitals(me, data);</span>
+<span class="nc" id="L646">        final List&lt;Territory&gt; test = new ArrayList&lt;&gt;(capitals);</span>
+<span class="nc" id="L647">        test.retainAll(notOwned);</span>
+<span class="nc bnc" id="L648" title="All 2 branches missed.">        if (!test.isEmpty()) {</span>
+<span class="nc" id="L649">          picked = test.get(0);</span>
+<span class="nc" id="L650">        } else {</span>
+<span class="nc bnc" id="L651" title="All 2 branches missed.">          if (capitals.isEmpty()) {</span>
+<span class="nc" id="L652">            capitals.addAll(Match.getMatches(data.getMap().getTerritories(), new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L653">                Matches.isTerritoryOwnedBy(me), Matches.territoryHasUnitsOwnedBy(me), Matches.TerritoryIsLand)));</span>
+          }
+<span class="nc bnc" id="L655" title="All 2 branches missed.">          if (capitals.isEmpty()) {</span>
+<span class="nc" id="L656">            picked = territoryChoices.get(0);</span>
+<span class="nc" id="L657">          } else {</span>
+<span class="nc" id="L658">            final IntegerMap&lt;Territory&gt; distanceMap =</span>
+<span class="nc" id="L659">                data.getMap().getDistance(capitals.get(0), notOwned, Match.getAlwaysMatch());</span>
+<span class="nc" id="L660">            picked = distanceMap.lowestKey();</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L665">    final Set&lt;Unit&gt; unitsToPlace = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L666" title="All 6 branches missed.">    if (unitChoices != null &amp;&amp; !unitChoices.isEmpty() &amp;&amp; unitsPerPick &gt; 0) {</span>
+<span class="nc" id="L667">      Collections.shuffle(unitChoices);</span>
+<span class="nc" id="L668">      final List&lt;Unit&gt; nonFactory = Match.getMatches(unitChoices, Matches.UnitCanProduceUnits.invert());</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">      if (nonFactory.isEmpty()) {</span>
+<span class="nc bnc" id="L670" title="All 4 branches missed.">        for (int i = 0; i &lt; unitsPerPick &amp;&amp; !unitChoices.isEmpty(); i++) {</span>
+<span class="nc" id="L671">          unitsToPlace.add(unitChoices.get(0));</span>
+        }
+<span class="nc" id="L673">      } else {</span>
+<span class="nc bnc" id="L674" title="All 4 branches missed.">        for (int i = 0; i &lt; unitsPerPick &amp;&amp; !nonFactory.isEmpty(); i++) {</span>
+<span class="nc" id="L675">          unitsToPlace.add(nonFactory.get(0));</span>
+        }
+      }
+    }
+<span class="nc" id="L679">    return Tuple.of(picked, unitsToPlace);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

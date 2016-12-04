@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProScrambleAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI</a> &gt; <span class="el_source">ProScrambleAI.java</span></div><h1>ProScrambleAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.ai.proAI.util.ProSortMoveOptionsUtils;
+import games.strategy.triplea.delegate.BattleDelegate;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.IBattle;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.util.Tuple;
+
+/**
+ * Pro scramble AI.
+ */
+public class ProScrambleAI {
+
+  private final ProOddsCalculator calc;
+
+<span class="nc" id="L35">  public ProScrambleAI(final ProAI ai) {</span>
+<span class="nc" id="L36">    calc = ai.getCalc();</span>
+<span class="nc" id="L37">  }</span>
+
+  public HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleUnitsQuery(final Territory scrambleTo,
+      final Map&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; possibleScramblers) {
+
+    // Get battle data
+<span class="nc" id="L43">    final GameData data = ProData.getData();</span>
+<span class="nc" id="L44">    final PlayerID player = ProData.getPlayer();</span>
+<span class="nc" id="L45">    final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L46">    final IBattle battle = delegate.getBattleTracker().getPendingBattle(scrambleTo, false, BattleType.NORMAL);</span>
+
+    // Check if defense already wins
+<span class="nc" id="L49">    final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L50">    final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L51">    final Set&lt;Unit&gt; bombardingUnits = new HashSet&lt;&gt;(battle.getBombardingUnits());</span>
+<span class="nc" id="L52">    final ProBattleResult minResult =</span>
+<span class="nc" id="L53">        calc.calculateBattleResults(player, scrambleTo, attackers, defenders, bombardingUnits, false);</span>
+    ProLogger
+<span class="nc" id="L55">        .debug(scrambleTo + &quot;, minTUVSwing=&quot; + minResult.getTUVSwing() + &quot;, minWin%=&quot; + minResult.getWinPercentage());</span>
+<span class="nc bnc" id="L56" title="All 4 branches missed.">    if (minResult.getTUVSwing() &lt;= 0 &amp;&amp; minResult.getWinPercentage() &lt; (100 - ProData.minWinPercentage)) {</span>
+<span class="nc" id="L57">      return null;</span>
+    }
+
+    // Check if max defense is worse
+<span class="nc" id="L61">    final Set&lt;Unit&gt; allScramblers = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L62">    final Map&lt;Territory, List&lt;Unit&gt;&gt; possibleMaxScramblerMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">    for (final Territory t : possibleScramblers.keySet()) {</span>
+<span class="nc" id="L64">      final int maxCanScramble = BattleDelegate.getMaxScrambleCount(possibleScramblers.get(t).getFirst());</span>
+<span class="nc" id="L65">      List&lt;Unit&gt; canScrambleAir = new ArrayList&lt;&gt;(possibleScramblers.get(t).getSecond());</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">      if (maxCanScramble &lt; canScrambleAir.size()) {</span>
+<span class="nc" id="L67">        Collections.sort(canScrambleAir, (o1, o2) -&gt; {</span>
+<span class="nc" id="L68">          final double strength1 =</span>
+<span class="nc" id="L69">              ProBattleUtils.estimateStrength(scrambleTo, Collections.singletonList(o1), new ArrayList&lt;&gt;(), false);</span>
+<span class="nc" id="L70">          final double strength2 =</span>
+<span class="nc" id="L71">              ProBattleUtils.estimateStrength(scrambleTo, Collections.singletonList(o2), new ArrayList&lt;&gt;(), false);</span>
+<span class="nc" id="L72">          return Double.compare(strength2, strength1);</span>
+        });
+<span class="nc" id="L74">        canScrambleAir = canScrambleAir.subList(0, maxCanScramble);</span>
+      }
+<span class="nc" id="L76">      allScramblers.addAll(canScrambleAir);</span>
+<span class="nc" id="L77">      possibleMaxScramblerMap.put(t, canScrambleAir);</span>
+    }
+<span class="nc" id="L79">    defenders.addAll(allScramblers);</span>
+<span class="nc" id="L80">    final ProBattleResult maxResult =</span>
+<span class="nc" id="L81">        calc.calculateBattleResults(player, scrambleTo, attackers, defenders, bombardingUnits, false);</span>
+    ProLogger
+<span class="nc" id="L83">        .debug(scrambleTo + &quot;, maxTUVSwing=&quot; + maxResult.getTUVSwing() + &quot;, maxWin%=&quot; + maxResult.getWinPercentage());</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (maxResult.getTUVSwing() &gt;= minResult.getTUVSwing()) {</span>
+<span class="nc" id="L85">      return null;</span>
+    }
+
+    // Loop through all units and determine attack options
+<span class="nc" id="L89">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitDefendOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    for (final Territory t : possibleMaxScramblerMap.keySet()) {</span>
+<span class="nc" id="L91">      final Set&lt;Territory&gt; possibleTerritories =</span>
+<span class="nc" id="L92">          data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+<span class="nc" id="L93">      possibleTerritories.add(t);</span>
+<span class="nc" id="L94">      final Set&lt;Territory&gt; battleTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">      for (final Territory possibleTerritory : possibleTerritories) {</span>
+<span class="nc" id="L96">        final IBattle possibleBattle =</span>
+<span class="nc" id="L97">            delegate.getBattleTracker().getPendingBattle(possibleTerritory, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        if (possibleBattle != null) {</span>
+<span class="nc" id="L99">          battleTerritories.add(possibleTerritory);</span>
+        }
+      }
+<span class="nc bnc" id="L102" title="All 2 branches missed.">      for (final Unit u : possibleMaxScramblerMap.get(t)) {</span>
+<span class="nc" id="L103">        unitDefendOptions.put(u, battleTerritories);</span>
+      }
+    }
+
+    // Sort units by number of defend options and cost
+<span class="nc" id="L108">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; sortedUnitDefendOptions =</span>
+<span class="nc" id="L109">        ProSortMoveOptionsUtils.sortUnitMoveOptions(player, unitDefendOptions);</span>
+
+    // Add one scramble unit at a time and check if final result is better than min result
+<span class="nc" id="L112">    final List&lt;Unit&gt; unitsToScramble = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L113">    ProBattleResult result = minResult;</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">    for (final Unit u : sortedUnitDefendOptions.keySet()) {</span>
+<span class="nc" id="L115">      unitsToScramble.add(u);</span>
+<span class="nc" id="L116">      final List&lt;Unit&gt; currentDefenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L117">      currentDefenders.addAll(unitsToScramble);</span>
+<span class="nc" id="L118">      result = calc.calculateBattleResults(player, scrambleTo, attackers, currentDefenders, bombardingUnits, false);</span>
+<span class="nc" id="L119">      ProLogger.debug(scrambleTo + &quot;, TUVSwing=&quot; + result.getTUVSwing() + &quot;, Win%=&quot; + result.getWinPercentage()</span>
+<span class="nc" id="L120">          + &quot;, addedUnit=&quot; + u);</span>
+<span class="nc bnc" id="L121" title="All 4 branches missed.">      if (result.getTUVSwing() &lt;= 0 &amp;&amp; result.getWinPercentage() &lt; (100 - ProData.minWinPercentage)) {</span>
+<span class="nc" id="L122">        break;</span>
+      }
+    }
+<span class="nc bnc" id="L125" title="All 2 branches missed.">    if (result.getTUVSwing() &gt;= minResult.getTUVSwing()) {</span>
+<span class="nc" id="L126">      return null;</span>
+    }
+
+    // Return units to scramble
+<span class="nc" id="L130">    final HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">    for (final Territory t : possibleScramblers.keySet()) {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">      for (final Unit u : possibleScramblers.get(t).getSecond()) {</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        if (unitsToScramble.contains(u)) {</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">          if (scrambleMap.containsKey(t)) {</span>
+<span class="nc" id="L135">            scrambleMap.get(t).add(u);</span>
+<span class="nc" id="L136">          } else {</span>
+<span class="nc" id="L137">            final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L138">            units.add(u);</span>
+<span class="nc" id="L139">            scrambleMap.put(t, units);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L144">    return scrambleMap;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

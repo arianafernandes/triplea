@@ -1,0 +1,1114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>WeakAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.weakAI</a> &gt; <span class="el_source">WeakAI.java</span></div><h1>WeakAI.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ai.weakAI;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.logging.Logger;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.NamedAttachable;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.RepairRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.ai.AIUtils;
+import games.strategy.triplea.ai.AbstractAI;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.BattleDelegate;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.triplea.delegate.dataObjects.PlaceableUnits;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.InverseMatch;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/*
+ * A very weak ai, based on some simple rules.&lt;p&gt;
+ */
+public class WeakAI extends AbstractAI {
+<span class="nc" id="L51">  private final static Logger s_logger = Logger.getLogger(WeakAI.class.getName());</span>
+
+  /** Creates new TripleAPlayer */
+  public WeakAI(final String name, final String type) {
+<span class="nc" id="L55">    super(name, type);</span>
+<span class="nc" id="L56">  }</span>
+
+  @Override
+<span class="nc" id="L59">  protected void tech(final ITechDelegate techDelegate, final GameData data, final PlayerID player) {}</span>
+
+  private Route getAmphibRoute(final PlayerID player, final GameData data) {
+<span class="nc bnc" id="L62" title="All 2 branches missed.">    if (!isAmphibAttack(player, data)) {</span>
+<span class="nc" id="L63">      return null;</span>
+    }
+<span class="nc" id="L65">    final Territory ourCapitol = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(player, data);</span>
+<span class="nc" id="L66">    final Match&lt;Territory&gt; endMatch = new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory o) {
+<span class="nc bnc" id="L69" title="All 4 branches missed.">        final boolean impassable = TerritoryAttachment.get(o) != null &amp;&amp; TerritoryAttachment.get(o).getIsImpassable();</span>
+<span class="nc bnc" id="L70" title="All 6 branches missed.">        return !impassable &amp;&amp; !o.isWater() &amp;&amp; Utils.hasLandRouteToEnemyOwnedCapitol(o, player, data);</span>
+      }
+    };
+<span class="nc" id="L73">    final Match&lt;Territory&gt; routeCond =</span>
+<span class="nc" id="L74">        new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsWater, Matches.territoryHasNoEnemyUnits(player, data));</span>
+<span class="nc" id="L75">    final Route withNoEnemy = Utils.findNearest(ourCapitol, endMatch, routeCond, data);</span>
+<span class="nc bnc" id="L76" title="All 4 branches missed.">    if (withNoEnemy != null &amp;&amp; withNoEnemy.numberOfSteps() &gt; 0) {</span>
+<span class="nc" id="L77">      return withNoEnemy;</span>
+    }
+    // this will fail if our capitol is not next to water, c'est la vie.
+<span class="nc" id="L80">    final Route route = Utils.findNearest(ourCapitol, endMatch, Matches.TerritoryIsWater, data);</span>
+<span class="nc bnc" id="L81" title="All 4 branches missed.">    if (route != null &amp;&amp; route.numberOfSteps() == 0) {</span>
+<span class="nc" id="L82">      return null;</span>
+    }
+<span class="nc" id="L84">    return route;</span>
+  }
+
+  private boolean isAmphibAttack(final PlayerID player, final GameData data) {
+<span class="nc" id="L88">    final Territory capitol = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(player, data);</span>
+    // we dont own our own capitol
+<span class="nc bnc" id="L90" title="All 4 branches missed.">    if (capitol == null || !capitol.getOwner().equals(player)) {</span>
+<span class="nc" id="L91">      return false;</span>
+    }
+    // find a land route to an enemy territory from our capitol
+<span class="nc" id="L94">    final Route invasionRoute =</span>
+<span class="nc" id="L95">        Utils.findNearest(capitol, Matches.isTerritoryEnemyAndNotUnownedWaterOrImpassableOrRestricted(player, data),</span>
+<span class="nc" id="L96">            new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsLand, new InverseMatch&lt;&gt;(Matches.TerritoryIsNeutralButNotWater)),</span>
+<span class="nc" id="L97">            data);</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    return invasionRoute == null;</span>
+  }
+
+  @Override
+  protected void move(final boolean nonCombat, final IMoveDelegate moveDel, final GameData data,
+      final PlayerID player) {
+<span class="nc bnc" id="L104" title="All 2 branches missed.">    if (nonCombat) {</span>
+<span class="nc" id="L105">      doNonCombatMove(moveDel, player, data);</span>
+<span class="nc" id="L106">    } else {</span>
+<span class="nc" id="L107">      doCombatMove(moveDel, player, data);</span>
+    }
+<span class="nc" id="L109">    pause();</span>
+<span class="nc" id="L110">  }</span>
+
+  private void doNonCombatMove(final IMoveDelegate moveDel, final PlayerID player, final GameData data) {
+<span class="nc" id="L113">    final List&lt;Collection&lt;Unit&gt;&gt; moveUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L114">    final List&lt;Route&gt; moveRoutes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L115">    final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad = new ArrayList&lt;&gt;();</span>
+    // load the transports first
+    // they may be able to move farther
+<span class="nc" id="L118">    populateTransportLoad(false, data, moveUnits, moveRoutes, transportsToLoad, player);</span>
+<span class="nc" id="L119">    doMove(moveUnits, moveRoutes, transportsToLoad, moveDel);</span>
+<span class="nc" id="L120">    moveRoutes.clear();</span>
+<span class="nc" id="L121">    moveUnits.clear();</span>
+<span class="nc" id="L122">    transportsToLoad.clear();</span>
+    // do the rest of the moves
+<span class="nc" id="L124">    populateNonCombat(data, moveUnits, moveRoutes, player);</span>
+<span class="nc" id="L125">    populateNonCombatSea(true, data, moveUnits, moveRoutes, player);</span>
+<span class="nc" id="L126">    doMove(moveUnits, moveRoutes, null, moveDel);</span>
+<span class="nc" id="L127">    moveUnits.clear();</span>
+<span class="nc" id="L128">    moveRoutes.clear();</span>
+<span class="nc" id="L129">    transportsToLoad.clear();</span>
+    // load the transports again if we can
+    // they may be able to move farther
+<span class="nc" id="L132">    populateTransportLoad(false, data, moveUnits, moveRoutes, transportsToLoad, player);</span>
+<span class="nc" id="L133">    doMove(moveUnits, moveRoutes, transportsToLoad, moveDel);</span>
+<span class="nc" id="L134">    moveRoutes.clear();</span>
+<span class="nc" id="L135">    moveUnits.clear();</span>
+<span class="nc" id="L136">    transportsToLoad.clear();</span>
+    // unload the transports that can be unloaded
+<span class="nc" id="L138">    populateTransportUnloadNonCom(data, moveUnits, moveRoutes, player);</span>
+<span class="nc" id="L139">    doMove(moveUnits, moveRoutes, null, moveDel);</span>
+<span class="nc" id="L140">  }</span>
+
+  private void doCombatMove(final IMoveDelegate moveDel, final PlayerID player, final GameData data) {
+<span class="nc" id="L143">    final List&lt;Collection&lt;Unit&gt;&gt; moveUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L144">    final List&lt;Route&gt; moveRoutes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L145">    final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad = new ArrayList&lt;&gt;();</span>
+    // load the transports first
+    // they may be able to take part in a battle
+<span class="nc" id="L148">    populateTransportLoad(true, data, moveUnits, moveRoutes, transportsToLoad, player);</span>
+<span class="nc" id="L149">    doMove(moveUnits, moveRoutes, transportsToLoad, moveDel);</span>
+<span class="nc" id="L150">    moveRoutes.clear();</span>
+<span class="nc" id="L151">    moveUnits.clear();</span>
+    // we want to move loaded transports before we try to fight our battles
+<span class="nc" id="L153">    populateNonCombatSea(false, data, moveUnits, moveRoutes, player);</span>
+    // find second amphib target
+<span class="nc" id="L155">    final Route altRoute = getAlternativeAmphibRoute(player, data);</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    if (altRoute != null) {</span>
+<span class="nc" id="L157">      moveCombatSea(data, moveUnits, moveRoutes, player, altRoute, 1);</span>
+    }
+<span class="nc" id="L159">    doMove(moveUnits, moveRoutes, null, moveDel);</span>
+<span class="nc" id="L160">    moveUnits.clear();</span>
+<span class="nc" id="L161">    moveRoutes.clear();</span>
+<span class="nc" id="L162">    transportsToLoad.clear();</span>
+    // fight
+<span class="nc" id="L164">    populateCombatMove(data, moveUnits, moveRoutes, player);</span>
+<span class="nc" id="L165">    populateCombatMoveSea(data, moveUnits, moveRoutes, player);</span>
+<span class="nc" id="L166">    doMove(moveUnits, moveRoutes, null, moveDel);</span>
+<span class="nc" id="L167">  }</span>
+
+  private void populateTransportLoad(final boolean nonCombat, final GameData data,
+      final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes,
+      final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad, final PlayerID player) {
+<span class="nc bnc" id="L172" title="All 2 branches missed.">    if (!isAmphibAttack(player, data)) {</span>
+<span class="nc" id="L173">      return;</span>
+    }
+<span class="nc" id="L175">    final Territory capitol = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(player, data);</span>
+<span class="nc bnc" id="L176" title="All 4 branches missed.">    if (capitol == null || !capitol.getOwner().equals(player)) {</span>
+<span class="nc" id="L177">      return;</span>
+    }
+<span class="nc" id="L179">    List&lt;Unit&gt; unitsToLoad = capitol.getUnits().getMatches(Matches.UnitIsInfrastructure.invert());</span>
+<span class="nc" id="L180">    unitsToLoad = Match.getMatches(unitsToLoad, Matches.unitIsOwnedBy(getPlayerID()));</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">    for (final Territory neighbor : data.getMap().getNeighbors(capitol)) {</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">      if (!neighbor.isWater()) {</span>
+<span class="nc" id="L183">        continue;</span>
+      }
+<span class="nc" id="L185">      final List&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">      for (final Unit transport : neighbor.getUnits().getMatches(Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc" id="L187">        int free = TransportTracker.getAvailableCapacity(transport);</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        if (free &lt;= 0) {</span>
+<span class="nc" id="L189">          continue;</span>
+        }
+<span class="nc" id="L191">        final Iterator&lt;Unit&gt; iter = unitsToLoad.iterator();</span>
+<span class="nc bnc" id="L192" title="All 4 branches missed.">        while (iter.hasNext() &amp;&amp; free &gt; 0) {</span>
+<span class="nc" id="L193">          final Unit current = iter.next();</span>
+<span class="nc" id="L194">          final UnitAttachment ua = UnitAttachment.get(current.getType());</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">          if (ua.getIsAir()) {</span>
+<span class="nc" id="L196">            continue;</span>
+          }
+<span class="nc bnc" id="L198" title="All 2 branches missed.">          if (ua.getTransportCost() &lt;= free) {</span>
+<span class="nc" id="L199">            iter.remove();</span>
+<span class="nc" id="L200">            free -= ua.getTransportCost();</span>
+<span class="nc" id="L201">            units.add(current);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L205" title="All 2 branches missed.">      if (units.size() &gt; 0) {</span>
+<span class="nc" id="L206">        final Route route = new Route();</span>
+<span class="nc" id="L207">        route.setStart(capitol);</span>
+<span class="nc" id="L208">        route.add(neighbor);</span>
+<span class="nc" id="L209">        moveUnits.add(units);</span>
+<span class="nc" id="L210">        moveRoutes.add(route);</span>
+<span class="nc" id="L211">        transportsToLoad.add(neighbor.getUnits().getMatches(Matches.UnitIsTransport));</span>
+      }
+    }
+<span class="nc" id="L214">  }</span>
+
+  private void populateTransportUnloadNonCom(final GameData data, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final PlayerID player) {
+<span class="nc" id="L218">    final Route amphibRoute = getAmphibRoute(player, data);</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">    if (amphibRoute == null) {</span>
+<span class="nc" id="L220">      return;</span>
+    }
+<span class="nc" id="L222">    final Territory lastSeaZoneOnAmphib = amphibRoute.getAllTerritories().get(amphibRoute.numberOfSteps() - 1);</span>
+<span class="nc" id="L223">    final Territory landOn = amphibRoute.getEnd();</span>
+<span class="nc" id="L224">    final CompositeMatch&lt;Unit&gt; landAndOwned =</span>
+<span class="nc" id="L225">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsLand, Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L226">    final List&lt;Unit&gt; units = lastSeaZoneOnAmphib.getUnits().getMatches(landAndOwned);</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">    if (units.size() &gt; 0) {</span>
+      // just try to make the move, the engine will stop us if it doesnt work
+<span class="nc" id="L229">      final Route route = new Route();</span>
+<span class="nc" id="L230">      route.setStart(lastSeaZoneOnAmphib);</span>
+<span class="nc" id="L231">      route.add(landOn);</span>
+<span class="nc" id="L232">      moveUnits.add(units);</span>
+<span class="nc" id="L233">      moveRoutes.add(route);</span>
+    }
+<span class="nc" id="L235">  }</span>
+
+  private List&lt;Unit&gt; load2Transports(final boolean reload, final GameData data, final List&lt;Unit&gt; transportsToLoad,
+      final Territory loadFrom, final PlayerID player) {
+<span class="nc" id="L239">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">    for (final Unit transport : transportsToLoad) {</span>
+<span class="nc" id="L241">      final Collection&lt;Unit&gt; landunits = TransportTracker.transporting(transport);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">      for (final Unit u : landunits) {</span>
+<span class="nc" id="L243">        units.add(u);</span>
+      }
+    }
+<span class="nc" id="L246">    return units;</span>
+  }
+
+  private void doMove(final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes,
+      final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad, final IMoveDelegate moveDel) {
+<span class="nc bnc" id="L251" title="All 2 branches missed.">    for (int i = 0; i &lt; moveRoutes.size(); i++) {</span>
+<span class="nc" id="L252">      pause();</span>
+<span class="nc bnc" id="L253" title="All 6 branches missed.">      if (moveRoutes.get(i) == null || moveRoutes.get(i).getEnd() == null || moveRoutes.get(i).getStart() == null) {</span>
+<span class="nc" id="L254">        s_logger.fine(&quot;Route not valid&quot; + moveRoutes.get(i) + &quot; units:&quot; + moveUnits.get(i));</span>
+<span class="nc" id="L255">        continue;</span>
+      }
+      String result;
+<span class="nc bnc" id="L258" title="All 2 branches missed.">      if (transportsToLoad == null) {</span>
+<span class="nc" id="L259">        result = moveDel.move(moveUnits.get(i), moveRoutes.get(i));</span>
+<span class="nc" id="L260">      } else {</span>
+<span class="nc" id="L261">        result = moveDel.move(moveUnits.get(i), moveRoutes.get(i), transportsToLoad.get(i));</span>
+      }
+<span class="nc bnc" id="L263" title="All 2 branches missed.">      if (result != null) {</span>
+<span class="nc" id="L264">        s_logger.fine(&quot;could not move &quot; + moveUnits.get(i) + &quot; over &quot; + moveRoutes.get(i) + &quot; because : &quot; + result);</span>
+      }
+    }
+<span class="nc" id="L267">  }</span>
+
+  private void moveCombatSea(final GameData data, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes,
+      final PlayerID player, final Route amphibRoute, final int maxTrans) {
+    // TODO workaround - should check if amphibRoute is in moveRoutes
+<span class="nc bnc" id="L272" title="All 2 branches missed.">    if (moveRoutes.size() == 2) {</span>
+<span class="nc" id="L273">      moveRoutes.remove(1);</span>
+<span class="nc" id="L274">      moveUnits.remove(1);</span>
+    }
+<span class="nc" id="L276">    Territory firstSeaZoneOnAmphib = null;</span>
+<span class="nc" id="L277">    Territory lastSeaZoneOnAmphib = null;</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">    if (amphibRoute == null) {</span>
+<span class="nc" id="L279">      return;</span>
+    }
+<span class="nc" id="L281">    firstSeaZoneOnAmphib = amphibRoute.getAllTerritories().get(0);</span>
+<span class="nc" id="L282">    lastSeaZoneOnAmphib = amphibRoute.getAllTerritories().get(amphibRoute.numberOfSteps() - 1);</span>
+<span class="nc" id="L283">    final Match&lt;Unit&gt; ownedAndNotMoved =</span>
+<span class="nc" id="L284">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.unitHasNotMoved, Transporting);</span>
+<span class="nc" id="L285">    final List&lt;Unit&gt; unitsToMove = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L286">    final List&lt;Unit&gt; transports = firstSeaZoneOnAmphib.getUnits().getMatches(ownedAndNotMoved);</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">    if (transports.size() &lt;= maxTrans) {</span>
+<span class="nc" id="L288">      unitsToMove.addAll(transports);</span>
+<span class="nc" id="L289">    } else {</span>
+<span class="nc" id="L290">      unitsToMove.addAll(transports.subList(0, maxTrans));</span>
+    }
+<span class="nc" id="L292">    final List&lt;Unit&gt; landUnits = load2Transports(true, data, unitsToMove, firstSeaZoneOnAmphib, player);</span>
+<span class="nc" id="L293">    final Route r = getMaxSeaRoute(data, firstSeaZoneOnAmphib, lastSeaZoneOnAmphib, player);</span>
+<span class="nc" id="L294">    moveRoutes.add(r);</span>
+<span class="nc" id="L295">    unitsToMove.addAll(landUnits);</span>
+<span class="nc" id="L296">    moveUnits.add(unitsToMove);</span>
+<span class="nc" id="L297">  }</span>
+
+  /**
+   * prepares moves for transports
+   *
+   * @param nonCombat
+   * @param data
+   * @param moveUnits
+   * @param moveRoutes
+   * @param player
+   * @param amphibRoute
+   * @param maxTrans
+   *        -
+   *        if -1 unlimited
+   */
+  private void populateNonCombatSea(final boolean nonCombat, final GameData data,
+      final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes, final PlayerID player) {
+<span class="nc" id="L314">    final Route amphibRoute = getAmphibRoute(player, data);</span>
+<span class="nc" id="L315">    Territory firstSeaZoneOnAmphib = null;</span>
+<span class="nc" id="L316">    Territory lastSeaZoneOnAmphib = null;</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">    if (amphibRoute != null) {</span>
+<span class="nc" id="L318">      firstSeaZoneOnAmphib = amphibRoute.getAllTerritories().get(1);</span>
+<span class="nc" id="L319">      lastSeaZoneOnAmphib = amphibRoute.getAllTerritories().get(amphibRoute.numberOfSteps() - 1);</span>
+    }
+<span class="nc" id="L321">    final Match&lt;Unit&gt; ownedAndNotMoved =</span>
+<span class="nc" id="L322">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.unitHasNotMoved);</span>
+<span class="nc bnc" id="L323" title="All 2 branches missed.">    for (final Territory t : data.getMap()) {</span>
+      // move sea units to the capitol, unless they are loaded transports
+<span class="nc bnc" id="L325" title="All 2 branches missed.">      if (t.isWater()) {</span>
+        // land units, move all towards the end point
+<span class="nc bnc" id="L327" title="All 2 branches missed.">        if (t.getUnits().someMatch(Matches.UnitIsLand)) {</span>
+          // move along amphi route
+<span class="nc bnc" id="L329" title="All 2 branches missed.">          if (lastSeaZoneOnAmphib != null) {</span>
+            // two move route to end
+<span class="nc" id="L331">            final Route r = getMaxSeaRoute(data, t, lastSeaZoneOnAmphib, player);</span>
+<span class="nc bnc" id="L332" title="All 4 branches missed.">            if (r != null &amp;&amp; r.numberOfSteps() &gt; 0) {</span>
+<span class="nc" id="L333">              moveRoutes.add(r);</span>
+<span class="nc" id="L334">              final List&lt;Unit&gt; unitsToMove = t.getUnits().getMatches(Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L335">              moveUnits.add(unitsToMove);</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L339" title="All 4 branches missed.">        if (nonCombat &amp;&amp; t.getUnits().someMatch(ownedAndNotMoved)) {</span>
+          // move toward the start of the amphib route
+<span class="nc bnc" id="L341" title="All 2 branches missed.">          if (firstSeaZoneOnAmphib != null) {</span>
+<span class="nc" id="L342">            final Route r = getMaxSeaRoute(data, t, firstSeaZoneOnAmphib, player);</span>
+<span class="nc" id="L343">            moveRoutes.add(r);</span>
+<span class="nc" id="L344">            moveUnits.add(t.getUnits().getMatches(ownedAndNotMoved));</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L349">  }</span>
+
+  private Route getMaxSeaRoute(final GameData data, final Territory start, final Territory destination,
+      final PlayerID player) {
+<span class="nc" id="L353">    final Match&lt;Territory&gt; routeCond =</span>
+<span class="nc" id="L354">        new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsWater, Matches.territoryHasEnemyUnits(player, data).invert(),</span>
+<span class="nc" id="L355">            Matches.territoryHasNonAllowedCanal(player, null, data).invert());</span>
+<span class="nc" id="L356">    Route r = data.getMap().getRoute(start, destination, routeCond);</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">    if (r == null) {</span>
+<span class="nc" id="L358">      return null;</span>
+    }
+<span class="nc bnc" id="L360" title="All 2 branches missed.">    if (r.numberOfSteps() &gt; 2) {</span>
+<span class="nc" id="L361">      final Route newRoute = new Route();</span>
+<span class="nc" id="L362">      newRoute.setStart(start);</span>
+<span class="nc" id="L363">      newRoute.add(r.getAllTerritories().get(1));</span>
+<span class="nc" id="L364">      newRoute.add(r.getAllTerritories().get(2));</span>
+<span class="nc" id="L365">      r = newRoute;</span>
+    }
+<span class="nc" id="L367">    return r;</span>
+  }
+
+  private void populateCombatMoveSea(final GameData data, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final PlayerID player) {
+<span class="nc" id="L372">    final Collection&lt;Unit&gt; unitsAlreadyMoved = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">    for (final Territory t : data.getMap()) {</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">      if (!t.isWater()) {</span>
+<span class="nc" id="L375">        continue;</span>
+      }
+<span class="nc bnc" id="L377" title="All 2 branches missed.">      if (!t.getUnits().someMatch(Matches.enemyUnit(player, data))) {</span>
+<span class="nc" id="L378">        continue;</span>
+      }
+<span class="nc" id="L380">      final Territory enemy = t;</span>
+<span class="nc" id="L381">      final float enemyStrength = AIUtils.strength(enemy.getUnits().getUnits(), false, true);</span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">      if (enemyStrength &gt; 0) {</span>
+<span class="nc" id="L383">        final CompositeMatch&lt;Unit&gt; attackable =</span>
+<span class="nc" id="L384">            new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), new Match&lt;Unit&gt;() {</span>
+              @Override
+              public boolean match(final Unit o) {
+<span class="nc bnc" id="L387" title="All 2 branches missed.">                return !unitsAlreadyMoved.contains(o);</span>
+              }
+            });
+<span class="nc" id="L390">        final Set&lt;Territory&gt; dontMoveFrom = new HashSet&lt;&gt;();</span>
+        // find our strength that we can attack with
+<span class="nc" id="L392">        int ourStrength = 0;</span>
+<span class="nc" id="L393">        final Collection&lt;Territory&gt; attackFrom = data.getMap().getNeighbors(enemy, Matches.TerritoryIsWater);</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">        for (final Territory owned : attackFrom) {</span>
+          // dont risk units we are carrying
+<span class="nc bnc" id="L396" title="All 2 branches missed.">          if (owned.getUnits().someMatch(Matches.UnitIsLand)) {</span>
+<span class="nc" id="L397">            dontMoveFrom.add(owned);</span>
+<span class="nc" id="L398">            continue;</span>
+          }
+<span class="nc" id="L400">          ourStrength += AIUtils.strength(owned.getUnits().getMatches(attackable), true, true);</span>
+        }
+<span class="nc bnc" id="L402" title="All 2 branches missed.">        if (ourStrength &gt; 1.32 * enemyStrength) {</span>
+<span class="nc" id="L403">          s_logger.fine(&quot;Attacking : &quot; + enemy + &quot; our strength:&quot; + ourStrength + &quot; enemy strength&quot; + enemyStrength);</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">          for (final Territory owned : attackFrom) {</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">            if (dontMoveFrom.contains(owned)) {</span>
+<span class="nc" id="L406">              continue;</span>
+            }
+<span class="nc" id="L408">            final List&lt;Unit&gt; units = owned.getUnits().getMatches(attackable);</span>
+<span class="nc" id="L409">            unitsAlreadyMoved.addAll(units);</span>
+<span class="nc" id="L410">            moveUnits.add(units);</span>
+<span class="nc" id="L411">            moveRoutes.add(data.getMap().getRoute(owned, enemy));</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L416">  }</span>
+
+  // searches for amphibious attack on empty territory
+  private Route getAlternativeAmphibRoute(final PlayerID player, final GameData data) {
+<span class="nc bnc" id="L420" title="All 2 branches missed.">    if (!isAmphibAttack(player, data)) {</span>
+<span class="nc" id="L421">      return null;</span>
+    }
+<span class="nc" id="L423">    final Match&lt;Territory&gt; routeCondition =</span>
+<span class="nc" id="L424">        new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsWater, Matches.territoryHasNoEnemyUnits(player, data));</span>
+    // should select all territories with loaded transports
+<span class="nc" id="L426">    final Match&lt;Territory&gt; transportOnSea =</span>
+<span class="nc" id="L427">        new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsWater, Matches.territoryHasLandUnitsOwnedBy(player));</span>
+<span class="nc" id="L428">    Route altRoute = null;</span>
+<span class="nc" id="L429">    final int length = Integer.MAX_VALUE;</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">    for (final Territory t : data.getMap()) {</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">      if (!transportOnSea.match(t)) {</span>
+<span class="nc" id="L432">        continue;</span>
+      }
+<span class="nc" id="L434">      final CompositeMatchAnd&lt;Unit&gt; ownedTransports =</span>
+<span class="nc" id="L435">          new CompositeMatchAnd&lt;&gt;(Matches.UnitCanTransport, Matches.unitIsOwnedBy(player), Matches.unitHasNotMoved);</span>
+<span class="nc" id="L436">      final CompositeMatchAnd&lt;Territory&gt; enemyTerritory =</span>
+<span class="nc" id="L437">          new CompositeMatchAnd&lt;&gt;(Matches.isTerritoryEnemy(player, data), Matches.TerritoryIsLand,</span>
+<span class="nc" id="L438">              new InverseMatch&lt;&gt;(Matches.TerritoryIsNeutralButNotWater), Matches.TerritoryIsEmpty);</span>
+<span class="nc" id="L439">      final int trans = t.getUnits().countMatches(ownedTransports);</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">      if (trans &gt; 0) {</span>
+<span class="nc" id="L441">        final Route newRoute = Utils.findNearest(t, enemyTerritory, routeCondition, data);</span>
+<span class="nc bnc" id="L442" title="All 4 branches missed.">        if (newRoute != null &amp;&amp; length &gt; newRoute.numberOfSteps()) {</span>
+<span class="nc" id="L443">          altRoute = newRoute;</span>
+        }
+      }
+    }
+<span class="nc" id="L447">    return altRoute;</span>
+  }
+
+  private void populateNonCombat(final GameData data, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final PlayerID player) {
+<span class="nc" id="L452">    final Collection&lt;Territory&gt; territories = data.getMap().getTerritories();</span>
+<span class="nc" id="L453">    movePlanesHomeNonCom(moveUnits, moveRoutes, player, data);</span>
+    // move our units toward the nearest enemy capitol
+<span class="nc bnc" id="L455" title="All 2 branches missed.">    for (final Territory t : territories) {</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">      if (t.isWater()) {</span>
+<span class="nc" id="L457">        continue;</span>
+      }
+<span class="nc bnc" id="L459" title="All 4 branches missed.">      if (TerritoryAttachment.get(t) != null &amp;&amp; TerritoryAttachment.get(t).isCapital()) {</span>
+        // if they are a threat to take our capitol, dont move
+        // compare the strength of units we can place
+<span class="nc" id="L462">        final float ourStrength = AIUtils.strength(player.getUnits().getUnits(), false, false);</span>
+<span class="nc" id="L463">        final float attackerStrength = Utils.getStrengthOfPotentialAttackers(t, data);</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">        if (attackerStrength &gt; ourStrength) {</span>
+<span class="nc" id="L465">          continue;</span>
+        }
+      }
+      // these are the units we can move
+<span class="nc" id="L469">      final CompositeMatch&lt;Unit&gt; moveOfType = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L470">      moveOfType.add(Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L471">      moveOfType.add(Matches.UnitIsNotAA);</span>
+      // we can never move factories
+<span class="nc" id="L473">      moveOfType.add(Matches.UnitCanMove);</span>
+<span class="nc" id="L474">      moveOfType.add(Matches.UnitIsNotInfrastructure);</span>
+<span class="nc" id="L475">      moveOfType.add(Matches.UnitIsLand);</span>
+<span class="nc" id="L476">      final CompositeMatchAnd&lt;Territory&gt; moveThrough =</span>
+<span class="nc" id="L477">          new CompositeMatchAnd&lt;&gt;(new InverseMatch&lt;&gt;(Matches.TerritoryIsImpassable),</span>
+<span class="nc" id="L478">              new InverseMatch&lt;&gt;(Matches.TerritoryIsNeutralButNotWater), Matches.TerritoryIsLand);</span>
+<span class="nc" id="L479">      final List&lt;Unit&gt; units = t.getUnits().getMatches(moveOfType);</span>
+<span class="nc bnc" id="L480" title="All 2 branches missed.">      if (units.size() == 0) {</span>
+<span class="nc" id="L481">        continue;</span>
+      }
+<span class="nc" id="L483">      int minDistance = Integer.MAX_VALUE;</span>
+<span class="nc" id="L484">      Territory to = null;</span>
+      // find the nearest enemy owned capital
+<span class="nc bnc" id="L486" title="All 2 branches missed.">      for (final PlayerID otherPlayer : data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L487">        final Territory capitol = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(otherPlayer, data);</span>
+<span class="nc bnc" id="L488" title="All 4 branches missed.">        if (capitol != null &amp;&amp; !data.getRelationshipTracker().isAllied(player, capitol.getOwner())) {</span>
+<span class="nc" id="L489">          final Route route = data.getMap().getRoute(t, capitol, moveThrough);</span>
+<span class="nc bnc" id="L490" title="All 2 branches missed.">          if (route != null) {</span>
+<span class="nc" id="L491">            final int distance = route.numberOfSteps();</span>
+<span class="nc bnc" id="L492" title="All 4 branches missed.">            if (distance != 0 &amp;&amp; distance &lt; minDistance) {</span>
+<span class="nc" id="L493">              minDistance = distance;</span>
+<span class="nc" id="L494">              to = capitol;</span>
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L499" title="All 2 branches missed.">      if (to != null) {</span>
+<span class="nc bnc" id="L500" title="All 2 branches missed.">        if (units.size() &gt; 0) {</span>
+<span class="nc" id="L501">          moveUnits.add(units);</span>
+<span class="nc" id="L502">          final Route routeToCapitol = data.getMap().getRoute(t, to, moveThrough);</span>
+<span class="nc" id="L503">          final Territory firstStep = routeToCapitol.getAllTerritories().get(1);</span>
+<span class="nc" id="L504">          final Route route = new Route();</span>
+<span class="nc" id="L505">          route.setStart(t);</span>
+<span class="nc" id="L506">          route.add(firstStep);</span>
+<span class="nc" id="L507">          moveRoutes.add(route);</span>
+        }
+<span class="nc" id="L509">      }</span>
+      // if we cant move to a capitol, move towards the enemy
+      else {
+<span class="nc" id="L512">        final CompositeMatchAnd&lt;Territory&gt; routeCondition =</span>
+<span class="nc" id="L513">            new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsLand, Matches.TerritoryIsImpassable.invert());</span>
+<span class="nc" id="L514">        Route newRoute = Utils.findNearest(t, Matches.territoryHasEnemyLandUnits(player, data), routeCondition, data);</span>
+        // move to any enemy territory
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        if (newRoute == null) {</span>
+<span class="nc" id="L517">          newRoute = Utils.findNearest(t, Matches.isTerritoryEnemy(player, data), routeCondition, data);</span>
+        }
+<span class="nc bnc" id="L519" title="All 4 branches missed.">        if (newRoute != null &amp;&amp; newRoute.numberOfSteps() != 0) {</span>
+<span class="nc" id="L520">          moveUnits.add(units);</span>
+<span class="nc" id="L521">          final Territory firstStep = newRoute.getAllTerritories().get(1);</span>
+<span class="nc" id="L522">          final Route route = new Route();</span>
+<span class="nc" id="L523">          route.setStart(t);</span>
+<span class="nc" id="L524">          route.add(firstStep);</span>
+<span class="nc" id="L525">          moveRoutes.add(route);</span>
+        }
+      }
+    }
+<span class="nc" id="L529">  }</span>
+
+  private void movePlanesHomeNonCom(final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes,
+      final PlayerID player, final GameData data) {
+    // the preferred way to get the delegate
+<span class="nc" id="L534">    final IMoveDelegate delegateRemote = (IMoveDelegate) getPlayerBridge().getRemoteDelegate();</span>
+    // this works because we are on the server
+<span class="nc" id="L536">    final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L537">    final Match&lt;Territory&gt; canLand =</span>
+<span class="nc" id="L538">        new CompositeMatchAnd&lt;&gt;(Matches.isTerritoryAllied(player, data), new Match&lt;Territory&gt;() {</span>
+          @Override
+          public boolean match(final Territory o) {
+<span class="nc bnc" id="L541" title="All 2 branches missed.">            return !delegate.getBattleTracker().wasConquered(o);</span>
+          }
+        });
+<span class="nc" id="L544">    final Match&lt;Territory&gt; routeCondition = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L545">        Matches.territoryHasEnemyAAforCombatOnly(player, data).invert(), Matches.TerritoryIsImpassable.invert());</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">    for (final Territory t : delegateRemote.getTerritoriesWhereAirCantLand()) {</span>
+<span class="nc" id="L547">      final Route noAARoute = Utils.findNearest(t, canLand, routeCondition, data);</span>
+<span class="nc" id="L548">      final Route aaRoute = Utils.findNearest(t, canLand, Matches.TerritoryIsImpassable.invert(), data);</span>
+<span class="nc" id="L549">      final Collection&lt;Unit&gt; airToLand =</span>
+<span class="nc" id="L550">          t.getUnits().getMatches(new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.unitIsOwnedBy(player)));</span>
+      // dont bother to see if all the air units have enough movement points
+      // to move without aa guns firing
+      // simply move first over no aa, then with aa
+      // one (but hopefully not both) will be rejected
+<span class="nc" id="L555">      moveUnits.add(airToLand);</span>
+<span class="nc" id="L556">      moveRoutes.add(noAARoute);</span>
+<span class="nc" id="L557">      moveUnits.add(airToLand);</span>
+<span class="nc" id="L558">      moveRoutes.add(aaRoute);</span>
+    }
+<span class="nc" id="L560">  }</span>
+
+  private void populateCombatMove(final GameData data, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final PlayerID player) {
+<span class="nc" id="L564">    populateBomberCombat(data, moveUnits, moveRoutes, player);</span>
+<span class="nc" id="L565">    final Collection&lt;Unit&gt; unitsAlreadyMoved = new HashSet&lt;&gt;();</span>
+    // find the territories we can just walk into
+<span class="nc" id="L567">    final CompositeMatchOr&lt;Territory&gt; walkInto =</span>
+<span class="nc" id="L568">        new CompositeMatchOr&lt;&gt;(Matches.isTerritoryEnemyAndNotUnownedWaterOrImpassableOrRestricted(player, data),</span>
+<span class="nc" id="L569">            Matches.isTerritoryFreeNeutral(data));</span>
+<span class="nc" id="L570">    final List&lt;Territory&gt; enemyOwned = Match.getMatches(data.getMap().getTerritories(), walkInto);</span>
+<span class="nc" id="L571">    Collections.shuffle(enemyOwned);</span>
+<span class="nc" id="L572">    Collections.sort(enemyOwned, (o1, o2) -&gt; {</span>
+      // -1 means o1 goes first. 1 means o2 goes first. zero means they are equal.
+<span class="nc bnc" id="L574" title="All 6 branches missed.">      if (o1 == o2 || (o1 == null &amp;&amp; o2 == null)) {</span>
+<span class="nc" id="L575">        return 0;</span>
+      }
+<span class="nc bnc" id="L577" title="All 2 branches missed.">      if (o1 == null) {</span>
+<span class="nc" id="L578">        return 1;</span>
+      }
+<span class="nc bnc" id="L580" title="All 2 branches missed.">      if (o2 == null) {</span>
+<span class="nc" id="L581">        return -1;</span>
+      }
+<span class="nc bnc" id="L583" title="All 2 branches missed.">      if (o1.equals(o2)) {</span>
+<span class="nc" id="L584">        return 0;</span>
+      }
+<span class="nc" id="L586">      final TerritoryAttachment ta1 = TerritoryAttachment.get(o1);</span>
+<span class="nc" id="L587">      final TerritoryAttachment ta2 = TerritoryAttachment.get(o2);</span>
+<span class="nc bnc" id="L588" title="All 4 branches missed.">      if (ta1 == null &amp;&amp; ta2 == null) {</span>
+<span class="nc" id="L589">        return 0;</span>
+      }
+<span class="nc bnc" id="L591" title="All 2 branches missed.">      if (ta1 == null) {</span>
+<span class="nc" id="L592">        return 1;</span>
+      }
+<span class="nc bnc" id="L594" title="All 2 branches missed.">      if (ta2 == null) {</span>
+<span class="nc" id="L595">        return -1;</span>
+      }
+      // take capitols first if we can
+<span class="nc bnc" id="L598" title="All 4 branches missed.">      if (ta1.isCapital() &amp;&amp; !ta2.isCapital()) {</span>
+<span class="nc" id="L599">        return -1;</span>
+      }
+<span class="nc bnc" id="L601" title="All 4 branches missed.">      if (!ta1.isCapital() &amp;&amp; ta2.isCapital()) {</span>
+<span class="nc" id="L602">        return 1;</span>
+      }
+<span class="nc" id="L604">      final boolean factoryInT1 = o1.getUnits().someMatch(Matches.UnitCanProduceUnits);</span>
+<span class="nc" id="L605">      final boolean factoryInT2 = o2.getUnits().someMatch(Matches.UnitCanProduceUnits);</span>
+      // next take territories which can produce
+<span class="nc bnc" id="L607" title="All 4 branches missed.">      if (factoryInT1 &amp;&amp; !factoryInT2) {</span>
+<span class="nc" id="L608">        return -1;</span>
+      }
+<span class="nc bnc" id="L610" title="All 4 branches missed.">      if (!factoryInT1 &amp;&amp; factoryInT2) {</span>
+<span class="nc" id="L611">        return 1;</span>
+      }
+<span class="nc" id="L613">      final boolean infrastructureInT1 = o1.getUnits().someMatch(Matches.UnitIsInfrastructure);</span>
+<span class="nc" id="L614">      final boolean infrastructureInT2 = o2.getUnits().someMatch(Matches.UnitIsInfrastructure);</span>
+      // next take territories with infrastructure
+<span class="nc bnc" id="L616" title="All 4 branches missed.">      if (infrastructureInT1 &amp;&amp; !infrastructureInT2) {</span>
+<span class="nc" id="L617">        return -1;</span>
+      }
+<span class="nc bnc" id="L619" title="All 4 branches missed.">      if (!infrastructureInT1 &amp;&amp; infrastructureInT2) {</span>
+<span class="nc" id="L620">        return 1;</span>
+      }
+      // next take territories with largest PU value
+<span class="nc" id="L623">      return ta2.getProduction() - ta1.getProduction();</span>
+    });
+<span class="nc" id="L625">    final List&lt;Territory&gt; isWaterTerr = Utils.onlyWaterTerr(data, enemyOwned);</span>
+<span class="nc" id="L626">    enemyOwned.removeAll(isWaterTerr);</span>
+    // first find the territories we can just walk into
+<span class="nc bnc" id="L628" title="All 2 branches missed.">    for (final Territory enemy : enemyOwned) {</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">      if (AIUtils.strength(enemy.getUnits().getUnits(), false, false) == 0) {</span>
+        // only take it with 1 unit
+<span class="nc" id="L631">        boolean taken = false;</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">        for (final Territory attackFrom : data.getMap().getNeighbors(enemy,</span>
+<span class="nc" id="L633">            Matches.territoryHasLandUnitsOwnedBy(player))) {</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">          if (taken) {</span>
+<span class="nc" id="L635">            break;</span>
+          }
+          // get the cheapest unit to move in
+<span class="nc" id="L638">          final List&lt;Unit&gt; unitsSortedByCost = new ArrayList&lt;&gt;(attackFrom.getUnits().getUnits());</span>
+<span class="nc" id="L639">          Collections.sort(unitsSortedByCost, AIUtils.getCostComparator());</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">          for (final Unit unit : unitsSortedByCost) {</span>
+<span class="nc" id="L641">            final Match&lt;Unit&gt; match = new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.UnitIsLand,</span>
+<span class="nc" id="L642">                Matches.UnitIsNotInfrastructure, Matches.UnitCanMove, Matches.UnitIsNotAA,</span>
+<span class="nc" id="L643">                Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+<span class="nc bnc" id="L644" title="All 4 branches missed.">            if (!unitsAlreadyMoved.contains(unit) &amp;&amp; match.match(unit)) {</span>
+<span class="nc" id="L645">              moveRoutes.add(data.getMap().getRoute(attackFrom, enemy));</span>
+              // if unloading units, unload all of them,
+              // otherwise we wont be able to unload them
+              // in non com, for land moves we want to move the minimal
+              // number of units, to leave units free to move elsewhere
+<span class="nc bnc" id="L650" title="All 2 branches missed.">              if (attackFrom.isWater()) {</span>
+<span class="nc" id="L651">                final List&lt;Unit&gt; units = attackFrom.getUnits().getMatches(Matches.unitIsLandAndOwnedBy(player));</span>
+<span class="nc" id="L652">                moveUnits.add(Util.difference(units, unitsAlreadyMoved));</span>
+<span class="nc" id="L653">                unitsAlreadyMoved.addAll(units);</span>
+<span class="nc" id="L654">              } else {</span>
+<span class="nc" id="L655">                moveUnits.add(Collections.singleton(unit));</span>
+              }
+<span class="nc" id="L657">              unitsAlreadyMoved.add(unit);</span>
+<span class="nc" id="L658">              taken = true;</span>
+<span class="nc" id="L659">              break;</span>
+            }
+          }
+        }
+      }
+    }
+    // find the territories we can reasonably expect to take
+<span class="nc bnc" id="L666" title="All 2 branches missed.">    for (final Territory enemy : enemyOwned) {</span>
+<span class="nc" id="L667">      final float enemyStrength = AIUtils.strength(enemy.getUnits().getUnits(), false, false);</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">      if (enemyStrength &gt; 0) {</span>
+<span class="nc" id="L669">        final CompositeMatch&lt;Unit&gt; attackable = new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player),</span>
+<span class="nc" id="L670">            Matches.UnitIsStrategicBomber.invert(), new Match&lt;Unit&gt;() {</span>
+              @Override
+              public boolean match(final Unit o) {
+<span class="nc bnc" id="L673" title="All 2 branches missed.">                return !unitsAlreadyMoved.contains(o);</span>
+              }
+            });
+<span class="nc" id="L676">        attackable.add(Matches.UnitIsNotAA);</span>
+<span class="nc" id="L677">        attackable.add(Matches.UnitCanMove);</span>
+<span class="nc" id="L678">        attackable.add(Matches.UnitIsNotInfrastructure);</span>
+<span class="nc" id="L679">        attackable.add(Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+<span class="nc" id="L680">        attackable.add(Matches.UnitIsNotSea);</span>
+<span class="nc" id="L681">        final Set&lt;Territory&gt; dontMoveFrom = new HashSet&lt;&gt;();</span>
+        // find our strength that we can attack with
+<span class="nc" id="L683">        int ourStrength = 0;</span>
+<span class="nc" id="L684">        final Collection&lt;Territory&gt; attackFrom =</span>
+<span class="nc" id="L685">            data.getMap().getNeighbors(enemy, Matches.territoryHasLandUnitsOwnedBy(player));</span>
+<span class="nc bnc" id="L686" title="All 2 branches missed.">        for (final Territory owned : attackFrom) {</span>
+<span class="nc bnc" id="L687" title="All 4 branches missed.">          if (TerritoryAttachment.get(owned) != null &amp;&amp; TerritoryAttachment.get(owned).isCapital()</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">              &amp;&amp; (Utils.getStrengthOfPotentialAttackers(owned, data) &gt; AIUtils.strength(owned.getUnits().getUnits(),</span>
+<span class="nc" id="L689">                  false, false))) {</span>
+<span class="nc" id="L690">            dontMoveFrom.add(owned);</span>
+<span class="nc" id="L691">            continue;</span>
+          }
+<span class="nc" id="L693">          ourStrength += AIUtils.strength(owned.getUnits().getMatches(attackable), true, false);</span>
+        }
+        // prevents 2 infantry from attacking 1 infantry
+<span class="nc bnc" id="L696" title="All 2 branches missed.">        if (ourStrength &gt; 1.37 * enemyStrength) {</span>
+          // this is all we need to take it, dont go overboard, since we may be able to use the units to attack
+          // somewhere else
+<span class="nc" id="L699">          double remainingStrengthNeeded = (2.5 * enemyStrength) + 4;</span>
+<span class="nc bnc" id="L700" title="All 2 branches missed.">          for (final Territory owned : attackFrom) {</span>
+<span class="nc bnc" id="L701" title="All 2 branches missed.">            if (dontMoveFrom.contains(owned)) {</span>
+<span class="nc" id="L702">              continue;</span>
+            }
+<span class="nc" id="L704">            List&lt;Unit&gt; units = owned.getUnits().getMatches(attackable);</span>
+            // only take the units we need if
+            // 1) we are not an amphibious attack
+            // 2) we can potentially attack another territory
+<span class="nc bnc" id="L708" title="All 2 branches missed.">            if (!owned.isWater()</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">                &amp;&amp; data.getMap().getNeighbors(owned, Matches.territoryHasEnemyLandUnits(player, data)).size() &gt; 1) {</span>
+<span class="nc" id="L710">              units = Utils.getUnitsUpToStrength(remainingStrengthNeeded, units, false);</span>
+            }
+<span class="nc" id="L712">            remainingStrengthNeeded -= AIUtils.strength(units, true, false);</span>
+<span class="nc bnc" id="L713" title="All 2 branches missed.">            if (units.size() &gt; 0) {</span>
+<span class="nc" id="L714">              unitsAlreadyMoved.addAll(units);</span>
+<span class="nc" id="L715">              moveUnits.add(units);</span>
+<span class="nc" id="L716">              moveRoutes.add(data.getMap().getRoute(owned, enemy));</span>
+            }
+          }
+<span class="nc" id="L719">          s_logger.fine(&quot;Attacking : &quot; + enemy + &quot; our strength:&quot; + ourStrength + &quot; enemy strength&quot; + enemyStrength</span>
+<span class="nc" id="L720">              + &quot; remaining strength needed &quot; + remainingStrengthNeeded);</span>
+        }
+      }
+    }
+<span class="nc" id="L724">  }</span>
+
+  private void populateBomberCombat(final GameData data, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final PlayerID player) {
+<span class="nc" id="L728">    final Match&lt;Territory&gt; enemyFactory = Matches.territoryIsEnemyNonNeutralAndHasEnemyUnitMatching(data, player,</span>
+<span class="nc" id="L729">        Matches.UnitCanProduceUnitsAndCanBeDamaged);</span>
+<span class="nc" id="L730">    final Match&lt;Unit&gt; ownBomber = new CompositeMatchAnd&lt;&gt;(Matches.UnitIsStrategicBomber, Matches.unitIsOwnedBy(player));</span>
+<span class="nc bnc" id="L731" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L732">      final Collection&lt;Unit&gt; bombers = t.getUnits().getMatches(ownBomber);</span>
+<span class="nc bnc" id="L733" title="All 2 branches missed.">      if (bombers.isEmpty()) {</span>
+<span class="nc" id="L734">        continue;</span>
+      }
+<span class="nc" id="L736">      final Match&lt;Territory&gt; routeCond = new InverseMatch&lt;&gt;(Matches.territoryHasEnemyAAforCombatOnly(player, data));</span>
+<span class="nc" id="L737">      final Route bombRoute = Utils.findNearest(t, enemyFactory, routeCond, data);</span>
+<span class="nc" id="L738">      moveUnits.add(bombers);</span>
+<span class="nc" id="L739">      moveRoutes.add(bombRoute);</span>
+    }
+<span class="nc" id="L741">  }</span>
+
+  private int countTransports(final GameData data, final PlayerID player) {
+<span class="nc" id="L744">    final CompositeMatchAnd&lt;Unit&gt; ownedTransport =</span>
+<span class="nc" id="L745">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransport, Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L746">    int sum = 0;</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">    for (final Territory t : data.getMap()) {</span>
+<span class="nc" id="L748">      sum += t.getUnits().countMatches(ownedTransport);</span>
+    }
+<span class="nc" id="L750">    return sum;</span>
+  }
+
+  private int countLandUnits(final GameData data, final PlayerID player) {
+<span class="nc" id="L754">    final CompositeMatchAnd&lt;Unit&gt; ownedLandUnit =</span>
+<span class="nc" id="L755">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsLand, Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L756">    int sum = 0;</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">    for (final Territory t : data.getMap()) {</span>
+<span class="nc" id="L758">      sum += t.getUnits().countMatches(ownedLandUnit);</span>
+    }
+<span class="nc" id="L760">    return sum;</span>
+  }
+
+  @Override
+  public void purchase(final boolean purchaseForBid, final int PUsToSpend, final IPurchaseDelegate purchaseDelegate,
+      final GameData data, final PlayerID player) {
+<span class="nc bnc" id="L766" title="All 2 branches missed.">    if (purchaseForBid) {</span>
+      // bid will only buy land units, due to weak ai placement for bid not being able to handle sea units
+<span class="nc" id="L768">      final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L769">      int leftToSpend = PUsToSpend;</span>
+<span class="nc" id="L770">      final List&lt;ProductionRule&gt; rules = player.getProductionFrontier().getRules();</span>
+<span class="nc" id="L771">      final IntegerMap&lt;ProductionRule&gt; purchase = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L772">      int minCost = Integer.MAX_VALUE;</span>
+<span class="nc" id="L773">      int i = 0;</span>
+<span class="nc bnc" id="L774" title="All 6 branches missed.">      while ((minCost == Integer.MAX_VALUE || leftToSpend &gt;= minCost) &amp;&amp; i &lt; 100000) {</span>
+<span class="nc" id="L775">        i++;</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">        for (final ProductionRule rule : rules) {</span>
+<span class="nc" id="L777">          final NamedAttachable resourceOrUnit = rule.getResults().keySet().iterator().next();</span>
+<span class="nc bnc" id="L778" title="All 2 branches missed.">          if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L779">            continue;</span>
+          }
+<span class="nc" id="L781">          final UnitType results = (UnitType) resourceOrUnit;</span>
+<span class="nc bnc" id="L782" title="All 4 branches missed.">          if (Matches.UnitTypeIsSea.match(results) || Matches.UnitTypeIsAir.match(results)</span>
+<span class="nc bnc" id="L783" title="All 4 branches missed.">              || Matches.UnitTypeIsInfrastructure.match(results) || Matches.UnitTypeIsAAforAnything.match(results)</span>
+<span class="nc bnc" id="L784" title="All 2 branches missed.">              || Matches.UnitTypeHasMaxBuildRestrictions.match(results)</span>
+<span class="nc bnc" id="L785" title="All 2 branches missed.">              || Matches.UnitTypeConsumesUnitsOnCreation.match(results)</span>
+<span class="nc bnc" id="L786" title="All 2 branches missed.">              || Matches.UnitTypeIsStatic(player).match(results)) {</span>
+<span class="nc" id="L787">            continue;</span>
+          }
+<span class="nc" id="L789">          final int cost = rule.getCosts().getInt(PUs);</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">          if (cost &lt; 1) {</span>
+<span class="nc" id="L791">            continue;</span>
+          }
+<span class="nc bnc" id="L793" title="All 2 branches missed.">          if (minCost == Integer.MAX_VALUE) {</span>
+<span class="nc" id="L794">            minCost = cost;</span>
+          }
+<span class="nc bnc" id="L796" title="All 2 branches missed.">          if (minCost &gt; cost) {</span>
+<span class="nc" id="L797">            minCost = cost;</span>
+          }
+          // give a preference to cheap units
+<span class="nc bnc" id="L800" title="All 2 branches missed.">          if (Math.random() * cost &lt; 2) {</span>
+<span class="nc bnc" id="L801" title="All 2 branches missed.">            if (cost &lt;= leftToSpend) {</span>
+<span class="nc" id="L802">              leftToSpend -= cost;</span>
+<span class="nc" id="L803">              purchase.add(rule, 1);</span>
+            }
+          }
+        }
+      }
+<span class="nc" id="L808">      purchaseDelegate.purchase(purchase);</span>
+<span class="nc" id="L809">      pause();</span>
+<span class="nc" id="L810">      return;</span>
+    }
+<span class="nc" id="L812">    final boolean isAmphib = isAmphibAttack(player, data);</span>
+<span class="nc" id="L813">    final Route amphibRoute = getAmphibRoute(player, data);</span>
+<span class="nc" id="L814">    final int transportCount = countTransports(data, player);</span>
+<span class="nc" id="L815">    final int landUnitCount = countLandUnits(data, player);</span>
+<span class="nc" id="L816">    int defUnitsAtAmpibRoute = 0;</span>
+<span class="nc bnc" id="L817" title="All 4 branches missed.">    if (isAmphib &amp;&amp; amphibRoute != null) {</span>
+<span class="nc" id="L818">      defUnitsAtAmpibRoute = amphibRoute.getEnd().getUnits().getUnitCount();</span>
+    }
+<span class="nc" id="L820">    final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L821">    final int totPU = player.getResources().getQuantity(PUs);</span>
+<span class="nc" id="L822">    int leftToSpend = totPU;</span>
+<span class="nc" id="L823">    final Territory capitol = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(player, data);</span>
+<span class="nc" id="L824">    final List&lt;ProductionRule&gt; rules = player.getProductionFrontier().getRules();</span>
+<span class="nc" id="L825">    final IntegerMap&lt;ProductionRule&gt; purchase = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L826">    List&lt;RepairRule&gt; rrules = Collections.emptyList();</span>
+<span class="nc" id="L827">    final CompositeMatch&lt;Unit&gt; ourFactories =</span>
+<span class="nc" id="L828">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.UnitCanProduceUnits);</span>
+<span class="nc" id="L829">    final List&lt;Territory&gt; rfactories =</span>
+<span class="nc" id="L830">        Match.getMatches(Utils.findUnitTerr(data, player, ourFactories), Matches.isTerritoryOwnedBy(player));</span>
+    // figure out if anything needs to be repaired
+<span class="nc bnc" id="L832" title="All 2 branches missed.">    if (player.getRepairFrontier() != null</span>
+<span class="nc bnc" id="L833" title="All 2 branches missed.">        &amp;&amp; games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L834">      rrules = player.getRepairFrontier().getRules();</span>
+<span class="nc" id="L835">      final IntegerMap&lt;RepairRule&gt; repairMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L836">      final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; repair = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L837">      final Map&lt;Unit, Territory&gt; unitsThatCanProduceNeedingRepair = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L838">      final int minimumUnitPrice = 3;</span>
+<span class="nc" id="L839">      int diff = 0;</span>
+<span class="nc" id="L840">      int capProduction = 0;</span>
+<span class="nc" id="L841">      Unit capUnit = null;</span>
+<span class="nc" id="L842">      Territory capUnitTerritory = null;</span>
+<span class="nc" id="L843">      int maxUnits = (totPU - 1) / minimumUnitPrice;</span>
+<span class="nc" id="L844">      int currentProduction = 0;</span>
+      // we should sort this
+<span class="nc" id="L846">      Collections.shuffle(rfactories);</span>
+<span class="nc bnc" id="L847" title="All 2 branches missed.">      for (final Territory fixTerr : rfactories) {</span>
+<span class="nc" id="L848">        if (!Matches.territoryIsOwnedAndHasOwnedUnitMatching(data, player, Matches.UnitCanProduceUnitsAndCanBeDamaged)</span>
+<span class="nc bnc" id="L849" title="All 2 branches missed.">            .match(fixTerr)) {</span>
+<span class="nc" id="L850">          continue;</span>
+        }
+<span class="nc" id="L852">        final Unit possibleFactoryNeedingRepair = TripleAUnit.getBiggestProducer(</span>
+<span class="nc" id="L853">            Match.getMatches(fixTerr.getUnits().getUnits(), ourFactories), fixTerr, player, data, false);</span>
+<span class="nc bnc" id="L854" title="All 2 branches missed.">        if (Matches.UnitHasTakenSomeBombingUnitDamage.match(possibleFactoryNeedingRepair)) {</span>
+<span class="nc" id="L855">          unitsThatCanProduceNeedingRepair.put(possibleFactoryNeedingRepair, fixTerr);</span>
+        }
+<span class="nc" id="L857">        final TripleAUnit taUnit = (TripleAUnit) possibleFactoryNeedingRepair;</span>
+<span class="nc" id="L858">        diff = taUnit.getUnitDamage();</span>
+<span class="nc bnc" id="L859" title="All 2 branches missed.">        if (fixTerr == capitol) {</span>
+<span class="nc" id="L860">          capProduction =</span>
+<span class="nc" id="L861">              TripleAUnit.getHowMuchCanUnitProduce(possibleFactoryNeedingRepair, fixTerr, player, data, true, true);</span>
+<span class="nc" id="L862">          capUnit = possibleFactoryNeedingRepair;</span>
+<span class="nc" id="L863">          capUnitTerritory = fixTerr;</span>
+        }
+<span class="nc" id="L865">        currentProduction +=</span>
+<span class="nc" id="L866">            TripleAUnit.getHowMuchCanUnitProduce(possibleFactoryNeedingRepair, fixTerr, player, data, true, true);</span>
+      }
+<span class="nc" id="L868">      rfactories.remove(capitol);</span>
+<span class="nc" id="L869">      unitsThatCanProduceNeedingRepair.remove(capUnit);</span>
+      // assume minimum unit price is 3, and that we are buying only that... if we over repair, oh well, that is better
+      // than under-repairing
+      // goal is to be able to produce all our units, and at least half of that production in the capitol
+<span class="nc bnc" id="L873" title="All 6 branches missed.">      if ((capProduction &lt;= maxUnits / 2 || rfactories.isEmpty()) &amp;&amp; capUnit != null) // if capitol is super safe, we</span>
+                                                                                      // don't have to do this.
+                                                                                      // and if capitol is under siege,
+                                                                                      // we should repair
+                                                                                      // enough to place all our units
+                                                                                      // here
+      {
+<span class="nc bnc" id="L880" title="All 2 branches missed.">        for (final RepairRule rrule : rrules) {</span>
+<span class="nc bnc" id="L881" title="All 2 branches missed.">          if (!capUnit.getUnitType().equals(rrule.getResults().keySet().iterator().next())) {</span>
+<span class="nc" id="L882">            continue;</span>
+          }
+<span class="nc" id="L884">          if (!Matches.territoryIsOwnedAndHasOwnedUnitMatching(data, player, Matches.UnitCanProduceUnitsAndCanBeDamaged)</span>
+<span class="nc bnc" id="L885" title="All 2 branches missed.">              .match(capitol)) {</span>
+<span class="nc" id="L886">            continue;</span>
+          }
+<span class="nc" id="L888">          final TripleAUnit taUnit = (TripleAUnit) capUnit;</span>
+<span class="nc" id="L889">          diff = taUnit.getUnitDamage();</span>
+<span class="nc" id="L890">          final int unitProductionAllowNegative =</span>
+<span class="nc" id="L891">              TripleAUnit.getHowMuchCanUnitProduce(capUnit, capUnitTerritory, player, data, false, true) - diff;</span>
+<span class="nc bnc" id="L892" title="All 2 branches missed.">          if (!rfactories.isEmpty()) {</span>
+<span class="nc" id="L893">            diff = Math.min(diff, (maxUnits / 2 - unitProductionAllowNegative) + 1);</span>
+<span class="nc" id="L894">          } else {</span>
+<span class="nc" id="L895">            diff = Math.min(diff, (maxUnits - unitProductionAllowNegative));</span>
+          }
+<span class="nc" id="L897">          diff = Math.min(diff, leftToSpend - minimumUnitPrice);</span>
+<span class="nc bnc" id="L898" title="All 2 branches missed.">          if (diff &gt; 0) {</span>
+<span class="nc bnc" id="L899" title="All 2 branches missed.">            if (unitProductionAllowNegative &gt;= 0) {</span>
+<span class="nc" id="L900">              currentProduction += diff;</span>
+<span class="nc" id="L901">            } else {</span>
+<span class="nc" id="L902">              currentProduction += diff + unitProductionAllowNegative;</span>
+            }
+<span class="nc" id="L904">            repairMap.add(rrule, diff);</span>
+<span class="nc" id="L905">            repair.put(capUnit, repairMap);</span>
+<span class="nc" id="L906">            leftToSpend -= diff;</span>
+<span class="nc" id="L907">            purchaseDelegate.purchaseRepair(repair);</span>
+<span class="nc" id="L908">            repair.clear();</span>
+<span class="nc" id="L909">            repairMap.clear();</span>
+            // ideally we would adjust this after each single PU spent, then re-evaluate
+            // everything.
+<span class="nc" id="L912">            maxUnits = (leftToSpend - 1) / minimumUnitPrice;</span>
+          }
+        }
+      }
+<span class="nc" id="L916">      int i = 0;</span>
+<span class="nc bnc" id="L917" title="All 4 branches missed.">      while (currentProduction &lt; maxUnits &amp;&amp; i &lt; 2) {</span>
+<span class="nc bnc" id="L918" title="All 2 branches missed.">        for (final RepairRule rrule : rrules) {</span>
+<span class="nc bnc" id="L919" title="All 2 branches missed.">          for (final Unit fixUnit : unitsThatCanProduceNeedingRepair.keySet()) {</span>
+<span class="nc bnc" id="L920" title="All 4 branches missed.">            if (fixUnit == null || !fixUnit.getType().equals(rrule.getResults().keySet().iterator().next())) {</span>
+<span class="nc" id="L921">              continue;</span>
+            }
+            if (!Matches
+<span class="nc" id="L924">                .territoryIsOwnedAndHasOwnedUnitMatching(data, player, Matches.UnitCanProduceUnitsAndCanBeDamaged)</span>
+<span class="nc bnc" id="L925" title="All 2 branches missed.">                .match(unitsThatCanProduceNeedingRepair.get(fixUnit))) {</span>
+<span class="nc" id="L926">              continue;</span>
+            }
+            // we will repair the first territories in the list as much as we can, until we fulfill the condition, then
+            // skip all other
+            // territories
+<span class="nc bnc" id="L931" title="All 2 branches missed.">            if (currentProduction &gt;= maxUnits) {</span>
+<span class="nc" id="L932">              continue;</span>
+            }
+<span class="nc" id="L934">            final TripleAUnit taUnit = (TripleAUnit) fixUnit;</span>
+<span class="nc" id="L935">            diff = taUnit.getUnitDamage();</span>
+<span class="nc" id="L936">            final int unitProductionAllowNegative = TripleAUnit.getHowMuchCanUnitProduce(fixUnit,</span>
+<span class="nc" id="L937">                unitsThatCanProduceNeedingRepair.get(fixUnit), player, data, false, true) - diff;</span>
+<span class="nc bnc" id="L938" title="All 2 branches missed.">            if (i == 0) {</span>
+<span class="nc bnc" id="L939" title="All 2 branches missed.">              if (unitProductionAllowNegative &lt; 0) {</span>
+<span class="nc" id="L940">                diff = Math.min(diff, (maxUnits - currentProduction) - unitProductionAllowNegative);</span>
+<span class="nc" id="L941">              } else {</span>
+<span class="nc" id="L942">                diff = Math.min(diff, (maxUnits - currentProduction));</span>
+              }
+            }
+<span class="nc" id="L945">            diff = Math.min(diff, leftToSpend - minimumUnitPrice);</span>
+<span class="nc bnc" id="L946" title="All 2 branches missed.">            if (diff &gt; 0) {</span>
+<span class="nc bnc" id="L947" title="All 2 branches missed.">              if (unitProductionAllowNegative &gt;= 0) {</span>
+<span class="nc" id="L948">                currentProduction += diff;</span>
+<span class="nc" id="L949">              } else {</span>
+<span class="nc" id="L950">                currentProduction += diff + unitProductionAllowNegative;</span>
+              }
+<span class="nc" id="L952">              repairMap.add(rrule, diff);</span>
+<span class="nc" id="L953">              repair.put(fixUnit, repairMap);</span>
+<span class="nc" id="L954">              leftToSpend -= diff;</span>
+<span class="nc" id="L955">              purchaseDelegate.purchaseRepair(repair);</span>
+<span class="nc" id="L956">              repair.clear();</span>
+<span class="nc" id="L957">              repairMap.clear();</span>
+              // ideally we would adjust this after each single PU spent, then re-evaluate
+              // everything.
+<span class="nc" id="L960">              maxUnits = (leftToSpend - 1) / minimumUnitPrice;</span>
+            }
+          }
+        }
+<span class="nc" id="L964">        rfactories.add(capitol);</span>
+<span class="nc bnc" id="L965" title="All 2 branches missed.">        if (capUnit != null) {</span>
+<span class="nc" id="L966">          unitsThatCanProduceNeedingRepair.put(capUnit, capUnitTerritory);</span>
+        }
+<span class="nc" id="L968">        i++;</span>
+      }
+    }
+<span class="nc" id="L971">    int minCost = Integer.MAX_VALUE;</span>
+<span class="nc" id="L972">    int i = 0;</span>
+<span class="nc bnc" id="L973" title="All 6 branches missed.">    while ((minCost == Integer.MAX_VALUE || leftToSpend &gt;= minCost) &amp;&amp; i &lt; 100000) {</span>
+<span class="nc" id="L974">      i++;</span>
+<span class="nc bnc" id="L975" title="All 2 branches missed.">      for (final ProductionRule rule : rules) {</span>
+<span class="nc" id="L976">        final NamedAttachable resourceOrUnit = rule.getResults().keySet().iterator().next();</span>
+<span class="nc bnc" id="L977" title="All 2 branches missed.">        if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L978">          continue;</span>
+        }
+<span class="nc" id="L980">        final UnitType results = (UnitType) resourceOrUnit;</span>
+<span class="nc bnc" id="L981" title="All 4 branches missed.">        if (Matches.UnitTypeIsAir.match(results) || Matches.UnitTypeIsInfrastructure.match(results)</span>
+<span class="nc bnc" id="L982" title="All 4 branches missed.">            || Matches.UnitTypeIsAAforAnything.match(results) || Matches.UnitTypeHasMaxBuildRestrictions.match(results)</span>
+<span class="nc bnc" id="L983" title="All 2 branches missed.">            || Matches.UnitTypeConsumesUnitsOnCreation.match(results)</span>
+<span class="nc bnc" id="L984" title="All 2 branches missed.">            || Matches.UnitTypeIsStatic(player).match(results)) {</span>
+<span class="nc" id="L985">          continue;</span>
+        }
+<span class="nc" id="L987">        final int transportCapacity = UnitAttachment.get(results).getTransportCapacity();</span>
+        // buy transports if we can be amphibious
+<span class="nc bnc" id="L989" title="All 2 branches missed.">        if (Matches.UnitTypeIsSea.match(results)) {</span>
+<span class="nc bnc" id="L990" title="All 4 branches missed.">          if (!isAmphib || transportCapacity &lt;= 0) {</span>
+<span class="nc" id="L991">            continue;</span>
+          }
+        }
+<span class="nc" id="L994">        final int cost = rule.getCosts().getInt(PUs);</span>
+<span class="nc bnc" id="L995" title="All 2 branches missed.">        if (cost &lt; 1) {</span>
+<span class="nc" id="L996">          continue;</span>
+        }
+<span class="nc bnc" id="L998" title="All 2 branches missed.">        if (minCost == Integer.MAX_VALUE) {</span>
+<span class="nc" id="L999">          minCost = cost;</span>
+        }
+<span class="nc bnc" id="L1001" title="All 2 branches missed.">        if (minCost &gt; cost) {</span>
+<span class="nc" id="L1002">          minCost = cost;</span>
+        }
+        // give a preferene to cheap units, and to transports
+        // but dont go overboard with buying transports
+<span class="nc" id="L1006">        int goodNumberOfTransports = 0;</span>
+<span class="nc bnc" id="L1007" title="All 2 branches missed.">        final boolean isTransport = transportCapacity &gt; 0;</span>
+<span class="nc bnc" id="L1008" title="All 2 branches missed.">        if (amphibRoute != null) {</span>
+          // 25% transports - can be more if frontier is far away
+<span class="nc" id="L1010">          goodNumberOfTransports = (landUnitCount / 4);</span>
+          // boost for transport production
+<span class="nc bnc" id="L1012" title="All 6 branches missed.">          if (isTransport &amp;&amp; defUnitsAtAmpibRoute &gt; goodNumberOfTransports &amp;&amp; landUnitCount &gt; defUnitsAtAmpibRoute</span>
+<span class="nc bnc" id="L1013" title="All 2 branches missed.">              &amp;&amp; defUnitsAtAmpibRoute &gt; transportCount) {</span>
+<span class="nc" id="L1014">            final int transports = (leftToSpend / cost);</span>
+<span class="nc" id="L1015">            leftToSpend -= cost * transports;</span>
+<span class="nc" id="L1016">            purchase.add(rule, transports);</span>
+<span class="nc" id="L1017">            continue;</span>
+          }
+          // goodNumberOfTransports = ((int) (amphibRoute.getTerritories().size() * 2.6)) + 1;
+        }
+<span class="nc bnc" id="L1021" title="All 2 branches missed.">        final boolean buyBecauseTransport =</span>
+<span class="nc bnc" id="L1022" title="All 4 branches missed.">            (Math.random() &lt; 0.7 &amp;&amp; transportCount &lt; goodNumberOfTransports) || Math.random() &lt; 0.10;</span>
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">        final boolean dontBuyBecauseTooManyTransports = transportCount &gt; 2 * goodNumberOfTransports;</span>
+<span class="nc bnc" id="L1024" title="All 4 branches missed.">        if ((!isTransport &amp;&amp; Math.random() * cost &lt; 2)</span>
+<span class="nc bnc" id="L1025" title="All 6 branches missed.">            || (isTransport &amp;&amp; buyBecauseTransport &amp;&amp; !dontBuyBecauseTooManyTransports)) {</span>
+<span class="nc bnc" id="L1026" title="All 2 branches missed.">          if (cost &lt;= leftToSpend) {</span>
+<span class="nc" id="L1027">            leftToSpend -= cost;</span>
+<span class="nc" id="L1028">            purchase.add(rule, 1);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L1033">    purchaseDelegate.purchase(purchase);</span>
+<span class="nc" id="L1034">    pause();</span>
+<span class="nc" id="L1035">  }</span>
+
+  @Override
+  public void place(final boolean bid, final IAbstractPlaceDelegate placeDelegate, final GameData data,
+      final PlayerID player) {
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">    if (player.getUnits().size() == 0) {</span>
+<span class="nc" id="L1041">      return;</span>
+    }
+<span class="nc" id="L1043">    final Territory capitol = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(player, data);</span>
+    // place in capitol first
+<span class="nc" id="L1045">    placeAllWeCanOn(data, capitol, placeDelegate, player);</span>
+<span class="nc" id="L1046">    final List&lt;Territory&gt; randomTerritories = new ArrayList&lt;&gt;(data.getMap().getTerritories());</span>
+<span class="nc" id="L1047">    Collections.shuffle(randomTerritories);</span>
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">    for (final Territory t : randomTerritories) {</span>
+<span class="nc bnc" id="L1049" title="All 6 branches missed.">      if (t != capitol &amp;&amp; t.getOwner().equals(player) &amp;&amp; t.getUnits().someMatch(Matches.UnitCanProduceUnits)) {</span>
+<span class="nc" id="L1050">        placeAllWeCanOn(data, t, placeDelegate, player);</span>
+      }
+    }
+<span class="nc" id="L1053">  }</span>
+
+  private void placeAllWeCanOn(final GameData data, final Territory placeAt, final IAbstractPlaceDelegate placeDelegate,
+      final PlayerID player) {
+<span class="nc" id="L1057">    final PlaceableUnits pu = placeDelegate.getPlaceableUnits(player.getUnits().getUnits(), placeAt);</span>
+<span class="nc bnc" id="L1058" title="All 2 branches missed.">    if (pu.getErrorMessage() != null) {</span>
+<span class="nc" id="L1059">      return;</span>
+    }
+<span class="nc" id="L1061">    int placementLeft = pu.getMaxUnits();</span>
+<span class="nc bnc" id="L1062" title="All 2 branches missed.">    if (placementLeft == -1) {</span>
+<span class="nc" id="L1063">      placementLeft = Integer.MAX_VALUE;</span>
+    }
+<span class="nc" id="L1065">    final List&lt;Unit&gt; seaUnits = new ArrayList&lt;&gt;(player.getUnits().getMatches(Matches.UnitIsSea));</span>
+<span class="nc bnc" id="L1066" title="All 2 branches missed.">    if (seaUnits.size() &gt; 0) {</span>
+<span class="nc" id="L1067">      final Route amphibRoute = getAmphibRoute(player, data);</span>
+<span class="nc" id="L1068">      Territory seaPlaceAt = null;</span>
+<span class="nc bnc" id="L1069" title="All 2 branches missed.">      if (amphibRoute != null) {</span>
+<span class="nc" id="L1070">        seaPlaceAt = amphibRoute.getAllTerritories().get(1);</span>
+<span class="nc" id="L1071">      } else {</span>
+<span class="nc" id="L1072">        final Set&lt;Territory&gt; seaNeighbors = data.getMap().getNeighbors(placeAt, Matches.TerritoryIsWater);</span>
+<span class="nc bnc" id="L1073" title="All 2 branches missed.">        if (!seaNeighbors.isEmpty()) {</span>
+<span class="nc" id="L1074">          seaPlaceAt = seaNeighbors.iterator().next();</span>
+        }
+      }
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">      if (seaPlaceAt != null) {</span>
+<span class="nc" id="L1078">        final int seaPlacement = Math.min(placementLeft, seaUnits.size());</span>
+<span class="nc" id="L1079">        placementLeft -= seaPlacement;</span>
+<span class="nc" id="L1080">        final Collection&lt;Unit&gt; toPlace = seaUnits.subList(0, seaPlacement);</span>
+<span class="nc" id="L1081">        doPlace(seaPlaceAt, toPlace, placeDelegate);</span>
+      }
+    }
+<span class="nc" id="L1084">    final List&lt;Unit&gt; landUnits = new ArrayList&lt;&gt;(player.getUnits().getMatches(Matches.UnitIsLand));</span>
+<span class="nc bnc" id="L1085" title="All 2 branches missed.">    if (!landUnits.isEmpty()) {</span>
+<span class="nc" id="L1086">      final int landPlaceCount = Math.min(placementLeft, landUnits.size());</span>
+<span class="nc" id="L1087">      placementLeft -= landPlaceCount;</span>
+<span class="nc" id="L1088">      final Collection&lt;Unit&gt; toPlace = landUnits.subList(0, landPlaceCount);</span>
+<span class="nc" id="L1089">      doPlace(placeAt, toPlace, placeDelegate);</span>
+    }
+<span class="nc" id="L1091">  }</span>
+
+  private void doPlace(final Territory where, final Collection&lt;Unit&gt; toPlace, final IAbstractPlaceDelegate del) {
+<span class="nc" id="L1094">    final String message = del.placeUnits(new ArrayList&lt;&gt;(toPlace), where);</span>
+<span class="nc bnc" id="L1095" title="All 2 branches missed.">    if (message != null) {</span>
+<span class="nc" id="L1096">      s_logger.fine(message);</span>
+<span class="nc" id="L1097">      s_logger.fine(&quot;Attempt was at:&quot; + where + &quot; with:&quot; + toPlace);</span>
+    }
+<span class="nc" id="L1099">    pause();</span>
+<span class="nc" id="L1100">  }</span>
+
+  @Override
+  public boolean shouldBomberBomb(final Territory territory) {
+<span class="nc" id="L1104">    return true;</span>
+  }
+
+<span class="nc" id="L1107">  public static final Match&lt;Unit&gt; Transporting = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit o) {
+<span class="nc bnc" id="L1110" title="All 2 branches missed.">      return (TripleAUnit.get(o).getTransporting().size() &gt; 0);</span>
+    }
+<span class="nc" id="L1112">  };</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProMoveUtils.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI.util</a> &gt; <span class="el_source">ProMoveUtils.java</span></div><h1>ProMoveUtils.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI.util;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.ai.proAI.ProData;
+import games.strategy.triplea.ai.proAI.data.ProTerritory;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.util.Match;
+
+/**
+ * Pro AI move utilities.
+ */
+<span class="nc" id="L29">public class ProMoveUtils {</span>
+
+  public static void calculateMoveRoutes(final PlayerID player, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final Map&lt;Territory, ProTerritory&gt; attackMap, final boolean isCombatMove) {
+
+<span class="nc" id="L34">    final GameData data = ProData.getData();</span>
+
+    // Find all amphib units
+<span class="nc" id="L37">    final Set&lt;Unit&gt; amphibUnits = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L39">      amphibUnits.addAll(attackMap.get(t).getAmphibAttackMap().keySet());</span>
+<span class="nc bnc" id="L40" title="All 2 branches missed.">      for (final Unit transport : attackMap.get(t).getAmphibAttackMap().keySet()) {</span>
+<span class="nc" id="L41">        amphibUnits.addAll(attackMap.get(t).getAmphibAttackMap().get(transport));</span>
+      }
+    }
+
+    // Loop through all territories to attack
+<span class="nc bnc" id="L46" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+
+      // Loop through each unit that is attacking the current territory
+<span class="nc bnc" id="L49" title="All 2 branches missed.">      for (final Unit u : attackMap.get(t).getUnits()) {</span>
+
+        // Skip amphib units
+<span class="nc bnc" id="L52" title="All 2 branches missed.">        if (amphibUnits.contains(u)) {</span>
+<span class="nc" id="L53">          continue;</span>
+        }
+
+        // Skip if unit is already in move to territory
+<span class="nc" id="L57">        final Territory startTerritory = ProData.unitTerritoryMap.get(u);</span>
+<span class="nc bnc" id="L58" title="All 4 branches missed.">        if (startTerritory == null || startTerritory.equals(t)) {</span>
+<span class="nc" id="L59">          continue;</span>
+        }
+
+        // Add unit to move list
+<span class="nc" id="L63">        final List&lt;Unit&gt; unitList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L64">        unitList.add(u);</span>
+<span class="nc" id="L65">        moveUnits.add(unitList);</span>
+
+        // If carrier has dependent allied fighters then move them too
+<span class="nc bnc" id="L68" title="All 2 branches missed.">        if (Matches.UnitIsCarrier.match(u)) {</span>
+<span class="nc" id="L69">          final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith =</span>
+<span class="nc" id="L70">              MoveValidator.carrierMustMoveWith(startTerritory.getUnits().getUnits(), startTerritory, data, player);</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">          if (carrierMustMoveWith.containsKey(u)) {</span>
+<span class="nc" id="L72">            unitList.addAll(carrierMustMoveWith.get(u));</span>
+          }
+        }
+
+        // Determine route and add to move list
+<span class="nc" id="L77">        Route route = null;</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (Match.someMatch(unitList, Matches.UnitIsSea)) {</span>
+
+          // Sea unit (including carriers with planes)
+<span class="nc" id="L81">          route = data.getMap().getRoute_IgnoreEnd(startTerritory, t,</span>
+<span class="nc" id="L82">              ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        } else if (Match.allMatch(unitList, Matches.UnitIsLand)) {</span>
+
+          // Land unit
+<span class="nc" id="L86">          route = data.getMap().getRoute_IgnoreEnd(startTerritory, t, ProMatches</span>
+<span class="nc" id="L87">              .territoryCanMoveLandUnitsThrough(player, data, u, startTerritory, isCombatMove, new ArrayList&lt;&gt;()));</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        } else if (Match.allMatch(unitList, Matches.UnitIsAir)) {</span>
+
+          // Air unit
+<span class="nc" id="L91">          route = data.getMap().getRoute_IgnoreEnd(startTerritory, t,</span>
+<span class="nc" id="L92">              ProMatches.territoryCanMoveAirUnitsAndNoAA(player, data, isCombatMove));</span>
+        }
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        if (route == null) {</span>
+<span class="nc" id="L95">          ProLogger.warn(data.getSequence().getRound() + &quot;-&quot; + data.getSequence().getStep().getName()</span>
+<span class="nc" id="L96">              + &quot;: route is null &quot; + startTerritory + &quot; to &quot; + t + &quot;, units=&quot; + unitList);</span>
+        }
+<span class="nc" id="L98">        moveRoutes.add(route);</span>
+      }
+    }
+<span class="nc" id="L101">  }</span>
+
+  public static void calculateAmphibRoutes(final PlayerID player, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad,
+      final Map&lt;Territory, ProTerritory&gt; attackMap, final boolean isCombatMove) {
+
+<span class="nc" id="L107">    final GameData data = ProData.getData();</span>
+
+    // Loop through all territories to attack
+<span class="nc bnc" id="L110" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+
+      // Loop through each amphib attack map
+<span class="nc" id="L113">      final Map&lt;Unit, List&lt;Unit&gt;&gt; amphibAttackMap = attackMap.get(t).getAmphibAttackMap();</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">      for (final Unit transport : amphibAttackMap.keySet()) {</span>
+<span class="nc" id="L115">        int movesLeft = TripleAUnit.get(transport).getMovementLeft();</span>
+<span class="nc" id="L116">        Territory transportTerritory = ProData.unitTerritoryMap.get(transport);</span>
+
+        // Check if units are already loaded or not
+<span class="nc" id="L119">        final List&lt;Unit&gt; loadedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L120">        final List&lt;Unit&gt; remainingUnitsToLoad = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">        if (TransportTracker.isTransporting(transport)) {</span>
+<span class="nc" id="L122">          loadedUnits.addAll(amphibAttackMap.get(transport));</span>
+<span class="nc" id="L123">        } else {</span>
+<span class="nc" id="L124">          remainingUnitsToLoad.addAll(amphibAttackMap.get(transport));</span>
+        }
+
+        // Load units and move transport
+<span class="nc bnc" id="L128" title="All 2 branches missed.">        while (movesLeft &gt;= 0) {</span>
+
+          // Load adjacent units if no enemies present in transport territory
+<span class="nc bnc" id="L131" title="All 2 branches missed.">          if (Matches.territoryHasEnemyUnits(player, data).invert().match(transportTerritory)) {</span>
+<span class="nc" id="L132">            final List&lt;Unit&gt; unitsToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">            for (final Unit amphibUnit : remainingUnitsToLoad) {</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">              if (data.getMap().getDistance(transportTerritory, ProData.unitTerritoryMap.get(amphibUnit)) == 1) {</span>
+<span class="nc" id="L135">                moveUnits.add(Collections.singletonList(amphibUnit));</span>
+<span class="nc" id="L136">                transportsToLoad.add(Collections.singletonList(transport));</span>
+<span class="nc" id="L137">                final Route route = new Route(ProData.unitTerritoryMap.get(amphibUnit), transportTerritory);</span>
+<span class="nc" id="L138">                moveRoutes.add(route);</span>
+<span class="nc" id="L139">                unitsToRemove.add(amphibUnit);</span>
+<span class="nc" id="L140">                loadedUnits.add(amphibUnit);</span>
+              }
+            }
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            for (final Unit u : unitsToRemove) {</span>
+<span class="nc" id="L144">              remainingUnitsToLoad.remove(u);</span>
+            }
+          }
+
+          // Move transport if I'm not already at the end or out of moves
+<span class="nc" id="L149">          final Territory unloadTerritory = attackMap.get(t).getTransportTerritoryMap().get(transport);</span>
+<span class="nc" id="L150">          int distanceFromEnd = data.getMap().getDistance(transportTerritory, t);</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">          if (t.isWater()) {</span>
+<span class="nc" id="L152">            distanceFromEnd++;</span>
+          }
+<span class="nc bnc" id="L154" title="All 6 branches missed.">          if (movesLeft &gt; 0 &amp;&amp; (distanceFromEnd &gt; 1 || !remainingUnitsToLoad.isEmpty()</span>
+<span class="nc bnc" id="L155" title="All 4 branches missed.">              || (unloadTerritory != null &amp;&amp; !unloadTerritory.equals(transportTerritory)))) {</span>
+<span class="nc" id="L156">            final Set&lt;Territory&gt; neighbors = data.getMap().getNeighbors(transportTerritory,</span>
+<span class="nc" id="L157">                ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+<span class="nc" id="L158">            Territory territoryToMoveTo = null;</span>
+<span class="nc" id="L159">            int minUnitDistance = Integer.MAX_VALUE;</span>
+<span class="nc" id="L160">            int maxDistanceFromEnd = Integer.MIN_VALUE; // Used to move to farthest away loading territory first</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">            for (final Territory neighbor : neighbors) {</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">              if (MoveValidator.validateCanal(new Route(transportTerritory, neighbor),</span>
+<span class="nc" id="L163">                  Collections.singletonList(transport), player, data) != null) {</span>
+<span class="nc" id="L164">                continue;</span>
+              }
+<span class="nc" id="L166">              int distanceFromUnloadTerritory = 0;</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">              if (unloadTerritory != null) {</span>
+<span class="nc" id="L168">                distanceFromUnloadTerritory = data.getMap().getDistance_IgnoreEndForCondition(neighbor, unloadTerritory,</span>
+<span class="nc" id="L169">                    ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+              }
+<span class="nc" id="L171">              int neighborDistanceFromEnd = data.getMap().getDistance_IgnoreEndForCondition(neighbor, t,</span>
+<span class="nc" id="L172">                  ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">              if (t.isWater()) {</span>
+<span class="nc" id="L174">                neighborDistanceFromEnd++;</span>
+              }
+<span class="nc" id="L176">              int maxUnitDistance = 0;</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">              for (final Unit u : remainingUnitsToLoad) {</span>
+<span class="nc" id="L178">                final int distance = data.getMap().getDistance(neighbor, ProData.unitTerritoryMap.get(u));</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">                if (distance &gt; maxUnitDistance) {</span>
+<span class="nc" id="L180">                  maxUnitDistance = distance;</span>
+                }
+              }
+<span class="nc bnc" id="L183" title="All 4 branches missed.">              if (neighborDistanceFromEnd &lt;= movesLeft &amp;&amp; maxUnitDistance &lt;= minUnitDistance</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">                  &amp;&amp; distanceFromUnloadTerritory &lt; movesLeft</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">                  &amp;&amp; (maxUnitDistance &lt; minUnitDistance</span>
+<span class="nc bnc" id="L186" title="All 4 branches missed.">                      || (maxUnitDistance &gt; 1 &amp;&amp; neighborDistanceFromEnd &gt; maxDistanceFromEnd)</span>
+<span class="nc bnc" id="L187" title="All 4 branches missed.">                      || (maxUnitDistance &lt;= 1 &amp;&amp; neighborDistanceFromEnd &lt; maxDistanceFromEnd))) {</span>
+<span class="nc" id="L188">                territoryToMoveTo = neighbor;</span>
+<span class="nc" id="L189">                minUnitDistance = maxUnitDistance;</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">                if (neighborDistanceFromEnd &gt; maxDistanceFromEnd) {</span>
+<span class="nc" id="L191">                  maxDistanceFromEnd = neighborDistanceFromEnd;</span>
+                }
+              }
+            }
+<span class="nc bnc" id="L195" title="All 2 branches missed.">            if (territoryToMoveTo != null) {</span>
+<span class="nc" id="L196">              final List&lt;Unit&gt; unitsToMove = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L197">              unitsToMove.add(transport);</span>
+<span class="nc" id="L198">              unitsToMove.addAll(loadedUnits);</span>
+<span class="nc" id="L199">              moveUnits.add(unitsToMove);</span>
+<span class="nc" id="L200">              transportsToLoad.add(null);</span>
+<span class="nc" id="L201">              final Route route = new Route(transportTerritory, territoryToMoveTo);</span>
+<span class="nc" id="L202">              moveRoutes.add(route);</span>
+<span class="nc" id="L203">              transportTerritory = territoryToMoveTo;</span>
+            }
+          }
+<span class="nc" id="L206">          movesLeft--;</span>
+        }
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (!remainingUnitsToLoad.isEmpty()) {</span>
+<span class="nc" id="L209">          ProLogger.warn(data.getSequence().getRound() + &quot;-&quot; + data.getSequence().getStep().getName() + &quot;: &quot; + t</span>
+<span class="nc" id="L210">              + &quot;, remainingUnitsToLoad=&quot; + remainingUnitsToLoad);</span>
+        }
+
+        // Set territory transport is moving to
+<span class="nc" id="L214">        attackMap.get(t).getTransportTerritoryMap().put(transport, transportTerritory);</span>
+
+        // Unload transport
+<span class="nc bnc" id="L217" title="All 4 branches missed.">        if (!loadedUnits.isEmpty() &amp;&amp; !t.isWater()) {</span>
+<span class="nc" id="L218">          moveUnits.add(loadedUnits);</span>
+<span class="nc" id="L219">          transportsToLoad.add(null);</span>
+<span class="nc" id="L220">          final Route route = new Route(transportTerritory, t);</span>
+<span class="nc" id="L221">          moveRoutes.add(route);</span>
+        }
+      }
+    }
+<span class="nc" id="L225">  }</span>
+
+  public static void calculateBombardMoveRoutes(final PlayerID player, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final Map&lt;Territory, ProTerritory&gt; attackMap) {
+
+<span class="nc" id="L230">    final GameData data = ProData.getData();</span>
+
+    // Loop through all territories to attack
+<span class="nc bnc" id="L233" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+
+      // Loop through each unit that is attacking the current territory
+<span class="nc bnc" id="L236" title="All 2 branches missed.">      for (final Unit u : attackMap.get(t).getBombardTerritoryMap().keySet()) {</span>
+<span class="nc" id="L237">        final Territory bombardFromTerritory = attackMap.get(t).getBombardTerritoryMap().get(u);</span>
+
+        // Skip if unit is already in move to territory
+<span class="nc" id="L240">        final Territory startTerritory = ProData.unitTerritoryMap.get(u);</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        if (startTerritory.equals(bombardFromTerritory)) {</span>
+<span class="nc" id="L242">          continue;</span>
+        }
+
+        // Add unit to move list
+<span class="nc" id="L246">        final List&lt;Unit&gt; unitList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L247">        unitList.add(u);</span>
+<span class="nc" id="L248">        moveUnits.add(unitList);</span>
+
+        // Determine route and add to move list
+<span class="nc" id="L251">        Route route = null;</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (Match.allMatch(unitList, ProMatches.unitCanBeMovedAndIsOwnedSea(player, true))) {</span>
+
+          // Naval unit
+<span class="nc" id="L255">          route = data.getMap().getRoute_IgnoreEnd(startTerritory, bombardFromTerritory,</span>
+<span class="nc" id="L256">              ProMatches.territoryCanMoveSeaUnitsThrough(player, data, true));</span>
+        }
+<span class="nc" id="L258">        moveRoutes.add(route);</span>
+      }
+    }
+<span class="nc" id="L261">  }</span>
+
+  public static void calculateBombingRoutes(final PlayerID player, final List&lt;Collection&lt;Unit&gt;&gt; moveUnits,
+      final List&lt;Route&gt; moveRoutes, final Map&lt;Territory, ProTerritory&gt; attackMap) {
+
+<span class="nc" id="L266">    final GameData data = ProData.getData();</span>
+
+    // Loop through all territories to attack
+<span class="nc bnc" id="L269" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+
+      // Loop through each unit that is attacking the current territory
+<span class="nc bnc" id="L272" title="All 2 branches missed.">      for (final Unit u : attackMap.get(t).getBombers()) {</span>
+
+        // Skip if unit is already in move to territory
+<span class="nc" id="L275">        final Territory startTerritory = ProData.unitTerritoryMap.get(u);</span>
+<span class="nc bnc" id="L276" title="All 4 branches missed.">        if (startTerritory == null || startTerritory.equals(t)) {</span>
+<span class="nc" id="L277">          continue;</span>
+        }
+
+        // Add unit to move list
+<span class="nc" id="L281">        final List&lt;Unit&gt; unitList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L282">        unitList.add(u);</span>
+<span class="nc" id="L283">        moveUnits.add(unitList);</span>
+
+        // Determine route and add to move list
+<span class="nc" id="L286">        Route route = null;</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        if (Match.allMatch(unitList, Matches.UnitIsAir)) {</span>
+<span class="nc" id="L288">          route = data.getMap().getRoute_IgnoreEnd(startTerritory, t,</span>
+<span class="nc" id="L289">              ProMatches.territoryCanMoveAirUnitsAndNoAA(player, data, true));</span>
+        }
+<span class="nc" id="L291">        moveRoutes.add(route);</span>
+      }
+    }
+<span class="nc" id="L294">  }</span>
+
+  public static void doMove(final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes,
+      final IMoveDelegate moveDel) {
+<span class="nc" id="L298">    doMove(moveUnits, moveRoutes, null, moveDel);</span>
+<span class="nc" id="L299">  }</span>
+
+  public static void doMove(final List&lt;Collection&lt;Unit&gt;&gt; moveUnits, final List&lt;Route&gt; moveRoutes,
+      final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad, final IMoveDelegate moveDel) {
+
+<span class="nc" id="L304">    final GameData data = ProData.getData();</span>
+
+    // Group non-amphib units of the same type moving on the same route
+<span class="nc bnc" id="L307" title="All 2 branches missed.">    if (transportsToLoad == null) {</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">      for (int i = 0; i &lt; moveRoutes.size(); i++) {</span>
+<span class="nc" id="L309">        final Route r = moveRoutes.get(i);</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        for (int j = i + 1; j &lt; moveRoutes.size(); j++) {</span>
+<span class="nc" id="L311">          final Route r2 = moveRoutes.get(j);</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">          if (r.equals(r2)) {</span>
+<span class="nc" id="L313">            moveUnits.get(j).addAll(moveUnits.get(i));</span>
+<span class="nc" id="L314">            moveUnits.remove(i);</span>
+<span class="nc" id="L315">            moveRoutes.remove(i);</span>
+<span class="nc" id="L316">            i--;</span>
+<span class="nc" id="L317">            break;</span>
+          }
+        }
+      }
+    }
+
+    // Move units
+<span class="nc bnc" id="L324" title="All 2 branches missed.">    for (int i = 0; i &lt; moveRoutes.size(); i++) {</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">      if (!ProData.isSimulation) {</span>
+<span class="nc" id="L326">        ProUtils.pause();</span>
+      }
+<span class="nc bnc" id="L328" title="All 6 branches missed.">      if (moveRoutes.get(i) == null || moveRoutes.get(i).getEnd() == null || moveRoutes.get(i).getStart() == null) {</span>
+<span class="nc" id="L329">        ProLogger.warn(data.getSequence().getRound() + &quot;-&quot; + data.getSequence().getStep().getName()</span>
+<span class="nc" id="L330">            + &quot;: route not valid &quot; + moveRoutes.get(i) + &quot; units: &quot; + moveUnits.get(i));</span>
+<span class="nc" id="L331">        continue;</span>
+      }
+      String result;
+<span class="nc bnc" id="L334" title="All 4 branches missed.">      if (transportsToLoad == null || transportsToLoad.get(i) == null) {</span>
+<span class="nc" id="L335">        result = moveDel.move(moveUnits.get(i), moveRoutes.get(i));</span>
+<span class="nc" id="L336">      } else {</span>
+<span class="nc" id="L337">        result = moveDel.move(moveUnits.get(i), moveRoutes.get(i), transportsToLoad.get(i));</span>
+      }
+<span class="nc bnc" id="L339" title="All 2 branches missed.">      if (result != null) {</span>
+<span class="nc" id="L340">        ProLogger.warn(data.getSequence().getRound() + &quot;-&quot; + data.getSequence().getStep().getName()</span>
+<span class="nc" id="L341">            + &quot;: could not move &quot; + moveUnits.get(i) + &quot; over &quot; + moveRoutes.get(i) + &quot; because: &quot; + result);</span>
+      }
+    }
+<span class="nc" id="L344">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>FileBackedGamePropertiesCache.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.startup.ui</a> &gt; <span class="el_source">FileBackedGamePropertiesCache.java</span></div><h1>FileBackedGamePropertiesCache.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework.startup.ui;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.properties.IEditableProperty;
+
+/**
+ * A game options cache that uses files to store the game options
+ */
+<span class="nc" id="L22">public class FileBackedGamePropertiesCache implements IGamePropertiesCache {</span>
+  // chars illegal on windows (on linux/mac anything that is allowed on windows works fine)
+<span class="nc" id="L24">  final static char[] s_illegalChars = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,</span>
+<span class="nc" id="L25">      22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 34, 42, 58, 60, 62, 63, 92, 124};</span>
+
+  /**
+   * Caches the gameOptions stored in the game data, and associates with this game. only values that are serializable
+   * (which they should all be) will be stored
+   *
+   * @param gameData
+   *        the game which options you want to cache
+   */
+  @Override
+  public void cacheGameProperties(final GameData gameData) {
+<span class="nc" id="L36">    final Map&lt;String, Object&gt; serializableMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    for (final IEditableProperty property : gameData.getProperties().getEditableProperties()) {</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">      if (property.getValue() instanceof Serializable) {</span>
+<span class="nc" id="L39">        serializableMap.put(property.getName(), property.getValue());</span>
+      }
+    }
+<span class="nc" id="L42">    final File cache = getCacheFile(gameData);</span>
+    try {
+      // create the directory if it doesn't already exists
+<span class="nc bnc" id="L45" title="All 2 branches missed.">      if (!cache.getParentFile().exists()) {</span>
+<span class="nc" id="L46">        cache.getParentFile().mkdirs();</span>
+      }
+<span class="nc" id="L48">      final ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(cache));</span>
+<span class="nc" id="L49">      out.writeObject(serializableMap);</span>
+<span class="nc" id="L50">      out.close();</span>
+<span class="nc" id="L51">    } catch (final IOException e) {</span>
+<span class="nc" id="L52">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L54">  }</span>
+
+  /**
+   * Loads cached game options into the gameData
+   *
+   * @param gameData
+   *        the game to load the cached game options into
+   */
+  @Override
+  @SuppressWarnings(&quot;unchecked&quot;)
+  // generics are compile time only, and lost during serialization
+  public void loadCachedGamePropertiesInto(final GameData gameData) {
+<span class="nc" id="L66">    final File cache = getCacheFile(gameData);</span>
+    try {
+<span class="nc bnc" id="L68" title="All 2 branches missed.">      if (cache.exists()) {</span>
+<span class="nc" id="L69">        final ObjectInputStream in = new ObjectInputStream(new FileInputStream(cache));</span>
+<span class="nc" id="L70">        final Map&lt;String, Serializable&gt; serializedMap = (Map&lt;String, Serializable&gt;) in.readObject();</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">        for (final IEditableProperty property : gameData.getProperties().getEditableProperties()) {</span>
+<span class="nc" id="L72">          final Serializable ser = serializedMap.get(property.getName());</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">          if (ser != null) {</span>
+<span class="nc" id="L74">            property.setValue(ser);</span>
+          }
+        }
+<span class="nc" id="L77">        in.close();</span>
+      }
+<span class="nc" id="L79">    } catch (IOException | ClassNotFoundException e) {</span>
+<span class="nc" id="L80">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L82">  }</span>
+
+  /**
+   * Calculates the cache filename and location based on the game data
+   *
+   * @param gameData
+   *        the game data
+   * @return the File where the cached game options should be stored or read from
+   */
+  private static File getCacheFile(final GameData gameData) {
+<span class="nc" id="L92">    final File cacheDir = new File(ClientFileSystemHelper.getUserRootFolder(), &quot;optionCache&quot;);</span>
+<span class="nc" id="L93">    return new File(cacheDir, getFileName(gameData.getGameName()));</span>
+  }
+
+  /**
+   * Removes any special characters from the file name
+   *
+   * @param gameName
+   *        the name of the game
+   * @return the fileName on disk
+   */
+  private static String getFileName(final String gameName) {
+<span class="nc" id="L104">    final StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    for (int i = 0, charArrayLength = gameName.length(); i &lt; charArrayLength; i++) {</span>
+<span class="nc" id="L106">      final char c = gameName.charAt(i);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">      if (Arrays.binarySearch(s_illegalChars, c) &lt; 0) {</span>
+<span class="nc" id="L108">        sb.append(c);</span>
+      }
+    }
+<span class="nc" id="L111">    sb.append(&quot;.defaultOptions&quot;);</span>
+<span class="nc" id="L112">    return sb.toString();</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

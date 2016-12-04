@@ -1,0 +1,620 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PoliticsDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">PoliticsDelegate.java</span></div><h1>PoliticsDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.PoliticalActionAttachment;
+import games.strategy.triplea.attachments.RulesAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.delegate.remote.IPoliticsDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.ui.PoliticsText;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+
+/**
+ * Responsible allowing players to perform politicalActions
+ */
+@MapSupport
+public class PoliticsDelegate extends BaseTripleADelegate implements IPoliticsDelegate {
+  // protected HashMap&lt;ICondition, Boolean&gt; m_testedConditions = null;
+  // private final boolean m_needToInitialize = true;
+  /** Creates new PoliticsDelegate */
+<span class="fc" id="L44">  public PoliticsDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="nc" id="L51">    super.start();</span>
+<span class="nc" id="L52">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L56">    super.end();</span>
+<span class="nc" id="L57">    resetAttempts();</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getTriggers(getData())) {</span>
+      // First set up a match for what we want to have fire as a default in this delegate. List out as a composite match
+      // OR.
+      // use 'null, null' because this is the Default firing location for any trigger that does NOT have 'when' set.
+<span class="nc" id="L62">      final Match&lt;TriggerAttachment&gt; politicsDelegateTriggerMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L63">          TriggerAttachment.availableUses, TriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="nc" id="L64">          new CompositeMatchOr&lt;TriggerAttachment&gt;(TriggerAttachment.relationshipChangeMatch()));</span>
+      // get all possible triggers based on this match.
+<span class="nc" id="L66">      final HashSet&lt;TriggerAttachment&gt; toFirePossible = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="nc" id="L67">          new HashSet&lt;&gt;(Collections.singleton(m_player)), politicsDelegateTriggerMatch, m_bridge);</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">      if (!toFirePossible.isEmpty()) {</span>
+        // get all conditions possibly needed by these triggers, and then test them.
+<span class="nc" id="L70">        final HashMap&lt;ICondition, Boolean&gt; testedConditions =</span>
+<span class="nc" id="L71">            TriggerAttachment.collectTestsForAllTriggers(toFirePossible, m_bridge);</span>
+        // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L73">        final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L74">            Match.getMatches(toFirePossible, TriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+        // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L76">        TriggerAttachment.triggerRelationshipChange(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="nc" id="L77">            true);</span>
+      }
+    }
+<span class="nc" id="L80">    chainAlliancesTogether(m_bridge);</span>
+<span class="nc" id="L81">    givesBackOriginalTerritories(m_bridge);</span>
+    // m_needToInitialize = true;
+<span class="nc" id="L83">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L87">    final PoliticsExtendedDelegateState state = new PoliticsExtendedDelegateState();</span>
+<span class="nc" id="L88">    state.superState = super.saveState();</span>
+<span class="nc" id="L89">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L94">    final PoliticsExtendedDelegateState s = (PoliticsExtendedDelegateState) state;</span>
+<span class="nc" id="L95">    super.loadState(s.superState);</span>
+<span class="nc" id="L96">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc bnc" id="L100" title="All 2 branches missed.">    if (!m_player.amNotDeadYet(getData())) {</span>
+<span class="nc" id="L101">      return false;</span>
+    }
+<span class="nc bnc" id="L103" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getUsePolitics(getData())) {</span>
+<span class="nc" id="L104">      return false;</span>
+    }
+<span class="nc bnc" id="L106" title="All 2 branches missed.">    return !getValidActions().isEmpty();</span>
+  }
+
+  public HashMap&lt;ICondition, Boolean&gt; getTestedConditions() {
+<span class="nc" id="L110">    final HashSet&lt;ICondition&gt; allConditionsNeeded = RulesAttachment.getAllConditionsRecursive(</span>
+<span class="nc" id="L111">        new HashSet&lt;&gt;(PoliticalActionAttachment.getPoliticalActionAttachments(m_player)), null);</span>
+<span class="nc" id="L112">    return RulesAttachment.testAllConditionsRecursive(allConditionsNeeded, null, m_bridge);</span>
+  }
+
+  @Override
+  public Collection&lt;PoliticalActionAttachment&gt; getValidActions() {
+<span class="nc" id="L117">    final GameData data = m_bridge.getData();</span>
+    final HashMap&lt;ICondition, Boolean&gt; testedConditions;
+<span class="nc" id="L119">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L121">      testedConditions = getTestedConditions();</span>
+<span class="nc" id="L122">    } finally {</span>
+<span class="nc" id="L123">      data.releaseReadLock();</span>
+<span class="nc" id="L124">    }</span>
+<span class="nc" id="L125">    return PoliticalActionAttachment.getValidActions(m_player, testedConditions, data);</span>
+  }
+
+  @Override
+  public Class&lt;IPoliticsDelegate&gt; getRemoteType() {
+<span class="nc" id="L130">    return IPoliticsDelegate.class;</span>
+  }
+
+  @Override
+  public void attemptAction(final PoliticalActionAttachment paa) {
+<span class="nc bnc" id="L135" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getUsePolitics(getData())) {</span>
+<span class="nc" id="L136">      notifyPoliticsTurnedOff();</span>
+<span class="nc" id="L137">      return;</span>
+    }
+<span class="nc bnc" id="L139" title="All 2 branches missed.">    if (paa.canPerform(getTestedConditions())) {</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">      if (checkEnoughMoney(paa)) { // See if the player has got enough money to pay for the action</span>
+        // Charge for attempting the action
+<span class="nc" id="L142">        chargeForAction(paa);</span>
+        // take one of the uses this round
+<span class="nc" id="L144">        paa.useAttempt(getBridge());</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        if (actionRollSucceeds(paa)) { // See if the action is successful</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">          if (actionIsAccepted(paa)) {</span>
+            // change the relationships
+<span class="nc" id="L148">            changeRelationships(paa);</span>
+            // notify the players
+<span class="nc" id="L150">            notifySuccess(paa);</span>
+<span class="nc" id="L151">          } else {</span>
+            // notify the players of the failed attempt
+<span class="nc" id="L153">            notifyFailure(paa);</span>
+          }
+<span class="nc" id="L155">        } else {</span>
+          // notify the players of the failed attempt
+<span class="nc" id="L157">          notifyFailure(paa);</span>
+        }
+<span class="nc" id="L159">      } else {</span>
+        // notify the player he hasn't got enough money;
+<span class="nc" id="L161">        notifyMoney(paa, false);</span>
+      }
+<span class="nc" id="L163">    } else {</span>
+      // notify the player the action isn't valid anymore (shouldn't happen)
+<span class="nc" id="L165">      notifyNoValidAction(paa);</span>
+    }
+<span class="nc" id="L167">  }</span>
+
+  /**
+   * Get a list of players that should accept this action and then ask each
+   * player if it accepts this action.
+   *
+   * @param paa
+   *        the politicalActionAttachment that should be accepted
+   */
+  private boolean actionIsAccepted(final PoliticalActionAttachment paa) {
+<span class="nc" id="L177">    final GameData data = getData();</span>
+<span class="nc" id="L178">    final CompositeMatchOr&lt;PoliticalActionAttachment&gt; intoAlliedChainOrIntoOrOutOfWar =</span>
+<span class="nc" id="L179">        new CompositeMatchOr&lt;&gt;(</span>
+<span class="nc" id="L180">            Matches.politicalActionIsRelationshipChangeOf(null,</span>
+<span class="nc" id="L181">                Matches.RelationshipTypeIsAlliedAndAlliancesCanChainTogether.invert(),</span>
+<span class="nc" id="L182">                Matches.RelationshipTypeIsAlliedAndAlliancesCanChainTogether, data),</span>
+<span class="nc" id="L183">            Matches.politicalActionIsRelationshipChangeOf(null, Matches.RelationshipTypeIsAtWar.invert(),</span>
+<span class="nc" id="L184">                Matches.RelationshipTypeIsAtWar, data),</span>
+<span class="nc" id="L185">            Matches.politicalActionIsRelationshipChangeOf(null, Matches.RelationshipTypeIsAtWar,</span>
+<span class="nc" id="L186">                Matches.RelationshipTypeIsAtWar.invert(), data));</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getAlliancesCanChainTogether(data)</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">        || !intoAlliedChainOrIntoOrOutOfWar.match(paa)) {</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">      for (final PlayerID player : paa.getActionAccept()) {</span>
+<span class="nc" id="L190">        if (!(getRemotePlayer(player)).acceptAction(m_player,</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            PoliticsText.getInstance().getAcceptanceQuestion(paa.getText()), true)) {</span>
+<span class="nc" id="L192">          return false;</span>
+        }
+      }
+<span class="nc" id="L195">    } else {</span>
+      // if alliances chain together, then our allies must have a say in anyone becoming a new ally/enemy
+<span class="nc" id="L197">      final LinkedHashSet&lt;PlayerID&gt; playersWhoNeedToAccept = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L198">      playersWhoNeedToAccept.addAll(paa.getActionAccept());</span>
+<span class="nc" id="L199">      playersWhoNeedToAccept.addAll(Match.getMatches(data.getPlayerList().getPlayers(),</span>
+<span class="nc" id="L200">          Matches.isAlliedAndAlliancesCanChainTogether(m_player, data)));</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">      for (final PlayerID player : paa.getActionAccept()) {</span>
+<span class="nc" id="L202">        playersWhoNeedToAccept.addAll(Match.getMatches(data.getPlayerList().getPlayers(),</span>
+<span class="nc" id="L203">            Matches.isAlliedAndAlliancesCanChainTogether(player, data)));</span>
+      }
+<span class="nc" id="L205">      final HashSet&lt;PlayerID&gt; alliesWhoMustAccept = playersWhoNeedToAccept;</span>
+<span class="nc" id="L206">      alliesWhoMustAccept.removeAll(paa.getActionAccept());</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">      for (final PlayerID player : playersWhoNeedToAccept) {</span>
+<span class="nc" id="L208">        String actionText = PoliticsText.getInstance().getAcceptanceQuestion(paa.getText());</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        if (actionText.equals(&quot;NONE&quot;)) {</span>
+<span class="nc" id="L210">          actionText = m_player.getName() + &quot; wants to take the following action: &quot;</span>
+<span class="nc" id="L211">              + MyFormatter.attachmentNameToText(paa.getName()) + &quot; \r\n Do you approve?&quot;;</span>
+<span class="nc" id="L212">        } else {</span>
+<span class="nc" id="L213">          actionText = m_player.getName() + &quot; wants to take the following action: &quot;</span>
+<span class="nc" id="L214">              + MyFormatter.attachmentNameToText(paa.getName()) + &quot;.  Do you approve? \r\n\r\n &quot; + m_player.getName()</span>
+<span class="nc" id="L215">              + &quot; will ask &quot; + MyFormatter.defaultNamedToTextList(paa.getActionAccept())</span>
+<span class="nc" id="L216">              + &quot;, the following question: \r\n &quot; + actionText;</span>
+        }
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (!(getRemotePlayer(player)).acceptAction(m_player, actionText, true)) {</span>
+<span class="nc" id="L219">          return false;</span>
+        }
+      }
+<span class="nc bnc" id="L222" title="All 2 branches missed.">      for (final PlayerID player : paa.getActionAccept()) {</span>
+<span class="nc" id="L223">        if (!(getRemotePlayer(player)).acceptAction(m_player,</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">            PoliticsText.getInstance().getAcceptanceQuestion(paa.getText()), true)) {</span>
+<span class="nc" id="L225">          return false;</span>
+        }
+      }
+    }
+<span class="nc" id="L229">    return true;</span>
+  }
+
+  /**
+   * Let the player know this action isn't valid anymore, this shouldn't
+   * happen as the player shouldn't get an option to push the button on
+   * non-valid actions.
+   *
+   * @param paa
+   */
+  private void notifyNoValidAction(final PoliticalActionAttachment paa) {
+<span class="nc" id="L240">    sendNotification(&quot;This action isn't available anymore (this shouldn't happen!?!)&quot;);</span>
+<span class="nc" id="L241">  }</span>
+
+  private void notifyPoliticsTurnedOff() {
+<span class="nc" id="L244">    sendNotification(&quot;Politics is turned off in the game options&quot;);</span>
+<span class="nc" id="L245">  }</span>
+
+  /**
+   * Let the player know he is being charged for money or that he hasn't got
+   * enough money
+   *
+   * @param paa
+   *        the actionattachment the player is notified about
+   * @param enough
+   *        is this a notification about enough or not enough money.
+   */
+  private void notifyMoney(final PoliticalActionAttachment paa, final boolean enough) {
+<span class="nc bnc" id="L257" title="All 2 branches missed.">    if (enough) {</span>
+<span class="nc" id="L258">      sendNotification(&quot;Charging &quot; + paa.getCostPU() + &quot; PU's to perform this action&quot;);</span>
+<span class="nc" id="L259">    } else {</span>
+<span class="nc" id="L260">      sendNotification(&quot;You don't have ennough money, you need &quot; + paa.getCostPU() + &quot; PU's to perform this action&quot;);</span>
+    }
+<span class="nc" id="L262">  }</span>
+
+  /**
+   * Subtract money from the players wallet
+   *
+   * @param paa
+   *        the politicalactionattachment this the money is charged for.
+   */
+  private void chargeForAction(final PoliticalActionAttachment paa) {
+<span class="nc" id="L271">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L272">    final int cost = paa.getCostPU();</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">    if (cost &gt; 0) {</span>
+      // don't notify user of spending money anymore
+      // notifyMoney(paa, true);
+<span class="nc" id="L276">      final String transcriptText = m_bridge.getPlayerID().getName() + &quot; spend &quot; + cost + &quot; PU on Political Action: &quot;</span>
+<span class="nc" id="L277">          + MyFormatter.attachmentNameToText(paa.getName());</span>
+<span class="nc" id="L278">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L279">      final Change charge = ChangeFactory.changeResourcesChange(m_bridge.getPlayerID(), PUs, -cost);</span>
+<span class="nc" id="L280">      m_bridge.addChange(charge);</span>
+<span class="nc" id="L281">    } else {</span>
+<span class="nc" id="L282">      final String transcriptText = m_bridge.getPlayerID().getName() + &quot; takes Political Action: &quot;</span>
+<span class="nc" id="L283">          + MyFormatter.attachmentNameToText(paa.getName());</span>
+      // we must start an event anyway
+<span class="nc" id="L285">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+    }
+<span class="nc" id="L287">  }</span>
+
+  /**
+   * @param paa
+   *        The Political Action the player should be charged for
+   * @return false if the player can't afford the action
+   */
+  private boolean checkEnoughMoney(final PoliticalActionAttachment paa) {
+<span class="nc" id="L295">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L296">    final int cost = paa.getCostPU();</span>
+<span class="nc" id="L297">    final int has = m_bridge.getPlayerID().getResources().getQuantity(PUs);</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">    return has &gt;= cost;</span>
+  }
+
+  /**
+   * Let all players involved in this action know the action has failed.
+   *
+   * @param paa
+   *        the political action attachment that just failed.
+   */
+  private void notifyFailure(final PoliticalActionAttachment paa) {
+<span class="nc" id="L308">    getSoundChannel().playSoundForAll(SoundPath.CLIP_POLITICAL_ACTION_FAILURE, m_player);</span>
+<span class="nc" id="L309">    final String transcriptText =</span>
+<span class="nc" id="L310">        m_bridge.getPlayerID().getName() + &quot; fails on action: &quot; + MyFormatter.attachmentNameToText(paa.getName());</span>
+<span class="nc" id="L311">    m_bridge.getHistoryWriter().addChildToEvent(transcriptText);</span>
+<span class="nc" id="L312">    sendNotification(PoliticsText.getInstance().getNotificationFailure(paa.getText()));</span>
+<span class="nc" id="L313">    notifyOtherPlayers(paa, PoliticsText.getInstance().getNotificationFailureOthers(paa.getText()));</span>
+<span class="nc" id="L314">  }</span>
+
+  /**
+   * Let all players involved in this action know the action was successful
+   *
+   * @param paa the political action attachment that just succeeded.
+   */
+  private void notifySuccess(final PoliticalActionAttachment paa) {
+<span class="nc" id="L322">    getSoundChannel().playSoundForAll(SoundPath.CLIP_POLITICAL_ACTION_SUCCESSFUL, m_player);</span>
+<span class="nc" id="L323">    sendNotification(PoliticsText.getInstance().getNotificationSucccess(paa.getText()));</span>
+<span class="nc" id="L324">    notifyOtherPlayers(paa, PoliticsText.getInstance().getNotificationSuccessOthers(paa.getText()));</span>
+<span class="nc" id="L325">  }</span>
+
+  /**
+   * Send a notification to the other players involved in this action (all
+   * players except the player starting the action)
+   */
+  private void notifyOtherPlayers(final PoliticalActionAttachment paa, final String notification) {
+<span class="nc bnc" id="L332" title="All 2 branches missed.">    if (!&quot;NONE&quot;.equals(notification)) {</span>
+      // we can send it to just paa.getOtherPlayers(), or we can send it to all players. both are good options.
+<span class="nc" id="L334">      final Collection&lt;PlayerID&gt; currentPlayer = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L335">      currentPlayer.add(m_player);</span>
+<span class="nc" id="L336">      final Collection&lt;PlayerID&gt; otherPlayers = getData().getPlayerList().getPlayers();</span>
+<span class="nc" id="L337">      otherPlayers.removeAll(currentPlayer);</span>
+<span class="nc" id="L338">      this.getDisplay().reportMessageToPlayers(otherPlayers, currentPlayer, notification, notification);</span>
+    }
+<span class="nc" id="L340">  }</span>
+
+  /**
+   * Send a notification to the current player
+   *
+   * @param text
+   *        if NONE don't send a notification
+   */
+  private void sendNotification(final String text) {
+<span class="nc bnc" id="L349" title="All 2 branches missed.">    if (!&quot;NONE&quot;.equals(text)) {</span>
+<span class="nc" id="L350">      this.getRemotePlayer().reportMessage(text, text);</span>
+    }
+<span class="nc" id="L352">  }</span>
+
+  /**
+   * Changes all relationships
+   *
+   * @param paa
+   *        the political action to change the relationships for
+   */
+  private void changeRelationships(final PoliticalActionAttachment paa) {
+<span class="nc" id="L361">    getMyselfOutOfAlliance(paa, m_player, m_bridge);</span>
+<span class="nc" id="L362">    getNeutralOutOfWarWithAllies(paa, m_player, m_bridge);</span>
+<span class="nc" id="L363">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">    for (final String relationshipChange : paa.getRelationshipChange()) {</span>
+<span class="nc" id="L365">      final String[] s = relationshipChange.split(&quot;:&quot;);</span>
+<span class="nc" id="L366">      final PlayerID player1 = getData().getPlayerList().getPlayerID(s[0]);</span>
+<span class="nc" id="L367">      final PlayerID player2 = getData().getPlayerList().getPlayerID(s[1]);</span>
+<span class="nc" id="L368">      final RelationshipType oldRelation = getData().getRelationshipTracker().getRelationshipType(player1, player2);</span>
+<span class="nc" id="L369">      final RelationshipType newRelation = getData().getRelationshipTypeList().getRelationshipType(s[2]);</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">      if (oldRelation.equals(newRelation)) {</span>
+<span class="nc" id="L371">        continue;</span>
+      }
+<span class="nc" id="L373">      change.add(ChangeFactory.relationshipChange(player1, player2, oldRelation, newRelation));</span>
+<span class="nc" id="L374">      m_bridge.getHistoryWriter()</span>
+<span class="nc" id="L375">          .addChildToEvent(m_bridge.getPlayerID().getName() + &quot; succeeds on action: &quot;</span>
+<span class="nc" id="L376">              + MyFormatter.attachmentNameToText(paa.getName()) + &quot;: Changing Relationship for &quot; + player1.getName()</span>
+<span class="nc" id="L377">              + &quot; and &quot; + player2.getName() + &quot; from &quot; + oldRelation.getName() + &quot; to &quot; + newRelation.getName());</span>
+<span class="nc" id="L378">      MoveDelegate.getBattleTracker(getData()).addRelationshipChangesThisTurn(player1, player2, oldRelation,</span>
+<span class="nc" id="L379">          newRelation);</span>
+      /*
+       * creation of new battles is handled at the beginning of the battle delegate, in
+       * &quot;setupUnitsInSameTerritoryBattles&quot;, not here.
+       * if (Matches.RelationshipTypeIsAtWar.match(newRelation))
+       * TriggerAttachment.triggerMustFightBattle(player1, player2, m_bridge);
+       */
+    }
+<span class="nc bnc" id="L387" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L388">      m_bridge.addChange(change);</span>
+    }
+<span class="nc" id="L390">    chainAlliancesTogether(m_bridge);</span>
+<span class="nc" id="L391">  }</span>
+
+  /**
+   * @param paa
+   *        the action to check if it succeeds
+   * @return true if the action succeeds, usually because the die-roll succeeded.
+   */
+  private boolean actionRollSucceeds(final PoliticalActionAttachment paa) {
+<span class="nc" id="L399">    final int hitTarget = paa.getChanceToHit();</span>
+<span class="nc" id="L400">    final int diceSides = paa.getChanceDiceSides();</span>
+<span class="nc bnc" id="L401" title="All 4 branches missed.">    if (diceSides &lt;= 0 || hitTarget &gt;= diceSides) {</span>
+<span class="nc" id="L402">      paa.changeChanceDecrementOrIncrementOnSuccessOrFailure(m_bridge, true, true);</span>
+<span class="nc" id="L403">      return true;</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">    } else if (hitTarget &lt;= 0) {</span>
+<span class="nc" id="L405">      paa.changeChanceDecrementOrIncrementOnSuccessOrFailure(m_bridge, false, true);</span>
+<span class="nc" id="L406">      return false;</span>
+    }
+<span class="nc" id="L408">    final int rollResult = m_bridge.getRandom(diceSides, m_player, DiceType.NONCOMBAT,</span>
+<span class="nc" id="L409">        &quot;Attempting the Political Action: &quot; + MyFormatter.attachmentNameToText(paa.getName())) + 1;</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">    final boolean success = rollResult &lt;= hitTarget;</span>
+<span class="nc" id="L411">    final String notificationMessage = &quot;rolling (&quot; + hitTarget + &quot; out of &quot; + diceSides + &quot;) result: &quot; + rollResult</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">        + &quot; = &quot; + (success ? &quot;Success!&quot; : &quot;Failure!&quot;);</span>
+<span class="nc" id="L413">    m_bridge.getHistoryWriter()</span>
+<span class="nc" id="L414">        .addChildToEvent(MyFormatter.attachmentNameToText(paa.getName()) + &quot; : &quot; + notificationMessage);</span>
+<span class="nc" id="L415">    paa.changeChanceDecrementOrIncrementOnSuccessOrFailure(m_bridge, success, true);</span>
+<span class="nc" id="L416">    sendNotification(notificationMessage);</span>
+<span class="nc" id="L417">    return success;</span>
+  }
+
+  /**
+   * Reset the attempts-counter for this action, so next round the player can
+   * try again for a number of attempts.
+   */
+  private void resetAttempts() {
+<span class="nc bnc" id="L425" title="All 2 branches missed.">    for (final PoliticalActionAttachment paa : PoliticalActionAttachment.getPoliticalActionAttachments(m_player)) {</span>
+<span class="nc" id="L426">      paa.resetAttempts(getBridge());</span>
+    }
+<span class="nc" id="L428">  }</span>
+
+  private static void getMyselfOutOfAlliance(final PoliticalActionAttachment paa, final PlayerID player,
+      final IDelegateBridge aBridge) {
+<span class="nc" id="L432">    final GameData data = aBridge.getData();</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getAlliancesCanChainTogether(data)) {</span>
+<span class="nc" id="L434">      return;</span>
+    }
+<span class="nc" id="L436">    final Collection&lt;PlayerID&gt; players = data.getPlayerList().getPlayers();</span>
+<span class="nc" id="L437">    final Collection&lt;PlayerID&gt; p1AlliedWith =</span>
+<span class="nc" id="L438">        Match.getMatches(players, Matches.isAlliedAndAlliancesCanChainTogether(player, data));</span>
+<span class="nc" id="L439">    p1AlliedWith.remove(player);</span>
+<span class="nc" id="L440">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L441" title="All 2 branches missed.">    for (final String relationshipChangeString : paa.getRelationshipChange()) {</span>
+<span class="nc" id="L442">      final String[] relationshipChange = relationshipChangeString.split(&quot;:&quot;);</span>
+<span class="nc" id="L443">      final PlayerID p1 = data.getPlayerList().getPlayerID(relationshipChange[0]);</span>
+<span class="nc" id="L444">      final PlayerID p2 = data.getPlayerList().getPlayerID(relationshipChange[1]);</span>
+<span class="nc bnc" id="L445" title="All 4 branches missed.">      if (!(p1.equals(player) || p2.equals(player))) {</span>
+<span class="nc" id="L446">        continue;</span>
+      }
+<span class="nc bnc" id="L448" title="All 2 branches missed.">      final PlayerID pOther = (p1.equals(player) ? p2 : p1);</span>
+<span class="nc bnc" id="L449" title="All 2 branches missed.">      if (!p1AlliedWith.contains(pOther)) {</span>
+<span class="nc" id="L450">        continue;</span>
+      }
+<span class="nc" id="L452">      final RelationshipType currentType = data.getRelationshipTracker().getRelationshipType(p1, p2);</span>
+<span class="nc" id="L453">      final RelationshipType newType = data.getRelationshipTypeList().getRelationshipType(relationshipChange[2]);</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">      if (Matches.RelationshipTypeIsAlliedAndAlliancesCanChainTogether.match(currentType)</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">          &amp;&amp; Matches.RelationshipTypeIsAlliedAndAlliancesCanChainTogether.invert().match(newType)) {</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">        for (final PlayerID p3 : p1AlliedWith) {</span>
+<span class="nc" id="L457">          final RelationshipType currentOther = data.getRelationshipTracker().getRelationshipType(p3, player);</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">          if (!currentOther.equals(newType)) {</span>
+<span class="nc" id="L459">            change.add(ChangeFactory.relationshipChange(p3, player, currentOther, newType));</span>
+<span class="nc" id="L460">            aBridge.getHistoryWriter().addChildToEvent(</span>
+<span class="nc" id="L461">                player.getName() + &quot; and &quot; + p3.getName() + &quot; sign a &quot; + newType.getName() + &quot; treaty&quot;);</span>
+<span class="nc" id="L462">            MoveDelegate.getBattleTracker(data).addRelationshipChangesThisTurn(p3, player, currentOther, newType);</span>
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L467" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L468">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L470">  }</span>
+
+  private static void getNeutralOutOfWarWithAllies(final PoliticalActionAttachment paa, final PlayerID player,
+      final IDelegateBridge aBridge) {
+<span class="nc" id="L474">    final GameData data = aBridge.getData();</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getAlliancesCanChainTogether(data)) {</span>
+<span class="nc" id="L476">      return;</span>
+    }
+
+<span class="nc" id="L479">    final Collection&lt;PlayerID&gt; players = data.getPlayerList().getPlayers();</span>
+<span class="nc" id="L480">    final Collection&lt;PlayerID&gt; p1AlliedWith =</span>
+<span class="nc" id="L481">        Match.getMatches(players, Matches.isAlliedAndAlliancesCanChainTogether(player, data));</span>
+<span class="nc" id="L482">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">    for (final String relationshipChangeString : paa.getRelationshipChange()) {</span>
+<span class="nc" id="L484">      final String[] relationshipChange = relationshipChangeString.split(&quot;:&quot;);</span>
+<span class="nc" id="L485">      final PlayerID p1 = data.getPlayerList().getPlayerID(relationshipChange[0]);</span>
+<span class="nc" id="L486">      final PlayerID p2 = data.getPlayerList().getPlayerID(relationshipChange[1]);</span>
+<span class="nc bnc" id="L487" title="All 4 branches missed.">      if (!(p1.equals(player) || p2.equals(player))) {</span>
+<span class="nc" id="L488">        continue;</span>
+      }
+<span class="nc bnc" id="L490" title="All 2 branches missed.">      final PlayerID pOther = (p1.equals(player) ? p2 : p1);</span>
+<span class="nc" id="L491">      final RelationshipType currentType = data.getRelationshipTracker().getRelationshipType(p1, p2);</span>
+<span class="nc" id="L492">      final RelationshipType newType = data.getRelationshipTypeList().getRelationshipType(relationshipChange[2]);</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">      if (Matches.RelationshipTypeIsAtWar.match(currentType)</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">          &amp;&amp; Matches.RelationshipTypeIsAtWar.invert().match(newType)) {</span>
+<span class="nc" id="L495">        final Collection&lt;PlayerID&gt; pOtherAlliedWith =</span>
+<span class="nc" id="L496">            Match.getMatches(players, Matches.isAlliedAndAlliancesCanChainTogether(pOther, data));</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">        if (!pOtherAlliedWith.contains(pOther)) {</span>
+<span class="nc" id="L498">          pOtherAlliedWith.add(pOther);</span>
+        }
+<span class="nc bnc" id="L500" title="All 2 branches missed.">        if (!p1AlliedWith.contains(player)) {</span>
+<span class="nc" id="L501">          p1AlliedWith.add(player);</span>
+        }
+<span class="nc bnc" id="L503" title="All 2 branches missed.">        for (final PlayerID p3 : p1AlliedWith) {</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">          for (final PlayerID p4 : pOtherAlliedWith) {</span>
+<span class="nc" id="L505">            final RelationshipType currentOther = data.getRelationshipTracker().getRelationshipType(p3, p4);</span>
+<span class="nc bnc" id="L506" title="All 4 branches missed.">            if (!currentOther.equals(newType) &amp;&amp; Matches.RelationshipTypeIsAtWar.match(currentOther)) {</span>
+<span class="nc" id="L507">              change.add(ChangeFactory.relationshipChange(p3, p4, currentOther, newType));</span>
+<span class="nc" id="L508">              aBridge.getHistoryWriter()</span>
+<span class="nc" id="L509">                  .addChildToEvent(p3.getName() + &quot; and &quot; + p4.getName() + &quot; sign a &quot; + newType.getName() + &quot; treaty&quot;);</span>
+<span class="nc" id="L510">              MoveDelegate.getBattleTracker(data).addRelationshipChangesThisTurn(p3, p4, currentOther, newType);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L516" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L517">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L519">  }</span>
+
+  public static void chainAlliancesTogether(final IDelegateBridge aBridge) {
+<span class="fc" id="L522">    final GameData data = aBridge.getData();</span>
+<span class="pc bpc" id="L523" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getAlliancesCanChainTogether(data)) {</span>
+<span class="fc" id="L524">      return;</span>
+    }
+<span class="nc" id="L526">    final Collection&lt;RelationshipType&gt; allTypes = data.getRelationshipTypeList().getAllRelationshipTypes();</span>
+<span class="nc" id="L527">    RelationshipType alliedType = null;</span>
+<span class="nc" id="L528">    RelationshipType warType = null;</span>
+<span class="nc bnc" id="L529" title="All 2 branches missed.">    for (final RelationshipType type : allTypes) {</span>
+<span class="nc bnc" id="L530" title="All 2 branches missed.">      if (type.getRelationshipTypeAttachment().getIsDefaultWarPosition()) {</span>
+<span class="nc" id="L531">        warType = type;</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">      } else if (type.getRelationshipTypeAttachment().getAlliancesCanChainTogether()) {</span>
+<span class="nc" id="L533">        alliedType = type;</span>
+      }
+    }
+<span class="nc bnc" id="L536" title="All 2 branches missed.">    if (alliedType == null) {</span>
+<span class="nc" id="L537">      return;</span>
+    }
+    // first do alliances. then, do war (since we don't want to declare war on a potential ally).
+<span class="nc" id="L540">    final Collection&lt;PlayerID&gt; players = data.getPlayerList().getPlayers();</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">    for (final PlayerID p1 : players) {</span>
+<span class="nc" id="L542">      final HashSet&lt;PlayerID&gt; p1NewAllies = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L543">      final Collection&lt;PlayerID&gt; p1AlliedWith =</span>
+<span class="nc" id="L544">          Match.getMatches(players, Matches.isAlliedAndAlliancesCanChainTogether(p1, data));</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">      for (final PlayerID p2 : p1AlliedWith) {</span>
+<span class="nc" id="L546">        p1NewAllies.addAll(Match.getMatches(players, Matches.isAlliedAndAlliancesCanChainTogether(p2, data)));</span>
+      }
+<span class="nc" id="L548">      p1NewAllies.removeAll(p1AlliedWith);</span>
+<span class="nc" id="L549">      p1NewAllies.remove(p1);</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">      for (final PlayerID p3 : p1NewAllies) {</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">        if (!data.getRelationshipTracker().getRelationshipType(p1, p3).equals(alliedType)) {</span>
+<span class="nc" id="L552">          final RelationshipType current = data.getRelationshipTracker().getRelationshipType(p1, p3);</span>
+<span class="nc" id="L553">          aBridge.addChange(ChangeFactory.relationshipChange(p1, p3, current, alliedType));</span>
+<span class="nc" id="L554">          aBridge.getHistoryWriter().addChildToEvent(</span>
+<span class="nc" id="L555">              p1.getName() + &quot; and &quot; + p3.getName() + &quot; are joined together in an &quot; + alliedType.getName() + &quot; treaty&quot;);</span>
+<span class="nc" id="L556">          MoveDelegate.getBattleTracker(data).addRelationshipChangesThisTurn(p1, p3, current, alliedType);</span>
+        }
+      }
+    }
+    // now war
+<span class="nc bnc" id="L561" title="All 2 branches missed.">    if (warType == null) {</span>
+<span class="nc" id="L562">      return;</span>
+    }
+<span class="nc bnc" id="L564" title="All 2 branches missed.">    for (final PlayerID p1 : players) {</span>
+<span class="nc" id="L565">      final HashSet&lt;PlayerID&gt; p1NewWar = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L566">      final Collection&lt;PlayerID&gt; p1WarWith = Match.getMatches(players, Matches.isAtWar(p1, data));</span>
+<span class="nc" id="L567">      final Collection&lt;PlayerID&gt; p1AlliedWith =</span>
+<span class="nc" id="L568">          Match.getMatches(players, Matches.isAlliedAndAlliancesCanChainTogether(p1, data));</span>
+<span class="nc bnc" id="L569" title="All 2 branches missed.">      for (final PlayerID p2 : p1AlliedWith) {</span>
+<span class="nc" id="L570">        p1NewWar.addAll(Match.getMatches(players, Matches.isAtWar(p2, data)));</span>
+      }
+<span class="nc" id="L572">      p1NewWar.removeAll(p1WarWith);</span>
+<span class="nc" id="L573">      p1NewWar.remove(p1);</span>
+<span class="nc bnc" id="L574" title="All 2 branches missed.">      for (final PlayerID p3 : p1NewWar) {</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">        if (!data.getRelationshipTracker().getRelationshipType(p1, p3).equals(warType)) {</span>
+<span class="nc" id="L576">          final RelationshipType current = data.getRelationshipTracker().getRelationshipType(p1, p3);</span>
+<span class="nc" id="L577">          aBridge.addChange(ChangeFactory.relationshipChange(p1, p3, current, warType));</span>
+<span class="nc" id="L578">          aBridge.getHistoryWriter().addChildToEvent(</span>
+<span class="nc" id="L579">              p1.getName() + &quot; and &quot; + p3.getName() + &quot; declare &quot; + warType.getName() + &quot; on each other&quot;);</span>
+<span class="nc" id="L580">          MoveDelegate.getBattleTracker(data).addRelationshipChangesThisTurn(p1, p3, current, warType);</span>
+        }
+      }
+    }
+<span class="nc" id="L584">  }</span>
+
+  public static void givesBackOriginalTerritories(final IDelegateBridge aBridge) {
+<span class="nc" id="L587">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L588">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L589">    final Collection&lt;PlayerID&gt; players = data.getPlayerList().getPlayers();</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">    for (final PlayerID p1 : players) {</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">      for (final PlayerID p2 : players) {</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">        if (!data.getRelationshipTracker().givesBackOriginalTerritories(p1, p2)) {</span>
+<span class="nc" id="L593">          continue;</span>
+        }
+<span class="nc bnc" id="L595" title="All 2 branches missed.">        for (final Territory t : data.getMap().getTerritoriesOwnedBy(p1)) {</span>
+<span class="nc" id="L596">          final PlayerID original = OriginalOwnerTracker.getOriginalOwner(t);</span>
+<span class="nc bnc" id="L597" title="All 2 branches missed.">          if (original == null) {</span>
+<span class="nc" id="L598">            continue;</span>
+          }
+<span class="nc bnc" id="L600" title="All 2 branches missed.">          if (original.equals(p2)) {</span>
+<span class="nc" id="L601">            change.add(ChangeFactory.changeOwner(t, original));</span>
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L606" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L607">      aBridge.getHistoryWriter().startEvent(&quot;Giving back territories to original owners&quot;);</span>
+<span class="nc" id="L608">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L610">  }</span>
+}
+
+
+<span class="nc" id="L614">class PoliticsExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = -3829812751864156598L;
+  Serializable superState;
+  // add other variables here:
+  // public HashMap&lt;ICondition, Boolean&gt; m_testedConditions = null;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

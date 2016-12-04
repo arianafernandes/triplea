@@ -1,0 +1,1356 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MoveDelegateTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">MoveDelegateTest.java</span></div><h1>MoveDelegateTest.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import static games.strategy.triplea.delegate.GameDataTestUtil.removeFrom;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+
+import org.junit.Before;
+import org.junit.Test;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.ITestDelegateBridge;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.random.ScriptedRandomSource;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+<span class="fc" id="L31">public class MoveDelegateTest extends DelegateTest {</span>
+  MoveDelegate m_delegate;
+  ITestDelegateBridge m_bridge;
+
+  @Override
+  @Before
+  public void setUp() throws Exception {
+<span class="fc" id="L38">    super.setUp();</span>
+<span class="fc" id="L39">    m_bridge = super.getDelegateBridge(british);</span>
+<span class="fc" id="L40">    m_bridge.setStepName(&quot;britishCombatMove&quot;);</span>
+<span class="fc" id="L41">    final InitializationDelegate initDel =</span>
+<span class="fc" id="L42">        (InitializationDelegate) m_data.getDelegateList().getDelegate(&quot;initDelegate&quot;);</span>
+<span class="fc" id="L43">    initDel.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L44">    initDel.start();</span>
+<span class="fc" id="L45">    initDel.end();</span>
+<span class="fc" id="L46">    m_delegate = new MoveDelegate();</span>
+<span class="fc" id="L47">    m_delegate.initialize(&quot;MoveDelegate&quot;, &quot;MoveDelegate&quot;);</span>
+<span class="fc" id="L48">    m_delegate.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L49">    m_delegate.start();</span>
+<span class="fc" id="L50">  }</span>
+
+  private static Collection&lt;Unit&gt; getUnits(final IntegerMap&lt;UnitType&gt; units, final Territory from) {
+<span class="fc" id="L53">    final Iterator&lt;UnitType&gt; iter = units.keySet().iterator();</span>
+<span class="fc" id="L54">    final Collection&lt;Unit&gt; rVal = new ArrayList&lt;&gt;(units.totalValues());</span>
+<span class="fc bfc" id="L55" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L56">      final UnitType type = iter.next();</span>
+<span class="fc" id="L57">      rVal.addAll(from.getUnits().getUnits(type, units.getInt(type)));</span>
+    }
+<span class="fc" id="L59">    return rVal;</span>
+  }
+
+  @Test
+  public void testNotUnique() {
+<span class="fc" id="L64">    final Route route = new Route();</span>
+<span class="fc" id="L65">    route.setStart(egypt);</span>
+<span class="fc" id="L66">    route.add(eastAfrica);</span>
+<span class="fc" id="L67">    final List&lt;Unit&gt; units = armour.create(1, british);</span>
+<span class="fc" id="L68">    units.addAll(units);</span>
+<span class="fc" id="L69">    final String results = m_delegate.move(units, route);</span>
+<span class="fc" id="L70">    assertError(results);</span>
+<span class="fc" id="L71">  }</span>
+
+  @Test
+  public void testNotEnoughUnits() {
+<span class="fc" id="L75">    final Route route = new Route();</span>
+<span class="fc" id="L76">    route.setStart(egypt);</span>
+<span class="fc" id="L77">    route.add(eastAfrica);</span>
+<span class="fc" id="L78">    final String results = m_delegate.move(armour.create(10, british), route);</span>
+<span class="fc" id="L79">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L80">    assertEquals(2, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L81">    assertError(results);</span>
+<span class="fc" id="L82">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L83">    assertEquals(2, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L84">  }</span>
+
+  @Test
+  public void testCantMoveEnemy() {
+<span class="fc" id="L88">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L89">    map.put(infantry, 1);</span>
+<span class="fc" id="L90">    final Route route = new Route();</span>
+<span class="fc" id="L91">    route.setStart(algeria);</span>
+<span class="fc" id="L92">    route.add(libya);</span>
+<span class="fc" id="L93">    assertEquals(1, algeria.getUnits().size());</span>
+<span class="fc" id="L94">    assertEquals(0, libya.getUnits().size());</span>
+<span class="fc" id="L95">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L96">    assertError(results);</span>
+<span class="fc" id="L97">    assertEquals(1, algeria.getUnits().size());</span>
+<span class="fc" id="L98">    assertEquals(0, libya.getUnits().size());</span>
+<span class="fc" id="L99">  }</span>
+
+  @Test
+  public void testSimpleMove() {
+<span class="fc" id="L103">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L104">    map.put(armour, 2);</span>
+<span class="fc" id="L105">    final Route route = new Route();</span>
+<span class="fc" id="L106">    route.setStart(egypt);</span>
+<span class="fc" id="L107">    route.add(eastAfrica);</span>
+<span class="fc" id="L108">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L109">    assertEquals(2, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L110">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L111">    assertValid(results);</span>
+<span class="fc" id="L112">    assertEquals(16, egypt.getUnits().size());</span>
+<span class="fc" id="L113">    assertEquals(4, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L114">  }</span>
+
+  @Test
+  public void testSimpleMoveLength2() {
+<span class="fc" id="L118">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L119">    map.put(armour, 2);</span>
+<span class="fc" id="L120">    final Route route = new Route();</span>
+<span class="fc" id="L121">    route.setStart(egypt);</span>
+<span class="fc" id="L122">    route.add(eastAfrica);</span>
+<span class="fc" id="L123">    route.add(kenya);</span>
+<span class="fc" id="L124">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L125">    assertEquals(0, kenya.getUnits().size());</span>
+<span class="fc" id="L126">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L127">    assertValid(results);</span>
+<span class="fc" id="L128">    assertEquals(16, egypt.getUnits().size());</span>
+<span class="fc" id="L129">    assertEquals(2, kenya.getUnits().size());</span>
+<span class="fc" id="L130">  }</span>
+
+  @Test
+  public void testCanReturnToCarrier() {
+<span class="fc" id="L134">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L135">    map.put(fighter, 3);</span>
+<span class="fc" id="L136">    final Route route = new Route();</span>
+<span class="fc" id="L137">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L138">    route.add(southAtlantic);</span>
+<span class="fc" id="L139">    route.add(antarticSea);</span>
+<span class="fc" id="L140">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L141">    assertValid(results);</span>
+<span class="fc" id="L142">  }</span>
+
+  @Test
+  public void testLandOnCarrier() {
+<span class="fc" id="L146">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L147">    map.put(fighter, 2);</span>
+<span class="fc" id="L148">    final Route route = new Route();</span>
+<span class="fc" id="L149">    route.setStart(egypt);</span>
+    // extra movement to force landing
+<span class="fc" id="L151">    route.add(eastAfrica);</span>
+<span class="fc" id="L152">    route.add(kenya);</span>
+<span class="fc" id="L153">    route.add(mozambiqueSeaZone);</span>
+<span class="fc" id="L154">    route.add(redSea);</span>
+<span class="fc" id="L155">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L156">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L157">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L158">    assertValid(results);</span>
+<span class="fc" id="L159">    assertEquals(16, egypt.getUnits().size());</span>
+<span class="fc" id="L160">    assertEquals(6, redSea.getUnits().size());</span>
+<span class="fc" id="L161">  }</span>
+
+  @Test
+  public void testCantLandWithNoCarrier() {
+<span class="fc" id="L165">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L166">    map.put(fighter, 2);</span>
+<span class="fc" id="L167">    final Route route = new Route();</span>
+<span class="fc" id="L168">    route.setStart(egypt);</span>
+    // extra movement to force landing
+<span class="fc" id="L170">    route.add(eastAfrica);</span>
+<span class="fc" id="L171">    route.add(kenya);</span>
+<span class="fc" id="L172">    route.add(redSea);</span>
+    // no carriers
+<span class="fc" id="L174">    route.add(mozambiqueSeaZone);</span>
+<span class="fc" id="L175">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L176">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L177">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L178">    assertError(results);</span>
+<span class="fc" id="L179">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L180">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L181">  }</span>
+
+  @Test
+  public void testNotEnoughCarrierCapacity() {
+<span class="fc" id="L185">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L186">    map.put(fighter, 5);</span>
+<span class="fc" id="L187">    final Route route = new Route();</span>
+<span class="fc" id="L188">    route.setStart(egypt);</span>
+    // exast movement to force landing
+<span class="fc" id="L190">    route.add(eastAfrica);</span>
+<span class="fc" id="L191">    route.add(kenya);</span>
+<span class="fc" id="L192">    route.add(mozambiqueSeaZone);</span>
+<span class="fc" id="L193">    route.add(redSea);</span>
+<span class="fc" id="L194">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L195">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L196">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L197">    assertError(results);</span>
+<span class="fc" id="L198">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L199">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L200">  }</span>
+
+  @Test
+  public void testLandMoveToWaterWithNoTransports() {
+<span class="fc" id="L204">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L205">    map.put(armour, 2);</span>
+<span class="fc" id="L206">    final Route route = new Route();</span>
+<span class="fc" id="L207">    route.setStart(egypt);</span>
+    // exast movement to force landing
+<span class="fc" id="L209">    route.add(eastMediteranean);</span>
+<span class="fc" id="L210">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L211">    assertEquals(0, eastMediteranean.getUnits().size());</span>
+<span class="fc" id="L212">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L213">    assertError(results);</span>
+<span class="fc" id="L214">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L215">    assertEquals(0, eastMediteranean.getUnits().size());</span>
+<span class="fc" id="L216">  }</span>
+
+  @Test
+  public void testSeaMove() {
+<span class="fc" id="L220">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L221">    map.put(carrier, 2);</span>
+<span class="fc" id="L222">    final Route route = new Route();</span>
+<span class="fc" id="L223">    route.setStart(redSea);</span>
+    // exast movement to force landing
+<span class="fc" id="L225">    route.add(mozambiqueSeaZone);</span>
+<span class="fc" id="L226">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L227">    assertEquals(0, mozambiqueSeaZone.getUnits().size());</span>
+<span class="fc" id="L228">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L229">    assertValid(results);</span>
+<span class="fc" id="L230">    assertEquals(2, redSea.getUnits().size());</span>
+<span class="fc" id="L231">    assertEquals(2, mozambiqueSeaZone.getUnits().size());</span>
+<span class="fc" id="L232">  }</span>
+
+  @Test
+  public void testSeaCantMoveToLand() {
+<span class="fc" id="L236">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L237">    map.put(carrier, 2);</span>
+<span class="fc" id="L238">    final Route route = new Route();</span>
+<span class="fc" id="L239">    route.setStart(redSea);</span>
+    // exast movement to force landing
+<span class="fc" id="L241">    route.add(egypt);</span>
+<span class="fc" id="L242">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L243">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L244">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L245">    assertError(results);</span>
+<span class="fc" id="L246">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L247">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L248">  }</span>
+
+  @Test
+  public void testLandMoveToWaterWithTransportsFull() {
+<span class="fc" id="L252">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L253">    map.put(armour, 1);</span>
+<span class="fc" id="L254">    map.put(infantry, 2);</span>
+<span class="fc" id="L255">    final Route route = new Route();</span>
+<span class="fc" id="L256">    route.setStart(equatorialAfrica);</span>
+    // exast movement to force landing
+<span class="fc" id="L258">    route.add(congoSeaZone);</span>
+<span class="fc" id="L259">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L260">    assertEquals(11, congoSeaZone.getUnits().size());</span>
+<span class="fc" id="L261">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L262">    assertError(results);</span>
+<span class="fc" id="L263">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L264">    assertEquals(11, congoSeaZone.getUnits().size());</span>
+<span class="fc" id="L265">  }</span>
+
+  @Test
+  public void testAirCanFlyOverWater() {
+<span class="fc" id="L269">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L270">    map.put(bomber, 2);</span>
+<span class="fc" id="L271">    final Route route = new Route();</span>
+<span class="fc" id="L272">    route.setStart(egypt);</span>
+    // exast movement to force landing
+<span class="fc" id="L274">    route.add(redSea);</span>
+<span class="fc" id="L275">    route.add(syria);</span>
+<span class="fc" id="L276">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L277">    assertValid(results);</span>
+<span class="fc" id="L278">  }</span>
+
+  @Test
+  public void testLandMoveToWaterWithTransportsEmpty() {
+<span class="fc" id="L282">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L283">    map.put(armour, 2);</span>
+<span class="fc" id="L284">    final Route route = new Route();</span>
+<span class="fc" id="L285">    route.setStart(egypt);</span>
+    // exast movement to force landing
+<span class="fc" id="L287">    route.add(redSea);</span>
+<span class="fc" id="L288">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L289">    assertEquals(4, redSea.getUnits().size());</span>
+<span class="fc" id="L290">    final String results =</span>
+<span class="fc" id="L291">        m_delegate.move(getUnits(map, route.getStart()), route, route.getEnd().getUnits().getUnits());</span>
+<span class="fc" id="L292">    assertValid(results);</span>
+<span class="fc" id="L293">    assertEquals(16, egypt.getUnits().size());</span>
+<span class="fc" id="L294">    assertEquals(6, redSea.getUnits().size());</span>
+<span class="fc" id="L295">  }</span>
+
+  @Test
+  public void testBlitzWithArmour() {
+<span class="fc" id="L299">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L300">    map.put(armour, 2);</span>
+<span class="fc" id="L301">    final Route route = new Route();</span>
+<span class="fc" id="L302">    route.setStart(egypt);</span>
+<span class="fc" id="L303">    route.add(libya);</span>
+<span class="fc" id="L304">    route.add(algeria);</span>
+<span class="fc" id="L305">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L306">    assertEquals(1, algeria.getUnits().size());</span>
+<span class="fc" id="L307">    assertEquals(libya.getOwner(), japanese);</span>
+<span class="fc" id="L308">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L309">    assertValid(results);</span>
+<span class="fc" id="L310">    assertEquals(16, egypt.getUnits().size());</span>
+<span class="fc" id="L311">    assertEquals(3, algeria.getUnits().size());</span>
+<span class="fc" id="L312">    assertEquals(libya.getOwner(), british);</span>
+<span class="fc" id="L313">  }</span>
+
+  @Test
+  public void testCant2StepBlitzWithNonBlitzingUnits() {
+<span class="fc" id="L317">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L318">    map.put(armour, 1);</span>
+<span class="fc" id="L319">    Route route = new Route();</span>
+<span class="fc" id="L320">    route.setStart(egypt);</span>
+<span class="fc" id="L321">    route.add(libya);</span>
+    // Disable canBlitz attachment
+<span class="fc" id="L323">    m_data.performChange(ChangeFactory.attachmentPropertyChange(UnitAttachment.get(armour), &quot;false&quot;, &quot;canBlitz&quot;));</span>
+<span class="fc" id="L324">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L325">    assertValid(results);</span>
+    // Validate move happened
+<span class="fc" id="L327">    assertEquals(1, libya.getUnits().size());</span>
+<span class="fc" id="L328">    assertEquals(libya.getOwner(), british);</span>
+    // Try to move 2nd space
+<span class="fc" id="L330">    route = new Route();</span>
+<span class="fc" id="L331">    route.setStart(libya);</span>
+<span class="fc" id="L332">    route.add(algeria);</span>
+    // Fail because not 'canBlitz'
+<span class="fc" id="L334">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L335">    assertError(results);</span>
+<span class="fc" id="L336">  }</span>
+
+  @Test
+  public void testCantBlitzNuetral() {
+<span class="fc" id="L340">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L341">    map.put(armour, 2);</span>
+<span class="fc" id="L342">    final Route route = new Route();</span>
+<span class="fc" id="L343">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L344">    route.add(westAfrica);</span>
+<span class="fc" id="L345">    route.add(algeria);</span>
+<span class="fc" id="L346">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L347">    assertEquals(1, algeria.getUnits().size());</span>
+<span class="fc" id="L348">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L349">    assertError(results);</span>
+<span class="fc" id="L350">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L351">    assertEquals(1, algeria.getUnits().size());</span>
+<span class="fc" id="L352">  }</span>
+
+  @Test
+  public void testOverrunNeutral() {
+<span class="fc" id="L356">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L357">    map.put(armour, 2);</span>
+<span class="fc" id="L358">    final Route route = new Route();</span>
+<span class="fc" id="L359">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L360">    route.add(westAfrica);</span>
+<span class="fc" id="L361">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L362">    assertEquals(0, westAfrica.getUnits().size());</span>
+<span class="fc" id="L363">    assertEquals(westAfrica.getOwner(), PlayerID.NULL_PLAYERID);</span>
+<span class="fc" id="L364">    assertEquals(35, british.getResources().getQuantity(PUs));</span>
+<span class="fc" id="L365">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L366">    assertValid(results);</span>
+<span class="fc" id="L367">    assertEquals(2, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L368">    assertEquals(2, westAfrica.getUnits().size());</span>
+<span class="fc" id="L369">    assertEquals(westAfrica.getOwner(), british);</span>
+<span class="fc" id="L370">    assertEquals(32, british.getResources().getQuantity(PUs));</span>
+<span class="fc" id="L371">  }</span>
+
+  @Test
+  public void testAirCanOverFlyEnemy() {
+<span class="fc" id="L375">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L376">    map.put(bomber, 2);</span>
+<span class="fc" id="L377">    final Route route = new Route();</span>
+<span class="fc" id="L378">    route.setStart(egypt);</span>
+<span class="fc" id="L379">    route.add(libya);</span>
+<span class="fc" id="L380">    route.add(algeria);</span>
+<span class="fc" id="L381">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L382">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L383">    assertValid(results);</span>
+<span class="fc" id="L384">  }</span>
+
+  @Test
+  public void testOverrunNeutralMustStop() {
+<span class="fc" id="L388">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L389">    map.put(armour, 2);</span>
+<span class="fc" id="L390">    Route route = new Route();</span>
+<span class="fc" id="L391">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L392">    route.add(westAfrica);</span>
+<span class="fc" id="L393">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L394">    assertValid(results);</span>
+<span class="fc" id="L395">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L396">    map.put(armour, 2);</span>
+<span class="fc" id="L397">    route = new Route();</span>
+<span class="fc" id="L398">    route.setStart(westAfrica);</span>
+<span class="fc" id="L399">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L400">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L401">    assertError(results);</span>
+<span class="fc" id="L402">  }</span>
+
+  @Test
+  public void testmultipleMovesExceedingMovementLimit() {
+<span class="fc" id="L406">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L407">    map.put(infantry, 2);</span>
+<span class="fc" id="L408">    Route route = new Route();</span>
+<span class="fc" id="L409">    route.setStart(eastAfrica);</span>
+<span class="fc" id="L410">    route.add(kenya);</span>
+<span class="fc" id="L411">    assertEquals(2, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L412">    assertEquals(0, kenya.getUnits().size());</span>
+<span class="fc" id="L413">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L414">    assertValid(results);</span>
+<span class="fc" id="L415">    assertEquals(0, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L416">    assertEquals(2, kenya.getUnits().size());</span>
+<span class="fc" id="L417">    route = new Route();</span>
+<span class="fc" id="L418">    route.setStart(kenya);</span>
+<span class="fc" id="L419">    route.add(egypt);</span>
+<span class="fc" id="L420">    assertEquals(2, kenya.getUnits().size());</span>
+<span class="fc" id="L421">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L422">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L423">    assertError(results);</span>
+<span class="fc" id="L424">    assertEquals(2, kenya.getUnits().size());</span>
+<span class="fc" id="L425">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L426">  }</span>
+
+  @Test
+  public void testMovingUnitsWithMostMovement() {
+    // move 2 tanks to equatorial africa
+<span class="fc" id="L431">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L432">    map.put(armour, 2);</span>
+<span class="fc" id="L433">    Route route = new Route();</span>
+<span class="fc" id="L434">    route.setStart(egypt);</span>
+<span class="fc" id="L435">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L436">    assertEquals(18, egypt.getUnits().size());</span>
+<span class="fc" id="L437">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L438">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L439">    assertValid(results);</span>
+<span class="fc" id="L440">    assertEquals(16, egypt.getUnits().size());</span>
+<span class="fc" id="L441">    assertEquals(6, equatorialAfrica.getUnits().size());</span>
+    // now move 2 tanks out of equatorial africa to east africa
+    // only the tanks with movement 2 can make it,
+    // this makes sure that the correct units are moving
+<span class="fc" id="L445">    route = new Route();</span>
+<span class="fc" id="L446">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L447">    route.add(egypt);</span>
+<span class="fc" id="L448">    route.add(eastAfrica);</span>
+<span class="fc" id="L449">    assertEquals(6, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L450">    assertEquals(2, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L451">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L452">    assertValid(results);</span>
+<span class="fc" id="L453">    assertEquals(4, equatorialAfrica.getUnits().size());</span>
+<span class="fc" id="L454">    assertEquals(4, eastAfrica.getUnits().size());</span>
+<span class="fc" id="L455">  }</span>
+
+  @Test
+  public void testTransportsMustStayWithUnits() {
+<span class="fc" id="L459">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L460">    map.put(armour, 2);</span>
+<span class="fc" id="L461">    Route route = new Route();</span>
+<span class="fc" id="L462">    route.setStart(egypt);</span>
+<span class="fc" id="L463">    route.add(redSea);</span>
+<span class="fc" id="L464">    String results = m_delegate.move(getUnits(map, route.getStart()), route, route.getEnd().getUnits().getUnits());</span>
+<span class="fc" id="L465">    assertValid(results);</span>
+<span class="fc" id="L466">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L467">    map.put(transport, 2);</span>
+<span class="fc" id="L468">    route = new Route();</span>
+<span class="fc" id="L469">    route.setStart(redSea);</span>
+<span class="fc" id="L470">    route.add(indianOcean);</span>
+<span class="fc" id="L471">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L472">    assertError(results);</span>
+<span class="fc" id="L473">  }</span>
+
+  @Test
+  public void testUnitsStayWithTransports() {
+<span class="fc" id="L477">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L478">    map.put(armour, 2);</span>
+<span class="fc" id="L479">    Route route = new Route();</span>
+<span class="fc" id="L480">    route.setStart(egypt);</span>
+<span class="fc" id="L481">    route.add(redSea);</span>
+<span class="fc" id="L482">    String results = m_delegate.move(getUnits(map, route.getStart()), route, route.getEnd().getUnits().getUnits());</span>
+<span class="fc" id="L483">    assertValid(results);</span>
+<span class="fc" id="L484">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L485">    map.put(armour, 2);</span>
+<span class="fc" id="L486">    route = new Route();</span>
+<span class="fc" id="L487">    route.setStart(redSea);</span>
+<span class="fc" id="L488">    route.add(indianOcean);</span>
+<span class="fc" id="L489">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L490">    assertError(results);</span>
+<span class="fc" id="L491">  }</span>
+
+  @Test
+  public void testUnload() {
+<span class="fc" id="L495">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L496">    map.put(infantry, 2);</span>
+<span class="fc" id="L497">    final Route route = new Route();</span>
+<span class="fc" id="L498">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L499">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L500">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L501">    assertValid(results);</span>
+<span class="fc" id="L502">  }</span>
+
+  @Test
+  public void testTransportCantLoadUnloadAfterBattle() {
+<span class="fc" id="L506">    m_bridge = super.getDelegateBridge(russians);</span>
+<span class="fc" id="L507">    m_bridge.setStepName(&quot;russianCombatMove&quot;);</span>
+<span class="fc" id="L508">    westEurope.setOwner(russians);</span>
+    // Attacking force
+<span class="fc" id="L510">    final List&lt;Unit&gt; attackTrns = transport.create(1, russians);</span>
+<span class="fc" id="L511">    final List&lt;Unit&gt; attackList = bomber.create(2, russians);</span>
+<span class="fc" id="L512">    attackList.addAll(attackTrns);</span>
+<span class="fc" id="L513">    m_bridge.setRandomSource(new ScriptedRandomSource(new int[] {1}));</span>
+<span class="fc" id="L514">    final DiceRoll roll = DiceRoll.rollDice(attackList, false, russians, m_bridge, new MockBattle(balticSeaZone), &quot;&quot;,</span>
+<span class="fc" id="L515">        TerritoryEffectHelper.getEffects(balticSeaZone), null);</span>
+<span class="fc" id="L516">    assertEquals(2, roll.getHits());</span>
+<span class="fc" id="L517">    m_bridge.setStepName(&quot;russianNonCombatMove&quot;);</span>
+    // Test the move
+<span class="fc" id="L519">    final Collection&lt;Unit&gt; moveInf = infantry.create(2, russians);</span>
+<span class="fc" id="L520">    final Route route = new Route();</span>
+<span class="fc" id="L521">    route.setStart(karelia);</span>
+<span class="fc" id="L522">    route.add(balticSeaZone);</span>
+<span class="fc" id="L523">    route.add(westEurope);</span>
+    // Once loaded, shouldnt be able to unload
+<span class="fc" id="L525">    final String results = m_delegate.move(moveInf, route);</span>
+<span class="fc" id="L526">    assertError(results);</span>
+<span class="fc" id="L527">  }</span>
+
+  @Test
+  public void testLoadUnloadLoadMoveTransports() {
+<span class="fc" id="L531">    m_bridge = super.getDelegateBridge(japanese);</span>
+<span class="fc" id="L532">    m_bridge.setStepName(&quot;japaneseCombatMove&quot;);</span>
+<span class="fc" id="L533">    m_bridge.setPlayerID(japanese);</span>
+<span class="fc" id="L534">    m_delegate.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L535">    m_delegate.start();</span>
+    // Set up the test
+<span class="fc" id="L537">    removeFrom(manchuria, manchuria.getUnits().getUnits());</span>
+<span class="fc" id="L538">    manchuria.setOwner(russians);</span>
+<span class="fc" id="L539">    removeFrom(japanSeaZone, japanSeaZone.getUnits().getUnits());</span>
+<span class="fc" id="L540">    m_data.performChange(ChangeFactory.addUnits(japanSeaZone, transport.create(3, japanese)));</span>
+<span class="fc" id="L541">    m_data.performChange(ChangeFactory.addUnits(japan, infantry.create(3, japanese)));</span>
+    // Perform the first load
+<span class="fc" id="L543">    final Route load = new Route();</span>
+<span class="fc" id="L544">    load.setStart(japan);</span>
+<span class="fc" id="L545">    load.add(japanSeaZone);</span>
+<span class="fc" id="L546">    String results = m_delegate.move(Match.getNMatches(japan.getUnits().getUnits(), 1, Matches.unitIsOfType(infantry)),</span>
+<span class="fc" id="L547">        load, Match.getMatches(japanSeaZone.getUnits().getUnits(), Matches.unitIsOfType(transport)));</span>
+<span class="fc" id="L548">    assertNull(results);</span>
+    // Perform the first unload
+<span class="fc" id="L550">    final Route unload = new Route();</span>
+<span class="fc" id="L551">    unload.setStart(japanSeaZone);</span>
+<span class="fc" id="L552">    unload.add(manchuria);</span>
+<span class="fc" id="L553">    results = m_delegate.move(Match.getNMatches(japanSeaZone.getUnits().getUnits(), 1, Matches.unitIsOfType(infantry)),</span>
+<span class="fc" id="L554">        unload);</span>
+<span class="fc" id="L555">    assertNull(results);</span>
+    // Load another trn
+<span class="fc" id="L557">    final Route route2 = new Route();</span>
+<span class="fc" id="L558">    route2.setStart(japan);</span>
+<span class="fc" id="L559">    route2.add(japanSeaZone);</span>
+<span class="fc" id="L560">    results = m_delegate.move(Match.getNMatches(japan.getUnits().getUnits(), 1, Matches.unitIsOfType(infantry)), route2,</span>
+<span class="fc" id="L561">        Match.getMatches(japanSeaZone.getUnits().getUnits(), Matches.unitIsOfType(transport)));</span>
+<span class="fc" id="L562">    assertNull(results);</span>
+    // Move remaining units
+<span class="fc" id="L564">    final Route route3 = new Route();</span>
+<span class="fc" id="L565">    route3.setStart(japanSeaZone);</span>
+<span class="fc" id="L566">    route3.add(sfeSeaZone);</span>
+<span class="fc" id="L567">    final Collection&lt;Unit&gt; remainingTrns = Match.getMatches(japanSeaZone.getUnits().getUnits(),</span>
+<span class="fc" id="L568">        new CompositeMatchAnd&lt;&gt;(Matches.unitHasNotMoved, Matches.UnitWasNotLoadedThisTurn));</span>
+<span class="fc" id="L569">    results = m_delegate.move(remainingTrns, route3);</span>
+<span class="fc" id="L570">    assertNull(results);</span>
+<span class="fc" id="L571">  }</span>
+
+  @Test
+  public void testUnloadedCantMove() {
+<span class="fc" id="L575">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L576">    map.put(infantry, 2);</span>
+<span class="fc" id="L577">    Route route = new Route();</span>
+<span class="fc" id="L578">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L579">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L580">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L581">    assertValid(results);</span>
+<span class="fc" id="L582">    map = new IntegerMap&lt;&gt;();</span>
+    // only 2 originially, would have to move the 2 we just unloaded
+    // as well
+<span class="fc" id="L585">    map.put(infantry, 4);</span>
+<span class="fc" id="L586">    route = new Route();</span>
+<span class="fc" id="L587">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L588">    route.add(egypt);</span>
+    // units were unloaded, shouldnt be able to move any more
+<span class="fc" id="L590">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L591">    assertError(results);</span>
+<span class="fc" id="L592">  }</span>
+
+  @Test
+  public void testUnloadingTransportsCantMove() {
+<span class="fc" id="L596">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L597">    map.put(infantry, 4);</span>
+<span class="fc" id="L598">    Route route = new Route();</span>
+<span class="fc" id="L599">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L600">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L601">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L602">    assertValid(results);</span>
+<span class="fc" id="L603">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L604">    map.put(transport, 2);</span>
+<span class="fc" id="L605">    route = new Route();</span>
+<span class="fc" id="L606">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L607">    route.add(westAfricaSeaZone);</span>
+    // the transports unloaded so they cant move
+<span class="fc" id="L609">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L610">    assertError(results);</span>
+<span class="fc" id="L611">  }</span>
+
+  @Test
+  public void testTransportsCanSplit() {
+    // move 1 armour to red sea
+<span class="fc" id="L616">    Route route = new Route();</span>
+<span class="fc" id="L617">    route.setStart(egypt);</span>
+<span class="fc" id="L618">    route.add(redSea);</span>
+<span class="fc" id="L619">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L620">    map.put(armour, 1);</span>
+<span class="fc" id="L621">    String results = m_delegate.move(getUnits(map, route.getStart()), route, route.getEnd().getUnits().getUnits());</span>
+<span class="fc" id="L622">    assertValid(results);</span>
+    // move two infantry to red sea
+<span class="fc" id="L624">    route = new Route();</span>
+<span class="fc" id="L625">    route.setStart(eastAfrica);</span>
+<span class="fc" id="L626">    route.add(redSea);</span>
+<span class="fc" id="L627">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L628">    map.put(infantry, 2);</span>
+<span class="fc" id="L629">    results = m_delegate.move(getUnits(map, route.getStart()), route, route.getEnd().getUnits().getUnits());</span>
+<span class="fc" id="L630">    assertValid(results);</span>
+    // try to move 1 transport to indian ocean with 1 tank
+<span class="fc" id="L632">    route = new Route();</span>
+<span class="fc" id="L633">    route.setStart(redSea);</span>
+<span class="fc" id="L634">    route.add(indianOcean);</span>
+<span class="fc" id="L635">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L636">    map.put(armour, 1);</span>
+<span class="fc" id="L637">    map.put(transport, 1);</span>
+<span class="fc" id="L638">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L639">    assertValid(results);</span>
+    // move the other transport to west compass
+<span class="fc" id="L641">    route = new Route();</span>
+<span class="fc" id="L642">    route.setStart(redSea);</span>
+<span class="fc" id="L643">    route.add(westCompass);</span>
+<span class="fc" id="L644">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L645">    map.put(infantry, 2);</span>
+<span class="fc" id="L646">    map.put(transport, 1);</span>
+<span class="fc" id="L647">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L648">    assertValid(results);</span>
+<span class="fc" id="L649">  }</span>
+
+  @Test
+  public void testUseTransportsWithLowestMovement() {
+    // move transport south
+<span class="fc" id="L654">    Route route = new Route();</span>
+<span class="fc" id="L655">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L656">    route.add(angolaSeaZone);</span>
+<span class="fc" id="L657">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L658">    map.put(transport, 1);</span>
+<span class="fc" id="L659">    map.put(infantry, 2);</span>
+<span class="fc" id="L660">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L661">    assertValid(results);</span>
+    // move transport back
+<span class="fc" id="L663">    route = new Route();</span>
+<span class="fc" id="L664">    route.setStart(angolaSeaZone);</span>
+<span class="fc" id="L665">    route.add(congoSeaZone);</span>
+<span class="fc" id="L666">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L667">    map.put(transport, 1);</span>
+<span class="fc" id="L668">    map.put(infantry, 2);</span>
+<span class="fc" id="L669">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L670">    assertValid(results);</span>
+    // move the other transport south, should
+    // figure out that only 1 can move
+    // and will choose that one
+<span class="fc" id="L674">    route = new Route();</span>
+<span class="fc" id="L675">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L676">    route.add(angolaSeaZone);</span>
+<span class="fc" id="L677">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L678">    map.put(infantry, 2);</span>
+<span class="fc" id="L679">    map.put(transport, 1);</span>
+<span class="fc" id="L680">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L681">    assertValid(results);</span>
+<span class="fc" id="L682">  }</span>
+
+  @Test
+  public void testCanOverrunNeutralWithoutFunds() {
+<span class="fc" id="L686">    assertEquals(35, british.getResources().getQuantity(PUs));</span>
+<span class="fc" id="L687">    final Change makePoor = ChangeFactory.changeResourcesChange(british, PUs, -35);</span>
+<span class="fc" id="L688">    m_bridge.addChange(makePoor);</span>
+<span class="fc" id="L689">    assertEquals(0, british.getResources().getQuantity(PUs));</span>
+    // try to take over South Africa, cant because we cant afford it
+<span class="fc" id="L691">    final Route route = new Route();</span>
+<span class="fc" id="L692">    route.setStart(egypt);</span>
+<span class="fc" id="L693">    route.add(kenya);</span>
+<span class="fc" id="L694">    route.add(southAfrica);</span>
+<span class="fc" id="L695">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L696">    map.put(armour, 2);</span>
+<span class="fc" id="L697">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L698">    assertError(results);</span>
+<span class="fc" id="L699">  }</span>
+
+  @Test
+  public void testAirViolateNeutrality() {
+<span class="fc" id="L703">    final Route route = new Route();</span>
+<span class="fc" id="L704">    route.setStart(egypt);</span>
+<span class="fc" id="L705">    route.add(kenya);</span>
+<span class="fc" id="L706">    route.add(southAfrica);</span>
+<span class="fc" id="L707">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L708">    map.put(fighter, 2);</span>
+<span class="fc" id="L709">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L710">    assertValid(results);</span>
+<span class="fc" id="L711">  }</span>
+
+  @Test
+  public void testNeutralConquered() {
+    // take over neutral
+<span class="fc" id="L716">    final Route route = new Route();</span>
+<span class="fc" id="L717">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L718">    route.add(westAfrica);</span>
+<span class="fc" id="L719">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L720">    map.put(armour, 1);</span>
+<span class="fc" id="L721">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L722">    assertValid(results);</span>
+<span class="fc" id="L723">    assertTrue(DelegateFinder.battleDelegate(m_data).getBattleTracker().wasConquered(westAfrica));</span>
+<span class="pc bpc" id="L724" title="1 of 2 branches missed.">    assertTrue(!DelegateFinder.battleDelegate(m_data).getBattleTracker().wasBlitzed(westAfrica));</span>
+<span class="fc" id="L725">  }</span>
+
+  public void testMoveTransportsTwice() {
+    // move transports
+<span class="nc" id="L729">    Route route = new Route();</span>
+<span class="nc" id="L730">    route.setStart(congoSeaZone);</span>
+<span class="nc" id="L731">    route.add(southAtlantic);</span>
+<span class="nc" id="L732">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L733">    map.put(infantry, 2);</span>
+<span class="nc" id="L734">    map.put(transport, 1);</span>
+<span class="nc" id="L735">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="nc" id="L736">    assertValid(results);</span>
+    // move again
+<span class="nc" id="L738">    route = new Route();</span>
+<span class="nc" id="L739">    route.setStart(southAtlantic);</span>
+<span class="nc" id="L740">    route.add(angolaSeaZone);</span>
+<span class="nc" id="L741">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="nc" id="L742">    assertValid(results);</span>
+<span class="nc" id="L743">  }</span>
+
+  @Test
+  public void testCantMoveThroughConqueredNeutral() {
+    // take over neutral
+<span class="fc" id="L748">    Route route = new Route();</span>
+<span class="fc" id="L749">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L750">    route.add(westAfrica);</span>
+<span class="fc" id="L751">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L752">    map.put(armour, 1);</span>
+<span class="fc" id="L753">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L754">    assertValid(results);</span>
+    // make sure we cant move through it by land
+<span class="fc" id="L756">    route = new Route();</span>
+<span class="fc" id="L757">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L758">    route.add(westAfrica);</span>
+<span class="fc" id="L759">    route.add(algeria);</span>
+<span class="fc" id="L760">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L761">    map.put(armour, 1);</span>
+<span class="fc" id="L762">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L763">    assertError(results);</span>
+    // make sure we can still move units to the territory
+<span class="fc" id="L765">    route = new Route();</span>
+<span class="fc" id="L766">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L767">    route.add(westAfrica);</span>
+<span class="fc" id="L768">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L769">    map.put(armour, 1);</span>
+<span class="fc" id="L770">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L771">    assertValid(results);</span>
+    // make sure air can though
+<span class="fc" id="L773">    route = new Route();</span>
+<span class="fc" id="L774">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L775">    route.add(westAfricaSeaZone);</span>
+<span class="fc" id="L776">    route.add(westAfrica);</span>
+<span class="fc" id="L777">    route.add(equatorialAfrica);</span>
+<span class="fc" id="L778">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L779">    map.put(fighter, 3);</span>
+<span class="fc" id="L780">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L781">    assertValid(results);</span>
+<span class="fc" id="L782">  }</span>
+
+  @Test
+  public void testCanBlitzThroughConqueredEnemy() {
+    // take over empty enemy
+<span class="fc" id="L787">    Route route = new Route();</span>
+<span class="fc" id="L788">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L789">    route.add(libya);</span>
+<span class="fc" id="L790">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L791">    map.put(infantry, 1);</span>
+<span class="fc" id="L792">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L793">    assertValid(results);</span>
+    // make sure we can still blitz through it
+<span class="fc" id="L795">    route = new Route();</span>
+<span class="fc" id="L796">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L797">    route.add(libya);</span>
+<span class="fc" id="L798">    route.add(algeria);</span>
+<span class="fc" id="L799">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L800">    map.put(armour, 1);</span>
+<span class="fc" id="L801">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L802">    assertValid(results);</span>
+<span class="fc" id="L803">  }</span>
+
+  @Test
+  public void testAirCantLandInConquered() {
+    // take over empty neutral
+<span class="fc" id="L808">    Route route = new Route();</span>
+<span class="fc" id="L809">    route.setStart(egypt);</span>
+<span class="fc" id="L810">    route.add(kenya);</span>
+<span class="fc" id="L811">    route.add(southAfrica);</span>
+<span class="fc" id="L812">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L813">    map.put(armour, 1);</span>
+<span class="fc" id="L814">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L815">    assertValid(results);</span>
+    // move carriers to ensure they can't go anywhere
+<span class="fc" id="L817">    route = new Route();</span>
+<span class="fc" id="L818">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L819">    route.add(westAfricaSea);</span>
+<span class="fc" id="L820">    route.add(northAtlantic);</span>
+<span class="fc" id="L821">    Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L822">    units.addAll(Match.getMatches(m_data.getMap().getTerritory(congoSeaZone.toString()).getUnits().getUnits(),</span>
+<span class="fc" id="L823">        Matches.UnitIsCarrier));</span>
+<span class="fc" id="L824">    results = m_delegate.move(units, route);</span>
+<span class="fc" id="L825">    assertValid(results);</span>
+    // move carriers to ensure they can't go anywhere
+<span class="fc" id="L827">    route = new Route();</span>
+<span class="fc" id="L828">    route.setStart(redSea);</span>
+<span class="fc" id="L829">    route.add(eastMediteranean);</span>
+<span class="fc" id="L830">    route.add(blackSea);</span>
+<span class="fc" id="L831">    units = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L832">    units.addAll(</span>
+<span class="fc" id="L833">        Match.getMatches(m_data.getMap().getTerritory(redSea.toString()).getUnits().getUnits(), Matches.UnitIsCarrier));</span>
+<span class="fc" id="L834">    results = m_delegate.move(units, route);</span>
+<span class="fc" id="L835">    assertValid(results);</span>
+    // make sure the place cant use it to land
+    // the only possibility would be newly conquered south africa
+<span class="fc" id="L838">    route = new Route();</span>
+<span class="fc" id="L839">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L840">    route.add(southAtlantic);</span>
+<span class="fc" id="L841">    route.add(angolaSeaZone);</span>
+<span class="fc" id="L842">    route.add(southAfricaSeaZone);</span>
+<span class="fc" id="L843">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L844">    map.put(fighter, 1);</span>
+<span class="fc" id="L845">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L846">    assertError(results);</span>
+<span class="fc" id="L847">  }</span>
+
+  @Test
+  public void testMoveAndTransportUnload() {
+    // this was causing an exception
+<span class="fc" id="L852">    Route route = new Route();</span>
+<span class="fc" id="L853">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L854">    route.add(westAfricaSeaZone);</span>
+<span class="fc" id="L855">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L856">    map.put(transport, 1);</span>
+<span class="fc" id="L857">    map.put(infantry, 2);</span>
+<span class="fc" id="L858">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L859">    assertValid(results);</span>
+<span class="fc" id="L860">    route = new Route();</span>
+<span class="fc" id="L861">    route.setStart(westAfricaSeaZone);</span>
+<span class="fc" id="L862">    route.add(westAfrica);</span>
+<span class="fc" id="L863">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L864">    map.put(infantry, 1);</span>
+<span class="fc" id="L865">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L866">    assertValid(results);</span>
+<span class="fc" id="L867">  }</span>
+
+  @Test
+  public void testTakeOverAfterOverFlight() {
+    // this was causing an exception
+<span class="fc" id="L872">    Route route = new Route();</span>
+<span class="fc" id="L873">    route.setStart(egypt);</span>
+<span class="fc" id="L874">    route.add(libya);</span>
+<span class="fc" id="L875">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L876">    map.put(bomber, 1);</span>
+<span class="fc" id="L877">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L878">    assertValid(results);</span>
+<span class="fc" id="L879">    route = new Route();</span>
+<span class="fc" id="L880">    route.setStart(libya);</span>
+<span class="fc" id="L881">    route.add(algeria);</span>
+    // planes cannot leave a battle zone, but the territory was empty so no battle occurred
+<span class="fc" id="L883">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L884">    map.put(bomber, 1);</span>
+<span class="fc" id="L885">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L886">    assertValid(results);</span>
+<span class="fc" id="L887">  }</span>
+
+  @Test
+  public void testBattleAdded() {
+    // TODO if air make sure otnot alwasys battle
+    // this was causing an exception
+<span class="fc" id="L893">    final Route route = new Route();</span>
+<span class="fc" id="L894">    route.setStart(egypt);</span>
+<span class="fc" id="L895">    route.add(libya);</span>
+<span class="fc" id="L896">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L897">    map.put(bomber, 1);</span>
+<span class="fc" id="L898">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L899">    assertValid(results);</span>
+<span class="fc" id="L900">  }</span>
+
+  @Test
+  public void testLargeMove() {
+    // was causing an error
+<span class="fc" id="L905">    final Route route = new Route();</span>
+<span class="fc" id="L906">    route.setStart(egypt);</span>
+<span class="fc" id="L907">    route.add(libya);</span>
+<span class="fc" id="L908">    route.add(algeria);</span>
+<span class="fc" id="L909">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L910">    map.put(bomber, 6);</span>
+<span class="fc" id="L911">    map.put(fighter, 6);</span>
+<span class="fc" id="L912">    map.put(armour, 6);</span>
+<span class="fc" id="L913">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L914">    assertValid(results);</span>
+<span class="fc" id="L915">  }</span>
+
+  @Test
+  public void testAmphibiousAssaultAfterNavalBattle() {
+    // move to take on brazil navy
+<span class="fc" id="L920">    Route route = new Route();</span>
+<span class="fc" id="L921">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L922">    route.add(southBrazilSeaZone);</span>
+<span class="fc" id="L923">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L924">    map.put(transport, 2);</span>
+<span class="fc" id="L925">    map.put(infantry, 4);</span>
+<span class="fc" id="L926">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L927">    assertValid(results);</span>
+    // try to unload transports
+<span class="fc" id="L929">    route = new Route();</span>
+<span class="fc" id="L930">    route.setStart(southBrazilSeaZone);</span>
+<span class="fc" id="L931">    route.add(brazil);</span>
+<span class="fc" id="L932">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L933">    map.put(infantry, 4);</span>
+<span class="fc" id="L934">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L935">    assertValid(results);</span>
+<span class="fc" id="L936">    final IBattle inBrazil =</span>
+<span class="fc" id="L937">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(brazil, false, null);</span>
+<span class="fc" id="L938">    final IBattle inBrazilSea =</span>
+<span class="fc" id="L939">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(southBrazilSeaZone, false, null);</span>
+<span class="fc" id="L940">    assertNotNull(inBrazilSea);</span>
+<span class="fc" id="L941">    assertNotNull(inBrazil);</span>
+<span class="fc" id="L942">    assertEquals(DelegateFinder.battleDelegate(m_data).getBattleTracker().getDependentOn(inBrazil).iterator().next(),</span>
+<span class="fc" id="L943">        inBrazilSea);</span>
+<span class="fc" id="L944">  }</span>
+
+  @Test
+  public void testReloadTransportAfterRetreatAmphibious() {
+<span class="fc" id="L948">    m_bridge = super.getDelegateBridge(british);</span>
+<span class="fc" id="L949">    m_bridge.setStepName(&quot;britishCombatMove&quot;);</span>
+<span class="fc" id="L950">    Route route = new Route();</span>
+<span class="fc" id="L951">    route.setStart(northSea);</span>
+<span class="fc" id="L952">    route.add(balticSeaZone);</span>
+<span class="fc" id="L953">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L954">    map.put(transport, 1);</span>
+<span class="fc" id="L955">    map.put(infantry, 2);</span>
+    // Move from the NorthSea to the BalticSea and validate the move
+<span class="fc" id="L957">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L958">    assertValid(results);</span>
+    // Unload transports into Finland and validate
+<span class="fc" id="L960">    route = new Route();</span>
+<span class="fc" id="L961">    route.setStart(balticSeaZone);</span>
+<span class="fc" id="L962">    route.add(finlandNorway);</span>
+<span class="fc" id="L963">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L964">    map.put(infantry, 2);</span>
+<span class="fc" id="L965">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L966">    assertValid(results);</span>
+    // Get the attacking sea units that will retreat
+<span class="fc" id="L968">    final List&lt;Unit&gt; retreatingSeaUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L969">    retreatingSeaUnits.addAll(balticSeaZone.getUnits().getMatches(Matches.enemyUnit(germans, m_data)));</span>
+    // Get the attacking land units that will retreat and their number
+<span class="fc" id="L971">    final List&lt;Unit&gt; retreatingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L972">    retreatingLandUnits.addAll(finlandNorway.getUnits().getMatches(Matches.enemyUnit(germans, m_data)));</span>
+<span class="fc" id="L973">    final int retreatingLandSizeInt = retreatingLandUnits.size();</span>
+    // Get the defending land units that and their number
+<span class="fc" id="L975">    final List&lt;Unit&gt; defendingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L976">    defendingLandUnits.addAll(finlandNorway.getUnits().getMatches(Matches.enemyUnit(british, m_data)));</span>
+<span class="fc" id="L977">    final int defendingLandSizeInt = defendingLandUnits.size();</span>
+    // Set up the battles and the dependent battles
+<span class="fc" id="L979">    final IBattle inFinlandNorway =</span>
+<span class="fc" id="L980">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(finlandNorway, false, null);</span>
+<span class="fc" id="L981">    final IBattle inBalticSeaZone =</span>
+<span class="fc" id="L982">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(balticSeaZone, false, null);</span>
+<span class="fc" id="L983">    assertNotNull(balticSeaZone);</span>
+<span class="fc" id="L984">    assertNotNull(finlandNorway);</span>
+<span class="fc" id="L985">    assertEquals(</span>
+<span class="fc" id="L986">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getDependentOn(inFinlandNorway).iterator().next(),</span>
+<span class="fc" id="L987">        inBalticSeaZone);</span>
+    // Add some defending units in case there aren't any
+<span class="fc" id="L989">    final List&lt;Unit&gt; defendList = transport.create(1, germans);</span>
+<span class="fc" id="L990">    final List&lt;Unit&gt; defendSub = submarine.create(1, germans);</span>
+<span class="fc" id="L991">    defendList.addAll(defendSub);</span>
+    // fire the defending transport then the submarine (both miss)
+<span class="fc" id="L993">    m_bridge.setRandomSource(new ScriptedRandomSource(new int[] {1, 2}));</span>
+    // Execute the battle and verify no hits
+<span class="fc" id="L995">    final DiceRoll roll = DiceRoll.rollDice(defendList, true, germans, m_bridge, new MockBattle(balticSeaZone), &quot;&quot;,</span>
+<span class="fc" id="L996">        TerritoryEffectHelper.getEffects(balticSeaZone), null);</span>
+<span class="fc" id="L997">    assertEquals(0, roll.getHits());</span>
+    // Get total number of units in Finland before the retreat
+<span class="fc" id="L999">    final int preCountInt = finlandNorway.getUnits().size();</span>
+    // Retreat from the Baltic
+<span class="fc" id="L1001">    ((MustFightBattle) inBalticSeaZone).externalRetreat(retreatingSeaUnits, northSea, false, m_bridge);</span>
+    // Get the total number of units that should be left
+<span class="fc" id="L1003">    final int postCountInt = preCountInt - retreatingLandSizeInt;</span>
+    // Compare the number of units in Finland to begin with the number after retreating
+<span class="fc" id="L1005">    assertEquals(defendingLandSizeInt, postCountInt);</span>
+<span class="fc" id="L1006">  }</span>
+
+  @Test
+  public void testReloadTransportAfterDyingAmphibious() {
+<span class="fc" id="L1010">    m_bridge = super.getDelegateBridge(british);</span>
+<span class="fc" id="L1011">    m_bridge.setStepName(&quot;britishCombatMove&quot;);</span>
+<span class="fc" id="L1012">    Route route = new Route();</span>
+<span class="fc" id="L1013">    route.setStart(northSea);</span>
+<span class="fc" id="L1014">    route.add(balticSeaZone);</span>
+<span class="fc" id="L1015">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1016">    map.put(transport, 1);</span>
+<span class="fc" id="L1017">    map.put(infantry, 2);</span>
+    // Move from the NorthSea to the BalticSea and validate the move
+<span class="fc" id="L1019">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1020">    assertValid(results);</span>
+    // Unload transports into Finland and validate
+<span class="fc" id="L1022">    route = new Route();</span>
+<span class="fc" id="L1023">    route.setStart(balticSeaZone);</span>
+<span class="fc" id="L1024">    route.add(finlandNorway);</span>
+<span class="fc" id="L1025">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1026">    map.put(infantry, 2);</span>
+<span class="fc" id="L1027">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1028">    assertValid(results);</span>
+    // Get the attacking sea units that will retreat
+<span class="fc" id="L1030">    final List&lt;Unit&gt; retreatingSeaUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1031">    retreatingSeaUnits.addAll(balticSeaZone.getUnits().getMatches(Matches.enemyUnit(germans, m_data)));</span>
+    // Get the attacking land units that will retreat and their number
+<span class="fc" id="L1033">    final List&lt;Unit&gt; retreatingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1034">    retreatingLandUnits.addAll(finlandNorway.getUnits().getMatches(Matches.enemyUnit(germans, m_data)));</span>
+<span class="fc" id="L1035">    final int retreatingLandSizeInt = retreatingLandUnits.size();</span>
+    // Get the defending land units that and their number
+<span class="fc" id="L1037">    final List&lt;Unit&gt; defendingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1038">    defendingLandUnits.addAll(finlandNorway.getUnits().getMatches(Matches.enemyUnit(british, m_data)));</span>
+<span class="fc" id="L1039">    final int defendingLandSizeInt = defendingLandUnits.size();</span>
+    // Set up the battles and the dependent battles
+<span class="fc" id="L1041">    final IBattle inFinlandNorway =</span>
+<span class="fc" id="L1042">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(finlandNorway, false, null);</span>
+<span class="fc" id="L1043">    final IBattle inBalticSeaZone =</span>
+<span class="fc" id="L1044">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(balticSeaZone, false, null);</span>
+<span class="fc" id="L1045">    assertNotNull(balticSeaZone);</span>
+<span class="fc" id="L1046">    assertNotNull(finlandNorway);</span>
+<span class="fc" id="L1047">    assertEquals(</span>
+<span class="fc" id="L1048">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getDependentOn(inFinlandNorway).iterator().next(),</span>
+<span class="fc" id="L1049">        inBalticSeaZone);</span>
+    // Add some defending units in case there aren't any
+<span class="fc" id="L1051">    final List&lt;Unit&gt; defendList = transport.create(1, germans);</span>
+<span class="fc" id="L1052">    final List&lt;Unit&gt; defendSub = submarine.create(1, germans);</span>
+<span class="fc" id="L1053">    defendList.addAll(defendSub);</span>
+    // fire the defending transport then the submarine (One hit)
+<span class="fc" id="L1055">    m_bridge.setRandomSource(new ScriptedRandomSource(new int[] {0, 2}));</span>
+    // Execute the battle and verify no hits
+<span class="fc" id="L1057">    final DiceRoll roll = DiceRoll.rollDice(defendList, true, germans, m_bridge, new MockBattle(balticSeaZone), &quot;&quot;,</span>
+<span class="fc" id="L1058">        TerritoryEffectHelper.getEffects(balticSeaZone), null);</span>
+<span class="fc" id="L1059">    assertEquals(1, roll.getHits());</span>
+    // Get total number of units in Finland before the retreat
+<span class="fc" id="L1061">    final int preCountInt = finlandNorway.getUnits().size();</span>
+    // Retreat from the Baltic
+<span class="fc" id="L1063">    ((MustFightBattle) inBalticSeaZone).externalRetreat(retreatingSeaUnits, northSea, false, m_bridge);</span>
+    // Get the total number of units that should be left
+<span class="fc" id="L1065">    final int postCountInt = preCountInt - retreatingLandSizeInt;</span>
+    // Compare the number of units in Finland to begin with the number after retreating
+<span class="fc" id="L1067">    assertEquals(defendingLandSizeInt, postCountInt);</span>
+<span class="fc" id="L1068">  }</span>
+
+  @Test
+  public void testReloadTransportAfterRetreatAllied() {
+<span class="fc" id="L1072">    m_bridge = super.getDelegateBridge(british);</span>
+<span class="fc" id="L1073">    m_bridge.setStepName(&quot;britishCombatMove&quot;);</span>
+<span class="fc" id="L1074">    Route route = new Route();</span>
+<span class="fc" id="L1075">    route.setStart(northSea);</span>
+<span class="fc" id="L1076">    route.add(balticSeaZone);</span>
+<span class="fc" id="L1077">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1078">    map.put(transport, 1);</span>
+<span class="fc" id="L1079">    map.put(infantry, 2);</span>
+    // Move from the NorthSea to the BalticSea and validate the move
+<span class="fc" id="L1081">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1082">    assertValid(results);</span>
+    // Unload transports into Finland and validate
+<span class="fc" id="L1084">    route = new Route();</span>
+<span class="fc" id="L1085">    route.setStart(balticSeaZone);</span>
+<span class="fc" id="L1086">    route.add(karelia);</span>
+<span class="fc" id="L1087">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1088">    map.put(infantry, 2);</span>
+<span class="fc" id="L1089">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1090">    assertValid(results);</span>
+    // Get the attacking sea units that will retreat
+<span class="fc" id="L1092">    final List&lt;Unit&gt; retreatingSeaUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1093">    retreatingSeaUnits.addAll(balticSeaZone.getUnits().getMatches(Matches.enemyUnit(germans, m_data)));</span>
+    // Get the attacking land units that will retreat and their number
+<span class="fc" id="L1095">    final List&lt;Unit&gt; retreatingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1096">    retreatingLandUnits.addAll(karelia.getUnits().getMatches(Matches.isUnitAllied(russians, m_data)));</span>
+<span class="fc" id="L1097">    final int retreatingLandSizeInt = retreatingLandUnits.size();</span>
+    // Get the defending land units that and their number
+<span class="fc" id="L1099">    retreatingLandUnits.addAll(karelia.getUnits().getMatches(Matches.isUnitAllied(british, m_data)));</span>
+<span class="fc" id="L1100">    final List&lt;Unit&gt; defendingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1101">    final int defendingLandSizeInt = defendingLandUnits.size();</span>
+    // Set up the battles and the dependent battles
+<span class="fc" id="L1103">    final IBattle inBalticSeaZone =</span>
+<span class="fc" id="L1104">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(balticSeaZone, false, null);</span>
+<span class="fc" id="L1105">    assertNotNull(balticSeaZone);</span>
+    // Add some defending units in case there aren't any
+<span class="fc" id="L1107">    final List&lt;Unit&gt; defendList = transport.create(1, germans);</span>
+<span class="fc" id="L1108">    final List&lt;Unit&gt; defendSub = submarine.create(1, germans);</span>
+<span class="fc" id="L1109">    defendList.addAll(defendSub);</span>
+    // fire the defending transport then the submarine (both miss)
+<span class="fc" id="L1111">    m_bridge.setRandomSource(new ScriptedRandomSource(new int[] {1, 2}));</span>
+    // Execute the battle and verify no hits
+<span class="fc" id="L1113">    final DiceRoll roll = DiceRoll.rollDice(defendList, true, germans, m_bridge, new MockBattle(balticSeaZone), &quot;&quot;,</span>
+<span class="fc" id="L1114">        TerritoryEffectHelper.getEffects(balticSeaZone), null);</span>
+<span class="fc" id="L1115">    assertEquals(0, roll.getHits());</span>
+    // Get total number of units in Finland before the retreat
+<span class="fc" id="L1117">    final int preCountInt = karelia.getUnits().size();</span>
+    // Retreat from the Baltic
+<span class="fc" id="L1119">    ((MustFightBattle) inBalticSeaZone).externalRetreat(retreatingSeaUnits, northSea, false, m_bridge);</span>
+    // Get the total number of units that should be left
+<span class="fc" id="L1121">    final int postCountInt = preCountInt - retreatingLandSizeInt;</span>
+    // Compare the number of units in Finland to begin with the number after retreating
+<span class="fc" id="L1123">    assertEquals(defendingLandSizeInt, postCountInt);</span>
+<span class="fc" id="L1124">  }</span>
+
+  @Test
+  public void testReloadTransportAfterDyingAllied() {
+<span class="fc" id="L1128">    m_bridge = super.getDelegateBridge(british);</span>
+<span class="fc" id="L1129">    m_bridge.setStepName(&quot;britishCombatMove&quot;);</span>
+<span class="fc" id="L1130">    Route route = new Route();</span>
+<span class="fc" id="L1131">    route.setStart(northSea);</span>
+<span class="fc" id="L1132">    route.add(balticSeaZone);</span>
+<span class="fc" id="L1133">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1134">    map.put(transport, 1);</span>
+<span class="fc" id="L1135">    map.put(infantry, 2);</span>
+    // Move from the NorthSea to the BalticSea and validate the move
+<span class="fc" id="L1137">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1138">    assertValid(results);</span>
+    // Unload transports into Finland and validate
+<span class="fc" id="L1140">    route = new Route();</span>
+<span class="fc" id="L1141">    route.setStart(balticSeaZone);</span>
+<span class="fc" id="L1142">    route.add(karelia);</span>
+<span class="fc" id="L1143">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1144">    map.put(infantry, 2);</span>
+<span class="fc" id="L1145">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1146">    assertValid(results);</span>
+    // Get the attacking sea units that will retreat
+<span class="fc" id="L1148">    final List&lt;Unit&gt; retreatingSeaUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1149">    retreatingSeaUnits.addAll(balticSeaZone.getUnits().getMatches(Matches.enemyUnit(germans, m_data)));</span>
+    // Get the attacking land units that will retreat and their number
+<span class="fc" id="L1151">    final List&lt;Unit&gt; retreatingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1152">    retreatingLandUnits.addAll(karelia.getUnits().getMatches(Matches.isUnitAllied(russians, m_data)));</span>
+<span class="fc" id="L1153">    final int retreatingLandSizeInt = retreatingLandUnits.size();</span>
+    // Get the defending land units that and their number
+<span class="fc" id="L1155">    final List&lt;Unit&gt; defendingLandUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1156">    retreatingLandUnits.addAll(karelia.getUnits().getMatches(Matches.isUnitAllied(british, m_data)));</span>
+<span class="fc" id="L1157">    final int defendingLandSizeInt = defendingLandUnits.size();</span>
+    // Set up the battles and the dependent battles
+<span class="fc" id="L1159">    final IBattle inBalticSeaZone =</span>
+<span class="fc" id="L1160">        DelegateFinder.battleDelegate(m_data).getBattleTracker().getPendingBattle(balticSeaZone, false, null);</span>
+<span class="fc" id="L1161">    assertNotNull(balticSeaZone);</span>
+    // Add some defending units in case there aren't any
+<span class="fc" id="L1163">    final List&lt;Unit&gt; defendList = transport.create(1, germans);</span>
+<span class="fc" id="L1164">    final List&lt;Unit&gt; defendSub = submarine.create(1, germans);</span>
+<span class="fc" id="L1165">    defendList.addAll(defendSub);</span>
+    // fire the defending transport then the submarine (One hit)
+<span class="fc" id="L1167">    m_bridge.setRandomSource(new ScriptedRandomSource(new int[] {0, 2}));</span>
+    // Execute the battle and verify no hits
+<span class="fc" id="L1169">    final DiceRoll roll = DiceRoll.rollDice(defendList, true, germans, m_bridge, new MockBattle(balticSeaZone), &quot;&quot;,</span>
+<span class="fc" id="L1170">        TerritoryEffectHelper.getEffects(balticSeaZone), null);</span>
+<span class="fc" id="L1171">    assertEquals(1, roll.getHits());</span>
+    // Get total number of units in Finland before the retreat
+<span class="fc" id="L1173">    final int preCountInt = karelia.getUnits().size();</span>
+    // Retreat from the Baltic
+<span class="fc" id="L1175">    ((MustFightBattle) inBalticSeaZone).externalRetreat(retreatingSeaUnits, northSea, false, m_bridge);</span>
+    // Get the total number of units that should be left
+<span class="fc" id="L1177">    final int postCountInt = preCountInt - retreatingLandSizeInt;</span>
+    // Compare the number of units in Finland to begin with the number after retreating
+<span class="fc" id="L1179">    assertEquals(defendingLandSizeInt, postCountInt);</span>
+<span class="fc" id="L1180">  }</span>
+
+  @Test
+  public void testAirToWater() {
+<span class="fc" id="L1184">    final Route route = new Route();</span>
+<span class="fc" id="L1185">    route.setStart(egypt);</span>
+<span class="fc" id="L1186">    route.add(eastMediteranean);</span>
+<span class="fc" id="L1187">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1188">    map.put(fighter, 3);</span>
+<span class="fc" id="L1189">    map.put(bomber, 3);</span>
+<span class="fc" id="L1190">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1191">    assertValid(results);</span>
+<span class="fc" id="L1192">  }</span>
+
+  @Test
+  public void testNonCombatAttack() {
+<span class="fc" id="L1196">    m_bridge.setStepName(&quot;britishNonCombatMove&quot;);</span>
+<span class="fc" id="L1197">    m_delegate.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L1198">    m_delegate.start();</span>
+<span class="fc" id="L1199">    final Route route = new Route();</span>
+<span class="fc" id="L1200">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L1201">    route.add(algeria);</span>
+<span class="fc" id="L1202">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1203">    map.put(armour, 2);</span>
+<span class="fc" id="L1204">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1205">    assertError(results);</span>
+<span class="fc" id="L1206">  }</span>
+
+  @Test
+  public void testNonCombatAttackNeutral() {
+<span class="fc" id="L1210">    m_bridge.setStepName(&quot;britishNonCombatMove&quot;);</span>
+<span class="fc" id="L1211">    m_delegate.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L1212">    m_delegate.start();</span>
+<span class="fc" id="L1213">    final Route route = new Route();</span>
+<span class="fc" id="L1214">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L1215">    route.add(westAfrica);</span>
+<span class="fc" id="L1216">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1217">    map.put(armour, 2);</span>
+<span class="fc" id="L1218">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1219">    assertError(results);</span>
+<span class="fc" id="L1220">  }</span>
+
+  @Test
+  public void testNonCombatMoveToConquered() {
+    // take over libya
+<span class="fc" id="L1225">    Route route = new Route();</span>
+<span class="fc" id="L1226">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L1227">    route.add(libya);</span>
+<span class="fc" id="L1228">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1229">    map.put(armour, 1);</span>
+<span class="fc" id="L1230">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1231">    assertValid(results);</span>
+    // go to non combat
+<span class="fc" id="L1233">    m_bridge.setStepName(&quot;britishNonCombatMove&quot;);</span>
+<span class="fc" id="L1234">    m_delegate.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L1235">    m_delegate.start();</span>
+    // move more into libya
+<span class="fc" id="L1237">    route = new Route();</span>
+<span class="fc" id="L1238">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L1239">    route.add(libya);</span>
+<span class="fc" id="L1240">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1241">    map.put(armour, 1);</span>
+<span class="fc" id="L1242">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1243">    assertValid(results);</span>
+<span class="fc" id="L1244">  }</span>
+
+  @Test
+  public void testAACantMoveToConquered() {
+<span class="fc" id="L1248">    m_bridge.setStepName(&quot;japaneseCombatMove&quot;);</span>
+<span class="fc" id="L1249">    m_bridge.setPlayerID(japanese);</span>
+<span class="fc" id="L1250">    m_delegate.setDelegateBridgeAndPlayer(m_bridge);</span>
+<span class="fc" id="L1251">    m_delegate.start();</span>
+<span class="fc" id="L1252">    final Route route = new Route();</span>
+<span class="fc" id="L1253">    route.setStart(congo);</span>
+<span class="fc" id="L1254">    route.add(kenya);</span>
+<span class="fc" id="L1255">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1256">    map.put(armour, 2);</span>
+<span class="fc" id="L1257">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1258">    assertValid(results);</span>
+<span class="fc" id="L1259">    final BattleTracker tracker = DelegateFinder.battleDelegate(m_data).getBattleTracker();</span>
+<span class="fc" id="L1260">    assertTrue(tracker.wasBlitzed(kenya));</span>
+<span class="fc" id="L1261">    assertTrue(tracker.wasConquered(kenya));</span>
+<span class="fc" id="L1262">    map.clear();</span>
+<span class="fc" id="L1263">    map.put(aaGun, 1);</span>
+<span class="fc" id="L1264">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1265">    assertError(results);</span>
+<span class="fc" id="L1266">  }</span>
+
+  @Test
+  public void testBlitzConqueredNeutralInTwoSteps() {
+<span class="fc" id="L1270">    Route route = new Route();</span>
+<span class="fc" id="L1271">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L1272">    route.add(westAfrica);</span>
+<span class="fc" id="L1273">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1274">    map.put(infantry, 1);</span>
+<span class="fc" id="L1275">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1276">    assertValid(results);</span>
+<span class="fc" id="L1277">    final BattleTracker tracker = DelegateFinder.battleDelegate(m_data).getBattleTracker();</span>
+<span class="pc bpc" id="L1278" title="1 of 2 branches missed.">    assertTrue(!tracker.wasBlitzed(westAfrica));</span>
+<span class="fc" id="L1279">    assertTrue(tracker.wasConquered(westAfrica));</span>
+<span class="fc" id="L1280">    map.clear();</span>
+<span class="fc" id="L1281">    map.put(armour, 1);</span>
+<span class="fc" id="L1282">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1283">    assertValid(results);</span>
+<span class="fc" id="L1284">    route = new Route();</span>
+<span class="fc" id="L1285">    route.setStart(westAfrica);</span>
+<span class="fc" id="L1286">    route.add(algeria);</span>
+<span class="fc" id="L1287">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1288">    assertError(results);</span>
+<span class="fc" id="L1289">  }</span>
+
+  @Test
+  public void testBlitzFactory() {
+    // create a factory to be taken
+<span class="fc" id="L1294">    final Collection&lt;Unit&gt; factCollection = factory.create(1, japanese);</span>
+<span class="fc" id="L1295">    final Change addFactory = ChangeFactory.addUnits(libya, factCollection);</span>
+<span class="fc" id="L1296">    m_bridge.addChange(addFactory);</span>
+<span class="fc" id="L1297">    final Route route = new Route();</span>
+<span class="fc" id="L1298">    route.setStart(equatorialAfrica);</span>
+<span class="fc" id="L1299">    route.add(libya);</span>
+<span class="fc" id="L1300">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1301">    map.put(infantry, 1);</span>
+<span class="fc" id="L1302">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1303">    assertValid(results);</span>
+<span class="fc" id="L1304">    final BattleTracker tracker = DelegateFinder.battleDelegate(m_data).getBattleTracker();</span>
+<span class="fc" id="L1305">    assertTrue(tracker.wasBlitzed(libya));</span>
+<span class="fc" id="L1306">    assertTrue(tracker.wasConquered(libya));</span>
+<span class="fc" id="L1307">    final Unit aFactory = factCollection.iterator().next();</span>
+<span class="fc" id="L1308">    assertEquals(aFactory.getOwner(), british);</span>
+<span class="fc" id="L1309">  }</span>
+
+  @Test
+  public void testAirCanLandOnLand() {
+<span class="fc" id="L1313">    final Route route = new Route();</span>
+<span class="fc" id="L1314">    route.setStart(egypt);</span>
+<span class="fc" id="L1315">    route.add(eastMediteranean);</span>
+<span class="fc" id="L1316">    route.add(blackSea);</span>
+<span class="fc" id="L1317">    final IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1318">    map.put(fighter, 1);</span>
+<span class="fc" id="L1319">    final String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1320">    assertValid(results);</span>
+<span class="fc" id="L1321">  }</span>
+
+  @Test
+  public void testAirDifferingRouts() {
+    // move one air unit 3 spaces, and a second 2,
+    // this was causing an exception when the validator tried to find if they
+    // could both land
+    // EW: I don't know why this test is failing or what it is supposed to do...
+<span class="fc" id="L1329">    Route route = new Route();</span>
+<span class="fc" id="L1330">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L1331">    route.add(southAtlantic);</span>
+<span class="fc" id="L1332">    route.add(antarticSea);</span>
+<span class="fc" id="L1333">    route.add(angolaSeaZone);</span>
+<span class="fc" id="L1334">    IntegerMap&lt;UnitType&gt; map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1335">    map.put(fighter, 1);</span>
+<span class="fc" id="L1336">    String results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1337">    assertValid(results);</span>
+<span class="fc" id="L1338">    route = new Route();</span>
+<span class="fc" id="L1339">    route.setStart(congoSeaZone);</span>
+<span class="fc" id="L1340">    route.add(southAtlantic);</span>
+<span class="fc" id="L1341">    route.add(antarticSea);</span>
+<span class="fc" id="L1342">    route.add(angolaSeaZone);</span>
+<span class="fc" id="L1343">    map = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1344">    map.put(fighter, 1);</span>
+<span class="fc" id="L1345">    results = m_delegate.move(getUnits(map, route.getStart()), route);</span>
+<span class="fc" id="L1346">    assertValid(results);</span>
+<span class="fc" id="L1347">  }</span>
+
+  @Test
+  public void testRoute() {
+<span class="fc" id="L1351">    final Route route = m_data.getMap().getRoute(angola, russia);</span>
+<span class="fc" id="L1352">    assertNotNull(route);</span>
+<span class="fc" id="L1353">    assertEquals(route.getEnd(), russia);</span>
+<span class="fc" id="L1354">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

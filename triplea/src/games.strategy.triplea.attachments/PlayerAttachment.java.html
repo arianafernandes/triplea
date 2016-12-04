@@ -1,0 +1,622 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PlayerAttachment.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.attachments</a> &gt; <span class="el_source">PlayerAttachment.java</span></div><h1>PlayerAttachment.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.attachments;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+
+import games.strategy.engine.data.Attachable;
+import games.strategy.engine.data.DefaultAttachment;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.annotations.GameProperty;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Triple;
+
+@MapSupport
+public class PlayerAttachment extends DefaultAttachment {
+  private static final long serialVersionUID = 1880755875866426270L;
+
+  /**
+   * Convenience method. can be null
+   */
+  public static PlayerAttachment get(final PlayerID p) {
+    // allow null
+<span class="fc" id="L32">    return p.getPlayerAttachment();</span>
+  }
+
+  public static PlayerAttachment get(final PlayerID p, final String nameOfAttachment) {
+<span class="nc" id="L36">    final PlayerAttachment rVal = p.getPlayerAttachment(); // (PlayerAttachment) p.getAttachment(nameOfAttachment);</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    if (rVal == null) {</span>
+<span class="nc" id="L38">      throw new IllegalStateException(&quot;No player attachment for:&quot; + p.getName() + &quot; with name:&quot; + nameOfAttachment);</span>
+    }
+<span class="nc" id="L40">    return rVal;</span>
+  }
+
+<span class="fc" id="L43">  private int m_vps = 0;</span>
+  // need to store some data during a turn
+<span class="fc" id="L45">  private int m_captureVps = 0;</span>
+  // number of capitals needed before we lose all our money
+<span class="fc" id="L47">  private int m_retainCapitalNumber = 1;</span>
+  // number of capitals needed before we lose ability to gain money and produce units
+<span class="fc" id="L49">  private int m_retainCapitalProduceNumber = 1;</span>
+<span class="fc" id="L50">  private ArrayList&lt;PlayerID&gt; m_giveUnitControl = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L51">  private ArrayList&lt;PlayerID&gt; m_captureUnitOnEnteringBy = new ArrayList&lt;&gt;();</span>
+  // gives any technology researched to this player automatically
+<span class="fc" id="L53">  private ArrayList&lt;PlayerID&gt; m_shareTechnology = new ArrayList&lt;&gt;();</span>
+  // allows these players to help pay for technology
+<span class="fc" id="L55">  private ArrayList&lt;PlayerID&gt; m_helpPayTechCost = new ArrayList&lt;&gt;();</span>
+  // do we lose our money and have it disappear or is that money captured?
+<span class="fc" id="L57">  private boolean m_destroysPUs = false;</span>
+  // are we immune to being blockaded?
+<span class="fc" id="L59">  private boolean m_immuneToBlockade = false;</span>
+  // what resources can be used for suicide attacks, and
+<span class="fc" id="L61">  private IntegerMap&lt;Resource&gt; m_suicideAttackResources = new IntegerMap&lt;&gt;();</span>
+  // at what attack power
+  // what can be hit by suicide attacks
+<span class="fc" id="L64">  private HashSet&lt;UnitType&gt; m_suicideAttackTargets = null;</span>
+  // placement limits on a flexible per player basis
+<span class="fc" id="L66">  private HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; m_placementLimit =</span>
+<span class="fc" id="L67">      new HashSet&lt;&gt;();</span>
+
+  // movement limits on a flexible per player basis
+<span class="fc" id="L70">  private HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; m_movementLimit =</span>
+<span class="fc" id="L71">      new HashSet&lt;&gt;();</span>
+
+  // attacking limits on a flexible per player basis
+<span class="fc" id="L74">  private HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; m_attackingLimit =</span>
+<span class="fc" id="L75">      new HashSet&lt;&gt;();</span>
+
+  /** Creates new PlayerAttachment */
+  public PlayerAttachment(final String name, final Attachable attachable, final GameData gameData) {
+<span class="fc" id="L79">    super(name, attachable, gameData);</span>
+<span class="fc" id="L80">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setPlacementLimit(final String value) throws GameParseException {
+<span class="nc" id="L90">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">    if (s.length &lt; 3) {</span>
+<span class="nc" id="L92">      throw new GameParseException(&quot;placementLimit must have 3 parts: count, type, unit list&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L94">    final int max = getInt(s[0]);</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    if (max &lt; 0) {</span>
+<span class="nc" id="L96">      throw new GameParseException(&quot;placementLimit count must have a positive number&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L98" title="All 6 branches missed.">    if (!(s[1].equals(&quot;owned&quot;) || s[1].equals(&quot;allied&quot;) || s[1].equals(&quot;total&quot;))) {</span>
+<span class="nc" id="L99">      throw new GameParseException(&quot;placementLimit type must be: owned, allied, or total&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L101">    final HashSet&lt;UnitType&gt; types = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">    if (s[2].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="nc" id="L103">      types.addAll(getData().getUnitTypeList().getAllUnitTypes());</span>
+<span class="nc" id="L104">    } else {</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">      for (int i = 2; i &lt; s.length; i++) {</span>
+<span class="nc" id="L106">        final UnitType ut = getData().getUnitTypeList().getUnitType(s[i]);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        if (ut == null) {</span>
+<span class="nc" id="L108">          throw new GameParseException(&quot;No unit called: &quot; + s[i] + thisErrorMsg());</span>
+        } else {
+<span class="nc" id="L110">          types.add(ut);</span>
+        }
+      }
+    }
+<span class="nc" id="L114">    m_placementLimit.add(Triple.of(max, s[1], types));</span>
+<span class="nc" id="L115">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setPlacementLimit(final HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; value) {
+<span class="nc" id="L119">    m_placementLimit = value;</span>
+<span class="nc" id="L120">  }</span>
+
+  public HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; getPlacementLimit() {
+<span class="nc" id="L123">    return m_placementLimit;</span>
+  }
+
+  public void clearPlacementLimit() {
+<span class="nc" id="L127">    m_placementLimit.clear();</span>
+<span class="nc" id="L128">  }</span>
+
+  public void resetPlacementLimit() {
+<span class="nc" id="L131">    m_placementLimit = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L132">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setMovementLimit(final String value) throws GameParseException {
+<span class="nc" id="L142">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">    if (s.length &lt; 3) {</span>
+<span class="nc" id="L144">      throw new GameParseException(&quot;movementLimit must have 3 parts: count, type, unit list&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L146">    final int max = getInt(s[0]);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">    if (max &lt; 0) {</span>
+<span class="nc" id="L148">      throw new GameParseException(&quot;movementLimit count must have a positive number&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L150" title="All 6 branches missed.">    if (!(s[1].equals(&quot;owned&quot;) || s[1].equals(&quot;allied&quot;) || s[1].equals(&quot;total&quot;))) {</span>
+<span class="nc" id="L151">      throw new GameParseException(&quot;movementLimit type must be: owned, allied, or total&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L153">    final HashSet&lt;UnitType&gt; types = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">    if (s[2].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="nc" id="L155">      types.addAll(getData().getUnitTypeList().getAllUnitTypes());</span>
+<span class="nc" id="L156">    } else {</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">      for (int i = 2; i &lt; s.length; i++) {</span>
+<span class="nc" id="L158">        final UnitType ut = getData().getUnitTypeList().getUnitType(s[i]);</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">        if (ut == null) {</span>
+<span class="nc" id="L160">          throw new GameParseException(&quot;No unit called: &quot; + s[i] + thisErrorMsg());</span>
+        } else {
+<span class="nc" id="L162">          types.add(ut);</span>
+        }
+      }
+    }
+<span class="nc" id="L166">    m_movementLimit.add(Triple.of(max, s[1], types));</span>
+<span class="nc" id="L167">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setMovementLimit(final HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; value) {
+<span class="nc" id="L171">    m_movementLimit = value;</span>
+<span class="nc" id="L172">  }</span>
+
+  public HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; getMovementLimit() {
+<span class="fc" id="L175">    return m_movementLimit;</span>
+  }
+
+  public void clearMovementLimit() {
+<span class="nc" id="L179">    m_movementLimit.clear();</span>
+<span class="nc" id="L180">  }</span>
+
+  public void resetMovementLimit() {
+<span class="nc" id="L183">    m_movementLimit = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L184">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setAttackingLimit(final String value) throws GameParseException {
+<span class="nc" id="L194">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    if (s.length &lt; 3) {</span>
+<span class="nc" id="L196">      throw new GameParseException(&quot;attackingLimit must have 3 parts: count, type, unit list&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L198">    final int max = getInt(s[0]);</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">    if (max &lt; 0) {</span>
+<span class="nc" id="L200">      throw new GameParseException(&quot;attackingLimit count must have a positive number&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L202" title="All 6 branches missed.">    if (!(s[1].equals(&quot;owned&quot;) || s[1].equals(&quot;allied&quot;) || s[1].equals(&quot;total&quot;))) {</span>
+<span class="nc" id="L203">      throw new GameParseException(&quot;attackingLimit type must be: owned, allied, or total&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L205">    final HashSet&lt;UnitType&gt; types = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    if (s[2].equalsIgnoreCase(&quot;all&quot;)) {</span>
+<span class="nc" id="L207">      types.addAll(getData().getUnitTypeList().getAllUnitTypes());</span>
+<span class="nc" id="L208">    } else {</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">      for (int i = 2; i &lt; s.length; i++) {</span>
+<span class="nc" id="L210">        final UnitType ut = getData().getUnitTypeList().getUnitType(s[i]);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        if (ut == null) {</span>
+<span class="nc" id="L212">          throw new GameParseException(&quot;No unit called: &quot; + s[i] + thisErrorMsg());</span>
+        } else {
+<span class="nc" id="L214">          types.add(ut);</span>
+        }
+      }
+    }
+<span class="nc" id="L218">    m_attackingLimit.add(Triple.of(max, s[1], types));</span>
+<span class="nc" id="L219">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAttackingLimit(final HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; value) {
+<span class="nc" id="L223">    m_attackingLimit = value;</span>
+<span class="nc" id="L224">  }</span>
+
+  public HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; getAttackingLimit() {
+<span class="nc" id="L227">    return m_attackingLimit;</span>
+  }
+
+  public void clearAttackingLimit() {
+<span class="nc" id="L231">    m_attackingLimit.clear();</span>
+<span class="nc" id="L232">  }</span>
+
+  public void resetAttackingLimit() {
+<span class="nc" id="L235">    m_attackingLimit = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L236">  }</span>
+
+  public static boolean getCanTheseUnitsMoveWithoutViolatingStackingLimit(final String limitType,
+      final Collection&lt;Unit&gt; unitsMoving, final Territory toMoveInto, final PlayerID owner, final GameData data) {
+<span class="fc" id="L240">    final PlayerAttachment pa = PlayerAttachment.get(owner);</span>
+<span class="fc bfc" id="L241" title="All 2 branches covered.">    if (pa == null) {</span>
+<span class="fc" id="L242">      return true;</span>
+    }
+    final HashSet&lt;Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt;&gt; stackingLimits;
+<span class="pc bpc" id="L245" title="1 of 2 branches missed.">    if (limitType.equals(&quot;movementLimit&quot;)) {</span>
+<span class="fc" id="L246">      stackingLimits = pa.getMovementLimit();</span>
+<span class="pc bnc" id="L247" title="All 2 branches missed.">    } else if (limitType.equals(&quot;attackingLimit&quot;)) {</span>
+<span class="nc" id="L248">      stackingLimits = pa.getAttackingLimit();</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">    } else if (limitType.equals(&quot;placementLimit&quot;)) {</span>
+<span class="nc" id="L250">      stackingLimits = pa.getPlacementLimit();</span>
+<span class="nc" id="L251">    } else {</span>
+<span class="nc" id="L252">      throw new IllegalStateException(</span>
+<span class="nc" id="L253">          &quot;getCanTheseUnitsMoveWithoutViolatingStackingLimit does not allow limitType: &quot; + limitType);</span>
+    }
+<span class="pc bpc" id="L255" title="1 of 2 branches missed.">    if (stackingLimits.isEmpty()) {</span>
+<span class="fc" id="L256">      return true;</span>
+    }
+<span class="nc bnc" id="L258" title="All 2 branches missed.">    for (final Triple&lt;Integer, String, HashSet&lt;UnitType&gt;&gt; currentLimit : stackingLimits) {</span>
+      // first make a copy of unitsMoving
+<span class="nc" id="L260">      final Collection&lt;Unit&gt; copyUnitsMoving = new ArrayList&lt;&gt;(unitsMoving);</span>
+<span class="nc" id="L261">      final int max = currentLimit.getFirst();</span>
+<span class="nc" id="L262">      final String type = currentLimit.getSecond();</span>
+<span class="nc" id="L263">      final HashSet&lt;UnitType&gt; unitsToTest = currentLimit.getThird();</span>
+<span class="nc" id="L264">      final Collection&lt;Unit&gt; currentInTerritory = toMoveInto.getUnits().getUnits();</span>
+      // first remove units that do not apply to our current type
+<span class="nc bnc" id="L266" title="All 2 branches missed.">      if (type.equals(&quot;owned&quot;)) {</span>
+<span class="nc" id="L267">        currentInTerritory.removeAll(Match.getMatches(currentInTerritory, Matches.unitIsOwnedBy(owner).invert()));</span>
+<span class="nc" id="L268">        copyUnitsMoving.removeAll(Match.getMatches(copyUnitsMoving, Matches.unitIsOwnedBy(owner).invert()));</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">      } else if (type.equals(&quot;allied&quot;)) {</span>
+<span class="nc" id="L270">        currentInTerritory.removeAll(Match.getMatches(currentInTerritory, Matches.alliedUnit(owner, data).invert()));</span>
+<span class="nc" id="L271">        copyUnitsMoving.removeAll(Match.getMatches(copyUnitsMoving, Matches.alliedUnit(owner, data).invert()));</span>
+      }
+      // else if (type.equals(&quot;total&quot;))
+      // now remove units that are not part of our list
+<span class="nc" id="L275">      currentInTerritory.retainAll(Match.getMatches(currentInTerritory, Matches.unitIsOfTypes(unitsToTest)));</span>
+<span class="nc" id="L276">      copyUnitsMoving.retainAll(Match.getMatches(copyUnitsMoving, Matches.unitIsOfTypes(unitsToTest)));</span>
+      // now test
+<span class="nc bnc" id="L278" title="All 2 branches missed.">      if (max &lt; (currentInTerritory.size() + copyUnitsMoving.size())) {</span>
+<span class="nc" id="L279">        return false;</span>
+      }
+    }
+<span class="nc" id="L282">    return true;</span>
+  }
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setSuicideAttackTargets(final String value) throws GameParseException {
+<span class="nc bnc" id="L293" title="All 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L294">      m_suicideAttackTargets = null;</span>
+<span class="nc" id="L295">      return;</span>
+    }
+<span class="nc bnc" id="L297" title="All 2 branches missed.">    if (m_suicideAttackTargets == null) {</span>
+<span class="nc" id="L298">      m_suicideAttackTargets = new HashSet&lt;&gt;();</span>
+    }
+<span class="nc" id="L300">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">    for (final String u : s) {</span>
+<span class="nc" id="L302">      final UnitType ut = getData().getUnitTypeList().getUnitType(u);</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">      if (ut == null) {</span>
+<span class="nc" id="L304">        throw new GameParseException(&quot;suicideAttackTargets: no such unit called &quot; + u + thisErrorMsg());</span>
+      }
+<span class="nc" id="L306">      m_suicideAttackTargets.add(ut);</span>
+    }
+<span class="nc" id="L308">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setSuicideAttackTargets(final HashSet&lt;UnitType&gt; value) {
+<span class="nc" id="L312">    m_suicideAttackTargets = value;</span>
+<span class="nc" id="L313">  }</span>
+
+  public HashSet&lt;UnitType&gt; getSuicideAttackTargets() {
+<span class="nc" id="L316">    return m_suicideAttackTargets;</span>
+  }
+
+  public void clearSuicideAttackTargets() {
+<span class="nc" id="L320">    m_suicideAttackTargets.clear();</span>
+<span class="nc" id="L321">  }</span>
+
+  public void resetSuicideAttackTargets() {
+<span class="nc" id="L324">    m_suicideAttackTargets = null;</span>
+<span class="nc" id="L325">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setSuicideAttackResources(final String value) throws GameParseException {
+<span class="fc" id="L335">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L336" title="1 of 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L337">      throw new GameParseException(&quot;suicideAttackResources must have exactly 2 fields&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L339">    final int attackValue = getInt(s[0]);</span>
+<span class="pc bpc" id="L340" title="1 of 2 branches missed.">    if (attackValue &lt; 0) {</span>
+<span class="nc" id="L341">      throw new GameParseException(&quot;suicideAttackResources attack value must be positive&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L343">    final Resource r = getData().getResourceList().getResource(s[1]);</span>
+<span class="pc bpc" id="L344" title="1 of 2 branches missed.">    if (r == null) {</span>
+<span class="nc" id="L345">      throw new GameParseException(&quot;no such resource: &quot; + s[1] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L347">    m_suicideAttackResources.put(r, attackValue);</span>
+<span class="fc" id="L348">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setSuicideAttackResources(final IntegerMap&lt;Resource&gt; value) {
+<span class="nc" id="L352">    m_suicideAttackResources = value;</span>
+<span class="nc" id="L353">  }</span>
+
+  public IntegerMap&lt;Resource&gt; getSuicideAttackResources() {
+<span class="nc" id="L356">    return m_suicideAttackResources;</span>
+  }
+
+  public void clearSuicideAttackResources() {
+<span class="nc" id="L360">    m_suicideAttackResources.clear();</span>
+<span class="nc" id="L361">  }</span>
+
+  public void resetSuicideAttackResources() {
+<span class="nc" id="L364">    m_suicideAttackResources = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L365">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setVps(final String value) {
+<span class="fc" id="L369">    m_vps = getInt(value);</span>
+<span class="fc" id="L370">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setVps(final Integer value) {
+<span class="fc" id="L374">    m_vps = value;</span>
+<span class="fc" id="L375">  }</span>
+
+  public int getVps() {
+<span class="fc" id="L378">    return m_vps;</span>
+  }
+
+  public void resetVps() {
+<span class="nc" id="L382">    m_vps = 0;</span>
+<span class="nc" id="L383">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setCaptureVps(final String value) {
+<span class="fc" id="L387">    m_captureVps = getInt(value);</span>
+<span class="fc" id="L388">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setCaptureVps(final Integer value) {
+<span class="fc" id="L392">    m_captureVps = value;</span>
+<span class="fc" id="L393">  }</span>
+
+  public int getCaptureVps() {
+<span class="fc" id="L396">    return m_captureVps;</span>
+  }
+
+  public void resetCaptureVps() {
+<span class="nc" id="L400">    m_captureVps = 0;</span>
+<span class="nc" id="L401">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRetainCapitalNumber(final String value) {
+<span class="fc" id="L405">    m_retainCapitalNumber = getInt(value);</span>
+<span class="fc" id="L406">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRetainCapitalNumber(final Integer value) {
+<span class="fc" id="L410">    m_retainCapitalNumber = value;</span>
+<span class="fc" id="L411">  }</span>
+
+  public int getRetainCapitalNumber() {
+<span class="fc" id="L414">    return m_retainCapitalNumber;</span>
+  }
+
+  public void resetRetainCapitalNumber() {
+<span class="nc" id="L418">    m_retainCapitalNumber = 1;</span>
+<span class="nc" id="L419">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRetainCapitalProduceNumber(final String value) {
+<span class="fc" id="L423">    m_retainCapitalProduceNumber = getInt(value);</span>
+<span class="fc" id="L424">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRetainCapitalProduceNumber(final Integer value) {
+<span class="fc" id="L428">    m_retainCapitalProduceNumber = value;</span>
+<span class="fc" id="L429">  }</span>
+
+  public int getRetainCapitalProduceNumber() {
+<span class="fc" id="L432">    return m_retainCapitalProduceNumber;</span>
+  }
+
+  public void resetRetainCapitalProduceNumber() {
+<span class="nc" id="L436">    m_retainCapitalProduceNumber = 1;</span>
+<span class="nc" id="L437">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setGiveUnitControl(final String value) throws GameParseException {
+<span class="fc" id="L447">    final String[] temp = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L448" title="All 2 branches covered.">    for (final String name : temp) {</span>
+<span class="fc" id="L449">      final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L450" title="1 of 2 branches missed.">      if (tempPlayer != null) {</span>
+<span class="fc" id="L451">        m_giveUnitControl.add(tempPlayer);</span>
+<span class="fc" id="L452">      } else {</span>
+<span class="nc" id="L453">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L456">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setGiveUnitControl(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L460">    m_giveUnitControl = value;</span>
+<span class="nc" id="L461">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getGiveUnitControl() {
+<span class="nc" id="L464">    return m_giveUnitControl;</span>
+  }
+
+  public void clearGiveUnitControl() {
+<span class="nc" id="L468">    m_giveUnitControl.clear();</span>
+<span class="nc" id="L469">  }</span>
+
+  public void resetGiveUnitControl() {
+<span class="nc" id="L472">    m_giveUnitControl = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L473">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setCaptureUnitOnEnteringBy(final String value) throws GameParseException {
+<span class="fc" id="L483">    final String[] temp = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L484" title="All 2 branches covered.">    for (final String name : temp) {</span>
+<span class="fc" id="L485">      final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L486" title="1 of 2 branches missed.">      if (tempPlayer != null) {</span>
+<span class="fc" id="L487">        m_captureUnitOnEnteringBy.add(tempPlayer);</span>
+<span class="fc" id="L488">      } else {</span>
+<span class="nc" id="L489">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L492">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setCaptureUnitOnEnteringBy(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L496">    m_captureUnitOnEnteringBy = value;</span>
+<span class="nc" id="L497">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getCaptureUnitOnEnteringBy() {
+<span class="nc" id="L500">    return m_captureUnitOnEnteringBy;</span>
+  }
+
+  public void clearCaptureUnitOnEnteringBy() {
+<span class="nc" id="L504">    m_captureUnitOnEnteringBy.clear();</span>
+<span class="nc" id="L505">  }</span>
+
+  public void resetCaptureUnitOnEnteringBy() {
+<span class="nc" id="L508">    m_captureUnitOnEnteringBy = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L509">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setShareTechnology(final String value) throws GameParseException {
+<span class="fc" id="L519">    final String[] temp = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L520" title="All 2 branches covered.">    for (final String name : temp) {</span>
+<span class="fc" id="L521">      final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L522" title="1 of 2 branches missed.">      if (tempPlayer != null) {</span>
+<span class="fc" id="L523">        m_shareTechnology.add(tempPlayer);</span>
+<span class="fc" id="L524">      } else {</span>
+<span class="nc" id="L525">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L528">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setShareTechnology(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L532">    m_shareTechnology = value;</span>
+<span class="nc" id="L533">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getShareTechnology() {
+<span class="nc" id="L536">    return m_shareTechnology;</span>
+  }
+
+  public void clearShareTechnology() {
+<span class="nc" id="L540">    m_shareTechnology.clear();</span>
+<span class="nc" id="L541">  }</span>
+
+  public void resetShareTechnology() {
+<span class="nc" id="L544">    m_shareTechnology = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L545">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setHelpPayTechCost(final String value) throws GameParseException {
+<span class="fc" id="L555">    final String[] temp = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L556" title="All 2 branches covered.">    for (final String name : temp) {</span>
+<span class="fc" id="L557">      final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L558" title="1 of 2 branches missed.">      if (tempPlayer != null) {</span>
+<span class="fc" id="L559">        m_helpPayTechCost.add(tempPlayer);</span>
+<span class="fc" id="L560">      } else {</span>
+<span class="nc" id="L561">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L564">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setHelpPayTechCost(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L568">    m_helpPayTechCost = value;</span>
+<span class="nc" id="L569">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getHelpPayTechCost() {
+<span class="nc" id="L572">    return m_helpPayTechCost;</span>
+  }
+
+  public void clearHelpPayTechCost() {
+<span class="nc" id="L576">    m_helpPayTechCost.clear();</span>
+<span class="nc" id="L577">  }</span>
+
+  public void resetHelpPayTechCost() {
+<span class="nc" id="L580">    m_helpPayTechCost = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L581">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDestroysPUs(final String value) {
+<span class="fc" id="L585">    m_destroysPUs = getBool(value);</span>
+<span class="fc" id="L586">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDestroysPUs(final Boolean value) {
+<span class="fc" id="L590">    m_destroysPUs = value;</span>
+<span class="fc" id="L591">  }</span>
+
+  public boolean getDestroysPUs() {
+<span class="fc" id="L594">    return m_destroysPUs;</span>
+  }
+
+  public void resetDestroysPUs() {
+<span class="nc" id="L598">    m_destroysPUs = false;</span>
+<span class="nc" id="L599">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setImmuneToBlockade(final String value) {
+<span class="fc" id="L603">    m_immuneToBlockade = getBool(value);</span>
+<span class="fc" id="L604">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setImmuneToBlockade(final Boolean value) {
+<span class="fc" id="L608">    m_immuneToBlockade = value;</span>
+<span class="fc" id="L609">  }</span>
+
+  public boolean getImmuneToBlockade() {
+<span class="fc" id="L612">    return m_immuneToBlockade;</span>
+  }
+
+  public void resetImmuneToBlockade() {
+<span class="nc" id="L616">    m_immuneToBlockade = false;</span>
+<span class="nc" id="L617">  }</span>
+
+  @Override
+<span class="fc" id="L620">  public void validate(final GameData data) throws GameParseException {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

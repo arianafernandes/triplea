@@ -1,0 +1,680 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PBEMSetupPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.startup.ui</a> &gt; <span class="el_source">PBEMSetupPanel.java</span></div><h1>PBEMSetupPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework.startup.ui;</span>
+
+
+import java.awt.Color;
+import java.awt.Container;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Observable;
+import java.util.Observer;
+
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.framework.message.PlayerListing;
+import games.strategy.engine.framework.startup.launcher.ILauncher;
+import games.strategy.engine.framework.startup.launcher.LocalLauncher;
+import games.strategy.engine.framework.startup.mc.GameSelectorModel;
+import games.strategy.engine.framework.startup.ui.editors.IBean;
+import games.strategy.engine.framework.startup.ui.editors.SelectAndViewEditor;
+import games.strategy.engine.pbem.GenericEmailSender;
+import games.strategy.engine.pbem.GmailEmailSender;
+import games.strategy.engine.pbem.HotmailEmailSender;
+import games.strategy.engine.pbem.IEmailSender;
+import games.strategy.engine.pbem.IForumPoster;
+import games.strategy.engine.pbem.IWebPoster;
+import games.strategy.engine.pbem.NullEmailSender;
+import games.strategy.engine.pbem.NullForumPoster;
+import games.strategy.engine.pbem.NullWebPoster;
+import games.strategy.engine.pbem.PBEMMessagePoster;
+import games.strategy.engine.pbem.TripleAWarClubForumPoster;
+import games.strategy.engine.pbem.TripleAWebPoster;
+import games.strategy.engine.random.IRemoteDiceServer;
+import games.strategy.engine.random.InternalDiceServer;
+import games.strategy.engine.random.PBEMDiceRoller;
+import games.strategy.engine.random.PropertiesDiceRoller;
+import games.strategy.triplea.pbem.AxisAndAlliesForumPoster;
+
+/**
+ * A panel for setting up Play by Email/Forum.
+ * This panel listens to the GameSelectionModel so it can refresh when a new game is selected or save game loaded
+ * The MainPanel also listens to this panel, and we notify it through the notifyObservers()
+ */
+public class PBEMSetupPanel extends SetupPanel implements Observer {
+  private static final long serialVersionUID = 9006941131918034674L;
+  private static final String DICE_ROLLER = &quot;games.strategy.engine.random.IRemoteDiceServer&quot;;
+  private final GameSelectorModel m_gameSelectorModel;
+  private final SelectAndViewEditor m_diceServerEditor;
+  private final SelectAndViewEditor m_forumPosterEditor;
+  private final SelectAndViewEditor m_emailSenderEditor;
+  private final SelectAndViewEditor m_webPosterEditor;
+<span class="nc" id="L80">  private final List&lt;PBEMLocalPlayerComboBoxSelector&gt; m_playerTypes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L81">  private final JPanel m_localPlayerPanel = new JPanel();</span>
+<span class="nc" id="L82">  private final JButton m_localPlayerSelection = new JButton(&quot;Select Local Players and AI's&quot;);</span>
+
+  /**
+   * Creates a new instance
+   *
+   * @param model
+   *        the GameSelectionModel, though which changes are obtained when new games are chosen, or save games loaded
+   */
+<span class="nc" id="L90">  public PBEMSetupPanel(final GameSelectorModel model) {</span>
+<span class="nc" id="L91">    m_gameSelectorModel = model;</span>
+<span class="nc" id="L92">    m_diceServerEditor = new SelectAndViewEditor(&quot;Dice Server&quot;, &quot;&quot;);</span>
+<span class="nc" id="L93">    m_forumPosterEditor = new SelectAndViewEditor(&quot;Post to Forum&quot;, &quot;forumPosters.html&quot;);</span>
+<span class="nc" id="L94">    m_emailSenderEditor = new SelectAndViewEditor(&quot;Provider&quot;, &quot;emailSenders.html&quot;);</span>
+<span class="nc" id="L95">    m_webPosterEditor = new SelectAndViewEditor(&quot;Send to Website&quot;, &quot;websiteSenders.html&quot;);</span>
+<span class="nc" id="L96">    createComponents();</span>
+<span class="nc" id="L97">    layoutComponents();</span>
+<span class="nc" id="L98">    setupListeners();</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    if (m_gameSelectorModel.getGameData() != null) {</span>
+<span class="nc" id="L100">      loadAll();</span>
+    }
+<span class="nc" id="L102">    setWidgetActivation();</span>
+<span class="nc" id="L103">  }</span>
+
+
+  private void createComponents() {
+<span class="nc" id="L107">    m_localPlayerSelection.addActionListener(</span>
+<span class="nc" id="L108">        e -&gt; JOptionPane.showMessageDialog(PBEMSetupPanel.this, m_localPlayerPanel, &quot;Select Local Players and AI's&quot;,</span>
+<span class="nc" id="L109">            JOptionPane.PLAIN_MESSAGE));</span>
+<span class="nc" id="L110">  }</span>
+
+  private void layoutComponents() {
+<span class="nc" id="L113">    removeAll();</span>
+<span class="nc" id="L114">    setLayout(new GridBagLayout());</span>
+    // Empty border works as margin
+<span class="nc" id="L116">    setBorder(new EmptyBorder(10, 10, 10, 10));</span>
+<span class="nc" id="L117">    int row = 0;</span>
+<span class="nc" id="L118">    add(m_diceServerEditor, new GridBagConstraints(0, row++, 1, 1, 1.0d, 0d, GridBagConstraints.NORTHWEST,</span>
+<span class="nc" id="L119">        GridBagConstraints.HORIZONTAL, new Insets(10, 0, 20, 0), 0, 0));</span>
+    // the play by Forum settings
+<span class="nc" id="L121">    m_forumPosterEditor.setBorder(new TitledBorder(&quot;Play By Forum&quot;));</span>
+<span class="nc" id="L122">    add(m_forumPosterEditor, new GridBagConstraints(0, row++, 1, 1, 1.0d, 0d, GridBagConstraints.NORTHWEST,</span>
+<span class="nc" id="L123">        GridBagConstraints.HORIZONTAL, new Insets(0, 0, 20, 0), 0, 0));</span>
+<span class="nc" id="L124">    final JPanel emailPanel = new JPanel(new GridBagLayout());</span>
+<span class="nc" id="L125">    emailPanel.setBorder(new TitledBorder(&quot;Play By Email&quot;));</span>
+<span class="nc" id="L126">    add(emailPanel, new GridBagConstraints(0, row++, 1, 1, 1.0d, 0d, GridBagConstraints.NORTHWEST,</span>
+<span class="nc" id="L127">        GridBagConstraints.HORIZONTAL, new Insets(0, 0, 20, 0), 0, 0));</span>
+<span class="nc" id="L128">    int panelRow = 0;</span>
+<span class="nc" id="L129">    emailPanel.add(m_emailSenderEditor, new GridBagConstraints(0, panelRow++, 1, 1, 1.0d, 0d,</span>
+<span class="nc" id="L130">        GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(0, 0, 2, 0), 0, 0));</span>
+
+    // add selection of local players
+<span class="nc" id="L133">    add(m_localPlayerSelection, new GridBagConstraints(0, row++, 1, 1, 1.0d, 0d, GridBagConstraints.NORTHEAST,</span>
+<span class="nc" id="L134">        GridBagConstraints.NONE, new Insets(10, 0, 10, 0), 0, 0));</span>
+<span class="nc" id="L135">    layoutPlayerPanel(this);</span>
+<span class="nc" id="L136">    setWidgetActivation();</span>
+<span class="nc" id="L137">  }</span>
+
+  @Override
+  public boolean isMetaSetupPanelInstance() {
+<span class="nc" id="L141">    return false;</span>
+  }
+
+
+  @Override
+<span class="nc" id="L146">  public void setWidgetActivation() {}</span>
+
+  private void setupListeners() {
+    // register, so we get notified when the game model (GameData) changes (e.g if the user load a save game or selects
+    // another game)
+<span class="nc" id="L151">    m_gameSelectorModel.addObserver(this);</span>
+    // subscribe to editor changes, so we cannotify the MainPanel
+<span class="nc" id="L153">    m_diceServerEditor.addPropertyChangeListener(new NotifyingPropertyChangeListener());</span>
+<span class="nc" id="L154">    m_forumPosterEditor.addPropertyChangeListener(new NotifyingPropertyChangeListener());</span>
+<span class="nc" id="L155">    m_emailSenderEditor.addPropertyChangeListener(new NotifyingPropertyChangeListener());</span>
+<span class="nc" id="L156">    m_webPosterEditor.addPropertyChangeListener(new NotifyingPropertyChangeListener());</span>
+<span class="nc" id="L157">  }</span>
+
+  private void loadAll() {
+<span class="nc" id="L160">    loadDiceServer(m_gameSelectorModel.getGameData());</span>
+<span class="nc" id="L161">    loadForumPosters(m_gameSelectorModel.getGameData());</span>
+<span class="nc" id="L162">    loadEmailSender(m_gameSelectorModel.getGameData());</span>
+<span class="nc" id="L163">    loadWebPosters(m_gameSelectorModel.getGameData());</span>
+<span class="nc" id="L164">  }</span>
+
+  /**
+   * Load the dice rollers from cache, if the game was a save game, the dice roller store is selected
+   *
+   * @param data
+   *        the game data
+   */
+  private void loadDiceServer(final GameData data) {
+<span class="nc" id="L173">    final List&lt;IRemoteDiceServer&gt; diceRollers = new ArrayList&lt;&gt;(PropertiesDiceRoller.loadFromFile());</span>
+<span class="nc" id="L174">    diceRollers.add(new InternalDiceServer());</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    for (final IRemoteDiceServer diceRoller : diceRollers) {</span>
+<span class="nc" id="L176">      final IRemoteDiceServer cached =</span>
+<span class="nc" id="L177">          (IRemoteDiceServer) LocalBeanCache.INSTANCE.getSerializable(diceRoller.getDisplayName());</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">      if (cached != null) {</span>
+<span class="nc" id="L179">        diceRoller.setCcAddress(cached.getCcAddress());</span>
+<span class="nc" id="L180">        diceRoller.setToAddress(cached.getToAddress());</span>
+<span class="nc" id="L181">        diceRoller.setGameId(cached.getGameId());</span>
+      }
+    }
+<span class="nc" id="L184">    m_diceServerEditor.setBeans(diceRollers);</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">    if (m_gameSelectorModel.isSavedGame()) {</span>
+      // get the dice roller from the save game, if any
+<span class="nc" id="L187">      final IRemoteDiceServer roller = (IRemoteDiceServer) data.getProperties().get(DICE_ROLLER);</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">      if (roller != null) {</span>
+<span class="nc" id="L189">        m_diceServerEditor.setSelectedBean(roller);</span>
+      }
+    }
+<span class="nc" id="L192">  }</span>
+
+  /**
+   * Load the Forum poster that are stored in the GameData, and select it in the list.
+   * Sensitive information such as passwords are not stored in save games, so the are loaded from the LocalBeanCache
+   *
+   * @param data
+   *        the game data
+   */
+  private void loadForumPosters(final GameData data) {
+    // get the forum posters,
+<span class="nc" id="L203">    final List&lt;IForumPoster&gt; forumPosters = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L204">    forumPosters.add((IForumPoster) findCachedOrCreateNew(NullForumPoster.class));</span>
+<span class="nc" id="L205">    forumPosters.add((IForumPoster) findCachedOrCreateNew(AxisAndAlliesForumPoster.class));</span>
+<span class="nc" id="L206">    forumPosters.add((IForumPoster) findCachedOrCreateNew(TripleAWarClubForumPoster.class));</span>
+<span class="nc" id="L207">    m_forumPosterEditor.setBeans(forumPosters);</span>
+    // now get the poster stored in the save game
+<span class="nc" id="L209">    final IForumPoster forumPoster = (IForumPoster) data.getProperties().get(PBEMMessagePoster.FORUM_POSTER_PROP_NAME);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">    if (forumPoster != null) {</span>
+      // if we have a cached version, use the credentials from this, as each player has different forum login
+<span class="nc" id="L212">      final IForumPoster cached =</span>
+<span class="nc" id="L213">          (IForumPoster) LocalBeanCache.INSTANCE.getSerializable(forumPoster.getClass().getCanonicalName());</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">      if (cached != null) {</span>
+<span class="nc" id="L215">        forumPoster.setUsername(cached.getUsername());</span>
+<span class="nc" id="L216">        forumPoster.setPassword(cached.getPassword());</span>
+      }
+<span class="nc" id="L218">      m_forumPosterEditor.setSelectedBean(forumPoster);</span>
+    }
+<span class="nc" id="L220">  }</span>
+
+  private void loadWebPosters(final GameData data) {
+<span class="nc" id="L223">    final List&lt;IWebPoster&gt; webPosters = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L224">    webPosters.add((IWebPoster) findCachedOrCreateNew(NullWebPoster.class));</span>
+<span class="nc" id="L225">    final TripleAWebPoster poster = (TripleAWebPoster) findCachedOrCreateNew(TripleAWebPoster.class);</span>
+<span class="nc" id="L226">    poster.setParties(data.getPlayerList().getNames());</span>
+<span class="nc" id="L227">    webPosters.add(poster);</span>
+<span class="nc" id="L228">    m_webPosterEditor.setBeans(webPosters);</span>
+    // now get the poster stored in the save game
+<span class="nc" id="L230">    final IWebPoster webPoster = (IWebPoster) data.getProperties().get(PBEMMessagePoster.WEB_POSTER_PROP_NAME);</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">    if (webPoster != null) {</span>
+<span class="nc" id="L232">      poster.addToAllHosts(webPoster.getHost());</span>
+<span class="nc" id="L233">      webPoster.setAllHosts(poster.getAllHosts());</span>
+<span class="nc" id="L234">      m_webPosterEditor.setSelectedBean(webPoster);</span>
+    }
+<span class="nc" id="L236">  }</span>
+
+  /**
+   * Configures the list of Email senders. If the game was saved we use this email sender.
+   * Since passwords are not stored in save games, the LocalBeanCache is checked
+   *
+   * @param data
+   *        the game data
+   */
+  private void loadEmailSender(final GameData data) {
+    // The list of email, either loaded from cache or created
+<span class="nc" id="L247">    final List&lt;IEmailSender&gt; emailSenders = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L248">    emailSenders.add((IEmailSender) findCachedOrCreateNew(NullEmailSender.class));</span>
+<span class="nc" id="L249">    emailSenders.add((IEmailSender) findCachedOrCreateNew(GmailEmailSender.class));</span>
+<span class="nc" id="L250">    emailSenders.add((IEmailSender) findCachedOrCreateNew(HotmailEmailSender.class));</span>
+<span class="nc" id="L251">    emailSenders.add((IEmailSender) findCachedOrCreateNew(GenericEmailSender.class));</span>
+<span class="nc" id="L252">    m_emailSenderEditor.setBeans(emailSenders);</span>
+    // now get the sender from the save game, update it with credentials from the cache, and set it
+<span class="nc" id="L254">    final IEmailSender sender = (IEmailSender) data.getProperties().get(PBEMMessagePoster.EMAIL_SENDER_PROP_NAME);</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">    if (sender != null) {</span>
+<span class="nc" id="L256">      final IEmailSender cached =</span>
+<span class="nc" id="L257">          (IEmailSender) LocalBeanCache.INSTANCE.getSerializable(sender.getClass().getCanonicalName());</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">      if (cached != null) {</span>
+<span class="nc" id="L259">        sender.setUserName(cached.getUserName());</span>
+<span class="nc" id="L260">        sender.setPassword(cached.getPassword());</span>
+      }
+<span class="nc" id="L262">      m_emailSenderEditor.setSelectedBean(sender);</span>
+    }
+<span class="nc" id="L264">  }</span>
+
+  /**
+   * finds a cached instance of the give type. If a cached version is not available a new one is created
+   *
+   * @param theClassType
+   *        the type of class
+   * @return a IBean either loaded from the cache or created
+   */
+  private static IBean findCachedOrCreateNew(final Class&lt;? extends IBean&gt; theClassType) {
+<span class="nc" id="L274">    IBean cached = LocalBeanCache.INSTANCE.getSerializable(theClassType.getCanonicalName());</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">    if (cached == null) {</span>
+      try {
+<span class="nc" id="L277">        cached = theClassType.newInstance();</span>
+<span class="nc" id="L278">      } catch (final Exception e) {</span>
+<span class="nc" id="L279">        throw new RuntimeException(</span>
+<span class="nc" id="L280">            &quot;Bean of type &quot; + theClassType + &quot; doesn't have public default constructor, error: &quot; + e.getMessage());</span>
+      }
+    }
+<span class="nc" id="L283">    return cached;</span>
+  }
+
+  @Override
+  public void shutDown() {
+<span class="nc" id="L288">    m_gameSelectorModel.deleteObserver(this);</span>
+<span class="nc" id="L289">  }</span>
+
+  /**
+   * Called when the current game changes
+   */
+  @Override
+  public void cancel() {
+<span class="nc" id="L296">    m_gameSelectorModel.deleteObserver(this);</span>
+<span class="nc" id="L297">  }</span>
+
+  /**
+   * Called when the observers detect change, to see if the game is in a startable state
+   */
+  @Override
+  public boolean canGameStart() {
+<span class="nc bnc" id="L304" title="All 2 branches missed.">    if (m_gameSelectorModel.getGameData() == null) {</span>
+<span class="nc" id="L305">      return false;</span>
+    }
+<span class="nc" id="L307">    final boolean diceServerValid = m_diceServerEditor.isBeanValid();</span>
+<span class="nc" id="L308">    final boolean summaryValid = m_forumPosterEditor.isBeanValid();</span>
+<span class="nc" id="L309">    final boolean webSiteValid = m_webPosterEditor.isBeanValid();</span>
+<span class="nc" id="L310">    final boolean emailValid = m_emailSenderEditor.isBeanValid();</span>
+<span class="nc" id="L311">    final boolean pbemReady =</span>
+<span class="nc bnc" id="L312" title="All 10 branches missed.">        diceServerValid &amp;&amp; summaryValid &amp;&amp; emailValid &amp;&amp; webSiteValid &amp;&amp; m_gameSelectorModel.getGameData() != null;</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">    if (!pbemReady) {</span>
+<span class="nc" id="L314">      return false;</span>
+    }
+    // make sure at least 1 player is enabled
+<span class="nc bnc" id="L317" title="All 2 branches missed.">    for (final PBEMLocalPlayerComboBoxSelector player : m_playerTypes) {</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">      if (player.isPlayerEnabled()) {</span>
+<span class="nc" id="L319">        return true;</span>
+      }
+    }
+<span class="nc" id="L322">    return false;</span>
+  }
+
+  @Override
+  public void postStartGame() {
+    // // store the dice server
+<span class="nc" id="L328">    final GameData data = m_gameSelectorModel.getGameData();</span>
+<span class="nc" id="L329">    data.getProperties().set(DICE_ROLLER, m_diceServerEditor.getBean());</span>
+    // store the Turn Summary Poster
+<span class="nc" id="L331">    final IForumPoster poster = (IForumPoster) m_forumPosterEditor.getBean();</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">    if (poster != null) {</span>
+<span class="nc" id="L333">      IForumPoster summaryPoster = poster;</span>
+      // clone the poster, the remove sensitive info, and put the clone into the game data
+      // this was the sensitive info is not stored in the save game, but the user cache still has the password
+<span class="nc" id="L336">      summaryPoster = summaryPoster.doClone();</span>
+<span class="nc" id="L337">      summaryPoster.clearSensitiveInfo();</span>
+<span class="nc" id="L338">      data.getProperties().set(PBEMMessagePoster.FORUM_POSTER_PROP_NAME, summaryPoster);</span>
+    }
+    // store the email poster
+<span class="nc" id="L341">    IEmailSender sender = (IEmailSender) m_emailSenderEditor.getBean();</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">    if (sender != null) {</span>
+      // create a clone, delete the sensitive information in the clone, and use it in the game
+      // the locally cached version still has the password so the user doesn't have to enter it every time
+<span class="nc" id="L345">      sender = sender.doClone();</span>
+<span class="nc" id="L346">      sender.clearSensitiveInfo();</span>
+<span class="nc" id="L347">      data.getProperties().set(PBEMMessagePoster.EMAIL_SENDER_PROP_NAME, sender);</span>
+    }
+    // store the web site poster
+<span class="nc" id="L350">    IWebPoster webPoster = (IWebPoster) m_webPosterEditor.getBean();</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">    if (webPoster != null) {</span>
+<span class="nc" id="L352">      webPoster = webPoster.doClone();</span>
+<span class="nc" id="L353">      webPoster.clearSensitiveInfo();</span>
+<span class="nc" id="L354">      data.getProperties().set(PBEMMessagePoster.WEB_POSTER_PROP_NAME, webPoster);</span>
+    }
+    // store whether we are a pbem game or not, whether we are capable of posting a game save
+<span class="nc bnc" id="L357" title="All 6 branches missed.">    if (poster != null || sender != null || webPoster != null) {</span>
+<span class="nc" id="L358">      data.getProperties().set(PBEMMessagePoster.PBEM_GAME_PROP_NAME, true);</span>
+    }
+<span class="nc" id="L360">  }</span>
+
+  /**
+   * Is called in response to the GameSelectionModel being updated. It means the we have to reload the form
+   *
+   * @param o
+   *        always null
+   * @param arg
+   *        always null
+   */
+  @Override
+  public void update(final Observable o, final Object arg) {
+<span class="nc bnc" id="L372" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L373">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L374">        loadAll();</span>
+<span class="nc" id="L375">        layoutComponents();</span>
+<span class="nc" id="L376">      });</span>
+<span class="nc" id="L377">      return;</span>
+    } else {
+<span class="nc" id="L379">      loadAll();</span>
+<span class="nc" id="L380">      layoutComponents();</span>
+    }
+<span class="nc" id="L382">  }</span>
+
+  /**
+   * Called when the user hits play
+   */
+  @Override
+  public ILauncher getLauncher() {
+    // update local cache and write to disk before game starts
+<span class="nc" id="L390">    final IForumPoster poster = (IForumPoster) m_forumPosterEditor.getBean();</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">    if (poster != null) {</span>
+<span class="nc" id="L392">      LocalBeanCache.INSTANCE.storeSerializable(poster.getClass().getCanonicalName(), poster);</span>
+    }
+<span class="nc" id="L394">    final IEmailSender sender = (IEmailSender) m_emailSenderEditor.getBean();</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">    if (sender != null) {</span>
+<span class="nc" id="L396">      LocalBeanCache.INSTANCE.storeSerializable(sender.getClass().getCanonicalName(), sender);</span>
+    }
+<span class="nc" id="L398">    final IWebPoster web = (IWebPoster) m_webPosterEditor.getBean();</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">    if (web != null) {</span>
+<span class="nc" id="L400">      LocalBeanCache.INSTANCE.storeSerializable(web.getClass().getCanonicalName(), web);</span>
+    }
+<span class="nc" id="L402">    final IRemoteDiceServer server = (IRemoteDiceServer) m_diceServerEditor.getBean();</span>
+<span class="nc" id="L403">    LocalBeanCache.INSTANCE.storeSerializable(server.getDisplayName(), server);</span>
+<span class="nc" id="L404">    LocalBeanCache.INSTANCE.writeToDisk();</span>
+    // create local launcher
+<span class="nc" id="L406">    final String gameUUID = (String) m_gameSelectorModel.getGameData().getProperties().get(GameData.GAME_UUID);</span>
+<span class="nc" id="L407">    final PBEMDiceRoller randomSource = new PBEMDiceRoller((IRemoteDiceServer) m_diceServerEditor.getBean(), gameUUID);</span>
+<span class="nc" id="L408">    final Map&lt;String, String&gt; playerTypes = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L409">    final Map&lt;String, Boolean&gt; playersEnabled = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">    for (final PBEMLocalPlayerComboBoxSelector player : m_playerTypes) {</span>
+<span class="nc" id="L411">      playerTypes.put(player.getPlayerName(), player.getPlayerType());</span>
+<span class="nc" id="L412">      playersEnabled.put(player.getPlayerName(), player.isPlayerEnabled());</span>
+    }
+    // we don't need the playerToNode list, the
+    // disable-able players, or the alliances
+    // list, for a local game
+<span class="nc" id="L417">    final PlayerListing pl =</span>
+<span class="nc" id="L418">        new PlayerListing(null, playersEnabled, playerTypes, m_gameSelectorModel.getGameData().getGameVersion(),</span>
+<span class="nc" id="L419">            m_gameSelectorModel.getGameName(), m_gameSelectorModel.getGameRound(), null, null);</span>
+<span class="nc" id="L420">    return new LocalLauncher(m_gameSelectorModel, randomSource, pl);</span>
+  }
+
+  /**
+   * A property change listener that notify our observers
+   */
+<span class="nc" id="L426">  private class NotifyingPropertyChangeListener implements PropertyChangeListener {</span>
+    @Override
+    public void propertyChange(final PropertyChangeEvent evt) {
+<span class="nc" id="L429">      notifyObservers();</span>
+<span class="nc" id="L430">    }</span>
+  }
+
+  public String getPlayerType(final String playerName) {
+<span class="nc bnc" id="L434" title="All 2 branches missed.">    for (final PBEMLocalPlayerComboBoxSelector item : m_playerTypes) {</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">      if (item.getPlayerName().equals(playerName)) {</span>
+<span class="nc" id="L436">        return item.getPlayerType();</span>
+      }
+    }
+<span class="nc" id="L439">    throw new IllegalStateException(&quot;No player found:&quot; + playerName);</span>
+  }
+
+  private void layoutPlayerPanel(final SetupPanel parent) {
+<span class="nc" id="L443">    final GameData data = m_gameSelectorModel.getGameData();</span>
+<span class="nc" id="L444">    m_localPlayerPanel.removeAll();</span>
+<span class="nc" id="L445">    m_playerTypes.clear();</span>
+<span class="nc" id="L446">    m_localPlayerPanel.setLayout(new GridBagLayout());</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">    if (data == null) {</span>
+<span class="nc" id="L448">      m_localPlayerPanel.add(new JLabel(&quot;No game selected!&quot;));</span>
+<span class="nc" id="L449">      return;</span>
+    }
+<span class="nc" id="L451">    final Collection&lt;String&gt; disableable = data.getPlayerList().getPlayersThatMayBeDisabled();</span>
+<span class="nc" id="L452">    final HashMap&lt;String, Boolean&gt; playersEnablementListing = data.getPlayerList().getPlayersEnabledListing();</span>
+<span class="nc" id="L453">    final Map&lt;String, String&gt; reloadSelections = PlayerID.currentPlayers(data);</span>
+<span class="nc" id="L454">    final String[] playerTypes = data.getGameLoader().getServerPlayerTypes();</span>
+<span class="nc" id="L455">    final String[] playerNames = data.getPlayerList().getNames();</span>
+    // if the xml was created correctly, this list will be in turn order. we want to keep it that way.
+<span class="nc" id="L457">    int gridx = 0;</span>
+<span class="nc" id="L458">    int gridy = 0;</span>
+<span class="nc bnc" id="L459" title="All 4 branches missed.">    if (!disableable.isEmpty() || playersEnablementListing.containsValue(Boolean.FALSE)) {</span>
+<span class="nc" id="L460">      final JLabel enableLabel = new JLabel(&quot;Use&quot;);</span>
+<span class="nc" id="L461">      enableLabel.setForeground(Color.black);</span>
+<span class="nc" id="L462">      m_localPlayerPanel.add(enableLabel, new GridBagConstraints(gridx++, gridy, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L463">          GridBagConstraints.NONE, new Insets(0, 5, 5, 0), 0, 0));</span>
+    }
+<span class="nc" id="L465">    final JLabel nameLabel = new JLabel(&quot;Name&quot;);</span>
+<span class="nc" id="L466">    nameLabel.setForeground(Color.black);</span>
+<span class="nc" id="L467">    m_localPlayerPanel.add(nameLabel, new GridBagConstraints(gridx++, gridy, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L468">        GridBagConstraints.NONE, new Insets(0, 5, 5, 0), 0, 0));</span>
+<span class="nc" id="L469">    final JLabel typeLabel = new JLabel(&quot;Type&quot;);</span>
+<span class="nc" id="L470">    typeLabel.setForeground(Color.black);</span>
+<span class="nc" id="L471">    m_localPlayerPanel.add(typeLabel, new GridBagConstraints(gridx++, gridy, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L472">        GridBagConstraints.NONE, new Insets(0, 5, 5, 0), 0, 0));</span>
+<span class="nc" id="L473">    final JLabel allianceLabel = new JLabel(&quot;Alliance&quot;);</span>
+<span class="nc" id="L474">    allianceLabel.setForeground(Color.black);</span>
+<span class="nc" id="L475">    m_localPlayerPanel.add(allianceLabel, new GridBagConstraints(gridx++, gridy, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L476">        GridBagConstraints.NONE, new Insets(0, 7, 5, 5), 0, 0));</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">    for (final String playerName : playerNames) {</span>
+<span class="nc" id="L478">      final PBEMLocalPlayerComboBoxSelector selector =</span>
+<span class="nc" id="L479">          new PBEMLocalPlayerComboBoxSelector(playerName, reloadSelections, disableable, playersEnablementListing,</span>
+<span class="nc" id="L480">              data.getAllianceTracker().getAlliancesPlayerIsIn(data.getPlayerList().getPlayerID(playerName)),</span>
+<span class="nc" id="L481">              playerTypes, parent);</span>
+<span class="nc" id="L482">      m_playerTypes.add(selector);</span>
+<span class="nc" id="L483">      selector.layout(++gridy, m_localPlayerPanel);</span>
+    }
+<span class="nc" id="L485">    m_localPlayerPanel.validate();</span>
+<span class="nc" id="L486">    m_localPlayerPanel.invalidate();</span>
+<span class="nc" id="L487">  }</span>
+}
+
+
+class PBEMLocalPlayerComboBoxSelector {
+  private final JCheckBox m_enabledCheckBox;
+  private final String m_playerName;
+  private final JComboBox&lt;String&gt; m_playerTypes;
+<span class="nc" id="L495">  private boolean m_enabled = true;</span>
+  private final JLabel m_name;
+  private final JLabel m_alliances;
+  private final Collection&lt;String&gt; m_disableable;
+  private final String[] m_types;
+  private final SetupPanel m_parent;
+
+<span class="nc" id="L502">  PBEMLocalPlayerComboBoxSelector(final String playerName, final Map&lt;String, String&gt; reloadSelections,</span>
+      final Collection&lt;String&gt; disableable, final HashMap&lt;String, Boolean&gt; playersEnablementListing,
+      final Collection&lt;String&gt; playerAlliances, final String[] types, final SetupPanel parent) {
+<span class="nc" id="L505">    m_playerName = playerName;</span>
+<span class="nc" id="L506">    m_name = new JLabel(m_playerName + &quot;:&quot;);</span>
+<span class="nc" id="L507">    m_enabledCheckBox = new JCheckBox();</span>
+<span class="nc" id="L508">    final ActionListener m_disablePlayerActionListener = new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent e) {
+<span class="nc bnc" id="L511" title="All 2 branches missed.">        if (m_enabledCheckBox.isSelected()) {</span>
+<span class="nc" id="L512">          m_enabled = true;</span>
+          // the 1st in the list should be human
+<span class="nc" id="L514">          m_playerTypes.setSelectedItem(m_types[0]);</span>
+<span class="nc" id="L515">        } else {</span>
+<span class="nc" id="L516">          m_enabled = false;</span>
+          // the 2nd in the list should be Weak AI
+<span class="nc" id="L518">          m_playerTypes.setSelectedItem(m_types[Math.max(0, Math.min(m_types.length - 1, 1))]);</span>
+        }
+<span class="nc" id="L520">        setWidgetActivation();</span>
+<span class="nc" id="L521">      }</span>
+    };
+<span class="nc" id="L523">    m_enabledCheckBox.addActionListener(m_disablePlayerActionListener);</span>
+<span class="nc" id="L524">    m_enabledCheckBox.setSelected(playersEnablementListing.get(playerName));</span>
+<span class="nc" id="L525">    m_enabledCheckBox.setEnabled(disableable.contains(playerName));</span>
+<span class="nc" id="L526">    m_disableable = disableable;</span>
+<span class="nc" id="L527">    m_parent = parent;</span>
+<span class="nc" id="L528">    m_types = types;</span>
+<span class="nc" id="L529">    m_playerTypes = new JComboBox&lt;&gt;(types);</span>
+<span class="nc" id="L530">    String previousSelection = reloadSelections.get(playerName);</span>
+<span class="nc bnc" id="L531" title="All 2 branches missed.">    if (previousSelection.equalsIgnoreCase(&quot;Client&quot;)) {</span>
+<span class="nc" id="L532">      previousSelection = types[0];</span>
+    }
+<span class="nc bnc" id="L534" title="All 4 branches missed.">    if (!(previousSelection.equals(&quot;no_one&quot;)) &amp;&amp; Arrays.asList(types).contains(previousSelection)) {</span>
+<span class="nc" id="L535">      m_playerTypes.setSelectedItem(previousSelection);</span>
+<span class="nc bnc" id="L536" title="All 4 branches missed.">    } else if (m_playerName.startsWith(&quot;Neutral&quot;) || playerName.startsWith(&quot;AI&quot;)) {</span>
+      // the 4th in the list should be Pro AI (Hard AI)
+<span class="nc" id="L538">      m_playerTypes.setSelectedItem(types[Math.max(0, Math.min(types.length - 1, 3))]);</span>
+    }
+    // we do not set the default for the combobox because the default is the top item, which in this case is human
+    String m_playerAlliances;
+<span class="nc bnc" id="L542" title="All 2 branches missed.">    if (playerAlliances.contains(playerName)) {</span>
+<span class="nc" id="L543">      m_playerAlliances = &quot;&quot;;</span>
+<span class="nc" id="L544">    } else {</span>
+<span class="nc" id="L545">      m_playerAlliances = playerAlliances.toString();</span>
+    }
+<span class="nc" id="L547">    m_alliances = new JLabel(m_playerAlliances);</span>
+<span class="nc" id="L548">    setWidgetActivation();</span>
+<span class="nc" id="L549">  }</span>
+
+  public void layout(final int row, final Container container) {
+<span class="nc" id="L552">    int gridx = 0;</span>
+<span class="nc bnc" id="L553" title="All 2 branches missed.">    if (!m_disableable.isEmpty()) {</span>
+<span class="nc" id="L554">      container.add(m_enabledCheckBox, new GridBagConstraints(gridx++, row, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L555">          GridBagConstraints.NONE, new Insets(0, 5, 5, 0), 0, 0));</span>
+    }
+<span class="nc" id="L557">    container.add(m_name, new GridBagConstraints(gridx++, row, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L558">        GridBagConstraints.NONE, new Insets(0, 5, 5, 0), 0, 0));</span>
+<span class="nc" id="L559">    container.add(m_playerTypes, new GridBagConstraints(gridx++, row, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L560">        GridBagConstraints.NONE, new Insets(0, 5, 5, 0), 0, 0));</span>
+<span class="nc" id="L561">    container.add(m_alliances, new GridBagConstraints(gridx++, row, 1, 1, 0, 0, GridBagConstraints.WEST,</span>
+<span class="nc" id="L562">        GridBagConstraints.NONE, new Insets(0, 7, 5, 5), 0, 0));</span>
+<span class="nc" id="L563">  }</span>
+
+  public String getPlayerName() {
+<span class="nc" id="L566">    return m_playerName;</span>
+  }
+
+  public String getPlayerType() {
+<span class="nc" id="L570">    return (String) m_playerTypes.getSelectedItem();</span>
+  }
+
+  public boolean isPlayerEnabled() {
+<span class="nc" id="L574">    return m_enabledCheckBox.isSelected();</span>
+  }
+
+  private void setWidgetActivation() {
+<span class="nc" id="L578">    m_name.setEnabled(m_enabled);</span>
+<span class="nc" id="L579">    m_alliances.setEnabled(m_enabled);</span>
+<span class="nc" id="L580">    m_enabledCheckBox.setEnabled(m_disableable.contains(m_playerName));</span>
+<span class="nc" id="L581">    m_parent.notifyObservers();</span>
+<span class="nc" id="L582">  }</span>
+
+  /**
+   * A cache for serialized beans that should be stored locally.
+   * This is used to store settings which are not game related, and should therefore not go into the options cache
+   * This is often used by editors to remember previous values
+   */
+
+}
+
+
+/** A bean cache used by PBEMSetupPanel */
+<span class="nc" id="L594">enum LocalBeanCache {</span>
+<span class="nc" id="L595">  INSTANCE;</span>
+  private final File m_file;
+<span class="nc" id="L597">  private final Object m_mutex = new Object();</span>
+
+<span class="nc" id="L599">  Map&lt;String, IBean&gt; m_map = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L601">  private LocalBeanCache() {</span>
+<span class="nc" id="L602">    m_file = new File(ClientFileSystemHelper.getUserRootFolder(), &quot;local.cache&quot;);</span>
+<span class="nc" id="L603">    m_map = loadMap();</span>
+    // add a shutdown, just in case someone forgets to call writeToDisk
+<span class="nc" id="L605">    final Thread shutdown = new Thread(() -&gt; writeToDisk());</span>
+<span class="nc" id="L606">    Runtime.getRuntime().addShutdownHook(shutdown);</span>
+<span class="nc" id="L607">  }</span>
+
+  @SuppressWarnings(&quot;unchecked&quot;)
+  private Map&lt;String, IBean&gt; loadMap() {
+<span class="nc bnc" id="L611" title="All 2 branches missed.">    if (m_file.exists()) {</span>
+<span class="nc" id="L612">      try (FileInputStream fin = new FileInputStream(m_file);</span>
+<span class="nc" id="L613">          ObjectInput oin = new ObjectInputStream(fin);) {</span>
+<span class="nc" id="L614">        final Object o = oin.readObject();</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">        if (o instanceof Map) {</span>
+<span class="nc" id="L616">          final Map&lt;?, ?&gt; m = (Map&lt;?, ?&gt;) o;</span>
+<span class="nc bnc" id="L617" title="All 2 branches missed.">          for (final Object o1 : m.keySet()) {</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">            if (!(o1 instanceof String)) {</span>
+<span class="nc" id="L619">              throw new Exception(&quot;Map is corrupt&quot;);</span>
+            }
+          }
+<span class="nc" id="L622">        } else {</span>
+<span class="nc" id="L623">          throw new Exception(&quot;File is corrupt&quot;);</span>
+        }
+        // we know that the map has proper type key/value
+<span class="nc" id="L626">        return (HashMap&lt;String, IBean&gt;) o;</span>
+<span class="nc bnc" id="L627" title="All 16 branches missed.">      } catch (final Exception e) {</span>
+        // on error we delete the cache file, if we can
+<span class="nc" id="L629">        m_file.delete();</span>
+<span class="nc" id="L630">        System.err.println(&quot;Serialization cache invalid: &quot; + e.getMessage());</span>
+<span class="nc" id="L631">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc" id="L634">    return new HashMap&lt;&gt;();</span>
+  }
+
+  /**
+   * adds a new Serializable to the cache
+   *
+   * @param key
+   *        the key the serializable should be stored under. Take care not to override a serializable stored by other
+   *        code
+   *        it is generally a good ide to use fully qualified class names, getClass().getCanonicalName() as key
+   * @param bean
+   *        the bean
+   */
+  public void storeSerializable(final String key, final IBean bean) {
+<span class="nc" id="L648">    m_map.put(key, bean);</span>
+<span class="nc" id="L649">  }</span>
+
+  /**
+   * Call to have the cache written to disk
+   */
+  public void writeToDisk() {
+<span class="nc" id="L655">    synchronized (m_mutex) {</span>
+<span class="nc" id="L656">      try (FileOutputStream fout = new FileOutputStream(m_file, false);</span>
+<span class="nc" id="L657">          ObjectOutputStream out = new ObjectOutputStream(fout);) {</span>
+
+<span class="nc" id="L659">        out.writeObject(m_map);</span>
+<span class="nc bnc" id="L660" title="All 16 branches missed.">      } catch (final IOException e) {</span>
+        // ignore
+      }
+    }
+<span class="nc" id="L664">  }</span>
+
+  /**
+   * Get a serializable from the cache
+   *
+   * @param key
+   *        the key ot was stored under
+   * @return the serializable or null if one doesn't exists under the given key
+   */
+  public IBean getSerializable(final String key) {
+<span class="nc" id="L674">    return m_map.get(key);</span>
+  }
+
+
+}
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

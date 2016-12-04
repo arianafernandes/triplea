@@ -1,0 +1,580 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ExportMenu.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui.menubar</a> &gt; <span class="el_source">ExportMenu.java</span></div><h1>ExportMenu.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui.menubar;</span>
+
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.event.KeyEvent;
+import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+import javax.imageio.ImageIO;
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.JComponent;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.WindowConstants;
+import javax.swing.filechooser.FileFilter;
+import javax.swing.tree.DefaultMutableTreeNode;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.export.GameDataExporter;
+import games.strategy.engine.framework.GameDataUtils;
+import games.strategy.engine.framework.ui.SaveGameFileChooser;
+import games.strategy.engine.history.HistoryNode;
+import games.strategy.engine.history.Round;
+import games.strategy.engine.history.Step;
+import games.strategy.engine.stats.IStat;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.EndRoundDelegate;
+import games.strategy.triplea.printgenerator.SetupFrame;
+import games.strategy.triplea.ui.ExtendedStats;
+import games.strategy.triplea.ui.IUIContext;
+import games.strategy.triplea.ui.MapPanel;
+import games.strategy.triplea.ui.TripleAFrame;
+import games.strategy.triplea.ui.history.HistoryPanel;
+import games.strategy.triplea.ui.mapdata.MapData;
+import games.strategy.triplea.util.PlayerOrderComparator;
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import games.strategy.util.IllegalCharacterRemover;
+import games.strategy.util.LocalizeHTML;
+
+public class ExportMenu {
+
+  private final TripleAFrame frame;
+  private final GameData gameData;
+  private final IUIContext iuiContext;
+
+<span class="nc" id="L70">  public ExportMenu(final TripleAMenuBar menuBar, final TripleAFrame frame) {</span>
+<span class="nc" id="L71">    this.frame = frame;</span>
+<span class="nc" id="L72">    gameData = frame.getGame().getData();</span>
+<span class="nc" id="L73">    iuiContext = frame.getUIContext();</span>
+
+<span class="nc" id="L75">    final JMenu menuGame = new JMenu(&quot;Export&quot;);</span>
+<span class="nc" id="L76">    menuGame.setMnemonic(KeyEvent.VK_E);</span>
+<span class="nc" id="L77">    menuBar.add(menuGame);</span>
+<span class="nc" id="L78">    addExportXML(menuGame);</span>
+<span class="nc" id="L79">    addExportStats(menuGame);</span>
+<span class="nc" id="L80">    addExportStatsFull(menuGame);</span>
+<span class="nc" id="L81">    addExportSetupCharts(menuGame);</span>
+<span class="nc" id="L82">    addExportUnitStats(menuGame);</span>
+<span class="nc" id="L83">    addSaveScreenshot(menuGame);</span>
+<span class="nc" id="L84">  }</span>
+
+  // TODO: create a second menu option for parsing current attachments
+  private void addExportXML(final JMenu parentMenu) {
+<span class="nc" id="L88">    final Action exportXML = SwingAction.of(&quot;Export game.xml File (Beta)&quot;, e -&gt; exportXMLFile());</span>
+<span class="nc" id="L89">    parentMenu.add(exportXML).setMnemonic(KeyEvent.VK_X);</span>
+<span class="nc" id="L90">  }</span>
+
+  private void exportXMLFile() {
+<span class="nc" id="L93">    final JFileChooser chooser = new JFileChooser();</span>
+<span class="nc" id="L94">    chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);</span>
+<span class="nc" id="L95">    final File rootDir = new File(System.getProperties().getProperty(&quot;user.dir&quot;));</span>
+<span class="nc" id="L96">    final DateFormat formatDate = new SimpleDateFormat(&quot;yyyy_MM_dd&quot;);</span>
+<span class="nc" id="L97">    int round = 0;</span>
+    try {
+<span class="nc" id="L99">      gameData.acquireReadLock();</span>
+<span class="nc" id="L100">      round = gameData.getSequence().getRound();</span>
+<span class="nc" id="L101">    } finally {</span>
+<span class="nc" id="L102">      gameData.releaseReadLock();</span>
+<span class="nc" id="L103">    }</span>
+<span class="nc" id="L104">    String defaultFileName = &quot;xml_&quot; + formatDate.format(new Date()) + &quot;_&quot; + gameData.getGameName() + &quot;_round_&quot; + round;</span>
+<span class="nc" id="L105">    defaultFileName = IllegalCharacterRemover.removeIllegalCharacter(defaultFileName);</span>
+<span class="nc" id="L106">    defaultFileName = defaultFileName + &quot;.xml&quot;;</span>
+<span class="nc" id="L107">    chooser.setSelectedFile(new File(rootDir, defaultFileName));</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">    if (chooser.showSaveDialog(frame) != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L109">      return;</span>
+    }
+    final String xmlFile;
+    try {
+<span class="nc" id="L113">      gameData.acquireReadLock();</span>
+<span class="nc" id="L114">      final GameDataExporter exporter = new games.strategy.engine.data.export.GameDataExporter(gameData);</span>
+<span class="nc" id="L115">      xmlFile = exporter.getXML();</span>
+<span class="nc" id="L116">    } finally {</span>
+<span class="nc" id="L117">      gameData.releaseReadLock();</span>
+<span class="nc" id="L118">    }</span>
+    try {
+<span class="nc" id="L120">      try (final FileWriter writer = new FileWriter(chooser.getSelectedFile());) {</span>
+<span class="nc" id="L121">        writer.write(xmlFile);</span>
+<span class="nc bnc" id="L122" title="All 8 branches missed.">      }</span>
+<span class="nc" id="L123">    } catch (final IOException e1) {</span>
+<span class="nc" id="L124">      ClientLogger.logQuietly(e1);</span>
+    }
+<span class="nc" id="L126">  }</span>
+
+
+  private void addSaveScreenshot(final JMenu parentMenu) {
+<span class="nc" id="L130">    final AbstractAction abstractAction = SwingAction.of(&quot;Export Map Snapshot&quot;, e -&gt; {</span>
+
+<span class="nc" id="L132">      final HistoryPanel historyPanel = frame.getHistoryPanel();</span>
+      final HistoryNode curNode;
+<span class="nc bnc" id="L134" title="All 2 branches missed.">      if (historyPanel == null) {</span>
+<span class="nc" id="L135">        curNode = gameData.getHistory().getLastNode();</span>
+<span class="nc" id="L136">      } else {</span>
+<span class="nc" id="L137">        curNode = historyPanel.getCurrentNode();</span>
+      }
+<span class="nc" id="L139">      saveScreenshot(curNode, frame, gameData);</span>
+<span class="nc" id="L140">    });</span>
+<span class="nc" id="L141">    parentMenu.add(abstractAction).setMnemonic(KeyEvent.VK_E);</span>
+<span class="nc" id="L142">  }</span>
+
+  public static void saveScreenshot(final HistoryNode node, final TripleAFrame frame, final GameData gameData) {
+<span class="nc" id="L145">    final FileFilter pngFilter = new FileFilter() {</span>
+      @Override
+      public boolean accept(final File f) {
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (f.isDirectory()) {</span>
+<span class="nc" id="L149">          return true;</span>
+        } else {
+<span class="nc" id="L151">          return f.getName().endsWith(&quot;.png&quot;);</span>
+        }
+      }
+
+      @Override
+      public String getDescription() {
+<span class="nc" id="L157">        return &quot;Saved Screenshots, *.png&quot;;</span>
+      }
+    };
+<span class="nc" id="L160">    final JFileChooser fileChooser = new SaveGameFileChooser();</span>
+<span class="nc" id="L161">    fileChooser.setFileFilter(pngFilter);</span>
+<span class="nc" id="L162">    final int rVal = fileChooser.showSaveDialog(null);</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    if (rVal == JFileChooser.APPROVE_OPTION) {</span>
+<span class="nc" id="L164">      File f = fileChooser.getSelectedFile();</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">      if (!f.getName().toLowerCase().endsWith(&quot;.png&quot;)) {</span>
+<span class="nc" id="L166">        f = new File(f.getParent(), f.getName() + &quot;.png&quot;);</span>
+      }
+      // A small warning so users will not over-write a file,
+<span class="nc bnc" id="L169" title="All 2 branches missed.">      if (f.exists()) {</span>
+<span class="nc" id="L170">        final int choice =</span>
+<span class="nc" id="L171">            JOptionPane.showConfirmDialog(null, &quot;A file by that name already exists. Do you wish to over write it?&quot;,</span>
+<span class="nc" id="L172">                &quot;Over-write?&quot;, JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (choice != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L174">          return;</span>
+        }
+      }
+<span class="nc" id="L177">      final File file = f;</span>
+<span class="nc" id="L178">      final Runnable t = () -&gt; {</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if (saveScreenshot(node, file, frame, gameData)) {</span>
+<span class="nc" id="L180">          JOptionPane.showMessageDialog(null, &quot;Map Snapshot Saved&quot;, &quot;Map Snapshot Saved&quot;,</span>
+<span class="nc" id="L181">              JOptionPane.INFORMATION_MESSAGE);</span>
+        }
+<span class="nc" id="L183">      };</span>
+<span class="nc" id="L184">      SwingAction.invokeAndWait(t);</span>
+    }
+<span class="nc" id="L186">  }</span>
+
+  private static boolean saveScreenshot(final HistoryNode node, final File file, final TripleAFrame frame,
+      final GameData gameData) {
+    // get current history node. if we are in history view, get the selected node.
+<span class="nc" id="L191">    boolean retval = true;</span>
+    // get round/step/player from history tree
+<span class="nc" id="L193">    int round = 0;</span>
+<span class="nc" id="L194">    final Object[] pathFromRoot = node.getPath();</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    for (final Object pathNode : pathFromRoot) {</span>
+<span class="nc" id="L196">      final HistoryNode curNode = (HistoryNode) pathNode;</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">      if (curNode instanceof Round) {</span>
+<span class="nc" id="L198">        round = ((Round) curNode).getRoundNo();</span>
+      }
+    }
+<span class="nc" id="L201">    final IUIContext iuiContext = frame.getUIContext();</span>
+<span class="nc" id="L202">    final double scale = iuiContext.getScale();</span>
+    // print map panel to image
+
+<span class="nc" id="L205">    final MapPanel mapPanel = frame.getMapPanel();</span>
+<span class="nc" id="L206">    final BufferedImage mapImage =</span>
+<span class="nc" id="L207">        Util.createImage((int) (scale * mapPanel.getImageWidth()), (int) (scale * mapPanel.getImageHeight()), false);</span>
+<span class="nc" id="L208">    final Graphics2D mapGraphics = mapImage.createGraphics();</span>
+    try {
+      // workaround to get the whole map
+      // (otherwise the map is cut if current window is not on top of map)
+<span class="nc" id="L212">      final int xOffset = mapPanel.getXOffset();</span>
+<span class="nc" id="L213">      final int yOffset = mapPanel.getYOffset();</span>
+<span class="nc" id="L214">      mapPanel.setTopLeft(0, 0);</span>
+<span class="nc" id="L215">      mapPanel.print(mapGraphics);</span>
+<span class="nc" id="L216">      mapPanel.setTopLeft(xOffset, yOffset);</span>
+      // overlay title
+<span class="nc" id="L218">      Color title_color = iuiContext.getMapData().getColorProperty(MapData.PROPERTY_SCREENSHOT_TITLE_COLOR);</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">      if (title_color == null) {</span>
+<span class="nc" id="L220">        title_color = Color.BLACK;</span>
+      }
+<span class="nc" id="L222">      final String s_title_x = iuiContext.getMapData().getProperty(MapData.PROPERTY_SCREENSHOT_TITLE_X);</span>
+<span class="nc" id="L223">      final String s_title_y = iuiContext.getMapData().getProperty(MapData.PROPERTY_SCREENSHOT_TITLE_Y);</span>
+<span class="nc" id="L224">      final String s_title_size = iuiContext.getMapData().getProperty(MapData.PROPERTY_SCREENSHOT_TITLE_FONT_SIZE);</span>
+      int title_x;
+      int title_y;
+      int title_size;
+      try {
+<span class="nc" id="L229">        title_x = (int) (Integer.parseInt(s_title_x) * scale);</span>
+<span class="nc" id="L230">        title_y = (int) (Integer.parseInt(s_title_y) * scale);</span>
+<span class="nc" id="L231">        title_size = Integer.parseInt(s_title_size);</span>
+<span class="nc" id="L232">      } catch (final NumberFormatException nfe) {</span>
+        // choose safe defaults
+<span class="nc" id="L234">        title_x = (int) (15 * scale);</span>
+<span class="nc" id="L235">        title_y = (int) (15 * scale);</span>
+<span class="nc" id="L236">        title_size = 15;</span>
+      }
+      // everything else should be scaled down onto map image
+<span class="nc" id="L239">      final AffineTransform transform = new AffineTransform();</span>
+<span class="nc" id="L240">      transform.scale(scale, scale);</span>
+<span class="nc" id="L241">      mapGraphics.setTransform(transform);</span>
+<span class="nc" id="L242">      mapGraphics.setFont(new Font(&quot;Ariel&quot;, Font.BOLD, title_size));</span>
+<span class="nc" id="L243">      mapGraphics.setColor(title_color);</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">      if (iuiContext.getMapData().getBooleanProperty(MapData.PROPERTY_SCREENSHOT_TITLE_ENABLED)) {</span>
+<span class="nc" id="L245">        mapGraphics.drawString(gameData.getGameName() + &quot; Round &quot; + round, title_x, title_y);</span>
+      }
+
+      // save Image as .png
+      try {
+<span class="nc" id="L250">        ImageIO.write(mapImage, &quot;png&quot;, file);</span>
+<span class="nc" id="L251">      } catch (final Exception e2) {</span>
+<span class="nc" id="L252">        e2.printStackTrace();</span>
+<span class="nc" id="L253">        JOptionPane.showMessageDialog(frame, e2.getMessage(), &quot;Error saving Screenshot&quot;, JOptionPane.OK_OPTION);</span>
+<span class="nc" id="L254">        retval = false;</span>
+      }
+      // Clean up objects. There might be some overkill here,
+      // but there were memory leaks that are fixed by some/all of these.
+<span class="nc" id="L258">    } finally {</span>
+<span class="nc" id="L259">      mapImage.flush();</span>
+<span class="nc" id="L260">      mapGraphics.dispose();</span>
+<span class="nc" id="L261">    }</span>
+<span class="nc" id="L262">    return retval;</span>
+  }
+
+  private void addExportStatsFull(final JMenu parentMenu) {
+<span class="nc" id="L266">    final Action showDiceStats = SwingAction.of(&quot;Export Full Game Stats&quot;, e -&gt; createAndSaveStats(true));</span>
+<span class="nc" id="L267">    parentMenu.add(showDiceStats).setMnemonic(KeyEvent.VK_F);</span>
+<span class="nc" id="L268">  }</span>
+
+  private void addExportStats(final JMenu parentMenu) {
+<span class="nc" id="L271">    final Action showDiceStats = SwingAction.of(&quot;Export Short Game Stats&quot;, e -&gt; createAndSaveStats(false));</span>
+<span class="nc" id="L272">    parentMenu.add(showDiceStats).setMnemonic(KeyEvent.VK_S);</span>
+<span class="nc" id="L273">  }</span>
+
+  private void createAndSaveStats(final boolean showPhaseStats) {
+<span class="nc" id="L276">    final ExtendedStats statPanel = new ExtendedStats(gameData, iuiContext);</span>
+<span class="nc" id="L277">    final JFileChooser chooser = new JFileChooser();</span>
+<span class="nc" id="L278">    chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);</span>
+<span class="nc" id="L279">    final File rootDir = new File(System.getProperties().getProperty(&quot;user.dir&quot;));</span>
+<span class="nc" id="L280">    final DateFormat formatDate = new SimpleDateFormat(&quot;yyyy_MM_dd&quot;);</span>
+<span class="nc" id="L281">    int currentRound = 0;</span>
+    try {
+<span class="nc" id="L283">      gameData.acquireReadLock();</span>
+<span class="nc" id="L284">      currentRound = gameData.getSequence().getRound();</span>
+<span class="nc" id="L285">    } finally {</span>
+<span class="nc" id="L286">      gameData.releaseReadLock();</span>
+<span class="nc" id="L287">    }</span>
+<span class="nc" id="L288">    String defaultFileName = &quot;stats_&quot; + formatDate.format(new Date()) + &quot;_&quot; + gameData.getGameName() + &quot;_round_&quot;</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        + currentRound + (showPhaseStats ? &quot;_full&quot; : &quot;_short&quot;);</span>
+<span class="nc" id="L290">    defaultFileName = IllegalCharacterRemover.removeIllegalCharacter(defaultFileName);</span>
+<span class="nc" id="L291">    defaultFileName = defaultFileName + &quot;.csv&quot;;</span>
+<span class="nc" id="L292">    chooser.setSelectedFile(new File(rootDir, defaultFileName));</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">    if (chooser.showSaveDialog(frame) != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L294">      return;</span>
+    }
+<span class="nc" id="L296">    final StringBuilder text = new StringBuilder(1000);</span>
+    GameData clone;
+    try {
+<span class="nc" id="L299">      gameData.acquireReadLock();</span>
+<span class="nc" id="L300">      clone = GameDataUtils.cloneGameData(gameData);</span>
+<span class="nc" id="L301">      final IStat[] stats = statPanel.getStats();</span>
+      // extended stats covers stuff that doesn't show up in the game stats menu bar, like custom resources or tech
+      // tokens or # techs, etc.
+<span class="nc" id="L304">      final IStat[] statsExtended = statPanel.getStatsExtended(gameData);</span>
+<span class="nc" id="L305">      final String[] alliances = statPanel.getAlliances().toArray(new String[statPanel.getAlliances().size()]);</span>
+<span class="nc" id="L306">      final PlayerID[] players = statPanel.getPlayers().toArray(new PlayerID[statPanel.getPlayers().size()]);</span>
+      // its important here to translate the player objects into our game data
+      // the players for the stat panel are only relevant with respect to
+      // the game data they belong to
+<span class="nc bnc" id="L310" title="All 2 branches missed.">      for (int i = 0; i &lt; players.length; i++) {</span>
+<span class="nc" id="L311">        players[i] = clone.getPlayerList().getPlayerID(players[i].getName());</span>
+      }
+<span class="nc" id="L313">      text.append(defaultFileName + &quot;,&quot;);</span>
+<span class="nc" id="L314">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L315">      text.append(&quot;TripleA Engine Version: ,&quot;);</span>
+<span class="nc" id="L316">      text.append(games.strategy.engine.ClientContext.engineVersion() + &quot;,&quot;);</span>
+<span class="nc" id="L317">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L318">      text.append(&quot;Game Name: ,&quot;);</span>
+<span class="nc" id="L319">      text.append(gameData.getGameName() + &quot;,&quot;);</span>
+<span class="nc" id="L320">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L321">      text.append(&quot;Game Version: ,&quot;);</span>
+<span class="nc" id="L322">      text.append(gameData.getGameVersion() + &quot;,&quot;);</span>
+<span class="nc" id="L323">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L324">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L325">      text.append(&quot;Current Round: ,&quot;);</span>
+<span class="nc" id="L326">      text.append(currentRound + &quot;,&quot;);</span>
+<span class="nc" id="L327">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L328">      text.append(&quot;Number of Players: ,&quot;);</span>
+<span class="nc" id="L329">      text.append(statPanel.getPlayers().size() + &quot;,&quot;);</span>
+<span class="nc" id="L330">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L331">      text.append(&quot;Number of Alliances: ,&quot;);</span>
+<span class="nc" id="L332">      text.append(statPanel.getAlliances().size() + &quot;,&quot;);</span>
+<span class="nc" id="L333">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L334">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L335">      text.append(&quot;Turn Order: ,&quot;);</span>
+<span class="nc" id="L336">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L337">      final List&lt;PlayerID&gt; playerOrderList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L338">      playerOrderList.addAll(gameData.getPlayerList().getPlayers());</span>
+<span class="nc" id="L339">      Collections.sort(playerOrderList, new PlayerOrderComparator(gameData));</span>
+<span class="nc" id="L340">      final Set&lt;PlayerID&gt; playerOrderSetNoDuplicates = new LinkedHashSet&lt;&gt;(playerOrderList);</span>
+<span class="nc" id="L341">      final Iterator&lt;PlayerID&gt; playerOrderIterator = playerOrderSetNoDuplicates.iterator();</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">      while (playerOrderIterator.hasNext()) {</span>
+<span class="nc" id="L343">        final PlayerID currentPlayerID = playerOrderIterator.next();</span>
+<span class="nc" id="L344">        text.append(currentPlayerID.getName()).append(&quot;,&quot;);</span>
+<span class="nc" id="L345">        final Iterator&lt;String&gt; allianceName =</span>
+<span class="nc" id="L346">            gameData.getAllianceTracker().getAlliancesPlayerIsIn(currentPlayerID).iterator();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        while (allianceName.hasNext()) {</span>
+<span class="nc" id="L348">          text.append(allianceName.next()).append(&quot;,&quot;);</span>
+        }
+<span class="nc" id="L350">        text.append(&quot;\n&quot;);</span>
+      }
+<span class="nc" id="L352">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L353">      text.append(&quot;Winners: ,&quot;);</span>
+<span class="nc" id="L354">      final EndRoundDelegate delegateEndRound = (EndRoundDelegate) gameData.getDelegateList().getDelegate(&quot;endRound&quot;);</span>
+<span class="nc bnc" id="L355" title="All 4 branches missed.">      if (delegateEndRound != null &amp;&amp; delegateEndRound.getWinners() != null) {</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        for (final PlayerID p : delegateEndRound.getWinners()) {</span>
+<span class="nc" id="L357">          text.append(p.getName()).append(&quot;,&quot;);</span>
+        }
+<span class="nc" id="L359">      } else {</span>
+<span class="nc" id="L360">        text.append(&quot;none yet; game not over,&quot;);</span>
+      }
+<span class="nc" id="L362">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L363">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L364">      text.append(&quot;Resource Chart: ,&quot;);</span>
+<span class="nc" id="L365">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L366">      final Iterator&lt;Resource&gt; resourceIterator = gameData.getResourceList().getResources().iterator();</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">      while (resourceIterator.hasNext()) {</span>
+<span class="nc" id="L368">        text.append(resourceIterator.next().getName() + &quot;,&quot;);</span>
+<span class="nc" id="L369">        text.append(&quot;\n&quot;);</span>
+      }
+      // if short, we won't both showing production and unit info
+<span class="nc bnc" id="L372" title="All 2 branches missed.">      if (showPhaseStats) {</span>
+<span class="nc" id="L373">        text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L374">        text.append(&quot;Production Rules: ,&quot;);</span>
+<span class="nc" id="L375">        text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L376">        text.append(&quot;Name,Result,Quantity,Cost,Resource,\n&quot;);</span>
+<span class="nc" id="L377">        final Iterator&lt;ProductionRule&gt; purchaseOptionsIterator =</span>
+<span class="nc" id="L378">            gameData.getProductionRuleList().getProductionRules().iterator();</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">        while (purchaseOptionsIterator.hasNext()) {</span>
+<span class="nc" id="L380">          final ProductionRule pr = purchaseOptionsIterator.next();</span>
+<span class="nc" id="L381">          String costString = pr.toStringCosts().replaceAll(&quot;; &quot;, &quot;,&quot;);</span>
+<span class="nc" id="L382">          costString = costString.replaceAll(&quot; &quot;, &quot;,&quot;);</span>
+<span class="nc" id="L383">          text.append(pr.getName()).append(&quot;,&quot;).append(pr.getResults().keySet().iterator().next().getName()).append(&quot;,&quot;)</span>
+<span class="nc" id="L384">              .append(pr.getResults().getInt(pr.getResults().keySet().iterator().next())).append(&quot;,&quot;).append(costString)</span>
+<span class="nc" id="L385">              .append(&quot;,&quot;);</span>
+<span class="nc" id="L386">          text.append(&quot;\n&quot;);</span>
+        }
+<span class="nc" id="L388">        text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L389">        text.append(&quot;Unit Types: ,&quot;);</span>
+<span class="nc" id="L390">        text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L391">        text.append(&quot;Name,Listed Abilities\n&quot;);</span>
+<span class="nc" id="L392">        final Iterator&lt;UnitType&gt; allUnitsIterator = gameData.getUnitTypeList().iterator();</span>
+<span class="nc bnc" id="L393" title="All 2 branches missed.">        while (allUnitsIterator.hasNext()) {</span>
+<span class="nc" id="L394">          final UnitAttachment ua = UnitAttachment.get(allUnitsIterator.next());</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">          if (ua == null) {</span>
+<span class="nc" id="L396">            continue;</span>
+          }
+<span class="nc" id="L398">          String toModify = ua.allUnitStatsForExporter();</span>
+<span class="nc" id="L399">          toModify = toModify.replaceFirst(&quot;UnitType called &quot;, &quot;&quot;).replaceFirst(&quot; with:&quot;, &quot;&quot;)</span>
+<span class="nc" id="L400">              .replaceAll(&quot;games.strategy.engine.data.&quot;, &quot;&quot;).replaceAll(&quot;\n&quot;, &quot;;&quot;).replaceAll(&quot;,&quot;, &quot;;&quot;);</span>
+<span class="nc" id="L401">          toModify = toModify.replaceAll(&quot;  &quot;, &quot;,&quot;);</span>
+<span class="nc" id="L402">          toModify = toModify.replaceAll(&quot;, &quot;, &quot;,&quot;).replaceAll(&quot; ,&quot;, &quot;,&quot;);</span>
+<span class="nc" id="L403">          text.append(toModify);</span>
+<span class="nc" id="L404">          text.append(&quot;\n&quot;);</span>
+        }
+      }
+<span class="nc" id="L407">      text.append(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L408" title="All 2 branches missed.">      text.append((showPhaseStats ? &quot;Full Stats (includes each phase that had activity),&quot;</span>
+<span class="nc" id="L409">          : &quot;Short Stats (only shows first phase with activity per player per round),&quot;));</span>
+<span class="nc" id="L410">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L411">      text.append(&quot;Turn Stats: ,&quot;);</span>
+<span class="nc" id="L412">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L413">      text.append(&quot;Round,Player Turn,Phase Name,&quot;);</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">      for (final IStat stat : stats) {</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        for (final PlayerID player : players) {</span>
+<span class="nc" id="L416">          text.append(stat.getName()).append(&quot; &quot;);</span>
+<span class="nc" id="L417">          text.append(player.getName());</span>
+<span class="nc" id="L418">          text.append(&quot;,&quot;);</span>
+        }
+<span class="nc bnc" id="L420" title="All 2 branches missed.">        for (final String alliance : alliances) {</span>
+<span class="nc" id="L421">          text.append(stat.getName()).append(&quot; &quot;);</span>
+<span class="nc" id="L422">          text.append(alliance);</span>
+<span class="nc" id="L423">          text.append(&quot;,&quot;);</span>
+        }
+      }
+<span class="nc bnc" id="L426" title="All 2 branches missed.">      for (final IStat element : statsExtended) {</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">        for (final PlayerID player : players) {</span>
+<span class="nc" id="L428">          text.append(element.getName()).append(&quot; &quot;);</span>
+<span class="nc" id="L429">          text.append(player.getName());</span>
+<span class="nc" id="L430">          text.append(&quot;,&quot;);</span>
+        }
+<span class="nc bnc" id="L432" title="All 2 branches missed.">        for (final String alliance : alliances) {</span>
+<span class="nc" id="L433">          text.append(element.getName()).append(&quot; &quot;);</span>
+<span class="nc" id="L434">          text.append(alliance);</span>
+<span class="nc" id="L435">          text.append(&quot;,&quot;);</span>
+        }
+      }
+<span class="nc" id="L438">      text.append(&quot;\n&quot;);</span>
+<span class="nc" id="L439">      clone.getHistory().gotoNode(clone.getHistory().getLastNode());</span>
+      @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L441">      final Enumeration&lt;HistoryNode&gt; nodes =</span>
+<span class="nc" id="L442">          ((DefaultMutableTreeNode) clone.getHistory().getRoot()).preorderEnumeration();</span>
+<span class="nc" id="L443">      PlayerID currentPlayer = null;</span>
+<span class="nc" id="L444">      int round = 0;</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">      while (nodes.hasMoreElements()) {</span>
+        // we want to export on change of turn
+<span class="nc" id="L447">        final HistoryNode element = nodes.nextElement();</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">        if (element instanceof Round) {</span>
+<span class="nc" id="L449">          round++;</span>
+        }
+<span class="nc bnc" id="L451" title="All 2 branches missed.">        if (!(element instanceof Step)) {</span>
+<span class="nc" id="L452">          continue;</span>
+        }
+<span class="nc" id="L454">        final Step step = (Step) element;</span>
+<span class="nc bnc" id="L455" title="All 4 branches missed.">        if (step.getPlayerID() == null || step.getPlayerID().isNull()) {</span>
+<span class="nc" id="L456">          continue;</span>
+        }
+        // this is to stop from having multiple entries for each players turn.
+<span class="nc bnc" id="L459" title="All 2 branches missed.">        if (!showPhaseStats) {</span>
+<span class="nc bnc" id="L460" title="All 2 branches missed.">          if (step.getPlayerID() == currentPlayer) {</span>
+<span class="nc" id="L461">            continue;</span>
+          }
+        }
+<span class="nc" id="L464">        currentPlayer = step.getPlayerID();</span>
+<span class="nc" id="L465">        clone.getHistory().gotoNode(element);</span>
+<span class="nc bnc" id="L466" title="All 2 branches missed.">        final String playerName = step.getPlayerID() == null ? &quot;&quot; : step.getPlayerID().getName() + &quot;: &quot;;</span>
+<span class="nc" id="L467">        String stepName = step.getStepName();</span>
+        // copied directly from TripleAPlayer, will probably have to be updated in the future if more delegates are made
+<span class="nc bnc" id="L469" title="All 2 branches missed.">        if (stepName.endsWith(&quot;Bid&quot;)) {</span>
+<span class="nc" id="L470">          stepName = &quot;Bid&quot;;</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Tech&quot;)) {</span>
+<span class="nc" id="L472">          stepName = &quot;Tech&quot;;</span>
+<span class="nc bnc" id="L473" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;TechActivation&quot;)) {</span>
+<span class="nc" id="L474">          stepName = &quot;TechActivation&quot;;</span>
+<span class="nc bnc" id="L475" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Purchase&quot;)) {</span>
+<span class="nc" id="L476">          stepName = &quot;Purchase&quot;;</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;NonCombatMove&quot;)) {</span>
+<span class="nc" id="L478">          stepName = &quot;NonCombatMove&quot;;</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Move&quot;)) {</span>
+<span class="nc" id="L480">          stepName = &quot;Move&quot;;</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Battle&quot;)) {</span>
+<span class="nc" id="L482">          stepName = &quot;Battle&quot;;</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;BidPlace&quot;)) {</span>
+<span class="nc" id="L484">          stepName = &quot;BidPlace&quot;;</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Place&quot;)) {</span>
+<span class="nc" id="L486">          stepName = &quot;Place&quot;;</span>
+<span class="nc bnc" id="L487" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Politics&quot;)) {</span>
+<span class="nc" id="L488">          stepName = &quot;Politics&quot;;</span>
+<span class="nc bnc" id="L489" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;EndTurn&quot;)) {</span>
+<span class="nc" id="L490">          stepName = &quot;EndTurn&quot;;</span>
+<span class="nc" id="L491">        } else {</span>
+<span class="nc" id="L492">          stepName = &quot;&quot;;</span>
+        }
+<span class="nc" id="L494">        text.append(round).append(&quot;,&quot;).append(playerName).append(&quot;,&quot;).append(stepName).append(&quot;,&quot;);</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">        for (final IStat stat : stats) {</span>
+<span class="nc bnc" id="L496" title="All 2 branches missed.">          for (final PlayerID player : players) {</span>
+<span class="nc" id="L497">            text.append(stat.getFormatter().format(stat.getValue(player, clone)));</span>
+<span class="nc" id="L498">            text.append(&quot;,&quot;);</span>
+          }
+<span class="nc bnc" id="L500" title="All 2 branches missed.">          for (final String alliance : alliances) {</span>
+<span class="nc" id="L501">            text.append(stat.getFormatter().format(stat.getValue(alliance, clone)));</span>
+<span class="nc" id="L502">            text.append(&quot;,&quot;);</span>
+          }
+        }
+<span class="nc bnc" id="L505" title="All 2 branches missed.">        for (final IStat element2 : statsExtended) {</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">          for (final PlayerID player : players) {</span>
+<span class="nc" id="L507">            text.append(element2.getFormatter().format(element2.getValue(player, clone)));</span>
+<span class="nc" id="L508">            text.append(&quot;,&quot;);</span>
+          }
+<span class="nc bnc" id="L510" title="All 2 branches missed.">          for (final String alliance : alliances) {</span>
+<span class="nc" id="L511">            text.append(element2.getFormatter().format(element2.getValue(alliance, clone)));</span>
+<span class="nc" id="L512">            text.append(&quot;,&quot;);</span>
+          }
+        }
+<span class="nc" id="L515">        text.append(&quot;\n&quot;);</span>
+      }
+<span class="nc" id="L517">    } finally {</span>
+<span class="nc" id="L518">      gameData.releaseReadLock();</span>
+<span class="nc" id="L519">    }</span>
+<span class="nc" id="L520">    try (final FileWriter writer = new FileWriter(chooser.getSelectedFile())) {</span>
+<span class="nc" id="L521">      writer.write(text.toString());</span>
+<span class="nc bnc" id="L522" title="All 8 branches missed.">    } catch (final IOException e1) {</span>
+<span class="nc" id="L523">      ClientLogger.logQuietly(e1);</span>
+    }
+<span class="nc" id="L525">  }</span>
+
+  private void addExportUnitStats(final JMenu parentMenu) {
+<span class="nc" id="L528">    final JMenuItem menuFileExport = new JMenuItem(SwingAction.of(&quot;Export Unit Charts&quot;, e -&gt; {</span>
+<span class="nc" id="L529">      final JFileChooser chooser = new JFileChooser();</span>
+<span class="nc" id="L530">      chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);</span>
+<span class="nc" id="L531">      final File rootDir = new File(System.getProperties().getProperty(&quot;user.dir&quot;));</span>
+<span class="nc" id="L532">      String defaultFileName = gameData.getGameName() + &quot;_unit_stats&quot;;</span>
+<span class="nc" id="L533">      defaultFileName = IllegalCharacterRemover.removeIllegalCharacter(defaultFileName);</span>
+<span class="nc" id="L534">      defaultFileName = defaultFileName + &quot;.html&quot;;</span>
+<span class="nc" id="L535">      chooser.setSelectedFile(new File(rootDir, defaultFileName));</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">      if (chooser.showSaveDialog(frame) != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L537">        return;</span>
+      }
+<span class="nc" id="L539">      try (final FileWriter writer = new FileWriter(chooser.getSelectedFile())) {</span>
+<span class="nc" id="L540">        writer.write(</span>
+<span class="nc" id="L541">            HelpMenu.getUnitStatsTable(gameData, iuiContext).replaceAll(&quot;&lt;p&gt;&quot;, &quot;&lt;p&gt;\r\n&quot;).replaceAll(&quot;&lt;/p&gt;&quot;, &quot;&lt;/p&gt;\r\n&quot;)</span>
+<span class="nc" id="L542">                .replaceAll(&quot;&lt;/tr&gt;&quot;, &quot;&lt;/tr&gt;\r\n&quot;).replaceAll(LocalizeHTML.PATTERN_HTML_IMG_TAG, &quot;&quot;));</span>
+<span class="nc bnc" id="L543" title="All 8 branches missed.">      } catch (final IOException e1) {</span>
+<span class="nc" id="L544">        ClientLogger.logQuietly(e1);</span>
+      }
+
+<span class="nc" id="L547">    }));</span>
+<span class="nc" id="L548">    menuFileExport.setMnemonic(KeyEvent.VK_U);</span>
+<span class="nc" id="L549">    parentMenu.add(menuFileExport);</span>
+<span class="nc" id="L550">  }</span>
+
+
+  private void addExportSetupCharts(final JMenu parentMenu) {
+<span class="nc" id="L554">    final JMenuItem menuFileExport = new JMenuItem(SwingAction.of(&quot;Export Setup Charts&quot;, e -&gt; {</span>
+<span class="nc" id="L555">      final JFrame frame = new JFrame(&quot;Export Setup Charts&quot;);</span>
+<span class="nc" id="L556">      frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);</span>
+      GameData clonedGameData;
+<span class="nc" id="L558">      gameData.acquireReadLock();</span>
+      try {
+<span class="nc" id="L560">        clonedGameData = GameDataUtils.cloneGameData(gameData);</span>
+<span class="nc" id="L561">      } finally {</span>
+<span class="nc" id="L562">        gameData.releaseReadLock();</span>
+<span class="nc" id="L563">      }</span>
+<span class="nc" id="L564">      final JComponent newContentPane = new SetupFrame(clonedGameData);</span>
+      // content panes must be opaque
+<span class="nc" id="L566">      newContentPane.setOpaque(true);</span>
+<span class="nc" id="L567">      frame.setContentPane(newContentPane);</span>
+      // Display the window.
+<span class="nc" id="L569">      frame.pack();</span>
+<span class="nc" id="L570">      frame.setLocationRelativeTo(frame);</span>
+<span class="nc" id="L571">      frame.setVisible(true);</span>
+<span class="nc" id="L572">      iuiContext.addShutdownWindow(frame);</span>
+
+<span class="nc" id="L574">    }));</span>
+<span class="nc" id="L575">    menuFileExport.setMnemonic(KeyEvent.VK_C);</span>
+<span class="nc" id="L576">    parentMenu.add(menuFileExport);</span>
+
+<span class="nc" id="L578">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

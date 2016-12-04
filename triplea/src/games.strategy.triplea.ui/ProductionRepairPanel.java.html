@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProductionRepairPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">ProductionRepairPanel.java</span></div><h1>ProductionRepairPanel.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui;
+
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Optional;
+
+import javax.swing.Action;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.KeyStroke;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.border.EtchedBorder;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RepairRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.ResourceCollection;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.ui.ScrollableTextField;
+import games.strategy.ui.ScrollableTextFieldListener;
+import games.strategy.ui.SwingAction;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+public class ProductionRepairPanel extends JPanel {
+  private static final long serialVersionUID = -6344711064699083729L;
+<span class="nc" id="L47">  private final JFrame m_owner = null;</span>
+  private JDialog m_dialog;
+  private final IUIContext m_uiContext;
+<span class="nc" id="L50">  private final List&lt;Rule&gt; m_rules = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L51">  private final JLabel m_left = new JLabel();</span>
+  private JButton m_done;
+  private PlayerID m_id;
+  private boolean m_bid;
+  private Collection&lt;PlayerID&gt; m_allowedPlayersToRepair;
+  private GameData m_data;
+<span class="nc" id="L57">  private static HashMap&lt;Unit, Integer&gt; m_repairCount = new HashMap&lt;&gt;();</span>
+
+  public static HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; getProduction(final PlayerID id,
+      final Collection&lt;PlayerID&gt; allowedPlayersToRepair, final JFrame parent, final GameData data, final boolean bid,
+      final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; initialPurchase, final IUIContext uiContext) {
+<span class="nc" id="L62">    return new ProductionRepairPanel(uiContext).show(id, allowedPlayersToRepair, parent, data, bid, initialPurchase);</span>
+  }
+
+  /**
+   * Shows the production panel, and returns a map of selected rules.
+   */
+  public HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; show(final PlayerID id,
+      final Collection&lt;PlayerID&gt; allowedPlayersToRepair, final JFrame parent, final GameData data, final boolean bid,
+      final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; initialPurchase) {
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (!(parent == m_owner)) {</span>
+<span class="nc" id="L72">      m_dialog = null;</span>
+    }
+<span class="nc bnc" id="L74" title="All 2 branches missed.">    if (m_dialog == null) {</span>
+<span class="nc" id="L75">      initDialog(parent);</span>
+    }
+<span class="nc" id="L77">    this.m_bid = bid;</span>
+<span class="nc" id="L78">    this.m_allowedPlayersToRepair = allowedPlayersToRepair;</span>
+<span class="nc" id="L79">    this.m_data = data;</span>
+<span class="nc" id="L80">    this.initRules(id, allowedPlayersToRepair, data, initialPurchase);</span>
+<span class="nc" id="L81">    this.initLayout();</span>
+<span class="nc" id="L82">    this.calculateLimits();</span>
+<span class="nc" id="L83">    m_dialog.pack();</span>
+<span class="nc" id="L84">    m_dialog.setLocationRelativeTo(parent);</span>
+<span class="nc" id="L85">    SwingUtilities.invokeLater(() -&gt; m_done.requestFocusInWindow());</span>
+<span class="nc" id="L86">    m_dialog.setVisible(true);</span>
+<span class="nc" id="L87">    m_dialog.dispose();</span>
+<span class="nc" id="L88">    return getProduction();</span>
+  }
+
+  // this method can be accessed by subclasses
+  public List&lt;Rule&gt; getRules() {
+<span class="nc" id="L93">    return this.m_rules;</span>
+  }
+
+  public static HashMap&lt;Unit, Integer&gt; getUnitRepairs() {
+<span class="nc" id="L97">    return m_repairCount;</span>
+  }
+
+  private void initDialog(final JFrame root) {
+<span class="nc" id="L101">    m_dialog = new JDialog(root, &quot;Repair&quot;, true);</span>
+<span class="nc" id="L102">    m_dialog.getContentPane().add(this);</span>
+<span class="nc" id="L103">    final Action closeAction = SwingAction.of(&quot;&quot;, e -&gt; m_dialog.setVisible(false));</span>
+    // close the window on escape
+    // this is mostly for developers, makes it much easier to quickly cycle through steps
+<span class="nc" id="L106">    final KeyStroke stroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);</span>
+<span class="nc" id="L107">    final String key = &quot;production.panel.close.prod.popup&quot;;</span>
+<span class="nc" id="L108">    m_dialog.getRootPane().getActionMap().put(key, closeAction);</span>
+<span class="nc" id="L109">    m_dialog.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(stroke, key);</span>
+<span class="nc" id="L110">  }</span>
+
+  /** Creates new ProductionRepairPanel */
+  // the constructor can be accessed by subclasses
+<span class="nc" id="L114">  public ProductionRepairPanel(final IUIContext uiContext) {</span>
+<span class="nc" id="L115">    m_uiContext = uiContext;</span>
+<span class="nc" id="L116">  }</span>
+
+  private void initRules(final PlayerID player, final Collection&lt;PlayerID&gt; allowedPlayersToRepair, final GameData data,
+      final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; initialPurchase) {
+<span class="nc bnc" id="L120" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L121">      return;</span>
+    }
+<span class="nc" id="L123">    m_data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L125">      this.m_id = player;</span>
+<span class="nc" id="L126">      this.m_allowedPlayersToRepair = allowedPlayersToRepair;</span>
+<span class="nc" id="L127">      final CompositeMatchAnd&lt;Unit&gt; myDamagedUnits =</span>
+<span class="nc" id="L128">          new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedByOfAnyOfThesePlayers(m_allowedPlayersToRepair),</span>
+<span class="nc" id="L129">              Matches.UnitHasTakenSomeBombingUnitDamage);</span>
+<span class="nc" id="L130">      final Collection&lt;Territory&gt; terrsWithPotentiallyDamagedUnits =</span>
+<span class="nc" id="L131">          Match.getMatches(data.getMap().getTerritories(), Matches.territoryHasUnitsThatMatch(myDamagedUnits));</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">      for (final RepairRule repairRule : player.getRepairFrontier()) {</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        for (final Territory terr : terrsWithPotentiallyDamagedUnits) {</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">          for (final Unit u : Match.getMatches(terr.getUnits().getUnits(), myDamagedUnits)) {</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">            if (!repairRule.getResults().keySet().iterator().next().equals(u.getType())) {</span>
+<span class="nc" id="L136">              continue;</span>
+            }
+<span class="nc" id="L138">            final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="nc" id="L139">            final Rule rule = new Rule(repairRule, player, m_uiContext, u, terr);</span>
+            // int initialQuantity = initialPurchase.getInt(repairRule);
+<span class="nc" id="L141">            int initialQuantity = 0;</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">            if (initialPurchase.get(u) != null) {</span>
+<span class="nc" id="L143">              initialQuantity = initialPurchase.get(u).getInt(repairRule);</span>
+            }
+<span class="nc" id="L145">            rule.setQuantity(initialQuantity);</span>
+<span class="nc" id="L146">            rule.setMax(taUnit.getHowMuchCanThisUnitBeRepaired(u, terr));</span>
+<span class="nc" id="L147">            rule.setName(u.toString());</span>
+<span class="nc" id="L148">            m_rules.add(rule);</span>
+          }
+        }
+      }
+<span class="nc" id="L152">    } finally {</span>
+<span class="nc" id="L153">      m_data.releaseReadLock();</span>
+<span class="nc" id="L154">    }</span>
+<span class="nc" id="L155">  }</span>
+
+  private void initLayout() {
+<span class="nc" id="L158">    final Insets nullInsets = new Insets(0, 0, 0, 0);</span>
+<span class="nc" id="L159">    this.removeAll();</span>
+<span class="nc" id="L160">    this.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L161">    final JLabel legendLabel = new JLabel(&quot;Repair Units&quot;);</span>
+<span class="nc" id="L162">    add(legendLabel, new GridBagConstraints(0, 0, 30, 1, 1, 1, GridBagConstraints.EAST, GridBagConstraints.HORIZONTAL,</span>
+<span class="nc" id="L163">        new Insets(8, 8, 8, 0), 0, 0));</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">    for (int x = 0; x &lt; m_rules.size(); x++) {</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">      final boolean even = (x / 2) * 2 == x;</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">      add(m_rules.get(x), new GridBagConstraints(x / 2, even ? 1 : 2, 1, 1, 1, 1, GridBagConstraints.EAST,</span>
+<span class="nc" id="L167">          GridBagConstraints.HORIZONTAL, nullInsets, 0, 0));</span>
+    }
+<span class="nc" id="L169">    add(m_left, new GridBagConstraints(0, 3, 30, 1, 1, 1, GridBagConstraints.WEST, GridBagConstraints.NONE,</span>
+<span class="nc" id="L170">        new Insets(8, 8, 0, 12), 0, 0));</span>
+<span class="nc" id="L171">    m_done = new JButton(m_done_action);</span>
+<span class="nc" id="L172">    add(m_done, new GridBagConstraints(0, 4, 30, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L173">        new Insets(0, 0, 8, 0), 0, 0));</span>
+<span class="nc" id="L174">  }</span>
+
+  protected void setLeft(final ResourceCollection left) {
+<span class="nc" id="L177">    final ResourceCollection total = getResources();</span>
+<span class="nc" id="L178">    m_left.setText(&quot;&lt;html&gt;You have &quot; + left + &quot; left.&lt;br&gt;Out of &quot; + total + &quot;&lt;/html&gt;&quot;);</span>
+<span class="nc" id="L179">  }</span>
+
+<span class="nc" id="L181">  Action m_done_action = SwingAction.of(&quot;Done&quot;, e -&gt; m_dialog.setVisible(false));</span>
+
+  private HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; getProduction() {
+<span class="nc" id="L184">    final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; prod = new HashMap&lt;&gt;();</span>
+    // IntegerMap&lt;RepairRule&gt; repairRule = new IntegerMap&lt;RepairRule&gt;();
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    for (final Rule rule : m_rules) {</span>
+<span class="nc" id="L187">      final int quantity = rule.getQuantity();</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">      if (quantity != 0) {</span>
+<span class="nc" id="L189">        final IntegerMap&lt;RepairRule&gt; repairRule = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L190">        final Unit unit = rule.getUnit();</span>
+<span class="nc" id="L191">        repairRule.put(rule.getProductionRule(), quantity);</span>
+<span class="nc" id="L192">        prod.put(unit, repairRule);</span>
+      }
+    }
+<span class="nc" id="L195">    return prod;</span>
+  }
+
+  protected void calculateLimits() {
+    // final IntegerMap&lt;Resource&gt; cost;
+<span class="nc" id="L200">    final ResourceCollection resources = getResources();</span>
+<span class="nc" id="L201">    final ResourceCollection spent = new ResourceCollection(m_data);</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">    for (final Rule current : m_rules) {</span>
+<span class="nc" id="L203">      spent.add(current.getCost(), current.getQuantity());</span>
+    }
+<span class="nc" id="L205">    final double discount = TechAbilityAttachment.getRepairDiscount(m_id, m_data);</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    if (discount != 1.0D) {</span>
+<span class="nc" id="L207">      spent.discount(discount);</span>
+    }
+<span class="nc" id="L209">    final ResourceCollection leftToSpend = resources.difference(spent);</span>
+<span class="nc" id="L210">    setLeft(leftToSpend);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">    for (final Rule current : m_rules) {</span>
+<span class="nc" id="L212">      int max = leftToSpend.fitsHowOften(current.getCost());</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">      if (discount != 1.0F) {</span>
+<span class="nc" id="L214">        max = (int) (max / discount);</span>
+      }
+<span class="nc" id="L216">      max += current.getQuantity();</span>
+<span class="nc" id="L217">      current.setMax(max);</span>
+    }
+<span class="nc" id="L219">  }</span>
+
+  private ResourceCollection getResources() {
+<span class="nc bnc" id="L222" title="All 2 branches missed.">    if (m_bid) {</span>
+      // TODO bid only allows you to add PU's to the bid... maybe upgrading Bids so multiple resources can be given?
+      // (actually, bids should
+      // not cover repairing at all...)
+<span class="nc" id="L226">      final String propertyName = m_id.getName() + &quot; bid&quot;;</span>
+<span class="nc" id="L227">      final int bid = m_data.getProperties().get(propertyName, 0);</span>
+<span class="nc" id="L228">      final ResourceCollection bidCollection = new ResourceCollection(m_data);</span>
+<span class="nc" id="L229">      m_data.acquireReadLock();</span>
+      try {
+<span class="nc" id="L231">        bidCollection.addResource(m_data.getResourceList().getResource(Constants.PUS), bid);</span>
+<span class="nc" id="L232">      } finally {</span>
+<span class="nc" id="L233">        m_data.releaseReadLock();</span>
+<span class="nc" id="L234">      }</span>
+<span class="nc" id="L235">      return bidCollection;</span>
+    } else {
+<span class="nc" id="L237">      return m_id.getResources();</span>
+    }
+  }
+
+  public class Rule extends JPanel {
+    private static final long serialVersionUID = -6781214135310064908L;
+<span class="nc" id="L243">    private final ScrollableTextField m_text = new ScrollableTextField(0, Integer.MAX_VALUE);</span>
+    private final IntegerMap&lt;Resource&gt; m_cost;
+    private final RepairRule m_rule;
+    private final Unit m_unit;
+    private final int m_maxRepairAmount;
+    private final int m_repairResults;
+
+<span class="nc" id="L250">    Rule(final RepairRule rule, final PlayerID id, final IUIContext uiContext, final Unit repairUnit,</span>
+<span class="nc" id="L251">        final Territory territoryUnitIsIn) {</span>
+<span class="nc" id="L252">      setLayout(new GridBagLayout());</span>
+<span class="nc" id="L253">      m_unit = repairUnit;</span>
+<span class="nc" id="L254">      m_rule = rule;</span>
+<span class="nc" id="L255">      m_cost = rule.getCosts();</span>
+<span class="nc" id="L256">      final UnitType type = (UnitType) rule.getResults().keySet().iterator().next();</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">      if (!type.equals(repairUnit.getType())) {</span>
+<span class="nc" id="L258">        throw new IllegalStateException(&quot;Rule unit type &quot; + type.getName() + &quot; does not match &quot; + repairUnit.toString()</span>
+<span class="nc" id="L259">            + &quot;.  Please make sure your maps are up to date!&quot;);</span>
+      }
+<span class="nc" id="L261">      m_repairResults = rule.getResults().getInt(type);</span>
+<span class="nc" id="L262">      final TripleAUnit taUnit = (TripleAUnit) repairUnit;</span>
+<span class="nc" id="L263">      final Optional&lt;ImageIcon&gt; icon = m_uiContext.getUnitImageFactory().getIcon(type, id, m_data,</span>
+<span class="nc" id="L264">          Matches.UnitHasTakenSomeBombingUnitDamage.match(repairUnit), Matches.UnitIsDisabled.match(repairUnit));</span>
+<span class="nc" id="L265">      final String text = &quot;&lt;html&gt; x &quot; + ResourceCollection.toStringForHTML(m_cost, m_data) + &quot;&lt;/html&gt;&quot;;</span>
+
+<span class="nc" id="L267">      final JLabel label =</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">          icon.isPresent() ? new JLabel(text, icon.get(), SwingConstants.LEFT) : new JLabel(text, SwingConstants.LEFT);</span>
+<span class="nc" id="L269">      final JLabel info = new JLabel(territoryUnitIsIn.getName());</span>
+<span class="nc" id="L270">      m_maxRepairAmount = taUnit.getHowMuchCanThisUnitBeRepaired(repairUnit, territoryUnitIsIn);</span>
+<span class="nc" id="L271">      final JLabel remaining = new JLabel(&quot;Damage left to repair: &quot; + m_maxRepairAmount);</span>
+<span class="nc" id="L272">      final int space = 8;</span>
+<span class="nc" id="L273">      this.add(new JLabel(type.getName()), new GridBagConstraints(0, 0, 1, 1, 1, 1, GridBagConstraints.CENTER,</span>
+<span class="nc" id="L274">          GridBagConstraints.NONE, new Insets(2, 0, 0, 0), 0, 0));</span>
+<span class="nc" id="L275">      this.add(label, new GridBagConstraints(0, 1, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L276">          new Insets(5, space, space, space), 0, 0));</span>
+<span class="nc" id="L277">      this.add(info, new GridBagConstraints(0, 2, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L278">          new Insets(5, space, space, space), 0, 0));</span>
+<span class="nc" id="L279">      this.add(remaining, new GridBagConstraints(0, 3, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L280">          new Insets(5, space, space, space), 0, 0));</span>
+<span class="nc" id="L281">      this.add(m_text, new GridBagConstraints(0, 4, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.NONE,</span>
+<span class="nc" id="L282">          new Insets(10, space, space, space), 0, 0));</span>
+<span class="nc" id="L283">      m_text.addChangeListener(m_listener);</span>
+<span class="nc" id="L284">      setBorder(new EtchedBorder());</span>
+<span class="nc" id="L285">    }</span>
+
+    public int getRepairResults() {
+<span class="nc" id="L288">      return m_repairResults;</span>
+    }
+
+    IntegerMap&lt;Resource&gt; getCost() {
+<span class="nc" id="L292">      return m_cost;</span>
+    }
+
+    public int getQuantity() {
+<span class="nc" id="L296">      return m_text.getValue();</span>
+    }
+
+    void setQuantity(final int quantity) {
+<span class="nc" id="L300">      m_text.setValue(quantity);</span>
+<span class="nc" id="L301">    }</span>
+
+    RepairRule getProductionRule() {
+<span class="nc" id="L304">      return m_rule;</span>
+    }
+
+    void setMax(final int max) {
+<span class="nc" id="L308">      m_text.setMax((int) (Math.ceil(((double) Math.min(max, m_maxRepairAmount) / (double) m_repairResults))));</span>
+<span class="nc" id="L309">    }</span>
+
+    public Unit getUnit() {
+<span class="nc" id="L312">      return m_unit;</span>
+    }
+  }
+
+<span class="nc" id="L316">  private final ScrollableTextFieldListener m_listener = stf -&gt; calculateLimits();</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

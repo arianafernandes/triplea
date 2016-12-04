@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BannedUsernameController.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.userDB</a> &gt; <span class="el_source">BannedUsernameController.java</span></div><h1>BannedUsernameController.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server.userDB;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.Date;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.util.Tuple;
+
+/**
+ * Utilitiy class to create/read/delete banned usernames (there is no update).
+ */
+<span class="fc" id="L17">public class BannedUsernameController {</span>
+<span class="fc" id="L18">  private static final Logger s_logger = Logger.getLogger(BannedUsernameController.class.getName());</span>
+
+  /**
+   * Ban the username permanently
+   */
+  public void addBannedUsername(final String username) {
+<span class="nc" id="L24">    addBannedUsername(username, null);</span>
+<span class="nc" id="L25">  }</span>
+
+  /**
+   * Ban the given username. If banTill is not null, the ban will expire when banTill is reached.
+   * &lt;p&gt;
+   * If this username is already banned, this call will update the ban_end.
+   */
+  public void addBannedUsername(final String username, final Date banTill) {
+<span class="nc bnc" id="L33" title="All 2 branches missed.">    if (isUsernameBanned(username).getFirst()) {</span>
+<span class="nc" id="L34">      removeBannedUsername(username);</span>
+    }
+<span class="nc" id="L36">    Timestamp banTillTs = null;</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    if (banTill != null) {</span>
+<span class="nc" id="L38">      banTillTs = new Timestamp(banTill.getTime());</span>
+    }
+<span class="nc" id="L40">    s_logger.fine(&quot;Banning username:&quot; + username);</span>
+<span class="nc" id="L41">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L43">      final PreparedStatement ps =</span>
+<span class="nc" id="L44">          con.prepareStatement(&quot;insert into banned_usernames (username, ban_till) values (?, ?)&quot;);</span>
+<span class="nc" id="L45">      ps.setString(1, username);</span>
+<span class="nc" id="L46">      ps.setTimestamp(2, banTillTs);</span>
+<span class="nc" id="L47">      ps.execute();</span>
+<span class="nc" id="L48">      ps.close();</span>
+<span class="nc" id="L49">      con.commit();</span>
+<span class="nc" id="L50">    } catch (final SQLException sqle) {</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">      if (sqle.getErrorCode() == 30000) {</span>
+        // this is ok
+        // the username is banned as expected
+<span class="nc" id="L54">        s_logger.info(&quot;Tried to create duplicate banned username:&quot; + username + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L55">        return;</span>
+      }
+<span class="nc" id="L57">      s_logger.log(Level.SEVERE, &quot;Error inserting banned username:&quot; + username, sqle);</span>
+<span class="nc" id="L58">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L59">    } finally {</span>
+<span class="nc" id="L60">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L61">    }</span>
+<span class="nc" id="L62">  }</span>
+
+  public void removeBannedUsername(final String username) {
+<span class="nc" id="L65">    s_logger.fine(&quot;Removing banned username:&quot; + username);</span>
+<span class="nc" id="L66">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L68">      final PreparedStatement ps = con.prepareStatement(&quot;delete from banned_usernames where username = ?&quot;);</span>
+<span class="nc" id="L69">      ps.setString(1, username);</span>
+<span class="nc" id="L70">      ps.execute();</span>
+<span class="nc" id="L71">      ps.close();</span>
+<span class="nc" id="L72">      con.commit();</span>
+<span class="nc" id="L73">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L74">      s_logger.log(Level.SEVERE, &quot;Error deleting banned username:&quot; + username, sqle);</span>
+<span class="nc" id="L75">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L76">    } finally {</span>
+<span class="nc" id="L77">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L78">    }</span>
+<span class="nc" id="L79">  }</span>
+
+  /**
+   * Is the given username banned? This may have the side effect of removing from the
+   * database any username's whose ban has expired
+   */
+  public Tuple&lt;Boolean, Timestamp&gt; isUsernameBanned(final String username) {
+<span class="fc" id="L86">    boolean found = false;</span>
+<span class="fc" id="L87">    boolean expired = false;</span>
+<span class="fc" id="L88">    Timestamp banTill = null;</span>
+<span class="fc" id="L89">    final String sql = &quot;select username, ban_till from banned_usernames where username = ?&quot;;</span>
+<span class="fc" id="L90">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="fc" id="L92">      final PreparedStatement ps = con.prepareStatement(sql);</span>
+<span class="fc" id="L93">      ps.setString(1, username);</span>
+<span class="fc" id="L94">      final ResultSet rs = ps.executeQuery();</span>
+<span class="fc" id="L95">      found = rs.next();</span>
+      // If the ban has expired, allow the username
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">      if (found) {</span>
+<span class="nc" id="L98">        banTill = rs.getTimestamp(2);</span>
+<span class="nc bnc" id="L99" title="All 4 branches missed.">        if (banTill != null &amp;&amp; banTill.getTime() &lt; System.currentTimeMillis()) {</span>
+<span class="nc" id="L100">          s_logger.fine(&quot;Ban expired for:&quot; + username);</span>
+<span class="nc" id="L101">          expired = true;</span>
+        }
+      }
+<span class="fc" id="L104">      rs.close();</span>
+<span class="fc" id="L105">      ps.close();</span>
+<span class="pc" id="L106">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L107">      s_logger.info(&quot;Error for testing banned username existence:&quot; + username + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L108">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L109">    } finally {</span>
+<span class="pc" id="L110">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L111">    }</span>
+<span class="pc bpc" id="L112" title="1 of 2 branches missed.">    if (expired) {</span>
+<span class="nc" id="L113">      removeBannedUsername(username);</span>
+<span class="nc" id="L114">      return Tuple.of(false, banTill);</span>
+    }
+<span class="fc" id="L116">    return Tuple.of(found, banTill);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

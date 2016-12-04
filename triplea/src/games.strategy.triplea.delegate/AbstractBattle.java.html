@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractBattle.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">AbstractBattle.java</span></div><h1>AbstractBattle.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.net.GUID;
+import games.strategy.sound.ISound;
+import games.strategy.triplea.TripleA;
+import games.strategy.triplea.ai.weakAI.WeakAI;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord.BattleResultDescription;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.ui.display.ITripleADisplay;
+import games.strategy.util.IntegerMap;
+
+abstract public class AbstractBattle implements IBattle {
+  private static final long serialVersionUID = 871090498661731337L;
+<span class="fc" id="L30">  protected final GUID m_battleID = new GUID();</span>
+  /**
+   * In headless mode we should NOT access any Delegates. In headless mode we are just being used to calculate results
+   * for an odds
+   * calculator so we can skip some steps for efficiency.
+   */
+<span class="fc" id="L36">  protected boolean m_headless = false;</span>
+  protected final Territory m_battleSite;
+  protected final PlayerID m_attacker;
+  protected PlayerID m_defender;
+  protected final BattleTracker m_battleTracker;
+  protected final GameData m_data;
+<span class="fc" id="L42">  protected int m_round = 1;</span>
+  protected final boolean m_isBombingRun;
+<span class="fc" id="L44">  protected boolean m_isAmphibious = false;</span>
+  protected BattleType m_battleType;
+<span class="fc" id="L46">  protected boolean m_isOver = false;</span>
+  /**
+   * Dependent units, maps unit -&gt; Collection of units, if unit is lost in a battle we are dependent on
+   * then we lose the corresponding collection of units.
+   */
+<span class="fc" id="L51">  protected final Map&lt;Unit, Collection&lt;Unit&gt;&gt; m_dependentUnits = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L52">  protected List&lt;Unit&gt; m_attackingUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L53">  protected List&lt;Unit&gt; m_defendingUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L54">  protected List&lt;Unit&gt; m_amphibiousLandAttackers = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L55">  protected List&lt;Unit&gt; m_bombardingUnits = new ArrayList&lt;&gt;();</span>
+  protected Collection&lt;TerritoryEffect&gt; m_territoryEffects;
+  protected BattleResultDescription m_battleResultDescription;
+<span class="fc" id="L58">  protected WhoWon m_whoWon = WhoWon.NOTFINISHED;</span>
+<span class="fc" id="L59">  protected int m_attackerLostTUV = 0;</span>
+<span class="fc" id="L60">  protected int m_defenderLostTUV = 0;</span>
+
+<span class="fc" id="L62">  public AbstractBattle(final Territory battleSite, final PlayerID attacker, final BattleTracker battleTracker,</span>
+      final boolean isBombingRun, final BattleType battleType, final GameData data) {
+<span class="fc" id="L64">    m_battleTracker = battleTracker;</span>
+<span class="fc" id="L65">    m_attacker = attacker;</span>
+<span class="fc" id="L66">    m_battleSite = battleSite;</span>
+<span class="fc" id="L67">    m_territoryEffects = TerritoryEffectHelper.getEffects(battleSite);</span>
+<span class="fc" id="L68">    m_isBombingRun = isBombingRun;</span>
+<span class="fc" id="L69">    m_battleType = battleType;</span>
+<span class="fc" id="L70">    m_data = data;</span>
+<span class="fc" id="L71">    m_defender = findDefender(battleSite, attacker, data);</span>
+    // Make sure that if any of the incoming data is null, we are still OK
+    // (tests and mockbattle use null for a lot of this stuff)
+<span class="fc" id="L74">  }</span>
+
+  @Override
+  public Collection&lt;Unit&gt; getDependentUnits(final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L78">    final Collection&lt;Unit&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L79" title="All 2 branches covered.">    for (final Unit unit : units) {</span>
+<span class="fc" id="L80">      final Collection&lt;Unit&gt; dependent = m_dependentUnits.get(unit);</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">      if (dependent != null) {</span>
+<span class="fc" id="L82">        rVal.addAll(dependent);</span>
+      }
+    }
+<span class="fc" id="L85">    return rVal;</span>
+  }
+
+  protected void removeUnitsThatNoLongerExist() {
+<span class="fc bfc" id="L89" title="All 2 branches covered.">    if (m_headless) {</span>
+<span class="fc" id="L90">      return;</span>
+    }
+    // we were having a problem with units that had been killed previously were still part of
+    // MFB's variables, so we double check that the stuff still exists here.
+<span class="fc" id="L94">    m_defendingUnits.retainAll(m_battleSite.getUnits().getUnits());</span>
+<span class="fc" id="L95">    m_attackingUnits.retainAll(m_battleSite.getUnits().getUnits());</span>
+<span class="fc" id="L96">  }</span>
+
+  @Override
+  public void addBombardingUnit(final Unit unit) {
+<span class="fc" id="L100">    m_bombardingUnits.add(unit);</span>
+<span class="fc" id="L101">  }</span>
+
+  @Override
+  public Collection&lt;Unit&gt; getBombardingUnits() {
+<span class="fc" id="L105">    return new ArrayList&lt;&gt;(m_bombardingUnits);</span>
+  }
+
+  @Override
+  public boolean isAmphibious() {
+<span class="fc" id="L110">    return m_isAmphibious;</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getAmphibiousLandAttackers() {
+<span class="fc" id="L115">    return new ArrayList&lt;&gt;(m_amphibiousLandAttackers);</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getAttackingUnits() {
+<span class="fc" id="L120">    return new ArrayList&lt;&gt;(m_attackingUnits);</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getDefendingUnits() {
+<span class="fc" id="L125">    return new ArrayList&lt;&gt;(m_defendingUnits);</span>
+  }
+
+  @Override
+  public List&lt;Unit&gt; getRemainingAttackingUnits() {
+<span class="fc" id="L130">    return new ArrayList&lt;&gt;(m_attackingUnits);</span>
+  }
+
+  @Override
+  public List&lt;Unit&gt; getRemainingDefendingUnits() {
+<span class="fc" id="L135">    return new ArrayList&lt;&gt;(m_defendingUnits);</span>
+  }
+
+  @Override
+  abstract public boolean isEmpty();
+
+  @Override
+  public final boolean isOver() {
+<span class="fc" id="L143">    return m_isOver;</span>
+  }
+
+  @Override
+<span class="nc" id="L147">  public void cancelBattle(final IDelegateBridge bridge) {}</span>
+
+  @Override
+  public boolean isBombingRun() {
+<span class="fc" id="L151">    return m_isBombingRun;</span>
+  }
+
+  @Override
+  public BattleType getBattleType() {
+<span class="fc" id="L156">    return m_battleType;</span>
+  }
+
+  @Override
+  public int getBattleRound() {
+<span class="fc" id="L161">    return m_round;</span>
+  }
+
+  @Override
+  public WhoWon getWhoWon() {
+<span class="fc" id="L166">    return m_whoWon;</span>
+  }
+
+  @Override
+  public BattleResultDescription getBattleResultDescription() {
+<span class="nc" id="L171">    return m_battleResultDescription;</span>
+  }
+
+  @Override
+  public GUID getBattleID() {
+<span class="fc" id="L176">    return m_battleID;</span>
+  }
+
+  @Override
+  public final Territory getTerritory() {
+<span class="fc" id="L181">    return m_battleSite;</span>
+  }
+
+  public final Collection&lt;TerritoryEffect&gt; getTerritoryEffects() {
+<span class="nc" id="L185">    return m_territoryEffects;</span>
+  }
+
+  @Override
+  public PlayerID getAttacker() {
+<span class="nc" id="L190">    return m_attacker;</span>
+  }
+
+  @Override
+  public PlayerID getDefender() {
+<span class="nc" id="L195">    return m_defender;</span>
+  }
+
+  public void setHeadless(final boolean aBool) {
+<span class="fc" id="L199">    m_headless = aBool;</span>
+<span class="fc" id="L200">  }</span>
+
+  @Override
+  abstract public void fight(IDelegateBridge bridge);
+
+  @Override
+  abstract public Change addAttackChange(final Route route, final Collection&lt;Unit&gt; units,
+      final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets);
+
+  @Override
+  abstract public void removeAttack(Route route, Collection&lt;Unit&gt; units);
+
+  @Override
+  abstract public void unitsLostInPrecedingBattle(IBattle battle, Collection&lt;Unit&gt; units, IDelegateBridge bridge,
+      boolean withdrawn);
+
+  @Override
+  public int hashCode() {
+<span class="fc" id="L218">    return m_battleSite.hashCode();</span>
+  }
+
+  /**
+   * 2 Battles are equal if they occur in the same territory,
+   * and are both of the same type (bombing / not-bombing),
+   * and are both of the same sub-type of bombing/normal
+   * (ex: MustFightBattle, or StrategicBombingRaidBattle, or StrategicBombingRaidPreBattle, or NonFightingBattle, etc).
+   * &lt;br&gt;
+   * Equals in the sense that they should never occupy the same Set if these conditions are met.
+   */
+  @Override
+  public boolean equals(final Object o) {
+<span class="pc bpc" id="L231" title="2 of 4 branches missed.">    if (o == null || !(o instanceof IBattle)) {</span>
+<span class="nc" id="L232">      return false;</span>
+    }
+<span class="fc" id="L234">    final IBattle other = (IBattle) o;</span>
+<span class="fc bfc" id="L235" title="All 4 branches covered.">    return other.getTerritory().equals(this.m_battleSite) &amp;&amp; other.isBombingRun() == this.isBombingRun()</span>
+<span class="pc bpc" id="L236" title="1 of 2 branches missed.">        &amp;&amp; other.getBattleType().equals(this.getBattleType());</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L241">    return &quot;Battle in:&quot; + m_battleSite + &quot; battle type:&quot; + m_battleType + &quot; defender:&quot; + m_defender.getName()</span>
+<span class="nc" id="L242">        + &quot; attacked by:&quot; + m_attacker.getName() + &quot; attacking with: &quot; + m_attackingUnits;</span>
+  }
+
+  public static PlayerID findDefender(final Territory battleSite, final PlayerID attacker, final GameData data) {
+<span class="pc bpc" id="L246" title="1 of 2 branches missed.">    if (battleSite == null) {</span>
+<span class="nc" id="L247">      return PlayerID.NULL_PLAYERID;</span>
+    }
+<span class="fc" id="L249">    PlayerID defender = null;</span>
+<span class="fc bfc" id="L250" title="All 2 branches covered.">    if (!battleSite.isWater()) {</span>
+<span class="fc" id="L251">      defender = battleSite.getOwner();</span>
+    }
+<span class="pc bpc" id="L253" title="1 of 4 branches missed.">    if (data == null || attacker == null) {</span>
+      // This is needed for many TESTs, so do not delete
+<span class="fc bfc" id="L255" title="All 2 branches covered.">      if (defender == null) {</span>
+<span class="fc" id="L256">        return PlayerID.NULL_PLAYERID;</span>
+      }
+<span class="fc" id="L258">      return defender;</span>
+    }
+<span class="pc bpc" id="L260" title="2 of 6 branches missed.">    if (defender == null || battleSite.isWater() || !data.getRelationshipTracker().isAtWar(attacker, defender)) {</span>
+      // if water find the defender based on who has the most units in the territory
+<span class="fc" id="L262">      final IntegerMap&lt;PlayerID&gt; players = battleSite.getUnits().getPlayerUnitCounts();</span>
+<span class="fc" id="L263">      int max = -1;</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">      for (final PlayerID current : players.keySet()) {</span>
+<span class="fc bfc" id="L265" title="All 4 branches covered.">        if (current.equals(attacker) || !data.getRelationshipTracker().isAtWar(attacker, current)) {</span>
+<span class="fc" id="L266">          continue;</span>
+        }
+<span class="fc" id="L268">        final int count = players.getInt(current);</span>
+<span class="pc bpc" id="L269" title="1 of 2 branches missed.">        if (count &gt; max) {</span>
+<span class="fc" id="L270">          max = count;</span>
+<span class="fc" id="L271">          defender = current;</span>
+        }
+      }
+    }
+<span class="pc bpc" id="L275" title="1 of 2 branches missed.">    if (defender == null) {</span>
+<span class="nc" id="L276">      return PlayerID.NULL_PLAYERID;</span>
+    }
+<span class="fc" id="L278">    return defender;</span>
+  }
+
+  public static PlayerID findPlayerWithMostUnits(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L282">    final IntegerMap&lt;PlayerID&gt; playerUnitCount = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">    for (final Unit unit : units) {</span>
+<span class="nc" id="L284">      playerUnitCount.add(unit.getOwner(), 1);</span>
+    }
+<span class="nc" id="L286">    int max = -1;</span>
+<span class="nc" id="L287">    PlayerID rVal = null;</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">    for (final PlayerID current : playerUnitCount.keySet()) {</span>
+<span class="nc" id="L289">      final int count = playerUnitCount.getInt(current);</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">      if (count &gt; max) {</span>
+<span class="nc" id="L291">        max = count;</span>
+<span class="nc" id="L292">        rVal = current;</span>
+      }
+    }
+<span class="nc" id="L295">    return rVal;</span>
+  }
+
+  /**
+   * The maximum number of hits that this collection of units can sustain, taking into account units
+   * with two hits, and accounting for existing damage.
+   */
+  public static int getMaxHits(final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L303">    int count = 0;</span>
+<span class="fc bfc" id="L304" title="All 2 branches covered.">    for (final Unit unit : units) {</span>
+<span class="fc" id="L305">      count += UnitAttachment.get(unit.getUnitType()).getHitPoints();</span>
+<span class="fc" id="L306">      count -= unit.getHits();</span>
+    }
+<span class="fc" id="L308">    return count;</span>
+  }
+
+  void markDamaged(final Collection&lt;Unit&gt; damaged, final IDelegateBridge bridge, final boolean addPreviousHits) {
+<span class="fc" id="L312">    BattleDelegate.markDamaged(damaged, bridge, addPreviousHits);</span>
+<span class="fc" id="L313">  }</span>
+
+  protected static ITripleADisplay getDisplay(final IDelegateBridge bridge) {
+<span class="fc" id="L316">    return (ITripleADisplay) bridge.getDisplayChannelBroadcaster();</span>
+  }
+
+  protected static ISound getSoundChannel(final IDelegateBridge bridge) {
+<span class="nc" id="L320">    return bridge.getSoundChannelBroadcaster();</span>
+  }
+
+  protected static ITripleAPlayer getRemote(final IDelegateBridge bridge) {
+<span class="nc" id="L324">    return (ITripleAPlayer) bridge.getRemotePlayer();</span>
+  }
+
+  protected static ITripleAPlayer getRemote(final PlayerID player, final IDelegateBridge bridge) {
+    // if its the null player, return a do nothing proxy
+<span class="pc bpc" id="L329" title="1 of 2 branches missed.">    if (player.isNull()) {</span>
+<span class="nc" id="L330">      return new WeakAI(player.getName(), TripleA.WEAK_COMPUTER_PLAYER_TYPE);</span>
+    }
+<span class="fc" id="L332">    return (ITripleAPlayer) bridge.getRemotePlayer(player);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

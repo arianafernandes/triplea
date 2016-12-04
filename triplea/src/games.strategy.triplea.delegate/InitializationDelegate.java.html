@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>InitializationDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">InitializationDelegate.java</span></div><h1>InitializationDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.Iterator;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameStep;
+import games.strategy.engine.data.NamedAttachable;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionFrontier;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.message.IRemote;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * This delegate is only supposed to be run once, per game, at the start of the game.
+ */
+public class InitializationDelegate extends BaseTripleADelegate {
+<span class="fc" id="L33">  private boolean m_needToInitialize = true;</span>
+
+  /** Creates a new instance of InitializationDelegate */
+<span class="fc" id="L36">  public InitializationDelegate() {}</span>
+
+  @Override
+  public void initialize(final String name, final String displayName) {
+<span class="fc" id="L40">    m_name = name;</span>
+<span class="fc" id="L41">    m_displayName = displayName;</span>
+<span class="fc" id="L42">  }</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L49">    super.start();</span>
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">    if (m_needToInitialize) {</span>
+<span class="fc" id="L51">      init(m_bridge);</span>
+<span class="fc" id="L52">      m_needToInitialize = false;</span>
+    }
+<span class="fc" id="L54">  }</span>
+
+  @Override
+  public void end() {
+<span class="fc" id="L58">    super.end();</span>
+<span class="fc" id="L59">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L63">    final InitializationExtendedDelegateState state = new InitializationExtendedDelegateState();</span>
+<span class="nc" id="L64">    state.superState = super.saveState();</span>
+    // add other variables to state here:
+<span class="nc" id="L66">    state.m_needToInitialize = this.m_needToInitialize;</span>
+<span class="nc" id="L67">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L72">    final InitializationExtendedDelegateState s = (InitializationExtendedDelegateState) state;</span>
+<span class="nc" id="L73">    super.loadState(s.superState);</span>
+<span class="nc" id="L74">    this.m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L75">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc" id="L79">    return false;</span>
+  }
+
+  protected void init(final IDelegateBridge aBridge) {
+<span class="fc" id="L83">    initDestroyerArtillery(aBridge);</span>
+<span class="fc" id="L84">    initShipyards(aBridge);</span>
+<span class="fc" id="L85">    initTwoHitBattleship(aBridge);</span>
+<span class="fc" id="L86">    initOriginalOwner(aBridge);</span>
+<span class="fc" id="L87">    initTech(aBridge);</span>
+<span class="fc" id="L88">    initSkipUnusedBids(aBridge.getData());</span>
+<span class="fc" id="L89">    initDeleteAssetsOfDisabledPlayers(aBridge);</span>
+<span class="fc" id="L90">    initTransportedLandUnits(aBridge);</span>
+<span class="fc" id="L91">    resetUnitState(aBridge);</span>
+<span class="fc" id="L92">  }</span>
+
+  /**
+   * The initTransportedLandUnits has some side effects, and we need to reset unit state to get rid of them.
+   *
+   * @param aBridge
+   */
+  private void resetUnitState(final IDelegateBridge aBridge) {
+<span class="fc" id="L100">    final Change change = MoveDelegate.getResetUnitStateChange(getData());</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">    if (!change.isEmpty()) {</span>
+<span class="fc" id="L102">      m_bridge.getHistoryWriter().startEvent(&quot;Cleaning up unit state.&quot;);</span>
+<span class="fc" id="L103">      m_bridge.addChange(change);</span>
+    }
+<span class="fc" id="L105">  }</span>
+
+  /**
+   * Want to make sure that all units in the sea that can be transported are
+   * marked as being transported by something.
+   * We assume that all transportable units in the sea are in a transport, no
+   * exceptions.
+   */
+  private void initTransportedLandUnits(final IDelegateBridge aBridge) {
+<span class="fc" id="L114">    final GameData data = aBridge.getData();</span>
+    // check every territory
+<span class="fc" id="L116">    boolean historyItemCreated = false;</span>
+<span class="fc" id="L117">    final Iterator&lt;Territory&gt; allTerritories = data.getMap().getTerritories().iterator();</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">    while (allTerritories.hasNext()) {</span>
+<span class="fc" id="L119">      final Territory current = allTerritories.next();</span>
+      // only care about water
+<span class="fc bfc" id="L121" title="All 2 branches covered.">      if (!current.isWater()) {</span>
+<span class="fc" id="L122">        continue;</span>
+      }
+<span class="fc" id="L124">      final Collection&lt;Unit&gt; units = current.getUnits().getUnits();</span>
+<span class="fc bfc" id="L125" title="All 4 branches covered.">      if (units.size() == 0 || !Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L126">        continue;</span>
+      }
+      // map transports, try to fill
+<span class="fc" id="L129">      final Collection&lt;Unit&gt; transports = Match.getMatches(units, Matches.UnitIsTransport);</span>
+<span class="fc" id="L130">      final Collection&lt;Unit&gt; land = Match.getMatches(units, Matches.UnitIsLand);</span>
+<span class="fc bfc" id="L131" title="All 2 branches covered.">      for (final Unit toLoad : land) {</span>
+<span class="fc" id="L132">        final UnitAttachment ua = UnitAttachment.get(toLoad.getType());</span>
+<span class="fc" id="L133">        final int cost = ua.getTransportCost();</span>
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">        if (cost == -1) {</span>
+<span class="nc" id="L135">          throw new IllegalStateException(&quot;Non transportable unit in sea&quot;);</span>
+        }
+        // find the next transport that can hold it
+<span class="fc" id="L138">        final Iterator&lt;Unit&gt; transportIter = transports.iterator();</span>
+<span class="fc" id="L139">        boolean found = false;</span>
+<span class="pc bpc" id="L140" title="1 of 2 branches missed.">        while (transportIter.hasNext()) {</span>
+<span class="fc" id="L141">          final Unit transport = transportIter.next();</span>
+<span class="fc" id="L142">          final int capacity = TransportTracker.getAvailableCapacity(transport);</span>
+<span class="fc bfc" id="L143" title="All 2 branches covered.">          if (capacity &gt;= cost) {</span>
+<span class="fc bfc" id="L144" title="All 2 branches covered.">            if (!historyItemCreated) {</span>
+<span class="fc" id="L145">              aBridge.getHistoryWriter().startEvent(&quot;Initializing Units in Transports&quot;);</span>
+<span class="fc" id="L146">              historyItemCreated = true;</span>
+            }
+            try {
+<span class="fc" id="L149">              aBridge.addChange(TransportTracker.loadTransportChange((TripleAUnit) transport, toLoad));</span>
+<span class="pc" id="L150">            } catch (final IllegalStateException e) {</span>
+<span class="nc" id="L151">              System.err.println(</span>
+<span class="nc" id="L152">                  &quot;You can only edit add transports+units after the initialization delegate of the game is finished.  &quot;</span>
+                      + &quot;If this error came up and you have not used Edit Mode to add units + transports, then please report this as a bug:  \r\n&quot;
+<span class="nc" id="L154">                      + e.getMessage());</span>
+            }
+<span class="fc" id="L156">            found = true;</span>
+<span class="fc" id="L157">            break;</span>
+          }
+        }
+<span class="pc bpc" id="L160" title="1 of 2 branches missed.">        if (!found) {</span>
+<span class="nc" id="L161">          throw new IllegalStateException(</span>
+<span class="nc" id="L162">              &quot;Cannot load all land units in sea transports. &quot; + &quot;Please make sure you have enough transports. &quot;</span>
+                  + &quot;You may need to re-order the xml's placement of transports and land units, &quot;
+                  + &quot;as the engine will try to fill them in the order they are given.&quot;);
+        }
+      }
+    }
+<span class="fc" id="L168">  }</span>
+
+  private void initDeleteAssetsOfDisabledPlayers(final IDelegateBridge aBridge) {
+<span class="fc" id="L171">    final GameData data = aBridge.getData();</span>
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getDisabledPlayersAssetsDeleted(data)) {</span>
+<span class="fc" id="L173">      return;</span>
+    }
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    for (final PlayerID player : data.getPlayerList().getPlayers()) {</span>
+<span class="nc bnc" id="L176" title="All 4 branches missed.">      if (player.isNull() || !player.getIsDisabled()) {</span>
+<span class="nc" id="L177">        continue;</span>
+      }
+      // delete all the stuff they have
+<span class="nc" id="L180">      final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">      for (final Resource r : player.getResources().getResourcesCopy().keySet()) {</span>
+<span class="nc" id="L182">        final int deleted = player.getResources().getQuantity(r);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (deleted != 0) {</span>
+<span class="nc" id="L184">          change.add(ChangeFactory.changeResourcesChange(player, r, -deleted));</span>
+        }
+      }
+<span class="nc" id="L187">      final Collection&lt;Unit&gt; heldUnits = player.getUnits().getUnits();</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">      if (!heldUnits.isEmpty()) {</span>
+<span class="nc" id="L189">        change.add(ChangeFactory.removeUnits(player, heldUnits));</span>
+      }
+<span class="nc" id="L191">      final Match&lt;Unit&gt; owned = Matches.unitIsOwnedBy(player);</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">      for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L193">        final Collection&lt;Unit&gt; terrUnits = t.getUnits().getMatches(owned);</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">        if (!terrUnits.isEmpty()) {</span>
+<span class="nc" id="L195">          change.add(ChangeFactory.removeUnits(t, terrUnits));</span>
+        }
+      }
+<span class="nc bnc" id="L198" title="All 2 branches missed.">      if (!change.isEmpty()) {</span>
+<span class="nc" id="L199">        aBridge.getHistoryWriter().startEvent(&quot;Remove all resources and units from: &quot; + player.getName());</span>
+<span class="nc" id="L200">        aBridge.addChange(change);</span>
+      }
+    }
+<span class="nc" id="L203">  }</span>
+
+  private void initSkipUnusedBids(final GameData data) {
+    // we have a lot of bid steps, 12 for pact of steel
+    // in multi player this can be time consuming, since each vm
+    // must be notified (and have its ui) updated for each step,
+    // so remove the bid steps that arent used
+<span class="fc bfc" id="L210" title="All 2 branches covered.">    for (final GameStep step : data.getSequence()) {</span>
+<span class="fc bfc" id="L211" title="All 4 branches covered.">      if (step.getDelegate() instanceof BidPlaceDelegate || step.getDelegate() instanceof BidPurchaseDelegate) {</span>
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">        if (!BidPurchaseDelegate.doesPlayerHaveBid(data, step.getPlayerID())) {</span>
+<span class="fc" id="L213">          step.setMaxRunCount(0);</span>
+        }
+      }
+    }
+<span class="fc" id="L217">  }</span>
+
+  private void initTech(final IDelegateBridge bridge) {
+<span class="fc" id="L220">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L221">    final Iterator&lt;PlayerID&gt; players = data.getPlayerList().getPlayers().iterator();</span>
+<span class="fc bfc" id="L222" title="All 2 branches covered.">    while (players.hasNext()) {</span>
+<span class="fc" id="L223">      final PlayerID player = players.next();</span>
+<span class="fc" id="L224">      final Iterator&lt;TechAdvance&gt; advances = TechTracker.getCurrentTechAdvances(player, data).iterator();</span>
+<span class="pc bpc" id="L225" title="1 of 2 branches missed.">      if (advances.hasNext()) {</span>
+<span class="nc" id="L226">        bridge.getHistoryWriter().startEvent(&quot;Initializing &quot; + player.getName() + &quot; with tech advances&quot;);</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        while (advances.hasNext()) {</span>
+<span class="nc" id="L228">          final TechAdvance advance = advances.next();</span>
+<span class="nc" id="L229">          advance.perform(player, bridge);</span>
+        }
+      }
+    }
+<span class="fc" id="L233">  }</span>
+
+  private void initDestroyerArtillery(final IDelegateBridge aBridge) {
+<span class="fc" id="L236">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L237">    final boolean addArtilleryAndDestroyers = games.strategy.triplea.Properties.getUse_Destroyers_And_Artillery(data);</span>
+<span class="pc bpc" id="L238" title="1 of 4 branches missed.">    if (!isWW2V2(data) &amp;&amp; addArtilleryAndDestroyers) {</span>
+<span class="nc" id="L239">      final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L240">      final ProductionRule artillery = data.getProductionRuleList().getProductionRule(&quot;buyArtillery&quot;);</span>
+<span class="nc" id="L241">      final ProductionRule destroyer = data.getProductionRuleList().getProductionRule(&quot;buyDestroyer&quot;);</span>
+<span class="nc" id="L242">      final ProductionFrontier frontier = data.getProductionFrontierList().getProductionFrontier(&quot;production&quot;);</span>
+<span class="nc bnc" id="L243" title="All 4 branches missed.">      if (artillery != null &amp;&amp; !frontier.getRules().contains(artillery)) {</span>
+<span class="nc" id="L244">        change.add(ChangeFactory.addProductionRule(artillery, frontier));</span>
+      }
+<span class="nc bnc" id="L246" title="All 4 branches missed.">      if (destroyer != null &amp;&amp; !frontier.getRules().contains(destroyer)) {</span>
+<span class="nc" id="L247">        change.add(ChangeFactory.addProductionRule(destroyer, frontier));</span>
+      }
+<span class="nc" id="L249">      final ProductionRule artilleryIT =</span>
+<span class="nc" id="L250">          data.getProductionRuleList().getProductionRule(&quot;buyArtilleryIndustrialTechnology&quot;);</span>
+<span class="nc" id="L251">      final ProductionRule destroyerIT =</span>
+<span class="nc" id="L252">          data.getProductionRuleList().getProductionRule(&quot;buyDestroyerIndustrialTechnology&quot;);</span>
+<span class="nc" id="L253">      final ProductionFrontier frontierIT =</span>
+<span class="nc" id="L254">          data.getProductionFrontierList().getProductionFrontier(&quot;productionIndustrialTechnology&quot;);</span>
+<span class="nc bnc" id="L255" title="All 4 branches missed.">      if (artilleryIT != null &amp;&amp; !frontierIT.getRules().contains(artilleryIT)) {</span>
+<span class="nc" id="L256">        change.add(ChangeFactory.addProductionRule(artilleryIT, frontierIT));</span>
+      }
+<span class="nc bnc" id="L258" title="All 4 branches missed.">      if (destroyerIT != null &amp;&amp; !frontierIT.getRules().contains(destroyerIT)) {</span>
+<span class="nc" id="L259">        change.add(ChangeFactory.addProductionRule(destroyerIT, frontierIT));</span>
+      }
+<span class="nc bnc" id="L261" title="All 2 branches missed.">      if (!change.isEmpty()) {</span>
+<span class="nc" id="L262">        aBridge.getHistoryWriter().startEvent(&quot;Adding destroyers and artillery production rules&quot;);</span>
+<span class="nc" id="L263">        aBridge.addChange(change);</span>
+      }
+    }
+<span class="fc" id="L266">  }</span>
+
+  private void initShipyards(final IDelegateBridge aBridge) {
+<span class="fc" id="L269">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L270">    final boolean useShipyards = games.strategy.triplea.Properties.getUse_Shipyards(data);</span>
+<span class="pc bpc" id="L271" title="1 of 2 branches missed.">    if (useShipyards) {</span>
+<span class="nc" id="L272">      final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L273">      final ProductionFrontier frontierShipyards =</span>
+<span class="nc" id="L274">          data.getProductionFrontierList().getProductionFrontier(&quot;productionShipyards&quot;);</span>
+      /*
+       * Find the productionRules, if the unit is NOT a sea unit, add it to the ShipYards prod rule.
+       */
+<span class="nc" id="L278">      final ProductionFrontier frontierNONShipyards =</span>
+<span class="nc" id="L279">          data.getProductionFrontierList().getProductionFrontier(&quot;production&quot;);</span>
+<span class="nc" id="L280">      final Collection&lt;ProductionRule&gt; rules = frontierNONShipyards.getRules();</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">      for (final ProductionRule rule : rules) {</span>
+<span class="nc" id="L282">        final String ruleName = rule.getName();</span>
+<span class="nc" id="L283">        final IntegerMap&lt;NamedAttachable&gt; ruleResults = rule.getResults();</span>
+<span class="nc" id="L284">        final NamedAttachable named = ruleResults.keySet().iterator().next();</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        if (!(named instanceof UnitType)) {</span>
+<span class="nc" id="L286">          continue;</span>
+        }
+<span class="nc" id="L288">        final UnitType unit = data.getUnitTypeList().getUnitType(named.getName());</span>
+<span class="nc" id="L289">        final boolean isSea = UnitAttachment.get(unit).getIsSea();</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">        if (!isSea) {</span>
+<span class="nc" id="L291">          final ProductionRule prodRule = data.getProductionRuleList().getProductionRule(ruleName);</span>
+<span class="nc" id="L292">          change.add(ChangeFactory.addProductionRule(prodRule, frontierShipyards));</span>
+        }
+      }
+<span class="nc" id="L295">      aBridge.getHistoryWriter().startEvent(&quot;Adding shipyard production rules - land/air units&quot;);</span>
+<span class="nc" id="L296">      aBridge.addChange(change);</span>
+    }
+<span class="fc" id="L298">  }</span>
+
+  private boolean isWW2V2(final GameData data) {
+<span class="fc" id="L301">    return games.strategy.triplea.Properties.getWW2V2(data);</span>
+  }
+
+  private void initTwoHitBattleship(final IDelegateBridge aBridge) {
+<span class="fc" id="L305">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L306">    final boolean userEnabled = games.strategy.triplea.Properties.getTwoHitBattleships(data);</span>
+<span class="fc" id="L307">    final UnitType battleShipUnit = data.getUnitTypeList().getUnitType(Constants.UNIT_TYPE_BATTLESHIP);</span>
+<span class="pc bpc" id="L308" title="1 of 2 branches missed.">    if (battleShipUnit == null) {</span>
+<span class="nc" id="L309">      return;</span>
+    }
+<span class="fc" id="L311">    final UnitAttachment battleShipAttachment = UnitAttachment.get(battleShipUnit);</span>
+<span class="fc bfc" id="L312" title="All 2 branches covered.">    final boolean defaultEnabled = battleShipAttachment.getHitPoints() &gt; 1;</span>
+<span class="pc bpc" id="L313" title="1 of 2 branches missed.">    if (userEnabled != defaultEnabled) {</span>
+<span class="nc" id="L314">      aBridge.getHistoryWriter().startEvent(&quot;TwoHitBattleships:&quot; + userEnabled);</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">      aBridge.addChange(ChangeFactory.attachmentPropertyChange(battleShipAttachment, userEnabled ? 2 : 1, &quot;hitPoints&quot;));</span>
+    }
+<span class="fc" id="L317">  }</span>
+
+  private void initOriginalOwner(final IDelegateBridge aBridge) {
+<span class="fc" id="L320">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L321">    final CompositeChange changes = new CompositeChange();</span>
+<span class="fc bfc" id="L322" title="All 2 branches covered.">    for (final Territory current : data.getMap()) {</span>
+<span class="fc bfc" id="L323" title="All 2 branches covered.">      if (!current.getOwner().isNull()) {</span>
+<span class="fc" id="L324">        final TerritoryAttachment territoryAttachment = TerritoryAttachment.get(current);</span>
+<span class="pc bpc" id="L325" title="1 of 2 branches missed.">        if (territoryAttachment == null) {</span>
+<span class="nc" id="L326">          throw new IllegalStateException(&quot;No territory attachment for &quot; + current);</span>
+        }
+<span class="pc bpc" id="L328" title="3 of 4 branches missed.">        if (territoryAttachment.getOriginalOwner() == null &amp;&amp; current.getOwner() != null) {</span>
+<span class="nc" id="L329">          changes.add(OriginalOwnerTracker.addOriginalOwnerChange(current, current.getOwner()));</span>
+        }
+<span class="fc" id="L331">        final Collection&lt;Unit&gt; factoryAndInfrastructure = current.getUnits().getMatches(Matches.UnitIsInfrastructure);</span>
+<span class="fc" id="L332">        changes.add(OriginalOwnerTracker.addOriginalOwnerChange(factoryAndInfrastructure, current.getOwner()));</span>
+<span class="fc bfc" id="L333" title="All 2 branches covered.">      } else if (!current.isWater()) {</span>
+<span class="fc" id="L334">        final TerritoryAttachment territoryAttachment = TerritoryAttachment.get(current);</span>
+<span class="pc bpc" id="L335" title="1 of 2 branches missed.">        if (territoryAttachment == null) {</span>
+<span class="nc" id="L336">          throw new IllegalStateException(&quot;No territory attachment for &quot; + current);</span>
+        }
+      }
+    }
+<span class="fc" id="L340">    aBridge.getHistoryWriter().startEvent(&quot;Adding original owners&quot;);</span>
+<span class="fc" id="L341">    aBridge.addChange(changes);</span>
+<span class="fc" id="L342">  }</span>
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L346">    return null;</span>
+  }
+}
+
+
+<span class="nc" id="L351">class InitializationExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = -9000446777655823735L;
+  Serializable superState;
+  public boolean m_needToInitialize;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

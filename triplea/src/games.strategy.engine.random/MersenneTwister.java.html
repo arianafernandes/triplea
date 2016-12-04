@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MersenneTwister.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.random</a> &gt; <span class="el_source">MersenneTwister.java</span></div><h1>MersenneTwister.java</h1><pre class="source lang-java linenums">package games.strategy.engine.random;
+
+import java.util.Random;
+
+/**
+ * &lt;h3&gt;MersenneTwister and MersenneTwisterFast&lt;/h3&gt;
+ *
+ * Version 9, based on version MT199937(99/10/29) of the Mersenne Twister algorithm found at
+ * &lt;a href=&quot;http://www.math.keio.ac.jp/matumoto/emt.html&quot;&gt; The Mersenne Twister Home Page&lt;/a&gt;, with the initialization
+ * improved using the new 2002/1/26 initialization algorithm By Sean Luke, October 2004.
+ *
+ *
+ * MersenneTwister is a drop-in subclass replacement for java.tools.Random. It is properly synchronized and can be
+ * used in a multithreaded environment. On modern VMs such as HotSpot, it is approximately 1/3 slower than
+ * java.tools.Random.
+ *
+ * MersenneTwisterFast is not a subclass of java.tools.Random. It has the same public methods as Random does, however,
+ * and it is
+ * algorithmically identical to MersenneTwister. MersenneTwisterFast has hard-code inlined all of its methods directly,
+ * and made all of them
+ * final (well, the ones of consequence anyway). Further, these methods are &lt;i&gt;not&lt;/i&gt; synchronized, so the same
+ *
+ * MersenneTwisterFast
+ * instance cannot be shared by multiple threads. But all this helps MersenneTwisterFast achieve well over twice the
+ * speed of
+ * MersenneTwister. java.tools.Random is about 1/3 slower than MersenneTwisterFast.
+ *
+ *
+ * &lt;h3&gt;About the Mersenne Twister&lt;/h3&gt;
+ *
+ * This is a Java version of the C-program for MT19937: Integer version. The MT19937 algorithm was created by Makoto
+ * Matsumoto and Takuji
+ * Nishimura, who ask:
+ * &quot;When you use this, send an email to: matumoto@math.keio.ac.jp with an appropriate reference to your work&quot;. Indicate
+ * that this is a translation of their algorithm into Java.
+ *
+ *
+ * &lt;b&gt;Reference. &lt;/b&gt; Makato Matsumoto and Takuji Nishimura,
+ * &quot;Mersenne Twister: A 623-Dimensionally Equidistributed Uniform Pseudo-Random Number Generator&quot;, &lt;i&gt;ACM Transactions
+ * on Modeling and Computer Simulation,&lt;/i&gt; Vol. 8, No. 1, January 1998, pp 3--30.
+ *
+ *
+ * The MersenneTwister code is based on standard MT19937 C/C++ code by Takuji Nishimura, with suggestions from Topher
+ * Cooper and Marc Rieffel, July 1997. The code was originally translated into Java by Michael Lecuyer, January 1999,
+ * and the original code is Copyright (c) 1999 by Michael Lecuyer.
+ *
+ */
+public class MersenneTwister extends Random {
+  private static final long serialVersionUID = -6946159560323874784L;
+  // Period parameters
+  private static final int N = 624;
+  private static final int M = 397;
+  private static final int MATRIX_A = 0x9908b0df;
+  // most significant w-r bits
+  private static final int UPPER_MASK = 0x80000000;
+  // least significant r bits
+  private static final int LOWER_MASK = 0x7fffffff;
+  // Tempering parameters
+  private static final int TEMPERING_MASK_B = 0x9d2c5680;
+  private static final int TEMPERING_MASK_C = 0xefc60000;
+  // the array for the state vector
+  private int m_mt[];
+  // mti==N+1 means mt[N] is not initialized
+  private int mti;
+  private int mag01[];
+  /*
+   * implemented here because there's a bug in Random's implementation
+   * of the Gaussian code (divide by zero, and log(0), ugh!), yet its
+   * gaussian variables are private so we can't access them here. :-(
+   */
+  private double nextNextGaussian;
+  private boolean haveNextNextGaussian;
+
+  /**
+   * Constructor using the default seed.
+   */
+  public MersenneTwister() {
+<span class="nc" id="L78">    this(System.currentTimeMillis());</span>
+<span class="nc" id="L79">  }</span>
+
+  /**
+   * Constructor using a given seed. Though you pass this seed in
+   * as a long, it's best to make sure it's actually an integer.
+   */
+  public MersenneTwister(final long seed) {
+<span class="fc" id="L86">    super(seed); /* just in case */</span>
+<span class="fc" id="L87">    setSeed(seed);</span>
+<span class="fc" id="L88">  }</span>
+
+  /**
+   * Constructor using an array.
+   */
+  public MersenneTwister(final int[] array) {
+<span class="nc" id="L94">    super(System.currentTimeMillis()); /* pick something at random just in case */</span>
+<span class="nc" id="L95">    setSeed(array);</span>
+<span class="nc" id="L96">  }</span>
+
+  /**
+   * Initalize the pseudo random number generator. Don't
+   * pass in a long that's bigger than an int (Mersenne Twister
+   * only uses the first 32 bits for its seed).
+   */
+  @Override
+  synchronized public void setSeed(final long seed) {
+    // it's always good style to call super
+<span class="fc" id="L106">    super.setSeed(seed);</span>
+    // Due to a bug in java.tools.Random clear up to 1.2, we're
+    // doing our own Gaussian variable.
+<span class="fc" id="L109">    haveNextNextGaussian = false;</span>
+<span class="fc" id="L110">    m_mt = new int[N];</span>
+<span class="fc" id="L111">    mag01 = new int[2];</span>
+<span class="fc" id="L112">    mag01[0] = 0x0;</span>
+<span class="fc" id="L113">    mag01[1] = MATRIX_A;</span>
+<span class="fc" id="L114">    m_mt[0] = (int) (seed &amp; 0xffffffff);</span>
+<span class="fc bfc" id="L115" title="All 2 branches covered.">    for (mti = 1; mti &lt; N; mti++) {</span>
+<span class="fc" id="L116">      m_mt[mti] = (1812433253 * (m_mt[mti - 1] ^ (m_mt[mti - 1] &gt;&gt;&gt; 30)) + mti);</span>
+      /* See Knuth TAOCP Vol2. 3rd Ed. P.106 for multiplier. */
+      /* In the previous versions, MSBs of the seed affect */
+      /* only MSBs of the array mt[]. */
+      /* 2002/01/09 modified by Makoto Matsumoto */
+<span class="fc" id="L121">      m_mt[mti] &amp;= 0xffffffff;</span>
+      /* for &gt;32 bit machines */
+    }
+<span class="fc" id="L124">  }</span>
+
+  /**
+   * An alternative, more complete, method of seeding the
+   * pseudo random number generator. array must be an
+   * array of 624 ints, and they can be any value as long as
+   * they're not *all* zero.
+   */
+  synchronized public void setSeed(final int[] array) {
+    int i, j, k;
+<span class="nc" id="L134">    setSeed(19650218);</span>
+<span class="nc" id="L135">    i = 1;</span>
+<span class="nc" id="L136">    j = 0;</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">    k = (N &gt; array.length ? N : array.length);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">    for (; k != 0; k--) {</span>
+<span class="nc" id="L139">      m_mt[i] = (m_mt[i] ^ ((m_mt[i - 1] ^ (m_mt[i - 1] &gt;&gt;&gt; 30)) * 1664525)) + array[j] + j; /* non linear */</span>
+<span class="nc" id="L140">      m_mt[i] &amp;= 0xffffffff; /* for WORDSIZE &gt; 32 machines */</span>
+<span class="nc" id="L141">      i++;</span>
+<span class="nc" id="L142">      j++;</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">      if (i &gt;= N) {</span>
+<span class="nc" id="L144">        m_mt[0] = m_mt[N - 1];</span>
+<span class="nc" id="L145">        i = 1;</span>
+      }
+<span class="nc bnc" id="L147" title="All 2 branches missed.">      if (j &gt;= array.length) {</span>
+<span class="nc" id="L148">        j = 0;</span>
+      }
+    }
+<span class="nc bnc" id="L151" title="All 2 branches missed.">    for (k = N - 1; k != 0; k--) {</span>
+<span class="nc" id="L152">      m_mt[i] = (m_mt[i] ^ ((m_mt[i - 1] ^ (m_mt[i - 1] &gt;&gt;&gt; 30)) * 1566083941)) - i; /* non linear */</span>
+<span class="nc" id="L153">      m_mt[i] &amp;= 0xffffffff; /* for WORDSIZE &gt; 32 machines */</span>
+<span class="nc" id="L154">      i++;</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">      if (i &gt;= N) {</span>
+<span class="nc" id="L156">        m_mt[0] = m_mt[N - 1];</span>
+<span class="nc" id="L157">        i = 1;</span>
+      }
+    }
+<span class="nc" id="L160">    m_mt[0] = 0x80000000; /* MSB is 1; assuring non-zero initial array */</span>
+<span class="nc" id="L161">  }</span>
+
+  /**
+   * Returns an integer with &lt;i&gt;bits&lt;/i&gt; bits filled with a random number.
+   */
+  @Override
+  synchronized protected int next(final int bits) {
+    int y;
+<span class="fc bfc" id="L169" title="All 2 branches covered.">    if (mti &gt;= N) // generate N words at one time</span>
+    {
+      int kk;
+      // locals are slightly faster
+<span class="fc" id="L173">      final int[] mt = this.m_mt;</span>
+      // locals are slightly faster
+<span class="fc" id="L175">      final int[] mag01 = this.mag01;</span>
+<span class="fc bfc" id="L176" title="All 2 branches covered.">      for (kk = 0; kk &lt; N - M; kk++) {</span>
+<span class="fc" id="L177">        y = (mt[kk] &amp; UPPER_MASK) | (mt[kk + 1] &amp; LOWER_MASK);</span>
+<span class="fc" id="L178">        mt[kk] = mt[kk + M] ^ (y &gt;&gt;&gt; 1) ^ mag01[y &amp; 0x1];</span>
+      }
+<span class="fc bfc" id="L180" title="All 2 branches covered.">      for (; kk &lt; N - 1; kk++) {</span>
+<span class="fc" id="L181">        y = (mt[kk] &amp; UPPER_MASK) | (mt[kk + 1] &amp; LOWER_MASK);</span>
+<span class="fc" id="L182">        mt[kk] = mt[kk + (M - N)] ^ (y &gt;&gt;&gt; 1) ^ mag01[y &amp; 0x1];</span>
+      }
+<span class="fc" id="L184">      y = (mt[N - 1] &amp; UPPER_MASK) | (mt[0] &amp; LOWER_MASK);</span>
+<span class="fc" id="L185">      mt[N - 1] = mt[M - 1] ^ (y &gt;&gt;&gt; 1) ^ mag01[y &amp; 0x1];</span>
+<span class="fc" id="L186">      mti = 0;</span>
+    }
+<span class="fc" id="L188">    y = m_mt[mti++];</span>
+    // TEMPERING_SHIFT_U(y)
+<span class="fc" id="L190">    y ^= y &gt;&gt;&gt; 11;</span>
+    // TEMPERING_SHIFT_S(y)
+<span class="fc" id="L192">    y ^= (y &lt;&lt; 7) &amp; TEMPERING_MASK_B;</span>
+    // TEMPERING_SHIFT_T(y)
+<span class="fc" id="L194">    y ^= (y &lt;&lt; 15) &amp; TEMPERING_MASK_C;</span>
+    // TEMPERING_SHIFT_L(y)
+<span class="fc" id="L196">    y ^= (y &gt;&gt;&gt; 18);</span>
+    // hope that's right!
+<span class="fc" id="L198">    return y &gt;&gt;&gt; (32 - bits);</span>
+  }
+
+
+  /**
+   * This method is missing from jdk 1.0.x and below. JDK 1.1
+   * includes this for us, but what the heck.
+   */
+  @Override
+  public boolean nextBoolean() {
+<span class="nc bnc" id="L208" title="All 2 branches missed.">    return next(1) != 0;</span>
+  }
+
+
+  /**
+   * This method is missing from JDK 1.1 and below. JDK 1.2
+   * includes this for us, but what the heck.
+   */
+  @Override
+  public int nextInt(final int n) {
+<span class="pc bpc" id="L218" title="1 of 2 branches missed.">    if (n &lt;= 0) {</span>
+<span class="nc" id="L219">      throw new IllegalArgumentException(&quot;n must be &gt;= 0&quot;);</span>
+    }
+<span class="pc bpc" id="L221" title="1 of 2 branches missed.">    if ((n &amp; -n) == n) {</span>
+<span class="nc" id="L222">      return (int) ((n * (long) next(31)) &gt;&gt; 31);</span>
+    }
+    int bits, val;
+<span class="pc bpc" id="L225" title="1 of 2 branches missed.">    do {</span>
+<span class="fc" id="L226">      bits = next(31);</span>
+<span class="fc" id="L227">      val = bits % n;</span>
+<span class="fc" id="L228">    } while (bits - val + (n - 1) &lt; 0);</span>
+<span class="fc" id="L229">    return val;</span>
+  }
+
+  /**
+   * A bug fix for versions of JDK 1.1 and below. JDK 1.2 fixes
+   * this for us, but what the heck.
+   */
+  @Override
+  public double nextDouble() {
+<span class="nc" id="L238">    return (((long) next(26) &lt;&lt; 27) + next(27)) / (double) (1L &lt;&lt; 53);</span>
+  }
+
+  /**
+   * A bug fix for versions of JDK 1.1 and below. JDK 1.2 fixes
+   * this for us, but what the heck.
+   */
+  @Override
+  public float nextFloat() {
+<span class="nc" id="L247">    return next(24) / ((float) (1 &lt;&lt; 24));</span>
+  }
+
+  /**
+   * A bug fix for all versions of the JDK. The JDK appears to
+   * use all four bytes in an integer as independent byte values!
+   * Totally wrong. I've submitted a bug report.
+   */
+  @Override
+  public void nextBytes(final byte[] bytes) {
+<span class="nc bnc" id="L257" title="All 2 branches missed.">    for (int x = 0; x &lt; bytes.length; x++) {</span>
+<span class="nc" id="L258">      bytes[x] = (byte) next(8);</span>
+    }
+<span class="nc" id="L260">  }</span>
+
+
+  /**
+   * A bug fix for all JDK code including 1.2. nextGaussian can theoretically
+   * ask for the log of 0 and divide it by 0! See Java bug
+   * &lt;a href=&quot;http://developer.java.sun.com/developer/bugParade/bugs/4254501.html&quot;&gt;
+   * http://developer.java.sun.com/developer/bugParade/bugs/4254501.html&lt;/a&gt;
+   */
+  @Override
+  synchronized public double nextGaussian() {
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    if (haveNextNextGaussian) {</span>
+<span class="nc" id="L272">      haveNextNextGaussian = false;</span>
+<span class="nc" id="L273">      return nextNextGaussian;</span>
+    } else {
+      double v1, v2, s;
+      do {
+        // between -1.0 and 1.0
+<span class="nc" id="L278">        v1 = 2 * nextDouble() - 1;</span>
+        // between -1.0 and 1.0
+<span class="nc" id="L280">        v2 = 2 * nextDouble() - 1;</span>
+<span class="nc" id="L281">        s = v1 * v1 + v2 * v2;</span>
+<span class="nc bnc" id="L282" title="All 4 branches missed.">      } while (s &gt;= 1 || s == 0);</span>
+<span class="nc" id="L283">      final double multiplier = /* Strict */Math.sqrt(-2 * /* Strict */Math.log(s) / s);</span>
+<span class="nc" id="L284">      nextNextGaussian = v2 * multiplier;</span>
+<span class="nc" id="L285">      haveNextNextGaussian = true;</span>
+<span class="nc" id="L286">      return v1 * multiplier;</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

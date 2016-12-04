@@ -1,0 +1,418 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DownloadMapsWindow.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.map.download</a> &gt; <span class="el_source">DownloadMapsWindow.java</span></div><h1>DownloadMapsWindow.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework.map.download;</span>
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Rectangle;
+import java.awt.event.ActionListener;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import javax.swing.Box;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JEditorPane;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
+import javax.swing.event.ListSelectionListener;
+
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.framework.ui.background.BackgroundTaskRunner;
+import games.strategy.ui.SwingComponents;
+import games.strategy.util.Version;
+
+
+/** Window that allows for map downloads and removal */
+public class DownloadMapsWindow extends JFrame {
+<span class="nc" id="L43">  private enum MapAction {</span>
+<span class="nc" id="L44">    INSTALL, UPDATE, REMOVE</span>
+  }
+
+  private static final long serialVersionUID = -1542210716764178580L;
+  private static final int WINDOW_WIDTH = 1200;
+  private static final int WINDOW_HEIGHT = 700;
+  private static final int DIVIDER_POSITION = WINDOW_HEIGHT - 150;
+
+  private final MapDownloadProgressPanel progressPanel;
+
+
+  public static Version getVersion(final File zipFile) {
+<span class="nc" id="L56">    final DownloadFileProperties props = DownloadFileProperties.loadForZip(zipFile);</span>
+<span class="nc" id="L57">    return props.getVersion();</span>
+  }
+
+  /**
+   * Shows the download window and begins downloading the specified map right away.
+   * If the map cannot be downloaded a message prompt is shown to the user.
+   */
+  public static void showDownloadMapsWindow(final String mapName) {
+<span class="nc" id="L65">    showDownloadMapsWindow(Optional.of(mapName));</span>
+<span class="nc" id="L66">  }</span>
+
+  public static void showDownloadMapsWindow() {
+<span class="nc" id="L69">    showDownloadMapsWindow(Optional.empty());</span>
+<span class="nc" id="L70">  }</span>
+
+
+  private static void showDownloadMapsWindow(Optional&lt;String&gt; mapName) {
+<span class="nc" id="L74">    Runnable downloadAndShowWindow = () -&gt; {</span>
+<span class="nc" id="L75">      final List&lt;DownloadFileDescription&gt; games = new DownloadRunnable(ClientContext.mapListingSource().getMapListDownloadSite()).getDownloads();</span>
+<span class="nc" id="L76">      checkNotNull(games);</span>
+
+<span class="nc" id="L78">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L79">        final DownloadMapsWindow dia = new DownloadMapsWindow(mapName, games);</span>
+<span class="nc" id="L80">        dia.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);</span>
+<span class="nc" id="L81">        dia.setLocationRelativeTo(null);</span>
+<span class="nc" id="L82">        dia.setMinimumSize(new Dimension(200, 200));</span>
+<span class="nc" id="L83">        dia.setVisible(true);</span>
+<span class="nc" id="L84">        dia.requestFocus();</span>
+<span class="nc" id="L85">        dia.toFront();</span>
+<span class="nc" id="L86">      });</span>
+<span class="nc" id="L87">    };</span>
+<span class="nc" id="L88">    final String popupWindowTitle = &quot;Downloading list of availabe maps....&quot;;</span>
+<span class="nc" id="L89">    BackgroundTaskRunner.runInBackground(popupWindowTitle, downloadAndShowWindow);</span>
+<span class="nc" id="L90">  }</span>
+
+  private DownloadMapsWindow(final Optional&lt;String&gt; mapName, final List&lt;DownloadFileDescription&gt; games) {
+<span class="nc" id="L93">    super(&quot;Download Maps&quot;);</span>
+<span class="nc" id="L94">    setIconImage(GameRunner.getGameIcon(this));</span>
+<span class="nc" id="L95">    progressPanel = new MapDownloadProgressPanel(this);</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">    if (mapName.isPresent()) {</span>
+<span class="nc" id="L97">      final Optional&lt;DownloadFileDescription&gt; mapDownload = findMap(mapName.get(), games);</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">      if (mapDownload.isPresent()) {</span>
+<span class="nc" id="L99">        progressPanel.download(Arrays.asList(mapDownload.get()));</span>
+<span class="nc" id="L100">      } else {</span>
+<span class="nc" id="L101">        SwingComponents.newMessageDialog(&quot;Unable to download map, could not find: &quot; + mapName.get());</span>
+      }
+    }
+<span class="nc" id="L104">    SwingComponents.addWindowCloseListener(this, () -&gt; progressPanel.cancel());</span>
+
+<span class="nc" id="L106">    final JTabbedPane outerTabs = new JTabbedPane();</span>
+
+<span class="nc" id="L108">    final List&lt;DownloadFileDescription&gt; maps = filterMaps(games, download -&gt; download.isMap());</span>
+<span class="nc" id="L109">    outerTabs.add(&quot;Maps&quot;, createdTabbedPanelForMaps(maps));</span>
+
+<span class="nc" id="L111">    final List&lt;DownloadFileDescription&gt; skins = filterMaps(games, download -&gt; download.isMapSkin());</span>
+<span class="nc" id="L112">    outerTabs.add(&quot;Skins&quot;, createAvailableInstalledTabbedPanel(mapName, skins));</span>
+
+<span class="nc" id="L114">    final List&lt;DownloadFileDescription&gt; tools = filterMaps(games, download -&gt; download.isMapTool());</span>
+<span class="nc" id="L115">    outerTabs.add(&quot;Tools&quot;, createAvailableInstalledTabbedPanel(mapName, tools));</span>
+
+<span class="nc" id="L117">    final JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, outerTabs,</span>
+<span class="nc" id="L118">        SwingComponents.newJScrollPane(progressPanel));</span>
+<span class="nc" id="L119">    splitPane.setDividerLocation(DIVIDER_POSITION);</span>
+<span class="nc" id="L120">    add(splitPane);</span>
+<span class="nc" id="L121">  }</span>
+
+  private Component createdTabbedPanelForMaps(List&lt;DownloadFileDescription&gt; maps) {
+
+<span class="nc" id="L125">    JTabbedPane mapTabs = SwingComponents.newJTabbedPane();</span>
+
+<span class="nc bnc" id="L127" title="All 2 branches missed.">    for(DownloadFileDescription.MapCategory mapCategory : Arrays.asList(DownloadFileDescription.MapCategory.values()) ) {</span>
+
+<span class="nc" id="L129">      List&lt;DownloadFileDescription&gt; mapsByCategory =</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">          maps.stream().filter(map -&gt; map.getMapCategory() == mapCategory).collect(Collectors.toList());</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">      if(!mapsByCategory.isEmpty()) {</span>
+<span class="nc" id="L132">        JTabbedPane subTab = createAvailableInstalledTabbedPanel(Optional.of(mapCategory.toString()), mapsByCategory);</span>
+<span class="nc" id="L133">        mapTabs.add(mapCategory.toString(), subTab);</span>
+      }
+    }
+<span class="nc" id="L136">    return mapTabs;</span>
+  }
+
+  private static Optional&lt;DownloadFileDescription&gt; findMap(final String mapName,
+      final List&lt;DownloadFileDescription&gt; games) {
+
+<span class="nc" id="L142">    final String normalizedName = normalizeName(mapName);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">    for (final DownloadFileDescription download : games) {</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">      if (download.getMapName().equalsIgnoreCase(mapName)</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">          || normalizedName.equals(normalizeName(download.getMapName()))) {</span>
+<span class="nc" id="L146">        return Optional.of(download);</span>
+      }
+    }
+<span class="nc" id="L149">    return Optional.empty();</span>
+  }
+
+  private static String normalizeName(final String mapName) {
+<span class="nc" id="L153">    return mapName.replace(' ', '_').toLowerCase();</span>
+  }
+
+
+  private static List&lt;DownloadFileDescription&gt; filterMaps(final List&lt;DownloadFileDescription&gt; maps,
+      final Function&lt;DownloadFileDescription, Boolean&gt; filter) {
+
+<span class="nc" id="L160">    maps.forEach(map -&gt; checkNotNull(&quot;Maps list contained null element: &quot; + maps, map));</span>
+<span class="nc" id="L161">    return maps.stream().filter(map -&gt; filter.apply(map)).collect(Collectors.toList());</span>
+  }
+
+  private JTabbedPane createAvailableInstalledTabbedPanel(final Optional&lt;String&gt; mapName,
+      final List&lt;DownloadFileDescription&gt; games) {
+<span class="nc" id="L166">    final MapDownloadList mapList = new MapDownloadList(games, new FileSystemAccessStrategy());</span>
+
+<span class="nc" id="L168">    final JTabbedPane tabbedPane = new JTabbedPane();</span>
+
+
+<span class="nc" id="L171">    JPanel outOfDate = null;</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">    if (!mapList.getOutOfDate().isEmpty()) {</span>
+<span class="nc" id="L173">      outOfDate = createMapSelectionPanel(mapName, mapList.getOutOfDate(), MapAction.UPDATE);</span>
+    }
+    // For the UX, always show an available maps tab, even if it is empty
+<span class="nc" id="L176">    final JPanel available = createMapSelectionPanel(mapName, mapList.getAvailable(), MapAction.INSTALL);</span>
+
+
+    // if there is a map to preselect, show the available map list first
+<span class="nc bnc" id="L180" title="All 2 branches missed.">    if (mapName.isPresent()) {</span>
+<span class="nc" id="L181">      tabbedPane.addTab(&quot;Available&quot;, available);</span>
+    }
+
+    // otherwise show the updates first
+<span class="nc bnc" id="L185" title="All 2 branches missed.">    if (outOfDate != null) {</span>
+<span class="nc" id="L186">      tabbedPane.addTab(&quot;Update&quot;, outOfDate);</span>
+    }
+
+    // finally make sure we are always showing the 'available' tab, this condition will be
+    // true if the first 'mapName.isPresent()' is false
+<span class="nc bnc" id="L191" title="All 2 branches missed.">    if (!mapName.isPresent()) {</span>
+<span class="nc" id="L192">      tabbedPane.addTab(&quot;Available&quot;, available);</span>
+    }
+
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    if (!mapList.getInstalled().isEmpty()) {</span>
+<span class="nc" id="L196">      final JPanel installed = createMapSelectionPanel(mapName, mapList.getInstalled(), MapAction.REMOVE);</span>
+<span class="nc" id="L197">      tabbedPane.addTab(&quot;Installed&quot;, installed);</span>
+    }
+<span class="nc" id="L199">    return tabbedPane;</span>
+  }
+
+  private JPanel createMapSelectionPanel(final Optional&lt;String&gt; selectedMap,
+      final List&lt;DownloadFileDescription&gt; unsortedMaps, final MapAction action) {
+
+<span class="nc" id="L205">    final List&lt;DownloadFileDescription&gt; maps = MapDownloadListSort.sortByMapName(unsortedMaps);</span>
+<span class="nc" id="L206">    final JPanel main = SwingComponents.newBorderedPanel(30);</span>
+<span class="nc" id="L207">    final JEditorPane descriptionPane = SwingComponents.newHtmlJEditorPane();</span>
+<span class="nc" id="L208">    main.add(SwingComponents.newJScrollPane(descriptionPane), BorderLayout.CENTER);</span>
+
+<span class="nc" id="L210">    final JLabel mapSizeLabel = new JLabel(&quot; &quot;);</span>
+
+<span class="nc" id="L212">    final DefaultListModel&lt;String&gt; model = SwingComponents.newJListModel(maps, map -&gt; map.getMapName());</span>
+
+
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (maps.size() &gt; 0) {</span>
+<span class="nc" id="L216">      final DownloadFileDescription mapToSelect = determineCurrentMapSelection(maps, selectedMap);</span>
+<span class="nc" id="L217">      final JList&lt;String&gt; gamesList = createGameSelectionList(mapToSelect, maps, descriptionPane, model);</span>
+<span class="nc" id="L218">      gamesList.addListSelectionListener(createDescriptionPanelUpdatingSelectionListener(</span>
+<span class="nc" id="L219">          descriptionPane, gamesList, maps, action, mapSizeLabel));</span>
+
+<span class="nc" id="L221">      DownloadMapsWindow.updateMapUrlAndSizeLabel(mapToSelect, action, mapSizeLabel);</span>
+
+<span class="nc" id="L223">      main.add(SwingComponents.newJScrollPane(gamesList), BorderLayout.WEST);</span>
+<span class="nc" id="L224">      final JPanel southPanel = SwingComponents.gridPanel(2, 1);</span>
+<span class="nc" id="L225">      southPanel.add(mapSizeLabel);</span>
+<span class="nc" id="L226">      southPanel.add(createButtonsPanel(action, gamesList, maps, model));</span>
+<span class="nc" id="L227">      main.add(southPanel, BorderLayout.SOUTH);</span>
+    }
+
+<span class="nc" id="L230">    return main;</span>
+  }
+
+  private DownloadFileDescription determineCurrentMapSelection(final List&lt;DownloadFileDescription&gt; maps,
+      final Optional&lt;String&gt; mapToSelect) {
+<span class="nc bnc" id="L235" title="All 2 branches missed.">    checkArgument(maps.size() &gt; 0);</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">    if (mapToSelect.isPresent()) {</span>
+<span class="nc" id="L237">      final Optional&lt;DownloadFileDescription&gt; potentialMap =</span>
+<span class="nc" id="L238">          maps.stream().filter(m -&gt; m.getMapName().equalsIgnoreCase(mapToSelect.get())).findFirst();</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">      if (potentialMap.isPresent()) {</span>
+<span class="nc" id="L240">        return potentialMap.get();</span>
+      }
+    }
+
+    // just return the first map if nothing selected or could not find one
+<span class="nc" id="L245">    return maps.get(0);</span>
+  }
+
+  private static JList&lt;String&gt; createGameSelectionList(final DownloadFileDescription selectedMap,
+      final List&lt;DownloadFileDescription&gt; maps, final JEditorPane descriptionPanel,
+      final DefaultListModel&lt;String&gt; model) {
+
+<span class="nc" id="L252">    final JList&lt;String&gt; gamesList = SwingComponents.newJList(model);</span>
+<span class="nc" id="L253">    final int selectedIndex = maps.indexOf(selectedMap);</span>
+<span class="nc" id="L254">    gamesList.setSelectedIndex(selectedIndex);</span>
+
+<span class="nc" id="L256">    final String text = maps.get(selectedIndex).toHtmlString();</span>
+<span class="nc" id="L257">    descriptionPanel.setText(text);</span>
+<span class="nc" id="L258">    descriptionPanel.scrollRectToVisible(new Rectangle(0, 0, 0, 0));</span>
+<span class="nc" id="L259">    return gamesList;</span>
+  }
+
+  private static ListSelectionListener createDescriptionPanelUpdatingSelectionListener(
+      final JEditorPane descriptionPanel,
+      final JList&lt;String&gt; gamesList, final List&lt;DownloadFileDescription&gt; maps, final MapAction action,
+      final JLabel mapSizeLabelToUpdate) {
+<span class="nc" id="L266">    return e -&gt; {</span>
+<span class="nc" id="L267">      final int index = gamesList.getSelectedIndex();</span>
+
+<span class="nc bnc" id="L269" title="All 2 branches missed.">      final boolean somethingIsSelected = index &gt;= 0;</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">      if (somethingIsSelected) {</span>
+<span class="nc" id="L271">        final String mapName = gamesList.getModel().getElementAt(index);</span>
+
+        // find the map description by map name and update the map download detail panel
+<span class="nc" id="L274">        final Optional&lt;DownloadFileDescription&gt; map =</span>
+<span class="nc" id="L275">            maps.stream().filter(mapDescription -&gt; mapDescription.getMapName().equals(mapName)).findFirst();</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">        if (map.isPresent()) {</span>
+<span class="nc" id="L277">          final String text = map.get().toHtmlString();</span>
+<span class="nc" id="L278">          descriptionPanel.setText(text);</span>
+<span class="nc" id="L279">          descriptionPanel.scrollRectToVisible(new Rectangle(0, 0, 0, 0));</span>
+<span class="nc" id="L280">          updateMapUrlAndSizeLabel(map.get(), action, mapSizeLabelToUpdate);</span>
+        }
+      }
+<span class="nc" id="L283">    };</span>
+  }
+
+  private static void updateMapUrlAndSizeLabel(final DownloadFileDescription map, final MapAction action,
+      final JLabel mapSizeLabel) {
+<span class="nc" id="L288">    mapSizeLabel.setText(&quot; &quot;);</span>
+<span class="nc" id="L289">    new Thread(() -&gt; {</span>
+<span class="nc" id="L290">      final String labelText = createLabelText(action, map);</span>
+<span class="nc" id="L291">      SwingUtilities.invokeLater(() -&gt; mapSizeLabel.setText(labelText));</span>
+<span class="nc" id="L292">    }).start();</span>
+<span class="nc" id="L293">  }</span>
+
+  private static String createLabelText(final MapAction action, final DownloadFileDescription map) {
+<span class="nc" id="L296">    final String DOUBLE_SPACE = &quot;&amp;nbsp;&amp;nbsp;&quot;;</span>
+
+    final long mapSize;
+<span class="nc" id="L299">    String labelText = &quot;&lt;html&gt;&quot; + map.getMapName() + DOUBLE_SPACE + &quot; v&quot; + map.getVersion() + DOUBLE_SPACE + &quot; (&quot;;</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">    if (action == MapAction.INSTALL) {</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">      if(map.newURL() == null ) {</span>
+<span class="nc" id="L302">       mapSize = 0L;</span>
+<span class="nc" id="L303">      } else {</span>
+<span class="nc" id="L304">        mapSize = DownloadUtils.getDownloadLength(map.newURL()).orElse(-1);</span>
+      }
+<span class="nc" id="L306">    } else {</span>
+<span class="nc" id="L307">      mapSize = map.getInstallLocation().length();</span>
+    }
+<span class="nc" id="L309">    labelText += createSizeLabel(mapSize) + &quot;)&lt;br/&gt;&quot;;</span>
+
+<span class="nc bnc" id="L311" title="All 2 branches missed.">    if (action == MapAction.INSTALL) {</span>
+<span class="nc" id="L312">      labelText += map.getUrl();</span>
+<span class="nc" id="L313">    } else {</span>
+<span class="nc" id="L314">      labelText += map.getInstallLocation().getAbsolutePath();</span>
+    }
+
+<span class="nc" id="L317">    labelText += &quot;&lt;/html&gt;&quot;;</span>
+<span class="nc" id="L318">    return labelText;</span>
+  }
+
+  private static String createSizeLabel(final long bytes) {
+<span class="nc" id="L322">    final long kiloBytes = (bytes / 1024);</span>
+<span class="nc" id="L323">    final long megaBytes = kiloBytes / 1024;</span>
+<span class="nc" id="L324">    final long kbDigits = ((kiloBytes % 1000) / 100);</span>
+<span class="nc" id="L325">    return megaBytes + &quot;.&quot; + kbDigits + &quot; MB&quot;;</span>
+  }
+
+  private JPanel createButtonsPanel(final MapAction action, final JList&lt;String&gt; gamesList,
+      final List&lt;DownloadFileDescription&gt; maps,
+      final DefaultListModel&lt;String&gt; listModel) {
+<span class="nc" id="L331">    final JPanel buttonsPanel = SwingComponents.gridPanel(1, 5);</span>
+
+<span class="nc" id="L333">    buttonsPanel.setBorder(SwingComponents.newEmptyBorder(20));</span>
+
+
+<span class="nc" id="L336">    buttonsPanel.add(buildMapActionButton(action, gamesList, maps, listModel));</span>
+
+<span class="nc" id="L338">    buttonsPanel.add(Box.createGlue());</span>
+
+<span class="nc" id="L340">    String toolTip = &quot;Click this button to learn more about the map download feature in TripleA&quot;;</span>
+<span class="nc" id="L341">    final JButton helpButton = SwingComponents.newJButton(&quot;Help&quot;, toolTip,</span>
+<span class="nc" id="L342">        e -&gt; JOptionPane.showMessageDialog(this, new MapDownloadHelpPanel()));</span>
+<span class="nc" id="L343">    buttonsPanel.add(helpButton);</span>
+
+<span class="nc" id="L345">    toolTip = &quot;Click this button to submit map comments and bug reports back to the map makers&quot;;</span>
+<span class="nc" id="L346">    final JButton mapFeedbackButton = SwingComponents.newJButton(&quot;Give Map Feedback&quot;, toolTip,</span>
+<span class="nc" id="L347">        e -&gt; FeedbackDialog.showFeedbackDialog(gamesList.getSelectedValuesList(), maps));</span>
+<span class="nc" id="L348">    buttonsPanel.add(mapFeedbackButton);</span>
+
+<span class="nc" id="L350">    buttonsPanel.add(Box.createGlue());</span>
+
+<span class="nc" id="L352">    toolTip = &quot;Click this button to close the map download window and cancel any in-progress downloads.&quot;;</span>
+<span class="nc" id="L353">    final JButton closeButton = SwingComponents.newJButton(&quot;Close&quot;, toolTip, e -&gt; {</span>
+<span class="nc" id="L354">      setVisible(false);</span>
+<span class="nc" id="L355">      dispose();</span>
+<span class="nc" id="L356">    });</span>
+<span class="nc" id="L357">    buttonsPanel.add(closeButton);</span>
+
+<span class="nc" id="L359">    return buttonsPanel;</span>
+  }
+
+
+  private static final String MULTIPLE_SELECT_MSG =
+      &quot;You can select multiple maps by holding control or shift while clicking map names.&quot;;
+
+  private JButton buildMapActionButton(final MapAction action, final JList&lt;String&gt; gamesList,
+      final List&lt;DownloadFileDescription&gt; maps,
+      final DefaultListModel&lt;String&gt; listModel) {
+    final JButton actionButton;
+
+<span class="nc bnc" id="L371" title="All 2 branches missed.">    if (action == MapAction.REMOVE) {</span>
+<span class="nc" id="L372">      actionButton = SwingComponents.newJButton(&quot;Remove&quot;, removeAction(gamesList, maps, listModel));</span>
+
+<span class="nc" id="L374">      final String hoverText =</span>
+<span class="nc" id="L375">          &quot;Click this button to remove the maps selected above from your computer. &quot; + MULTIPLE_SELECT_MSG;</span>
+<span class="nc" id="L376">      actionButton.setToolTipText(hoverText);</span>
+<span class="nc" id="L377">    } else {</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">      final String buttonText = (action == MapAction.INSTALL) ? &quot;Install&quot; : &quot;Update&quot;;</span>
+<span class="nc" id="L379">      actionButton = SwingComponents.newJButton(buttonText, installAction(gamesList, maps, listModel));</span>
+<span class="nc" id="L380">      final String hoverText =</span>
+<span class="nc" id="L381">          &quot;Click this button to download and install the maps selected above. &quot; + MULTIPLE_SELECT_MSG;</span>
+<span class="nc" id="L382">      actionButton.setToolTipText(hoverText);</span>
+    }
+<span class="nc" id="L384">    return actionButton;</span>
+  }
+
+  private static ActionListener removeAction(final JList&lt;String&gt; gamesList, final List&lt;DownloadFileDescription&gt; maps,
+      final DefaultListModel&lt;String&gt; listModel) {
+<span class="nc" id="L389">    return (e) -&gt; {</span>
+<span class="nc" id="L390">      final List&lt;String&gt; selectedValues = gamesList.getSelectedValuesList();</span>
+<span class="nc" id="L391">      final List&lt;DownloadFileDescription&gt; selectedMaps =</span>
+<span class="nc" id="L392">          maps.stream().filter(map -&gt; selectedValues.contains(map.getMapName()))</span>
+<span class="nc" id="L393">              .collect(Collectors.toList());</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">      if (!selectedMaps.isEmpty()) {</span>
+<span class="nc" id="L395">        FileSystemAccessStrategy.remove(selectedMaps, listModel);</span>
+      }
+<span class="nc" id="L397">    };</span>
+  }
+
+  private ActionListener installAction(final JList&lt;String&gt; gamesList, final List&lt;DownloadFileDescription&gt; maps,
+      final DefaultListModel&lt;String&gt; listModel) {
+<span class="nc" id="L402">    return (e) -&gt; {</span>
+<span class="nc" id="L403">      final List&lt;String&gt; selectedValues = gamesList.getSelectedValuesList();</span>
+<span class="nc" id="L404">      final List&lt;DownloadFileDescription&gt; downloadList = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">      for (final DownloadFileDescription map : maps) {</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        if (selectedValues.contains(map.getMapName())) {</span>
+<span class="nc" id="L407">          downloadList.add(map);</span>
+        }
+      }
+<span class="nc bnc" id="L410" title="All 2 branches missed.">      if (!downloadList.isEmpty()) {</span>
+<span class="nc" id="L411">        progressPanel.download(downloadList);</span>
+      }
+
+<span class="nc" id="L414">      downloadList.forEach(m -&gt; listModel.removeElement(m.getMapName()));</span>
+<span class="nc" id="L415">    };</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

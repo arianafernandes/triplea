@@ -1,0 +1,1668 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProCombatMoveAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI</a> &gt; <span class="el_source">ProCombatMoveAI.java</span></div><h1>ProCombatMoveAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.data.ProOtherMoveOptions;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseOption;
+import games.strategy.triplea.ai.proAI.data.ProTerritory;
+import games.strategy.triplea.ai.proAI.data.ProTerritoryManager;
+import games.strategy.triplea.ai.proAI.data.ProTransport;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProMoveUtils;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.ai.proAI.util.ProPurchaseUtils;
+import games.strategy.triplea.ai.proAI.util.ProSortMoveOptionsUtils;
+import games.strategy.triplea.ai.proAI.util.ProTerritoryValueUtils;
+import games.strategy.triplea.ai.proAI.util.ProTransportUtils;
+import games.strategy.triplea.ai.proAI.util.ProUtils;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.util.Match;
+
+/**
+ * Pro combat move AI.
+ */
+public class ProCombatMoveAI {
+
+  private static final int MIN_BOMBING_SCORE = 4; // Avoid bombing low production factories with AA
+
+  private final ProAI ai;
+  private final ProOddsCalculator calc;
+  private GameData data;
+  private PlayerID player;
+  private ProTerritoryManager territoryManager;
+  private boolean isDefensive;
+  private boolean isBombing;
+
+<span class="nc" id="L60">  public ProCombatMoveAI(final ProAI ai) {</span>
+<span class="nc" id="L61">    this.ai = ai;</span>
+<span class="nc" id="L62">    calc = ai.getCalc();</span>
+<span class="nc" id="L63">  }</span>
+
+  public Map&lt;Territory, ProTerritory&gt; doCombatMove(final IMoveDelegate moveDel) {
+<span class="nc" id="L66">    ProLogger.info(&quot;Starting combat move phase&quot;);</span>
+
+    // Current data at the start of combat move
+<span class="nc" id="L69">    data = ProData.getData();</span>
+<span class="nc" id="L70">    player = ProData.getPlayer();</span>
+<span class="nc" id="L71">    territoryManager = new ProTerritoryManager(calc);</span>
+
+    // Determine whether capital is threatened and I should be in a defensive stance
+<span class="nc" id="L74">    isDefensive =</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">        !ProBattleUtils.territoryHasLocalLandSuperiority(ProData.myCapital, ProBattleUtils.MEDIUM_RANGE, player);</span>
+<span class="nc" id="L76">    isBombing = false;</span>
+<span class="nc" id="L77">    ProLogger.debug(&quot;Currently in defensive stance: &quot; + isDefensive);</span>
+
+    // Find the maximum number of units that can attack each territory and max enemy defenders
+<span class="nc" id="L80">    territoryManager.populateAttackOptions();</span>
+<span class="nc" id="L81">    territoryManager.populateEnemyDefenseOptions();</span>
+
+    // Remove territories that aren't worth attacking and prioritize the remaining ones
+<span class="nc" id="L84">    final List&lt;ProTerritory&gt; attackOptions = territoryManager.removeTerritoriesThatCantBeConquered();</span>
+<span class="nc" id="L85">    List&lt;Territory&gt; clearedTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">    for (final ProTerritory patd : attackOptions) {</span>
+<span class="nc" id="L87">      clearedTerritories.add(patd.getTerritory());</span>
+    }
+<span class="nc" id="L89">    territoryManager.populateEnemyAttackOptions(clearedTerritories, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L90">    Set&lt;Territory&gt; territoriesToCheck = new HashSet&lt;&gt;(clearedTerritories);</span>
+<span class="nc" id="L91">    territoriesToCheck.addAll(ProData.myUnitTerritories);</span>
+<span class="nc" id="L92">    Map&lt;Territory, Double&gt; territoryValueMap =</span>
+<span class="nc" id="L93">        ProTerritoryValueUtils.findTerritoryValues(player, new ArrayList&lt;&gt;(), clearedTerritories, territoriesToCheck);</span>
+<span class="nc" id="L94">    determineTerritoriesThatCanBeHeld(attackOptions, territoryValueMap);</span>
+<span class="nc" id="L95">    prioritizeAttackOptions(player, attackOptions);</span>
+<span class="nc" id="L96">    removeTerritoriesThatArentWorthAttacking(attackOptions);</span>
+
+    // Determine which territories to attack
+<span class="nc" id="L99">    determineTerritoriesToAttack(attackOptions);</span>
+
+    // Determine which territories can be held and remove any that aren't worth attacking
+<span class="nc" id="L102">    clearedTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L103">    final Set&lt;Territory&gt; possibleTransportTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">    for (final ProTerritory patd : attackOptions) {</span>
+<span class="nc" id="L105">      clearedTerritories.add(patd.getTerritory());</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">      if (!patd.getAmphibAttackMap().isEmpty()) {</span>
+<span class="nc" id="L107">        possibleTransportTerritories.addAll(data.getMap().getNeighbors(patd.getTerritory(), Matches.TerritoryIsWater));</span>
+      }
+    }
+<span class="nc" id="L110">    territoryManager.populateEnemyAttackOptions(clearedTerritories, new ArrayList&lt;&gt;(possibleTransportTerritories));</span>
+<span class="nc" id="L111">    territoriesToCheck = new HashSet&lt;&gt;(clearedTerritories);</span>
+<span class="nc" id="L112">    territoriesToCheck.addAll(ProData.myUnitTerritories);</span>
+<span class="nc" id="L113">    territoryValueMap =</span>
+<span class="nc" id="L114">        ProTerritoryValueUtils.findTerritoryValues(player, new ArrayList&lt;&gt;(), clearedTerritories, territoriesToCheck);</span>
+<span class="nc" id="L115">    determineTerritoriesThatCanBeHeld(attackOptions, territoryValueMap);</span>
+<span class="nc" id="L116">    removeTerritoriesThatArentWorthAttacking(attackOptions);</span>
+
+    // Determine how many units to attack each territory with
+<span class="nc" id="L119">    final List&lt;Unit&gt; alreadyMovedUnits = moveOneDefenderToLandTerritoriesBorderingEnemy(attackOptions);</span>
+<span class="nc" id="L120">    determineUnitsToAttackWith(attackOptions, alreadyMovedUnits);</span>
+
+    // Get all transport final territories
+<span class="nc" id="L123">    ProMoveUtils.calculateAmphibRoutes(player, new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(),</span>
+<span class="nc" id="L124">        territoryManager.getAttackOptions().getTerritoryMap(), true);</span>
+
+    // Determine max enemy counter attack units and remove territories where transports are exposed
+<span class="nc" id="L127">    removeTerritoriesWhereTransportsAreExposed();</span>
+
+    // Determine if capital can be held if I still own it
+<span class="nc bnc" id="L130" title="All 4 branches missed.">    if (ProData.myCapital != null &amp;&amp; ProData.myCapital.getOwner().equals(player)) {</span>
+<span class="nc" id="L131">      removeAttacksUntilCapitalCanBeHeld(attackOptions, ProData.purchaseOptions.getLandOptions());</span>
+    }
+
+    // Check if any subs in contested territory that's not being attacked
+<span class="nc" id="L135">    checkContestedSeaTerritories();</span>
+
+    // Calculate attack routes and perform moves
+<span class="nc" id="L138">    doMove(territoryManager.getAttackOptions().getTerritoryMap(), moveDel, data, player);</span>
+
+    // Set strafing territories to avoid retreats
+<span class="nc" id="L141">    ai.setStoredStrafingTerritories(territoryManager.getStrafingTerritories());</span>
+<span class="nc" id="L142">    ProLogger.info(&quot;Strafing territories: &quot; + territoryManager.getStrafingTerritories());</span>
+
+    // Log results
+<span class="nc" id="L145">    ProLogger.info(&quot;Logging results&quot;);</span>
+<span class="nc" id="L146">    logAttackMoves(attackOptions);</span>
+
+<span class="nc" id="L148">    return territoryManager.getAttackOptions().getTerritoryMap();</span>
+  }
+
+  public void doMove(final Map&lt;Territory, ProTerritory&gt; attackMap, final IMoveDelegate moveDel, final GameData data,
+      final PlayerID player) {
+<span class="nc" id="L153">    this.data = data;</span>
+<span class="nc" id="L154">    this.player = player;</span>
+
+<span class="nc" id="L156">    final List&lt;Collection&lt;Unit&gt;&gt; moveUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L157">    final List&lt;Route&gt; moveRoutes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L158">    ProMoveUtils.calculateMoveRoutes(player, moveUnits, moveRoutes, attackMap, true);</span>
+<span class="nc" id="L159">    ProMoveUtils.doMove(moveUnits, moveRoutes, moveDel);</span>
+
+<span class="nc" id="L161">    moveUnits.clear();</span>
+<span class="nc" id="L162">    moveRoutes.clear();</span>
+<span class="nc" id="L163">    final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L164">    ProMoveUtils.calculateAmphibRoutes(player, moveUnits, moveRoutes, transportsToLoad, attackMap, true);</span>
+<span class="nc" id="L165">    ProMoveUtils.doMove(moveUnits, moveRoutes, transportsToLoad, moveDel);</span>
+
+<span class="nc" id="L167">    moveUnits.clear();</span>
+<span class="nc" id="L168">    moveRoutes.clear();</span>
+<span class="nc" id="L169">    ProMoveUtils.calculateBombardMoveRoutes(player, moveUnits, moveRoutes, attackMap);</span>
+<span class="nc" id="L170">    ProMoveUtils.doMove(moveUnits, moveRoutes, moveDel);</span>
+
+<span class="nc" id="L172">    moveUnits.clear();</span>
+<span class="nc" id="L173">    moveRoutes.clear();</span>
+<span class="nc" id="L174">    isBombing = true;</span>
+<span class="nc" id="L175">    ProMoveUtils.calculateBombingRoutes(player, moveUnits, moveRoutes, attackMap);</span>
+<span class="nc" id="L176">    ProMoveUtils.doMove(moveUnits, moveRoutes, moveDel);</span>
+<span class="nc" id="L177">    isBombing = false;</span>
+<span class="nc" id="L178">  }</span>
+
+  public boolean isBombing() {
+<span class="nc" id="L181">    return isBombing;</span>
+  }
+
+  private List&lt;ProTerritory&gt; prioritizeAttackOptions(final PlayerID player, final List&lt;ProTerritory&gt; attackOptions) {
+
+<span class="nc" id="L186">    ProLogger.info(&quot;Prioritizing territories to try to attack&quot;);</span>
+
+    // Calculate value of attacking territory
+<span class="nc bnc" id="L189" title="All 2 branches missed.">    for (final Iterator&lt;ProTerritory&gt; it = attackOptions.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L190">      final ProTerritory patd = it.next();</span>
+<span class="nc" id="L191">      final Territory t = patd.getTerritory();</span>
+
+      // Determine territory attack properties
+<span class="nc bnc" id="L194" title="All 2 branches missed.">      final int isLand = !t.isWater() ? 1 : 0;</span>
+<span class="nc bnc" id="L195" title="All 4 branches missed.">      final int isNeutral = (!t.isWater() &amp;&amp; t.getOwner().isNull()) ? 1 : 0;</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">      final int isCanHold = patd.isCanHold() ? 1 : 0;</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">      final int isAmphib = patd.isNeedAmphibUnits() ? 1 : 0;</span>
+<span class="nc" id="L198">      final List&lt;Unit&gt; defendingUnits =</span>
+<span class="nc" id="L199">          Match.getMatches(patd.getMaxEnemyDefenders(player, data), ProMatches.unitIsEnemyAndNotInfa(player, data));</span>
+<span class="nc bnc" id="L200" title="All 4 branches missed.">      final int isEmptyLand = (defendingUnits.isEmpty() &amp;&amp; !patd.isNeedAmphibUnits()) ? 1 : 0;</span>
+<span class="nc" id="L201">      final boolean isAdjacentToMyCapital =</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">          !data.getMap().getNeighbors(t, Matches.territoryIs(ProData.myCapital)).isEmpty();</span>
+<span class="nc" id="L203">      final int isNotNeutralAdjacentToMyCapital =</span>
+<span class="nc bnc" id="L204" title="All 4 branches missed.">          (isAdjacentToMyCapital &amp;&amp; ProMatches.territoryIsEnemyNotNeutralLand(player, data).match(t)) ? 1 : 0;</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">      final int isFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t) ? 1 : 0;</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">      final int isFFA = ProUtils.isFFA(data, player) ? 1 : 0;</span>
+
+      // Determine production value and if it is an enemy capital
+<span class="nc" id="L209">      int production = 0;</span>
+<span class="nc" id="L210">      int isEnemyCapital = 0;</span>
+<span class="nc" id="L211">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">      if (ta != null) {</span>
+<span class="nc" id="L213">        production = ta.getProduction();</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (ta.isCapital()) {</span>
+<span class="nc" id="L215">          isEnemyCapital = 1;</span>
+        }
+      }
+
+      // Calculate attack value for prioritization
+<span class="nc" id="L220">      double TUVSwing = patd.getMaxBattleResult().getTUVSwing();</span>
+<span class="nc bnc" id="L221" title="All 4 branches missed.">      if (isFFA == 1 &amp;&amp; TUVSwing &gt; 0) {</span>
+<span class="nc" id="L222">        TUVSwing *= 0.5;</span>
+      }
+<span class="nc" id="L224">      final double territoryValue = (1 + isLand + isCanHold * (1 + 2 * isFFA)) * (1 + isEmptyLand) * (1 + isFactory)</span>
+<span class="nc" id="L225">          * (1 - 0.5 * isAmphib) * production;</span>
+<span class="nc" id="L226">      double attackValue = (TUVSwing + territoryValue) * (1 + 4 * isEnemyCapital)</span>
+<span class="nc" id="L227">          * (1 + 2 * isNotNeutralAdjacentToMyCapital) * (1 - 0.9 * isNeutral);</span>
+
+      // Check if a negative value neutral territory should be attacked
+<span class="nc bnc" id="L230" title="All 8 branches missed.">      if (attackValue &lt;= 0 &amp;&amp; !patd.isNeedAmphibUnits() &amp;&amp; !t.isWater() &amp;&amp; t.getOwner().isNull()) {</span>
+
+        // Determine enemy neighbor territory production value for neutral land territories
+<span class="nc" id="L233">        double nearbyEnemyValue = 0;</span>
+<span class="nc" id="L234">        final List&lt;Territory&gt; cantReachEnemyTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L235">        final Set&lt;Territory&gt; nearbyTerritories =</span>
+<span class="nc" id="L236">            data.getMap().getNeighbors(t, ProMatches.territoryCanMoveLandUnits(player, data, true));</span>
+<span class="nc" id="L237">        final List&lt;Territory&gt; nearbyEnemyTerritories =</span>
+<span class="nc" id="L238">            Match.getMatches(nearbyTerritories, Matches.isTerritoryEnemy(player, data));</span>
+<span class="nc" id="L239">        final List&lt;Territory&gt; nearbyTerritoriesWithOwnedUnits =</span>
+<span class="nc" id="L240">            Match.getMatches(nearbyTerritories, Matches.territoryHasUnitsOwnedBy(player));</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">        for (final Territory nearbyEnemyTerritory : nearbyEnemyTerritories) {</span>
+<span class="nc" id="L242">          boolean allAlliedNeighborsHaveRoute = true;</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">          for (final Territory nearbyAlliedTerritory : nearbyTerritoriesWithOwnedUnits) {</span>
+<span class="nc" id="L244">            final int distance = data.getMap().getDistance_IgnoreEndForCondition(nearbyAlliedTerritory,</span>
+<span class="nc" id="L245">                nearbyEnemyTerritory, ProMatches.territoryIsEnemyNotNeutralOrAllied(player, data));</span>
+<span class="nc bnc" id="L246" title="All 4 branches missed.">            if (distance &lt; 0 || distance &gt; 2) {</span>
+<span class="nc" id="L247">              allAlliedNeighborsHaveRoute = false;</span>
+<span class="nc" id="L248">              break;</span>
+            }
+          }
+<span class="nc bnc" id="L251" title="All 2 branches missed.">          if (!allAlliedNeighborsHaveRoute) {</span>
+<span class="nc" id="L252">            final double value = ProTerritoryValueUtils.findTerritoryAttackValue(player, nearbyEnemyTerritory);</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">            if (value &gt; 0) {</span>
+<span class="nc" id="L254">              nearbyEnemyValue += value;</span>
+            }
+<span class="nc" id="L256">            cantReachEnemyTerritories.add(nearbyEnemyTerritory);</span>
+          }
+        }
+<span class="nc" id="L259">        ProLogger.debug(</span>
+<span class="nc" id="L260">            t.getName() + &quot; calculated nearby enemy value=&quot; + nearbyEnemyValue + &quot; from &quot; + cantReachEnemyTerritories);</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        if (nearbyEnemyValue &gt; 0) {</span>
+<span class="nc" id="L262">          ProLogger.trace(t.getName() + &quot; updating negative neutral attack value=&quot; + attackValue);</span>
+<span class="nc" id="L263">          attackValue = nearbyEnemyValue * .001 / (1 - attackValue);</span>
+<span class="nc" id="L264">        } else {</span>
+
+          // Check if overwhelming attack strength (more than 5 times)
+<span class="nc" id="L267">          final double strengthDifference =</span>
+<span class="nc" id="L268">              ProBattleUtils.estimateStrengthDifference(t, patd.getMaxUnits(), patd.getMaxEnemyDefenders(player, data));</span>
+<span class="nc" id="L269">          ProLogger.debug(t.getName() + &quot; calculated strengthDifference=&quot; + strengthDifference);</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">          if (strengthDifference &gt; 500) {</span>
+<span class="nc" id="L271">            ProLogger.trace(t.getName() + &quot; updating negative neutral attack value=&quot; + attackValue);</span>
+<span class="nc" id="L272">            attackValue = strengthDifference * .00001 / (1 - attackValue);</span>
+          }
+        }
+      }
+
+      // Remove negative value territories
+<span class="nc" id="L278">      patd.setValue(attackValue);</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">      if (attackValue &lt;= 0</span>
+<span class="nc bnc" id="L280" title="All 6 branches missed.">          || (isDefensive &amp;&amp; attackValue &lt;= 8 &amp;&amp; data.getMap().getDistance(ProData.myCapital, t) &lt;= 3)) {</span>
+<span class="nc" id="L281">        ProLogger.debug(</span>
+<span class="nc" id="L282">            &quot;Removing territory that has a negative attack value: &quot; + t.getName() + &quot;, AttackValue=&quot; + patd.getValue());</span>
+<span class="nc" id="L283">        it.remove();</span>
+      }
+    }
+
+    // Sort attack territories by value
+<span class="nc" id="L288">    Collections.sort(attackOptions, (t1, t2) -&gt; {</span>
+<span class="nc" id="L289">      final double value1 = t1.getValue();</span>
+<span class="nc" id="L290">      final double value2 = t2.getValue();</span>
+<span class="nc" id="L291">      return Double.compare(value2, value1);</span>
+    });
+
+    // Log prioritized territories
+<span class="nc bnc" id="L295" title="All 2 branches missed.">    for (final ProTerritory patd : attackOptions) {</span>
+<span class="nc" id="L296">      ProLogger.debug(&quot;AttackValue=&quot; + patd.getValue() + &quot;, TUVSwing=&quot; + patd.getMaxBattleResult().getTUVSwing()</span>
+<span class="nc" id="L297">          + &quot;, isAmphib=&quot; + patd.isNeedAmphibUnits() + &quot;, &quot; + patd.getTerritory().getName());</span>
+    }
+<span class="nc" id="L299">    return attackOptions;</span>
+  }
+
+  private void determineTerritoriesToAttack(final List&lt;ProTerritory&gt; prioritizedTerritories) {
+
+<span class="nc" id="L304">    ProLogger.info(&quot;Determine which territories to attack&quot;);</span>
+
+    // Assign units to territories by prioritization
+<span class="nc" id="L307">    int numToAttack = Math.min(1, prioritizedTerritories.size());</span>
+<span class="nc" id="L308">    boolean haveRemovedAllAmphibTerritories = false;</span>
+<span class="nc" id="L309">    while (true) {</span>
+<span class="nc" id="L310">      final List&lt;ProTerritory&gt; territoriesToTryToAttack = prioritizedTerritories.subList(0, numToAttack);</span>
+<span class="nc" id="L311">      ProLogger.debug(&quot;Current number of territories: &quot; + numToAttack);</span>
+<span class="nc" id="L312">      tryToAttackTerritories(territoriesToTryToAttack, new ArrayList&lt;&gt;());</span>
+
+      // Determine if all attacks are successful
+<span class="nc" id="L315">      boolean areSuccessful = true;</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">      for (final ProTerritory patd : territoriesToTryToAttack) {</span>
+<span class="nc" id="L317">        final Territory t = patd.getTerritory();</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">        if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L319">          patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L320">              patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+        }
+<span class="nc" id="L322">        ProLogger.trace(patd.getResultString() + &quot; with attackers: &quot; + patd.getUnits());</span>
+<span class="nc" id="L323">        final double estimate =</span>
+<span class="nc" id="L324">            ProBattleUtils.estimateStrengthDifference(t, patd.getUnits(), patd.getMaxEnemyDefenders(player, data));</span>
+<span class="nc" id="L325">        final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L326" title="All 4 branches missed.">        if (!patd.isStrafing() &amp;&amp; estimate &lt; patd.getStrengthEstimate()</span>
+<span class="nc bnc" id="L327" title="All 4 branches missed.">            &amp;&amp; (result.getWinPercentage() &lt; ProData.minWinPercentage || !result.isHasLandUnitRemaining())) {</span>
+<span class="nc" id="L328">          areSuccessful = false;</span>
+        }
+      }
+
+      // Determine whether to try more territories, remove a territory, or end
+<span class="nc bnc" id="L333" title="All 2 branches missed.">      if (areSuccessful) {</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">        for (final ProTerritory patd : territoriesToTryToAttack) {</span>
+<span class="nc" id="L335">          patd.setCanAttack(true);</span>
+<span class="nc" id="L336">          final double estimate = ProBattleUtils.estimateStrengthDifference(patd.getTerritory(), patd.getUnits(),</span>
+<span class="nc" id="L337">              patd.getMaxEnemyDefenders(player, data));</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">          if (estimate &lt; patd.getStrengthEstimate()) {</span>
+<span class="nc" id="L339">            patd.setStrengthEstimate(estimate);</span>
+          }
+        }
+
+        // If already used all transports then remove any remaining amphib territories
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (!haveRemovedAllAmphibTerritories) {</span>
+<span class="nc bnc" id="L345" title="All 2 branches missed.">          if (territoryManager.haveUsedAllAttackTransports()) {</span>
+<span class="nc" id="L346">            final List&lt;ProTerritory&gt; amphibTerritoriesToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">            for (int i = numToAttack; i &lt; prioritizedTerritories.size(); i++) {</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">              if (prioritizedTerritories.get(i).isNeedAmphibUnits()) {</span>
+<span class="nc" id="L349">                amphibTerritoriesToRemove.add(prioritizedTerritories.get(i));</span>
+<span class="nc" id="L350">                ProLogger.debug(&quot;Removing amphib territory since already used all transports: &quot;</span>
+<span class="nc" id="L351">                    + prioritizedTerritories.get(i).getTerritory().getName());</span>
+              }
+            }
+<span class="nc" id="L354">            prioritizedTerritories.removeAll(amphibTerritoriesToRemove);</span>
+<span class="nc" id="L355">            haveRemovedAllAmphibTerritories = true;</span>
+          }
+        }
+
+        // Can attack all territories in list so end
+<span class="nc" id="L360">        numToAttack++;</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        if (numToAttack &gt; prioritizedTerritories.size()) {</span>
+<span class="nc" id="L362">          break;</span>
+        }
+      } else {
+<span class="nc" id="L365">        ProLogger.debug(&quot;Removing territory: &quot; + prioritizedTerritories.get(numToAttack - 1).getTerritory().getName());</span>
+<span class="nc" id="L366">        prioritizedTerritories.remove(numToAttack - 1);</span>
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        if (numToAttack &gt; prioritizedTerritories.size()) {</span>
+<span class="nc" id="L368">          numToAttack--;</span>
+        }
+      }
+    }
+<span class="nc" id="L372">    ProLogger.debug(&quot;Final number of territories: &quot; + (numToAttack - 1));</span>
+<span class="nc" id="L373">  }</span>
+
+  private void determineTerritoriesThatCanBeHeld(final List&lt;ProTerritory&gt; prioritizedTerritories,
+      final Map&lt;Territory, Double&gt; territoryValueMap) {
+
+<span class="nc" id="L378">    ProLogger.info(&quot;Check if we should try to hold attack territories&quot;);</span>
+
+<span class="nc" id="L380">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+<span class="nc" id="L381">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+
+    // Determine which territories to try and hold
+<span class="nc bnc" id="L384" title="All 2 branches missed.">    for (final ProTerritory patd : prioritizedTerritories) {</span>
+<span class="nc" id="L385">      final Territory t = patd.getTerritory();</span>
+
+      // If strafing then can't hold
+<span class="nc bnc" id="L388" title="All 2 branches missed.">      if (patd.isStrafing()) {</span>
+<span class="nc" id="L389">        patd.setCanHold(false);</span>
+<span class="nc" id="L390">        ProLogger.debug(t + &quot;, strafing so CanHold=false&quot;);</span>
+<span class="nc" id="L391">        continue;</span>
+      }
+
+      // Set max enemy attackers
+<span class="nc bnc" id="L395" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) != null) {</span>
+<span class="nc" id="L396">        final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L397">        enemyAttackingUnits.addAll(enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L398">        patd.setMaxEnemyUnits(new ArrayList&lt;&gt;(enemyAttackingUnits));</span>
+<span class="nc" id="L399">        patd.setMaxEnemyBombardUnits(enemyAttackOptions.getMax(t).getMaxBombardUnits());</span>
+      }
+
+      // Add strategic value for factories
+<span class="nc" id="L403">      int isFactory = 0;</span>
+<span class="nc bnc" id="L404" title="All 2 branches missed.">      if (ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t)) {</span>
+<span class="nc" id="L405">        isFactory = 1;</span>
+      }
+
+      // Determine whether its worth trying to hold territory
+<span class="nc" id="L409">      double totalValue = 0.0;</span>
+<span class="nc" id="L410">      final List&lt;Unit&gt; nonAirAttackers = Match.getMatches(patd.getMaxUnits(), Matches.UnitIsNotAir);</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">      for (final Unit u : nonAirAttackers) {</span>
+<span class="nc" id="L412">        totalValue += territoryValueMap.get(ProData.unitTerritoryMap.get(u));</span>
+      }
+<span class="nc" id="L414">      final double averageValue = totalValue / nonAirAttackers.size() * 0.75;</span>
+<span class="nc" id="L415">      final double territoryValue = territoryValueMap.get(t) * (1 + 4 * isFactory);</span>
+<span class="nc bnc" id="L416" title="All 4 branches missed.">      if (!t.isWater() &amp;&amp; territoryValue &lt; averageValue) {</span>
+<span class="nc" id="L417">        attackMap.get(t).setCanHold(false);</span>
+<span class="nc" id="L418">        ProLogger.debug(</span>
+<span class="nc" id="L419">            t + &quot;, CanHold=false, value=&quot; + territoryValueMap.get(t) + &quot;, averageAttackFromValue=&quot; + averageValue);</span>
+<span class="nc" id="L420">        continue;</span>
+      }
+<span class="nc bnc" id="L422" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) != null) {</span>
+
+        // Find max remaining defenders
+<span class="nc" id="L425">        final Set&lt;Unit&gt; attackingUnits = new HashSet&lt;&gt;(patd.getMaxUnits());</span>
+<span class="nc" id="L426">        attackingUnits.addAll(patd.getMaxAmphibUnits());</span>
+<span class="nc" id="L427">        final ProBattleResult result = calc.estimateAttackBattleResults(player, t, new ArrayList&lt;&gt;(attackingUnits),</span>
+<span class="nc" id="L428">            patd.getMaxEnemyDefenders(player, data), patd.getMaxBombardUnits());</span>
+<span class="nc" id="L429">        final List&lt;Unit&gt; remainingUnitsToDefendWith =</span>
+<span class="nc" id="L430">            Match.getMatches(result.getAverageAttackersRemaining(), Matches.UnitIsAir.invert());</span>
+<span class="nc" id="L431">        ProLogger.debug(t + &quot;, value=&quot; + territoryValueMap.get(t) + &quot;, averageAttackFromValue=&quot; + averageValue</span>
+<span class="nc" id="L432">            + &quot;, MyAttackers=&quot; + attackingUnits.size() + &quot;, RemainingUnits=&quot; + remainingUnitsToDefendWith.size());</span>
+
+        // Determine counter attack results to see if I can hold it
+<span class="nc" id="L435">        final ProBattleResult result2 = calc.calculateBattleResults(player, t, patd.getMaxEnemyUnits(),</span>
+<span class="nc" id="L436">            remainingUnitsToDefendWith, enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+<span class="nc bnc" id="L437" title="All 8 branches missed.">        final boolean canHold = (!result2.isHasLandUnitRemaining() &amp;&amp; !t.isWater()) || (result2.getTUVSwing() &lt; 0)</span>
+<span class="nc" id="L438">            || (result2.getWinPercentage() &lt; ProData.minWinPercentage);</span>
+<span class="nc" id="L439">        patd.setCanHold(canHold);</span>
+<span class="nc" id="L440">        ProLogger.debug(</span>
+<span class="nc" id="L441">            t + &quot;, CanHold=&quot; + canHold + &quot;, MyDefenders=&quot; + remainingUnitsToDefendWith.size() + &quot;, EnemyAttackers=&quot;</span>
+<span class="nc" id="L442">                + patd.getMaxEnemyUnits().size() + &quot;, win%=&quot; + result2.getWinPercentage() + &quot;, EnemyTUVSwing=&quot;</span>
+<span class="nc" id="L443">                + result2.getTUVSwing() + &quot;, hasLandUnitRemaining=&quot; + result2.isHasLandUnitRemaining());</span>
+<span class="nc" id="L444">      } else {</span>
+<span class="nc" id="L445">        attackMap.get(t).setCanHold(true);</span>
+<span class="nc" id="L446">        ProLogger.debug(t + &quot;, CanHold=true since no enemy counter attackers, value=&quot; + territoryValueMap.get(t)</span>
+<span class="nc" id="L447">            + &quot;, averageAttackFromValue=&quot; + averageValue);</span>
+      }
+    }
+<span class="nc" id="L450">  }</span>
+
+  private void removeTerritoriesThatArentWorthAttacking(final List&lt;ProTerritory&gt; prioritizedTerritories) {
+<span class="nc" id="L453">    ProLogger.info(&quot;Remove territories that aren't worth attacking&quot;);</span>
+
+<span class="nc" id="L455">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Loop through all prioritized territories
+<span class="nc bnc" id="L458" title="All 2 branches missed.">    for (final Iterator&lt;ProTerritory&gt; it = prioritizedTerritories.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L459">      final ProTerritory patd = it.next();</span>
+<span class="nc" id="L460">      final Territory t = patd.getTerritory();</span>
+      ProLogger
+<span class="nc" id="L462">          .debug(&quot;Checking territory=&quot; + patd.getTerritory().getName() + &quot; with isAmphib=&quot; + patd.isNeedAmphibUnits());</span>
+
+      // Remove empty convoy zones that can't be held
+<span class="nc bnc" id="L465" title="All 6 branches missed.">      if (!patd.isCanHold() &amp;&amp; enemyAttackOptions.getMax(t) != null &amp;&amp; t.isWater()</span>
+<span class="nc bnc" id="L466" title="All 2 branches missed.">          &amp;&amp; !t.getUnits().someMatch(Matches.enemyUnit(player, data))) {</span>
+<span class="nc" id="L467">        ProLogger.debug(&quot;Removing convoy zone that can't be held: &quot; + t.getName() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L468">            + enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L469">        it.remove();</span>
+<span class="nc" id="L470">        continue;</span>
+      }
+
+      // Remove neutral and low value amphib land territories that can't be held
+<span class="nc" id="L474">      final boolean isNeutral = t.getOwner().isNull();</span>
+<span class="nc" id="L475">      final double strengthDifference =</span>
+<span class="nc" id="L476">          ProBattleUtils.estimateStrengthDifference(t, patd.getMaxUnits(), patd.getMaxEnemyDefenders(player, data));</span>
+<span class="nc bnc" id="L477" title="All 6 branches missed.">      if (!patd.isCanHold() &amp;&amp; enemyAttackOptions.getMax(t) != null &amp;&amp; !t.isWater()) {</span>
+<span class="nc bnc" id="L478" title="All 4 branches missed.">        if (isNeutral &amp;&amp; strengthDifference &lt;= 500) {</span>
+
+          // Remove neutral territories that can't be held and don't have overwhelming attack strength
+<span class="nc" id="L481">          ProLogger.debug(&quot;Removing neutral territory that can't be held: &quot; + t.getName() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L482">              + enemyAttackOptions.getMax(t).getMaxUnits() + &quot;, enemyAmphibAttackers=&quot;</span>
+<span class="nc" id="L483">              + enemyAttackOptions.getMax(t).getMaxAmphibUnits() + &quot;, strengthDifference=&quot; + strengthDifference);</span>
+<span class="nc" id="L484">          it.remove();</span>
+<span class="nc" id="L485">          continue;</span>
+<span class="nc bnc" id="L486" title="All 4 branches missed.">        } else if (patd.isNeedAmphibUnits() &amp;&amp; patd.getValue() &lt; 2) {</span>
+
+          // Remove amphib territories that aren't worth attacking
+<span class="nc" id="L489">          ProLogger.debug(&quot;Removing low value amphib territory that can't be held: &quot; + t.getName() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L490">              + enemyAttackOptions.getMax(t).getMaxUnits() + &quot;, enemyAmphibAttackers=&quot;</span>
+<span class="nc" id="L491">              + enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L492">          it.remove();</span>
+<span class="nc" id="L493">          continue;</span>
+        }
+      }
+      // Remove neutral territories where attackers are adjacent to enemy territories that aren't being attacked
+<span class="nc bnc" id="L497" title="All 6 branches missed.">      if (isNeutral &amp;&amp; !t.isWater() &amp;&amp; strengthDifference &lt;= 500) {</span>
+
+        // Get list of territories I'm attacking
+<span class="nc" id="L500">        final List&lt;Territory&gt; prioritizedTerritoryList = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        for (final ProTerritory prioritizedTerritory : prioritizedTerritories) {</span>
+<span class="nc" id="L502">          prioritizedTerritoryList.add(prioritizedTerritory.getTerritory());</span>
+        }
+
+        // Find all territories units are attacking from that are adjacent to territory
+<span class="nc" id="L506">        final Set&lt;Territory&gt; attackFromTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">        for (final Unit u : patd.getMaxUnits()) {</span>
+<span class="nc" id="L508">          attackFromTerritories.add(ProData.unitTerritoryMap.get(u));</span>
+        }
+<span class="nc" id="L510">        attackFromTerritories.retainAll(data.getMap().getNeighbors(t));</span>
+
+        // Determine if any of the attacking from territories has enemy neighbors that aren't being attacked
+<span class="nc" id="L513">        boolean attackersHaveEnemyNeighbors = false;</span>
+<span class="nc" id="L514">        Territory attackFromTerritoryWithEnemyNeighbors = null;</span>
+<span class="nc bnc" id="L515" title="All 2 branches missed.">        for (final Territory attackFromTerritory : attackFromTerritories) {</span>
+<span class="nc" id="L516">          final Set&lt;Territory&gt; enemyNeighbors =</span>
+<span class="nc" id="L517">              data.getMap().getNeighbors(attackFromTerritory, ProMatches.territoryIsEnemyNotNeutralLand(player, data));</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">          if (!prioritizedTerritoryList.containsAll(enemyNeighbors)) {</span>
+<span class="nc" id="L519">            attackersHaveEnemyNeighbors = true;</span>
+<span class="nc" id="L520">            attackFromTerritoryWithEnemyNeighbors = attackFromTerritory;</span>
+<span class="nc" id="L521">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L524" title="All 2 branches missed.">        if (attackersHaveEnemyNeighbors) {</span>
+<span class="nc" id="L525">          ProLogger.debug(&quot;Removing neutral territory that has attackers that are adjacent to enemies: &quot; + t.getName()</span>
+<span class="nc" id="L526">              + &quot;, attackFromTerritory=&quot; + attackFromTerritoryWithEnemyNeighbors);</span>
+<span class="nc" id="L527">          it.remove();</span>
+        }
+      }
+    }
+<span class="nc" id="L531">  }</span>
+
+  private List&lt;Unit&gt; moveOneDefenderToLandTerritoriesBorderingEnemy(final List&lt;ProTerritory&gt; prioritizedTerritories) {
+
+<span class="nc" id="L535">    ProLogger.info(&quot;Determine which territories to defend with one land unit&quot;);</span>
+
+<span class="nc" id="L537">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = territoryManager.getAttackOptions().getUnitMoveMap();</span>
+
+    // Get list of territories to attack
+<span class="nc" id="L540">    final List&lt;Territory&gt; territoriesToAttack = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">    for (final ProTerritory patd : prioritizedTerritories) {</span>
+<span class="nc" id="L542">      territoriesToAttack.add(patd.getTerritory());</span>
+    }
+
+    // Find land territories with no can't move units and adjacent to enemy land units
+<span class="nc" id="L546">    final List&lt;Unit&gt; alreadyMovedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L547" title="All 2 branches missed.">    for (final Territory t : ProData.myUnitTerritories) {</span>
+<span class="nc" id="L548">      final boolean hasAlliedLandUnits = Match.someMatch(t.getUnits().getUnits(),</span>
+<span class="nc" id="L549">          ProMatches.unitCantBeMovedAndIsAlliedDefenderAndNotInfra(player, data, t));</span>
+<span class="nc" id="L550">      final Set&lt;Territory&gt; enemyNeighbors = data.getMap().getNeighbors(t,</span>
+<span class="nc" id="L551">          Matches.territoryIsEnemyNonNeutralAndHasEnemyUnitMatching(data, player, Matches.UnitIsLand));</span>
+<span class="nc" id="L552">      enemyNeighbors.removeAll(territoriesToAttack);</span>
+<span class="nc bnc" id="L553" title="All 6 branches missed.">      if (!t.isWater() &amp;&amp; !hasAlliedLandUnits &amp;&amp; !enemyNeighbors.isEmpty()) {</span>
+<span class="nc" id="L554">        int minCost = Integer.MAX_VALUE;</span>
+<span class="nc" id="L555">        Unit minUnit = null;</span>
+<span class="nc bnc" id="L556" title="All 2 branches missed.">        for (final Unit u : t.getUnits().getMatches(Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc bnc" id="L557" title="All 2 branches missed.">          if (ProData.unitValueMap.getInt(u.getType()) &lt; minCost) {</span>
+<span class="nc" id="L558">            minCost = ProData.unitValueMap.getInt(u.getType());</span>
+<span class="nc" id="L559">            minUnit = u;</span>
+          }
+        }
+<span class="nc bnc" id="L562" title="All 2 branches missed.">        if (minUnit != null) {</span>
+<span class="nc" id="L563">          unitMoveMap.remove(minUnit);</span>
+<span class="nc" id="L564">          alreadyMovedUnits.add(minUnit);</span>
+<span class="nc" id="L565">          ProLogger.debug(t + &quot;, added one land unit: &quot; + minUnit);</span>
+        }
+      }
+    }
+<span class="nc" id="L569">    return alreadyMovedUnits;</span>
+  }
+
+  private void removeTerritoriesWhereTransportsAreExposed() {
+
+<span class="nc" id="L574">    ProLogger.info(&quot;Remove territories where transports are exposed&quot;);</span>
+
+<span class="nc" id="L576">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+<span class="nc" id="L577">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Find maximum defenders for each transport territory
+<span class="nc" id="L580">    final List&lt;Territory&gt; clearedTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc bnc" id="L582" title="All 2 branches missed.">      if (!attackMap.get(t).getUnits().isEmpty()) {</span>
+<span class="nc" id="L583">        clearedTerritories.add(t);</span>
+      }
+    }
+<span class="nc" id="L586">    territoryManager.populateDefenseOptions(clearedTerritories);</span>
+<span class="nc" id="L587">    final Map&lt;Territory, ProTerritory&gt; defendMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+
+    // Remove units that have already attacked
+<span class="nc" id="L590">    final Set&lt;Unit&gt; alreadyAttackedWithUnits = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L592">      alreadyAttackedWithUnits.addAll(attackMap.get(t).getUnits());</span>
+<span class="nc" id="L593">      alreadyAttackedWithUnits.addAll(attackMap.get(t).getAmphibAttackMap().keySet());</span>
+    }
+<span class="nc bnc" id="L595" title="All 2 branches missed.">    for (final Territory t : defendMap.keySet()) {</span>
+<span class="nc" id="L596">      defendMap.get(t).getMaxUnits().removeAll(alreadyAttackedWithUnits);</span>
+    }
+
+    // Loop through all prioritized territories
+<span class="nc bnc" id="L600" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L601">      final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc" id="L602">      ProLogger.debug(&quot;Checking territory=&quot; + patd.getTerritory().getName() + &quot; with tranports size=&quot;</span>
+<span class="nc" id="L603">          + patd.getTransportTerritoryMap().size());</span>
+<span class="nc bnc" id="L604" title="All 4 branches missed.">      if (!patd.getTerritory().isWater() &amp;&amp; !patd.getTransportTerritoryMap().isEmpty()) {</span>
+
+        // Find all transports for each unload territory
+<span class="nc" id="L607">        final Map&lt;Territory, List&lt;Unit&gt;&gt; territoryTransportAndBombardMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">        for (final Unit u : patd.getTransportTerritoryMap().keySet()) {</span>
+<span class="nc" id="L609">          final Territory unloadTerritory = patd.getTransportTerritoryMap().get(u);</span>
+<span class="nc bnc" id="L610" title="All 2 branches missed.">          if (territoryTransportAndBombardMap.containsKey(unloadTerritory)) {</span>
+<span class="nc" id="L611">            territoryTransportAndBombardMap.get(unloadTerritory).add(u);</span>
+<span class="nc" id="L612">          } else {</span>
+<span class="nc" id="L613">            final List&lt;Unit&gt; transports = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L614">            transports.add(u);</span>
+<span class="nc" id="L615">            territoryTransportAndBombardMap.put(unloadTerritory, transports);</span>
+          }
+        }
+
+        // Find all bombard units for each unload territory
+<span class="nc bnc" id="L620" title="All 2 branches missed.">        for (final Unit u : patd.getBombardTerritoryMap().keySet()) {</span>
+<span class="nc" id="L621">          final Territory unloadTerritory = patd.getBombardTerritoryMap().get(u);</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">          if (territoryTransportAndBombardMap.containsKey(unloadTerritory)) {</span>
+<span class="nc" id="L623">            territoryTransportAndBombardMap.get(unloadTerritory).add(u);</span>
+<span class="nc" id="L624">          } else {</span>
+<span class="nc" id="L625">            final List&lt;Unit&gt; transports = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L626">            transports.add(u);</span>
+<span class="nc" id="L627">            territoryTransportAndBombardMap.put(unloadTerritory, transports);</span>
+          }
+        }
+
+        // Determine counter attack results for each transport territory
+<span class="nc" id="L632">        double totalEnemyTUVSwing = 0.0;</span>
+<span class="nc bnc" id="L633" title="All 2 branches missed.">        for (final Territory unloadTerritory : territoryTransportAndBombardMap.keySet()) {</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">          if (enemyAttackOptions.getMax(unloadTerritory) != null) {</span>
+<span class="nc" id="L635">            final List&lt;Unit&gt; enemyAttackers = enemyAttackOptions.getMax(unloadTerritory).getMaxUnits();</span>
+<span class="nc" id="L636">            final Set&lt;Unit&gt; defenders =</span>
+<span class="nc" id="L637">                new HashSet&lt;&gt;(unloadTerritory.getUnits().getMatches(ProMatches.unitIsAlliedNotOwned(player, data)));</span>
+<span class="nc" id="L638">            defenders.addAll(territoryTransportAndBombardMap.get(unloadTerritory));</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">            if (defendMap.get(unloadTerritory) != null) {</span>
+<span class="nc" id="L640">              defenders.addAll(defendMap.get(unloadTerritory).getMaxUnits());</span>
+            }
+<span class="nc" id="L642">            final ProBattleResult result = calc.calculateBattleResults(player, unloadTerritory,</span>
+<span class="nc" id="L643">                enemyAttackOptions.getMax(unloadTerritory).getMaxUnits(), new ArrayList&lt;&gt;(defenders), new HashSet&lt;&gt;(),</span>
+<span class="nc" id="L644">                false);</span>
+<span class="nc" id="L645">            final ProBattleResult minResult = calc.calculateBattleResults(player, unloadTerritory,</span>
+<span class="nc" id="L646">                enemyAttackOptions.getMax(unloadTerritory).getMaxUnits(),</span>
+<span class="nc" id="L647">                territoryTransportAndBombardMap.get(unloadTerritory), new HashSet&lt;&gt;(), false);</span>
+<span class="nc" id="L648">            final double minTUVSwing = Math.min(result.getTUVSwing(), minResult.getTUVSwing());</span>
+<span class="nc bnc" id="L649" title="All 2 branches missed.">            if (minTUVSwing &gt; 0) {</span>
+<span class="nc" id="L650">              totalEnemyTUVSwing += minTUVSwing;</span>
+            }
+<span class="nc" id="L652">            ProLogger.trace(unloadTerritory + &quot;, EnemyAttackers=&quot; + enemyAttackers.size() + &quot;, MaxDefenders=&quot;</span>
+<span class="nc" id="L653">                + defenders.size() + &quot;, MaxEnemyTUVSwing=&quot; + result.getTUVSwing() + &quot;, MinDefenders=&quot;</span>
+<span class="nc" id="L654">                + territoryTransportAndBombardMap.get(unloadTerritory).size() + &quot;, MinEnemyTUVSwing=&quot;</span>
+<span class="nc" id="L655">                + minResult.getTUVSwing());</span>
+<span class="nc" id="L656">          } else {</span>
+<span class="nc" id="L657">            ProLogger.trace(&quot;Territory=&quot; + unloadTerritory.getName() + &quot; has no enemy attackers&quot;);</span>
+          }
+        }
+
+        // Determine whether its worth attacking
+<span class="nc" id="L662">        final ProBattleResult result = calc.calculateBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L663">            patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet(), true);</span>
+<span class="nc" id="L664">        int production = 0;</span>
+<span class="nc" id="L665">        int isEnemyCapital = 0;</span>
+<span class="nc" id="L666">        final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L667" title="All 2 branches missed.">        if (ta != null) {</span>
+<span class="nc" id="L668">          production = ta.getProduction();</span>
+<span class="nc bnc" id="L669" title="All 2 branches missed.">          if (ta.isCapital()) {</span>
+<span class="nc" id="L670">            isEnemyCapital = 1;</span>
+          }
+        }
+<span class="nc" id="L673">        final double attackValue = result.getTUVSwing() + production * (1 + 3 * isEnemyCapital);</span>
+<span class="nc bnc" id="L674" title="All 4 branches missed.">        if (!patd.isStrafing() &amp;&amp; (0.75 * totalEnemyTUVSwing) &gt; attackValue) {</span>
+<span class="nc" id="L675">          ProLogger.debug(&quot;Removing amphib territory: &quot; + patd.getTerritory() + &quot;, totalEnemyTUVSwing=&quot;</span>
+<span class="nc" id="L676">              + totalEnemyTUVSwing + &quot;, attackValue=&quot; + attackValue);</span>
+<span class="nc" id="L677">          attackMap.get(t).getUnits().clear();</span>
+<span class="nc" id="L678">          attackMap.get(t).getAmphibAttackMap().clear();</span>
+<span class="nc" id="L679">          attackMap.get(t).getBombardTerritoryMap().clear();</span>
+<span class="nc" id="L680">        } else {</span>
+<span class="nc" id="L681">          ProLogger.debug(&quot;Keeping amphib territory: &quot; + patd.getTerritory() + &quot;, totalEnemyTUVSwing=&quot;</span>
+<span class="nc" id="L682">              + totalEnemyTUVSwing + &quot;, attackValue=&quot; + attackValue);</span>
+        }
+      }
+    }
+<span class="nc" id="L686">  }</span>
+
+  private void determineUnitsToAttackWith(final List&lt;ProTerritory&gt; prioritizedTerritories,
+      final List&lt;Unit&gt; alreadyMovedUnits) {
+
+<span class="nc" id="L691">    ProLogger.info(&quot;Determine units to attack each territory with&quot;);</span>
+
+<span class="nc" id="L693">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+<span class="nc" id="L694">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+<span class="nc" id="L695">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitAttackMap = territoryManager.getAttackOptions().getUnitMoveMap();</span>
+
+    // Assign units to territories by prioritization
+<span class="nc" id="L698">    while (true) {</span>
+<span class="nc" id="L699">      Map&lt;Unit, Set&lt;Territory&gt;&gt; sortedUnitAttackOptions =</span>
+<span class="nc" id="L700">          tryToAttackTerritories(prioritizedTerritories, alreadyMovedUnits);</span>
+
+      // Clear bombers
+<span class="nc bnc" id="L703" title="All 2 branches missed.">      for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L704">        attackMap.get(t).getBombers().clear();</span>
+      }
+
+      // Get all units that have already moved
+<span class="nc" id="L708">      final Set&lt;Unit&gt; alreadyAttackedWithUnits = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L709" title="All 2 branches missed.">      for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L710">        alreadyAttackedWithUnits.addAll(attackMap.get(t).getUnits());</span>
+<span class="nc" id="L711">        alreadyAttackedWithUnits.addAll(attackMap.get(t).getAmphibAttackMap().keySet());</span>
+      }
+
+      // Check to see if any territories can be bombed
+<span class="nc" id="L715">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; bomberMoveMap = territoryManager.getAttackOptions().getBomberMoveMap();</span>
+<span class="nc bnc" id="L716" title="All 2 branches missed.">      for (final Unit unit : bomberMoveMap.keySet()) {</span>
+<span class="nc bnc" id="L717" title="All 2 branches missed.">        if (alreadyAttackedWithUnits.contains(unit)) {</span>
+<span class="nc" id="L718">          continue;</span>
+        }
+<span class="nc" id="L720">        Optional&lt;Territory&gt; maxBombingTerritory = Optional.empty();</span>
+<span class="nc" id="L721">        int maxBombingScore = MIN_BOMBING_SCORE;</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">        for (final Territory t : bomberMoveMap.get(unit)) {</span>
+<span class="nc" id="L723">          final boolean territoryCanBeBombed = t.getUnits().someMatch(Matches.UnitCanProduceUnitsAndCanBeDamaged);</span>
+<span class="nc bnc" id="L724" title="All 4 branches missed.">          if (territoryCanBeBombed &amp;&amp; canAirSafelyLandAfterAttack(unit, t)) {</span>
+<span class="nc bnc" id="L725" title="All 2 branches missed.">            final int noAABombingDefense = t.getUnits().someMatch(Matches.UnitIsAAforBombingThisUnitOnly) ? 0 : 1;</span>
+<span class="nc" id="L726">            int maxDamage = 0;</span>
+<span class="nc" id="L727">            final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L728" title="All 2 branches missed.">            if (ta != null) {</span>
+<span class="nc" id="L729">              maxDamage = ta.getProduction();</span>
+            }
+<span class="nc" id="L731">            final int numExistingBombers = attackMap.get(t).getBombers().size();</span>
+<span class="nc" id="L732">            final int remainingDamagePotential = maxDamage - 3 * numExistingBombers;</span>
+<span class="nc" id="L733">            final int bombingScore = (1 + 9 * noAABombingDefense) * remainingDamagePotential;</span>
+<span class="nc bnc" id="L734" title="All 2 branches missed.">            if (bombingScore &gt;= maxBombingScore) {</span>
+<span class="nc" id="L735">              maxBombingScore = bombingScore;</span>
+<span class="nc" id="L736">              maxBombingTerritory = Optional.of(t);</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L740" title="All 2 branches missed.">        if (maxBombingTerritory.isPresent()) {</span>
+<span class="nc" id="L741">          final Territory t = maxBombingTerritory.get();</span>
+<span class="nc" id="L742">          attackMap.get(t).getBombers().add(unit);</span>
+<span class="nc" id="L743">          sortedUnitAttackOptions.remove(unit);</span>
+<span class="nc" id="L744">          ProLogger.debug(&quot;Add bomber (&quot; + unit + &quot;) to &quot; + t);</span>
+        }
+      }
+
+      // Re-sort attack options
+<span class="nc" id="L749">      sortedUnitAttackOptions = ProSortMoveOptionsUtils.sortUnitNeededOptionsThenAttack(player, sortedUnitAttackOptions,</span>
+<span class="nc" id="L750">          attackMap, ProData.unitTerritoryMap, calc);</span>
+
+      // Set air units in any territory with no AA (don't move planes to empty territories)
+<span class="nc bnc" id="L753" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L754">        final Unit unit = it.next();</span>
+<span class="nc" id="L755">        final boolean isAirUnit = UnitAttachment.get(unit.getType()).getIsAir();</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">        if (!isAirUnit) {</span>
+<span class="nc" id="L757">          continue; // skip non-air units</span>
+        }
+<span class="nc" id="L759">        Territory minWinTerritory = null;</span>
+<span class="nc" id="L760">        double minWinPercentage = Double.MAX_VALUE;</span>
+<span class="nc bnc" id="L761" title="All 2 branches missed.">        for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc" id="L762">          final ProTerritory patd = attackMap.get(t);</span>
+
+          // Check if air unit should avoid this territory due to no guaranteed safe landing location
+<span class="nc" id="L765">          final boolean isEnemyFactory = ProMatches.territoryHasInfraFactoryAndIsEnemyLand(player, data).match(t);</span>
+<span class="nc bnc" id="L766" title="All 4 branches missed.">          if (!isEnemyFactory &amp;&amp; !canAirSafelyLandAfterAttack(unit, t)) {</span>
+<span class="nc" id="L767">            continue;</span>
+          }
+<span class="nc bnc" id="L769" title="All 2 branches missed.">          if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L770">            patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L771">                patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+          }
+<span class="nc" id="L773">          final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L774" title="All 2 branches missed.">          if (result.getWinPercentage() &lt; minWinPercentage</span>
+<span class="nc bnc" id="L775" title="All 4 branches missed.">              || (!result.isHasLandUnitRemaining() &amp;&amp; minWinTerritory == null)) {</span>
+<span class="nc" id="L776">            final List&lt;Unit&gt; attackingUnits = patd.getUnits();</span>
+<span class="nc" id="L777">            final List&lt;Unit&gt; defendingUnits = patd.getMaxEnemyDefenders(player, data);</span>
+<span class="nc" id="L778">            final boolean isOverwhelmingWin =</span>
+<span class="nc" id="L779">                ProBattleUtils.checkForOverwhelmingWin(player, t, attackingUnits, defendingUnits);</span>
+<span class="nc" id="L780">            final boolean hasAA = Match.someMatch(defendingUnits, Matches.UnitIsAAforAnything);</span>
+<span class="nc bnc" id="L781" title="All 4 branches missed.">            if (!hasAA &amp;&amp; !isOverwhelmingWin) {</span>
+<span class="nc" id="L782">              minWinPercentage = result.getWinPercentage();</span>
+<span class="nc" id="L783">              minWinTerritory = t;</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        if (minWinTerritory != null) {</span>
+<span class="nc" id="L788">          attackMap.get(minWinTerritory).addUnit(unit);</span>
+<span class="nc" id="L789">          attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L790">          it.remove();</span>
+        }
+      }
+
+      // Re-sort attack options
+<span class="nc" id="L795">      sortedUnitAttackOptions = ProSortMoveOptionsUtils.sortUnitNeededOptionsThenAttack(player, sortedUnitAttackOptions,</span>
+<span class="nc" id="L796">          attackMap, ProData.unitTerritoryMap, calc);</span>
+
+      // Find territory that we can try to hold that needs unit
+<span class="nc bnc" id="L799" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L800">        final Unit unit = it.next();</span>
+<span class="nc" id="L801">        Territory minWinTerritory = null;</span>
+<span class="nc bnc" id="L802" title="All 2 branches missed.">        for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc" id="L803">          final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L804" title="All 2 branches missed.">          if (patd.isCanHold()) {</span>
+
+            // Check if I already have enough attack units to win in 2 rounds
+<span class="nc bnc" id="L807" title="All 2 branches missed.">            if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L808">              patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L809">                  patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+            }
+<span class="nc" id="L811">            final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc" id="L812">            final List&lt;Unit&gt; attackingUnits = patd.getUnits();</span>
+<span class="nc" id="L813">            final List&lt;Unit&gt; defendingUnits = patd.getMaxEnemyDefenders(player, data);</span>
+<span class="nc" id="L814">            final boolean isOverwhelmingWin =</span>
+<span class="nc" id="L815">                ProBattleUtils.checkForOverwhelmingWin(player, t, attackingUnits, defendingUnits);</span>
+<span class="nc bnc" id="L816" title="All 4 branches missed.">            if (!isOverwhelmingWin &amp;&amp; result.getBattleRounds() &gt; 2) {</span>
+<span class="nc" id="L817">              minWinTerritory = t;</span>
+<span class="nc" id="L818">              break;</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L822" title="All 2 branches missed.">        if (minWinTerritory != null) {</span>
+<span class="nc" id="L823">          attackMap.get(minWinTerritory).addUnit(unit);</span>
+<span class="nc" id="L824">          attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L825">          it.remove();</span>
+        }
+      }
+
+      // Re-sort attack options
+<span class="nc" id="L830">      sortedUnitAttackOptions = ProSortMoveOptionsUtils.sortUnitNeededOptionsThenAttack(player, sortedUnitAttackOptions,</span>
+<span class="nc" id="L831">          attackMap, ProData.unitTerritoryMap, calc);</span>
+
+      // Add sea units to any territory that significantly increases TUV gain
+<span class="nc bnc" id="L834" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L835">        final Unit unit = it.next();</span>
+<span class="nc" id="L836">        final boolean isSeaUnit = UnitAttachment.get(unit.getType()).getIsSea();</span>
+<span class="nc bnc" id="L837" title="All 2 branches missed.">        if (!isSeaUnit) {</span>
+<span class="nc" id="L838">          continue; // skip non-sea units</span>
+        }
+<span class="nc bnc" id="L840" title="All 2 branches missed.">        for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc" id="L841">          final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L842" title="All 2 branches missed.">          if (attackMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L843">            attackMap.get(t).setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L844">                patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+          }
+<span class="nc" id="L846">          final ProBattleResult result = attackMap.get(t).getBattleResult();</span>
+<span class="nc" id="L847">          final List&lt;Unit&gt; attackers = new ArrayList&lt;&gt;(patd.getUnits());</span>
+<span class="nc" id="L848">          attackers.add(unit);</span>
+<span class="nc" id="L849">          final ProBattleResult result2 = calc.estimateAttackBattleResults(player, t, attackers,</span>
+<span class="nc" id="L850">              patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet());</span>
+<span class="nc" id="L851">          final double unitValue = ProData.unitValueMap.getInt(unit.getType());</span>
+<span class="nc bnc" id="L852" title="All 2 branches missed.">          if ((result2.getTUVSwing() - unitValue / 3) &gt; result.getTUVSwing()) {</span>
+<span class="nc" id="L853">            attackMap.get(t).addUnit(unit);</span>
+<span class="nc" id="L854">            attackMap.get(t).setBattleResult(null);</span>
+<span class="nc" id="L855">            it.remove();</span>
+<span class="nc" id="L856">            break;</span>
+          }
+        }
+      }
+
+      // Determine if all attacks are worth it
+<span class="nc" id="L862">      final List&lt;Unit&gt; usedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L863" title="All 2 branches missed.">      for (final ProTerritory patd : prioritizedTerritories) {</span>
+<span class="nc" id="L864">        usedUnits.addAll(patd.getUnits());</span>
+      }
+<span class="nc" id="L866">      ProTerritory territoryToRemove = null;</span>
+<span class="nc bnc" id="L867" title="All 2 branches missed.">      for (final ProTerritory patd : prioritizedTerritories) {</span>
+<span class="nc" id="L868">        final Territory t = patd.getTerritory();</span>
+
+        // Find battle result
+<span class="nc bnc" id="L871" title="All 2 branches missed.">        if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L872">          patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L873">              patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+        }
+<span class="nc" id="L875">        final ProBattleResult result = patd.getBattleResult();</span>
+
+        // Determine enemy counter attack results
+<span class="nc" id="L878">        boolean canHold = true;</span>
+<span class="nc" id="L879">        double enemyCounterTUVSwing = 0;</span>
+<span class="nc bnc" id="L880" title="All 2 branches missed.">        if (enemyAttackOptions.getMax(t) != null</span>
+<span class="nc bnc" id="L881" title="All 2 branches missed.">            &amp;&amp; !ProMatches.territoryIsWaterAndAdjacentToOwnedFactory(player, data).match(t)) {</span>
+<span class="nc" id="L882">          List&lt;Unit&gt; remainingUnitsToDefendWith =</span>
+<span class="nc" id="L883">              Match.getMatches(result.getAverageAttackersRemaining(), Matches.UnitIsAir.invert());</span>
+<span class="nc" id="L884">          ProBattleResult result2 = calc.calculateBattleResults(player, t, patd.getMaxEnemyUnits(),</span>
+<span class="nc" id="L885">              remainingUnitsToDefendWith, patd.getMaxBombardUnits(), false);</span>
+<span class="nc bnc" id="L886" title="All 4 branches missed.">          if (patd.isCanHold() &amp;&amp; result2.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L887">            final List&lt;Unit&gt; unusedUnits = new ArrayList&lt;&gt;(patd.getMaxUnits());</span>
+<span class="nc" id="L888">            unusedUnits.addAll(patd.getMaxAmphibUnits());</span>
+<span class="nc" id="L889">            unusedUnits.removeAll(usedUnits);</span>
+<span class="nc" id="L890">            unusedUnits.addAll(remainingUnitsToDefendWith);</span>
+<span class="nc" id="L891">            final ProBattleResult result3 = calc.calculateBattleResults(player, t, patd.getMaxEnemyUnits(), unusedUnits,</span>
+<span class="nc" id="L892">                patd.getMaxBombardUnits(), false);</span>
+<span class="nc bnc" id="L893" title="All 2 branches missed.">            if (result3.getTUVSwing() &lt; result2.getTUVSwing()) {</span>
+<span class="nc" id="L894">              result2 = result3;</span>
+<span class="nc" id="L895">              remainingUnitsToDefendWith = unusedUnits;</span>
+            }
+          }
+<span class="nc bnc" id="L898" title="All 8 branches missed.">          canHold = (!result2.isHasLandUnitRemaining() &amp;&amp; !t.isWater()) || (result2.getTUVSwing() &lt; 0)</span>
+<span class="nc" id="L899">              || (result2.getWinPercentage() &lt; ProData.minWinPercentage);</span>
+<span class="nc bnc" id="L900" title="All 2 branches missed.">          if (result2.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L901">            enemyCounterTUVSwing = result2.getTUVSwing();</span>
+          }
+<span class="nc" id="L903">          ProLogger.trace(&quot;Territory=&quot; + t.getName() + &quot;, CanHold=&quot; + canHold + &quot;, MyDefenders=&quot;</span>
+<span class="nc" id="L904">              + remainingUnitsToDefendWith.size() + &quot;, EnemyAttackers=&quot; + patd.getMaxEnemyUnits().size() + &quot;, win%=&quot;</span>
+<span class="nc" id="L905">              + result2.getWinPercentage() + &quot;, EnemyTUVSwing=&quot; + result2.getTUVSwing() + &quot;, hasLandUnitRemaining=&quot;</span>
+<span class="nc" id="L906">              + result2.isHasLandUnitRemaining());</span>
+        }
+
+        // Find attack value
+<span class="nc bnc" id="L910" title="All 4 branches missed.">        final boolean isNeutral = (!t.isWater() &amp;&amp; t.getOwner().isNull());</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">        final int isLand = !t.isWater() ? 1 : 0;</span>
+<span class="nc bnc" id="L912" title="All 2 branches missed.">        final int isCanHold = canHold ? 1 : 0;</span>
+<span class="nc bnc" id="L913" title="All 4 branches missed.">        final int isCantHoldAmphib = !canHold &amp;&amp; !patd.getAmphibAttackMap().isEmpty() ? 1 : 0;</span>
+<span class="nc bnc" id="L914" title="All 2 branches missed.">        final int isFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t) ? 1 : 0;</span>
+<span class="nc bnc" id="L915" title="All 2 branches missed.">        final int isFFA = ProUtils.isFFA(data, player) ? 1 : 0;</span>
+<span class="nc" id="L916">        final int production = TerritoryAttachment.getProduction(t);</span>
+<span class="nc" id="L917">        double capitalValue = 0;</span>
+<span class="nc" id="L918">        final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L919" title="All 4 branches missed.">        if (ta != null &amp;&amp; ta.isCapital()) {</span>
+<span class="nc" id="L920">          capitalValue = ProUtils.getPlayerProduction(t.getOwner(), data);</span>
+        }
+<span class="nc" id="L922">        final double territoryValue =</span>
+<span class="nc" id="L923">            (1 + isLand - isCantHoldAmphib + isFactory + isCanHold * (1 + 2 * isFFA + 2 * isFactory)) * production</span>
+<span class="nc" id="L924">                + capitalValue;</span>
+<span class="nc" id="L925">        double TUVSwing = result.getTUVSwing();</span>
+<span class="nc bnc" id="L926" title="All 4 branches missed.">        if (isFFA == 1 &amp;&amp; TUVSwing &gt; 0) {</span>
+<span class="nc" id="L927">          TUVSwing *= 0.5;</span>
+        }
+<span class="nc" id="L929">        final double attackValue =</span>
+<span class="nc" id="L930">            TUVSwing + territoryValue * result.getWinPercentage() / 100 - enemyCounterTUVSwing * 2 / 3;</span>
+<span class="nc" id="L931">        boolean allUnitsCanAttackOtherTerritory = true;</span>
+<span class="nc bnc" id="L932" title="All 4 branches missed.">        if (isNeutral &amp;&amp; attackValue &lt; 0) {</span>
+<span class="nc bnc" id="L933" title="All 2 branches missed.">          for (final Unit u : patd.getUnits()) {</span>
+<span class="nc" id="L934">            boolean canAttackOtherTerritory = false;</span>
+<span class="nc bnc" id="L935" title="All 2 branches missed.">            for (final ProTerritory patd2 : prioritizedTerritories) {</span>
+<span class="nc bnc" id="L936" title="All 4 branches missed.">              if (!patd.equals(patd2) &amp;&amp; unitAttackMap.get(u) != null</span>
+<span class="nc bnc" id="L937" title="All 2 branches missed.">                  &amp;&amp; unitAttackMap.get(u).contains(patd2.getTerritory())) {</span>
+<span class="nc" id="L938">                canAttackOtherTerritory = true;</span>
+<span class="nc" id="L939">                break;</span>
+              }
+            }
+<span class="nc bnc" id="L942" title="All 2 branches missed.">            if (!canAttackOtherTerritory) {</span>
+<span class="nc" id="L943">              allUnitsCanAttackOtherTerritory = false;</span>
+<span class="nc" id="L944">              break;</span>
+            }
+          }
+        }
+
+        // Determine whether to remove attack
+<span class="nc bnc" id="L950" title="All 4 branches missed.">        if (!patd.isStrafing() &amp;&amp; (result.getWinPercentage() &lt; ProData.minWinPercentage</span>
+<span class="nc bnc" id="L951" title="All 6 branches missed.">            || !result.isHasLandUnitRemaining() || (isNeutral &amp;&amp; !canHold)</span>
+<span class="nc bnc" id="L952" title="All 8 branches missed.">            || (attackValue &lt; 0 &amp;&amp; (!isNeutral || allUnitsCanAttackOtherTerritory || result.getBattleRounds() &gt;= 4)))) {</span>
+<span class="nc" id="L953">          territoryToRemove = patd;</span>
+        }
+<span class="nc" id="L955">        ProLogger.debug(patd.getResultString() + &quot;, attackValue=&quot; + attackValue + &quot;, territoryValue=&quot; + territoryValue</span>
+<span class="nc" id="L956">            + &quot;, allUnitsCanAttackOtherTerritory=&quot; + allUnitsCanAttackOtherTerritory + &quot; with attackers=&quot;</span>
+<span class="nc" id="L957">            + patd.getUnits());</span>
+      }
+
+      // Determine whether all attacks are successful or try to hold fewer territories
+<span class="nc bnc" id="L961" title="All 2 branches missed.">      if (territoryToRemove == null) {</span>
+<span class="nc" id="L962">        break;</span>
+      } else {
+<span class="nc" id="L964">        prioritizedTerritories.remove(territoryToRemove);</span>
+<span class="nc" id="L965">        ProLogger.debug(&quot;Removing &quot; + territoryToRemove.getTerritory().getName());</span>
+      }
+    }
+<span class="nc" id="L968">  }</span>
+
+  private Map&lt;Unit, Set&lt;Territory&gt;&gt; tryToAttackTerritories(final List&lt;ProTerritory&gt; prioritizedTerritories,
+      final List&lt;Unit&gt; alreadyMovedUnits) {
+
+<span class="nc" id="L973">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+<span class="nc" id="L974">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+<span class="nc" id="L975">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitAttackMap = territoryManager.getAttackOptions().getUnitMoveMap();</span>
+<span class="nc" id="L976">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportAttackMap = territoryManager.getAttackOptions().getTransportMoveMap();</span>
+<span class="nc" id="L977">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardMap = territoryManager.getAttackOptions().getBombardMap();</span>
+<span class="nc" id="L978">    final List&lt;ProTransport&gt; transportMapList = territoryManager.getAttackOptions().getTransportList();</span>
+
+    // Reset lists
+<span class="nc bnc" id="L981" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L982">      attackMap.get(t).getUnits().clear();</span>
+<span class="nc" id="L983">      attackMap.get(t).getBombardTerritoryMap().clear();</span>
+<span class="nc" id="L984">      attackMap.get(t).getAmphibAttackMap().clear();</span>
+<span class="nc" id="L985">      attackMap.get(t).getTransportTerritoryMap().clear();</span>
+<span class="nc" id="L986">      attackMap.get(t).setBattleResult(null);</span>
+    }
+
+    // Loop through all units and determine attack options
+<span class="nc" id="L990">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitAttackOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L991" title="All 2 branches missed.">    for (final Unit unit : unitAttackMap.keySet()) {</span>
+
+      // Find number of attack options
+<span class="nc" id="L994">      final Set&lt;Territory&gt; canAttackTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L995" title="All 2 branches missed.">      for (final ProTerritory attackTerritoryData : prioritizedTerritories) {</span>
+<span class="nc bnc" id="L996" title="All 2 branches missed.">        if (unitAttackMap.get(unit).contains(attackTerritoryData.getTerritory())) {</span>
+<span class="nc" id="L997">          canAttackTerritories.add(attackTerritoryData.getTerritory());</span>
+        }
+      }
+
+      // Add units with attack options to map
+<span class="nc bnc" id="L1002" title="All 2 branches missed.">      if (canAttackTerritories.size() &gt;= 1) {</span>
+<span class="nc" id="L1003">        unitAttackOptions.put(unit, canAttackTerritories);</span>
+      }
+    }
+
+    // Sort units by number of attack options and cost
+<span class="nc" id="L1008">    Map&lt;Unit, Set&lt;Territory&gt;&gt; sortedUnitAttackOptions =</span>
+<span class="nc" id="L1009">        ProSortMoveOptionsUtils.sortUnitMoveOptions(player, unitAttackOptions);</span>
+
+    // Try to set at least one destroyer in each sea territory with subs
+<span class="nc bnc" id="L1012" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1013">      final Unit unit = it.next();</span>
+<span class="nc" id="L1014">      final boolean isDestroyerUnit = UnitAttachment.get(unit.getType()).getIsDestroyer();</span>
+<span class="nc bnc" id="L1015" title="All 2 branches missed.">      if (!isDestroyerUnit) {</span>
+<span class="nc" id="L1016">        continue; // skip non-destroyer units</span>
+      }
+<span class="nc bnc" id="L1018" title="All 2 branches missed.">      for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+
+        // Add destroyer if territory has subs and a destroyer has been already added
+<span class="nc" id="L1021">        final List&lt;Unit&gt; defendingUnits = attackMap.get(t).getMaxEnemyDefenders(player, data);</span>
+<span class="nc bnc" id="L1022" title="All 2 branches missed.">        if (Match.someMatch(defendingUnits, Matches.UnitIsSub)</span>
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">            &amp;&amp; Match.noneMatch(attackMap.get(t).getUnits(), Matches.UnitIsDestroyer)) {</span>
+<span class="nc" id="L1024">          attackMap.get(t).addUnit(unit);</span>
+<span class="nc" id="L1025">          it.remove();</span>
+<span class="nc" id="L1026">          break;</span>
+        }
+      }
+    }
+
+    // Set enough land and sea units in territories to have at least a chance of winning
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1033">      final Unit unit = it.next();</span>
+<span class="nc" id="L1034">      final boolean isAirUnit = UnitAttachment.get(unit.getType()).getIsAir();</span>
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">      if (isAirUnit) {</span>
+<span class="nc" id="L1036">        continue; // skip air units</span>
+      }
+<span class="nc" id="L1038">      final TreeMap&lt;Double, Territory&gt; estimatesMap = new TreeMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1039" title="All 2 branches missed.">      for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc bnc" id="L1040" title="All 4 branches missed.">        if (t.isWater() &amp;&amp; !attackMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1041">          continue; // ignore sea territories that can't be held</span>
+        }
+<span class="nc" id="L1043">        final List&lt;Unit&gt; defendingUnits = attackMap.get(t).getMaxEnemyDefenders(player, data);</span>
+<span class="nc" id="L1044">        double estimate = ProBattleUtils.estimateStrengthDifference(t, attackMap.get(t).getUnits(), defendingUnits);</span>
+<span class="nc" id="L1045">        final boolean hasAA = Match.someMatch(defendingUnits, Matches.UnitIsAAforAnything);</span>
+<span class="nc bnc" id="L1046" title="All 2 branches missed.">        if (hasAA) {</span>
+<span class="nc" id="L1047">          estimate -= 10;</span>
+        }
+<span class="nc" id="L1049">        estimatesMap.put(estimate, t);</span>
+      }
+<span class="nc bnc" id="L1051" title="All 4 branches missed.">      if (!estimatesMap.isEmpty() &amp;&amp; estimatesMap.firstKey() &lt; 40) {</span>
+<span class="nc" id="L1052">        final Territory minWinTerritory = estimatesMap.entrySet().iterator().next().getValue();</span>
+<span class="nc" id="L1053">        attackMap.get(minWinTerritory).addUnit(unit);</span>
+<span class="nc" id="L1054">        it.remove();</span>
+      }
+    }
+
+    // Re-sort attack options
+<span class="nc" id="L1059">    sortedUnitAttackOptions = ProSortMoveOptionsUtils.sortUnitNeededOptionsThenAttack(player, sortedUnitAttackOptions,</span>
+<span class="nc" id="L1060">        attackMap, ProData.unitTerritoryMap, calc);</span>
+
+    // Set non-air units in territories that can be held
+<span class="nc bnc" id="L1063" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1064">      final Unit unit = it.next();</span>
+<span class="nc" id="L1065">      final boolean isAirUnit = UnitAttachment.get(unit.getType()).getIsAir();</span>
+<span class="nc bnc" id="L1066" title="All 2 branches missed.">      if (isAirUnit) {</span>
+<span class="nc" id="L1067">        continue; // skip air units</span>
+      }
+<span class="nc" id="L1069">      Territory minWinTerritory = null;</span>
+<span class="nc" id="L1070">      double minWinPercentage = ProData.winPercentage;</span>
+<span class="nc bnc" id="L1071" title="All 2 branches missed.">      for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc" id="L1072">        final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L1073" title="All 4 branches missed.">        if (!attackMap.get(t).isCurrentlyWins() &amp;&amp; attackMap.get(t).isCanHold()) {</span>
+<span class="nc bnc" id="L1074" title="All 2 branches missed.">          if (attackMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L1075">            attackMap.get(t).setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L1076">                patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+          }
+<span class="nc" id="L1078">          final ProBattleResult result = attackMap.get(t).getBattleResult();</span>
+<span class="nc bnc" id="L1079" title="All 2 branches missed.">          if (result.getWinPercentage() &lt; minWinPercentage</span>
+<span class="nc bnc" id="L1080" title="All 4 branches missed.">              || (!result.isHasLandUnitRemaining() &amp;&amp; minWinTerritory == null)) {</span>
+<span class="nc" id="L1081">            minWinPercentage = result.getWinPercentage();</span>
+<span class="nc" id="L1082">            minWinTerritory = t;</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">      if (minWinTerritory != null) {</span>
+<span class="nc" id="L1087">        attackMap.get(minWinTerritory).addUnit(unit);</span>
+<span class="nc" id="L1088">        attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1089">        it.remove();</span>
+      }
+    }
+
+    // Re-sort attack options
+<span class="nc" id="L1094">    sortedUnitAttackOptions = ProSortMoveOptionsUtils.sortUnitNeededOptionsThenAttack(player, sortedUnitAttackOptions,</span>
+<span class="nc" id="L1095">        attackMap, ProData.unitTerritoryMap, calc);</span>
+
+    // Set air units in territories that can't be held (don't move planes to empty territories)
+<span class="nc bnc" id="L1098" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1099">      final Unit unit = it.next();</span>
+<span class="nc" id="L1100">      final boolean isAirUnit = UnitAttachment.get(unit.getType()).getIsAir();</span>
+<span class="nc bnc" id="L1101" title="All 2 branches missed.">      if (!isAirUnit) {</span>
+<span class="nc" id="L1102">        continue; // skip non-air units</span>
+      }
+<span class="nc" id="L1104">      Territory minWinTerritory = null;</span>
+<span class="nc" id="L1105">      double minWinPercentage = ProData.winPercentage;</span>
+<span class="nc bnc" id="L1106" title="All 2 branches missed.">      for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc" id="L1107">        final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L1108" title="All 4 branches missed.">        if (!patd.isCurrentlyWins() &amp;&amp; !patd.isCanHold()) {</span>
+
+          // Check if air unit should avoid this territory due to no guaranteed safe landing location
+<span class="nc" id="L1111">          final boolean isEnemyCapital = ProUtils.getLiveEnemyCapitals(data, player).contains(t);</span>
+<span class="nc" id="L1112">          final boolean isAdjacentToAlliedCapital = Matches.territoryHasNeighborMatching(data,</span>
+<span class="nc" id="L1113">              Matches.territoryIsInList(ProUtils.getLiveAlliedCapitals(data, player))).match(t);</span>
+<span class="nc" id="L1114">          final int range = TripleAUnit.get(unit).getMovementLeft();</span>
+<span class="nc" id="L1115">          final int distance = data.getMap().getDistance_IgnoreEndForCondition(ProData.unitTerritoryMap.get(unit), t,</span>
+<span class="nc" id="L1116">              ProMatches.territoryCanMoveAirUnitsAndNoAA(player, data, true));</span>
+<span class="nc bnc" id="L1117" title="All 2 branches missed.">          final boolean usesMoreThanHalfOfRange = distance &gt; range / 2;</span>
+<span class="nc bnc" id="L1118" title="All 8 branches missed.">          if (isAirUnit &amp;&amp; !isEnemyCapital &amp;&amp; !isAdjacentToAlliedCapital &amp;&amp; usesMoreThanHalfOfRange) {</span>
+<span class="nc" id="L1119">            continue;</span>
+          }
+
+          // Check battle results
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">          if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L1124">            patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L1125">                patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+          }
+<span class="nc" id="L1127">          final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L1128" title="All 2 branches missed.">          if (result.getWinPercentage() &lt; minWinPercentage</span>
+<span class="nc bnc" id="L1129" title="All 4 branches missed.">              || (!result.isHasLandUnitRemaining() &amp;&amp; minWinTerritory == null)) {</span>
+<span class="nc" id="L1130">            final List&lt;Unit&gt; defendingUnits = patd.getMaxEnemyDefenders(player, data);</span>
+<span class="nc" id="L1131">            final boolean hasNoDefenders =</span>
+<span class="nc" id="L1132">                Match.noneMatch(defendingUnits, ProMatches.unitIsEnemyAndNotInfa(player, data));</span>
+<span class="nc" id="L1133">            final boolean isOverwhelmingWin =</span>
+<span class="nc" id="L1134">                ProBattleUtils.checkForOverwhelmingWin(player, t, patd.getUnits(), defendingUnits);</span>
+<span class="nc" id="L1135">            final boolean hasAA = Match.someMatch(defendingUnits, Matches.UnitIsAAforAnything);</span>
+<span class="nc bnc" id="L1136" title="All 8 branches missed.">            if (!hasNoDefenders &amp;&amp; !isOverwhelmingWin &amp;&amp; (!hasAA || result.getWinPercentage() &lt; minWinPercentage)) {</span>
+<span class="nc" id="L1137">              minWinPercentage = result.getWinPercentage();</span>
+<span class="nc" id="L1138">              minWinTerritory = t;</span>
+<span class="nc bnc" id="L1139" title="All 2 branches missed.">              if (patd.isStrafing()) {</span>
+<span class="nc" id="L1140">                break;</span>
+              }
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L1146" title="All 2 branches missed.">      if (minWinTerritory != null) {</span>
+<span class="nc" id="L1147">        attackMap.get(minWinTerritory).addUnit(unit);</span>
+<span class="nc" id="L1148">        attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1149">        it.remove();</span>
+      }
+    }
+
+    // Re-sort attack options
+<span class="nc" id="L1154">    sortedUnitAttackOptions = ProSortMoveOptionsUtils.sortUnitNeededOptionsThenAttack(player, sortedUnitAttackOptions,</span>
+<span class="nc" id="L1155">        attackMap, ProData.unitTerritoryMap, calc);</span>
+
+    // Set remaining units in any territory that needs it (don't move planes to empty territories)
+<span class="nc bnc" id="L1158" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = sortedUnitAttackOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1159">      final Unit unit = it.next();</span>
+<span class="nc" id="L1160">      final boolean isAirUnit = UnitAttachment.get(unit.getType()).getIsAir();</span>
+<span class="nc" id="L1161">      Territory minWinTerritory = null;</span>
+<span class="nc" id="L1162">      double minWinPercentage = ProData.winPercentage;</span>
+<span class="nc bnc" id="L1163" title="All 2 branches missed.">      for (final Territory t : sortedUnitAttackOptions.get(unit)) {</span>
+<span class="nc" id="L1164">        final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L1165" title="All 2 branches missed.">        if (!patd.isCurrentlyWins()) {</span>
+
+          // Check if air unit should avoid this territory due to no guaranteed safe landing location
+<span class="nc" id="L1168">          final boolean isAdjacentToAlliedFactory = Matches</span>
+<span class="nc" id="L1169">              .territoryHasNeighborMatching(data, ProMatches.territoryHasInfraFactoryAndIsAlliedLand(player, data))</span>
+<span class="nc" id="L1170">              .match(t);</span>
+<span class="nc" id="L1171">          final int range = TripleAUnit.get(unit).getMovementLeft();</span>
+<span class="nc" id="L1172">          final int distance = data.getMap().getDistance_IgnoreEndForCondition(ProData.unitTerritoryMap.get(unit), t,</span>
+<span class="nc" id="L1173">              ProMatches.territoryCanMoveAirUnitsAndNoAA(player, data, true));</span>
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">          final boolean usesMoreThanHalfOfRange = distance &gt; range / 2;</span>
+<span class="nc" id="L1175">          final boolean territoryValueIsLessThanUnitValue =</span>
+<span class="nc bnc" id="L1176" title="All 2 branches missed.">              patd.getValue() &lt; ProData.unitValueMap.getInt(unit.getType());</span>
+<span class="nc bnc" id="L1177" title="All 6 branches missed.">          if (isAirUnit &amp;&amp; !isAdjacentToAlliedFactory &amp;&amp; usesMoreThanHalfOfRange</span>
+<span class="nc bnc" id="L1178" title="All 6 branches missed.">              &amp;&amp; (territoryValueIsLessThanUnitValue || (!t.isWater() &amp;&amp; !patd.isCanHold()))) {</span>
+<span class="nc" id="L1179">            continue;</span>
+          }
+<span class="nc bnc" id="L1181" title="All 2 branches missed.">          if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L1182">            patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L1183">                patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+          }
+<span class="nc" id="L1185">          final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L1186" title="All 2 branches missed.">          if (result.getWinPercentage() &lt; minWinPercentage</span>
+<span class="nc bnc" id="L1187" title="All 4 branches missed.">              || (!result.isHasLandUnitRemaining() &amp;&amp; minWinTerritory == null)) {</span>
+<span class="nc" id="L1188">            final List&lt;Unit&gt; defendingUnits = patd.getMaxEnemyDefenders(player, data);</span>
+<span class="nc" id="L1189">            final boolean hasNoDefenders =</span>
+<span class="nc" id="L1190">                Match.noneMatch(defendingUnits, ProMatches.unitIsEnemyAndNotInfa(player, data));</span>
+<span class="nc" id="L1191">            final boolean isOverwhelmingWin =</span>
+<span class="nc" id="L1192">                ProBattleUtils.checkForOverwhelmingWin(player, t, patd.getUnits(), defendingUnits);</span>
+<span class="nc" id="L1193">            final boolean hasAA = Match.someMatch(defendingUnits, Matches.UnitIsAAforAnything);</span>
+<span class="nc bnc" id="L1194" title="All 6 branches missed.">            if (!isAirUnit || (!hasNoDefenders &amp;&amp; !isOverwhelmingWin</span>
+<span class="nc bnc" id="L1195" title="All 4 branches missed.">                &amp;&amp; (!hasAA || result.getWinPercentage() &lt; minWinPercentage))) {</span>
+<span class="nc" id="L1196">              minWinPercentage = result.getWinPercentage();</span>
+<span class="nc" id="L1197">              minWinTerritory = t;</span>
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">      if (minWinTerritory != null) {</span>
+<span class="nc" id="L1203">        attackMap.get(minWinTerritory).addUnit(unit);</span>
+<span class="nc" id="L1204">        attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1205">        it.remove();</span>
+      }
+    }
+
+    // Re-sort attack options
+<span class="nc" id="L1210">    sortedUnitAttackOptions =</span>
+<span class="nc" id="L1211">        ProSortMoveOptionsUtils.sortUnitNeededOptions(player, sortedUnitAttackOptions, attackMap, calc);</span>
+
+    // If transports can take casualties try placing in naval battles first
+<span class="nc" id="L1214">    final List&lt;Unit&gt; alreadyAttackedWithTransports = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1215" title="All 2 branches missed.">    if (!Properties.getTransportCasualtiesRestricted(data)) {</span>
+
+      // Loop through all my transports and see which territories they can attack from current list
+<span class="nc" id="L1218">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportAttackOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1219" title="All 2 branches missed.">      for (final Unit unit : transportAttackMap.keySet()) {</span>
+
+        // Find number of attack options
+<span class="nc" id="L1222">        final Set&lt;Territory&gt; canAttackTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1223" title="All 2 branches missed.">        for (final ProTerritory attackTerritoryData : prioritizedTerritories) {</span>
+<span class="nc bnc" id="L1224" title="All 2 branches missed.">          if (transportAttackMap.get(unit).contains(attackTerritoryData.getTerritory())) {</span>
+<span class="nc" id="L1225">            canAttackTerritories.add(attackTerritoryData.getTerritory());</span>
+          }
+        }
+<span class="nc bnc" id="L1228" title="All 2 branches missed.">        if (!canAttackTerritories.isEmpty()) {</span>
+<span class="nc" id="L1229">          transportAttackOptions.put(unit, canAttackTerritories);</span>
+        }
+      }
+
+      // Loop through transports with attack options and determine if any naval battle needs it
+<span class="nc bnc" id="L1234" title="All 2 branches missed.">      for (final Unit transport : transportAttackOptions.keySet()) {</span>
+
+        // Find current naval battle that needs transport if it isn't transporting units
+<span class="nc bnc" id="L1237" title="All 2 branches missed.">        for (final Territory t : transportAttackOptions.get(transport)) {</span>
+<span class="nc" id="L1238">          final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc" id="L1239">          final List&lt;Unit&gt; defendingUnits = patd.getMaxEnemyDefenders(player, data);</span>
+<span class="nc bnc" id="L1240" title="All 6 branches missed.">          if (!patd.isCurrentlyWins() &amp;&amp; !TransportTracker.isTransporting(transport) &amp;&amp; !defendingUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L1241" title="All 2 branches missed.">            if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L1242">              patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L1243">                  patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+            }
+<span class="nc" id="L1245">            final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L1246" title="All 4 branches missed.">            if (result.getWinPercentage() &lt; ProData.winPercentage || !result.isHasLandUnitRemaining()) {</span>
+<span class="nc" id="L1247">              patd.addUnit(transport);</span>
+<span class="nc" id="L1248">              patd.setBattleResult(null);</span>
+<span class="nc" id="L1249">              alreadyAttackedWithTransports.add(transport);</span>
+<span class="nc" id="L1250">              ProLogger.trace(&quot;Adding attack transport to: &quot; + t.getName());</span>
+<span class="nc" id="L1251">              break;</span>
+            }
+          }
+        }
+      }
+    }
+
+    // Loop through all my transports and see which can make amphib attack
+<span class="nc" id="L1259">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; amphibAttackOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1260" title="All 2 branches missed.">    for (final ProTransport proTransportData : transportMapList) {</span>
+
+      // If already used to attack then ignore
+<span class="nc bnc" id="L1263" title="All 2 branches missed.">      if (alreadyAttackedWithTransports.contains(proTransportData.getTransport())) {</span>
+<span class="nc" id="L1264">        continue;</span>
+      }
+
+      // Find number of attack options
+<span class="nc" id="L1268">      final Set&lt;Territory&gt; canAmphibAttackTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1269" title="All 2 branches missed.">      for (final ProTerritory attackTerritoryData : prioritizedTerritories) {</span>
+<span class="nc bnc" id="L1270" title="All 2 branches missed.">        if (proTransportData.getTransportMap().containsKey(attackTerritoryData.getTerritory())) {</span>
+<span class="nc" id="L1271">          canAmphibAttackTerritories.add(attackTerritoryData.getTerritory());</span>
+        }
+      }
+<span class="nc bnc" id="L1274" title="All 2 branches missed.">      if (!canAmphibAttackTerritories.isEmpty()) {</span>
+<span class="nc" id="L1275">        amphibAttackOptions.put(proTransportData.getTransport(), canAmphibAttackTerritories);</span>
+      }
+    }
+
+    // Loop through transports with amphib attack options and determine if any land battle needs it
+<span class="nc bnc" id="L1280" title="All 2 branches missed.">    for (final Unit transport : amphibAttackOptions.keySet()) {</span>
+
+      // Find current land battle results for territories that unit can amphib attack
+<span class="nc" id="L1283">      Territory minWinTerritory = null;</span>
+<span class="nc" id="L1284">      double minWinPercentage = ProData.winPercentage;</span>
+<span class="nc" id="L1285">      List&lt;Unit&gt; minAmphibUnitsToAdd = null;</span>
+<span class="nc" id="L1286">      Territory minUnloadFromTerritory = null;</span>
+<span class="nc bnc" id="L1287" title="All 2 branches missed.">      for (final Territory t : amphibAttackOptions.get(transport)) {</span>
+<span class="nc" id="L1288">        final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L1289" title="All 2 branches missed.">        if (!patd.isCurrentlyWins()) {</span>
+<span class="nc bnc" id="L1290" title="All 2 branches missed.">          if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L1291">            patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L1292">                patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+          }
+<span class="nc" id="L1294">          final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L1295" title="All 2 branches missed.">          if (result.getWinPercentage() &lt; minWinPercentage</span>
+<span class="nc bnc" id="L1296" title="All 4 branches missed.">              || (!result.isHasLandUnitRemaining() &amp;&amp; minWinTerritory == null)) {</span>
+
+            // Get all units that have already attacked
+<span class="nc" id="L1299">            final List&lt;Unit&gt; alreadyAttackedWithUnits = new ArrayList&lt;&gt;(alreadyMovedUnits);</span>
+<span class="nc bnc" id="L1300" title="All 2 branches missed.">            for (final Territory t2 : attackMap.keySet()) {</span>
+<span class="nc" id="L1301">              alreadyAttackedWithUnits.addAll(attackMap.get(t2).getUnits());</span>
+            }
+
+            // Find units that haven't attacked and can be transported
+<span class="nc bnc" id="L1305" title="All 2 branches missed.">            for (final ProTransport proTransportData : transportMapList) {</span>
+<span class="nc bnc" id="L1306" title="All 2 branches missed.">              if (proTransportData.getTransport().equals(transport)) {</span>
+
+                // Find units to load
+<span class="nc" id="L1309">                final Set&lt;Territory&gt; territoriesCanLoadFrom = proTransportData.getTransportMap().get(t);</span>
+<span class="nc" id="L1310">                final List&lt;Unit&gt; amphibUnitsToAdd = ProTransportUtils.getUnitsToTransportFromTerritories(player,</span>
+<span class="nc" id="L1311">                    transport, territoriesCanLoadFrom, alreadyAttackedWithUnits);</span>
+<span class="nc bnc" id="L1312" title="All 2 branches missed.">                if (amphibUnitsToAdd.isEmpty()) {</span>
+<span class="nc" id="L1313">                  continue;</span>
+                }
+
+                // Find best territory to move transport
+<span class="nc" id="L1317">                double minStrengthDifference = Double.POSITIVE_INFINITY;</span>
+<span class="nc" id="L1318">                minUnloadFromTerritory = null;</span>
+<span class="nc" id="L1319">                final Set&lt;Territory&gt; territoriesToMoveTransport =</span>
+<span class="nc" id="L1320">                    data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, false));</span>
+<span class="nc" id="L1321">                final Set&lt;Territory&gt; loadFromTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1322" title="All 2 branches missed.">                for (final Unit u : amphibUnitsToAdd) {</span>
+<span class="nc" id="L1323">                  loadFromTerritories.add(ProData.unitTerritoryMap.get(u));</span>
+                }
+<span class="nc bnc" id="L1325" title="All 2 branches missed.">                for (final Territory territoryToMoveTransport : territoriesToMoveTransport) {</span>
+<span class="nc bnc" id="L1326" title="All 2 branches missed.">                  if (proTransportData.getSeaTransportMap().containsKey(territoryToMoveTransport) &amp;&amp; proTransportData</span>
+<span class="nc bnc" id="L1327" title="All 2 branches missed.">                      .getSeaTransportMap().get(territoryToMoveTransport).containsAll(loadFromTerritories)) {</span>
+<span class="nc" id="L1328">                    List&lt;Unit&gt; attackers = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1329" title="All 2 branches missed.">                    if (enemyAttackOptions.getMax(territoryToMoveTransport) != null) {</span>
+<span class="nc" id="L1330">                      attackers = enemyAttackOptions.getMax(territoryToMoveTransport).getMaxUnits();</span>
+                    }
+<span class="nc" id="L1332">                    final List&lt;Unit&gt; defenders =</span>
+<span class="nc" id="L1333">                        territoryToMoveTransport.getUnits().getMatches(Matches.isUnitAllied(player, data));</span>
+<span class="nc" id="L1334">                    defenders.add(transport);</span>
+<span class="nc" id="L1335">                    final double strengthDifference =</span>
+<span class="nc" id="L1336">                        ProBattleUtils.estimateStrengthDifference(territoryToMoveTransport, attackers, defenders);</span>
+<span class="nc bnc" id="L1337" title="All 2 branches missed.">                    if (strengthDifference &lt; minStrengthDifference) {</span>
+<span class="nc" id="L1338">                      minStrengthDifference = strengthDifference;</span>
+<span class="nc" id="L1339">                      minUnloadFromTerritory = territoryToMoveTransport;</span>
+                    }
+                  }
+                }
+<span class="nc" id="L1343">                minWinTerritory = t;</span>
+<span class="nc" id="L1344">                minWinPercentage = result.getWinPercentage();</span>
+<span class="nc" id="L1345">                minAmphibUnitsToAdd = amphibUnitsToAdd;</span>
+<span class="nc" id="L1346">                break;</span>
+              }
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L1352" title="All 2 branches missed.">      if (minWinTerritory != null) {</span>
+<span class="nc bnc" id="L1353" title="All 2 branches missed.">        if (minUnloadFromTerritory != null) {</span>
+<span class="nc" id="L1354">          attackMap.get(minWinTerritory).getTransportTerritoryMap().put(transport, minUnloadFromTerritory);</span>
+        }
+<span class="nc" id="L1356">        attackMap.get(minWinTerritory).addUnits(minAmphibUnitsToAdd);</span>
+<span class="nc" id="L1357">        attackMap.get(minWinTerritory).putAmphibAttackMap(transport, minAmphibUnitsToAdd);</span>
+<span class="nc" id="L1358">        attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc bnc" id="L1359" title="All 2 branches missed.">        for (final Unit unit : minAmphibUnitsToAdd) {</span>
+<span class="nc" id="L1360">          sortedUnitAttackOptions.remove(unit);</span>
+        }
+<span class="nc" id="L1362">        ProLogger.trace(&quot;Adding amphibious attack to &quot; + minWinTerritory + &quot;, units=&quot; + minAmphibUnitsToAdd.size()</span>
+<span class="nc" id="L1363">            + &quot;, unloadFrom=&quot; + minUnloadFromTerritory);</span>
+      }
+    }
+
+    // Get all units that have already moved
+<span class="nc" id="L1368">    final Set&lt;Unit&gt; alreadyAttackedWithUnits = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1369" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L1370">      alreadyAttackedWithUnits.addAll(attackMap.get(t).getUnits());</span>
+<span class="nc" id="L1371">      alreadyAttackedWithUnits.addAll(attackMap.get(t).getAmphibAttackMap().keySet());</span>
+    }
+
+    // Loop through all my bombard units and see which can bombard
+<span class="nc" id="L1375">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1376" title="All 2 branches missed.">    for (final Unit u : bombardMap.keySet()) {</span>
+
+      // If already used to attack then ignore
+<span class="nc bnc" id="L1379" title="All 2 branches missed.">      if (alreadyAttackedWithUnits.contains(u)) {</span>
+<span class="nc" id="L1380">        continue;</span>
+      }
+
+      // Find number of bombard options
+<span class="nc" id="L1384">      final Set&lt;Territory&gt; canBombardTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1385" title="All 2 branches missed.">      for (final ProTerritory patd : prioritizedTerritories) {</span>
+<span class="nc" id="L1386">        final List&lt;Unit&gt; defendingUnits = patd.getMaxEnemyDefenders(player, data);</span>
+<span class="nc" id="L1387">        final boolean hasDefenders = Match.someMatch(defendingUnits, Matches.UnitIsInfrastructure.invert());</span>
+<span class="nc bnc" id="L1388" title="All 4 branches missed.">        if (bombardMap.get(u).contains(patd.getTerritory()) &amp;&amp; !patd.getTransportTerritoryMap().isEmpty()</span>
+<span class="nc bnc" id="L1389" title="All 4 branches missed.">            &amp;&amp; hasDefenders &amp;&amp; !TransportTracker.isTransporting(u)) {</span>
+<span class="nc" id="L1390">          canBombardTerritories.add(patd.getTerritory());</span>
+        }
+      }
+<span class="nc bnc" id="L1393" title="All 2 branches missed.">      if (!canBombardTerritories.isEmpty()) {</span>
+<span class="nc" id="L1394">        bombardOptions.put(u, canBombardTerritories);</span>
+      }
+    }
+
+    // Loop through bombard units to see if any amphib battles need
+<span class="nc bnc" id="L1399" title="All 2 branches missed.">    for (final Unit u : bombardOptions.keySet()) {</span>
+
+      // Find current land battle results for territories that unit can bombard
+<span class="nc" id="L1402">      Territory minWinTerritory = null;</span>
+<span class="nc" id="L1403">      double minWinPercentage = Double.MAX_VALUE;</span>
+<span class="nc" id="L1404">      Territory minBombardFromTerritory = null;</span>
+<span class="nc bnc" id="L1405" title="All 2 branches missed.">      for (final Territory t : bombardOptions.get(u)) {</span>
+<span class="nc" id="L1406">        final ProTerritory patd = attackMap.get(t);</span>
+<span class="nc bnc" id="L1407" title="All 2 branches missed.">        if (patd.getBattleResult() == null) {</span>
+<span class="nc" id="L1408">          patd.setBattleResult(calc.estimateAttackBattleResults(player, t, patd.getUnits(),</span>
+<span class="nc" id="L1409">              patd.getMaxEnemyDefenders(player, data), patd.getBombardTerritoryMap().keySet()));</span>
+        }
+<span class="nc" id="L1411">        final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc bnc" id="L1412" title="All 2 branches missed.">        if (result.getWinPercentage() &lt; minWinPercentage</span>
+<span class="nc bnc" id="L1413" title="All 4 branches missed.">            || (!result.isHasLandUnitRemaining() &amp;&amp; minWinTerritory == null)) {</span>
+
+          // Find territory to bombard from
+<span class="nc" id="L1416">          Territory bombardFromTerritory = null;</span>
+<span class="nc bnc" id="L1417" title="All 2 branches missed.">          for (final Territory unloadFromTerritory : patd.getTransportTerritoryMap().values()) {</span>
+<span class="nc bnc" id="L1418" title="All 2 branches missed.">            if (patd.getBombardOptionsMap().get(u).contains(unloadFromTerritory)) {</span>
+<span class="nc" id="L1419">              bombardFromTerritory = unloadFromTerritory;</span>
+            }
+          }
+<span class="nc bnc" id="L1422" title="All 2 branches missed.">          if (bombardFromTerritory != null) {</span>
+<span class="nc" id="L1423">            minWinTerritory = t;</span>
+<span class="nc" id="L1424">            minWinPercentage = result.getWinPercentage();</span>
+<span class="nc" id="L1425">            minBombardFromTerritory = bombardFromTerritory;</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L1429" title="All 2 branches missed.">      if (minWinTerritory != null) {</span>
+<span class="nc" id="L1430">        attackMap.get(minWinTerritory).getBombardTerritoryMap().put(u, minBombardFromTerritory);</span>
+<span class="nc" id="L1431">        attackMap.get(minWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1432">        sortedUnitAttackOptions.remove(u);</span>
+<span class="nc" id="L1433">        ProLogger.trace(</span>
+<span class="nc" id="L1434">            &quot;Adding bombard to &quot; + minWinTerritory + &quot;, units=&quot; + u + &quot;, bombardFrom=&quot; + minBombardFromTerritory);</span>
+      }
+    }
+<span class="nc" id="L1437">    return sortedUnitAttackOptions;</span>
+  }
+
+  private void removeAttacksUntilCapitalCanBeHeld(final List&lt;ProTerritory&gt; prioritizedTerritories,
+      final List&lt;ProPurchaseOption&gt; landPurchaseOptions) {
+
+<span class="nc" id="L1443">    ProLogger.info(&quot;Check capital defenses after attack moves&quot;);</span>
+
+<span class="nc" id="L1445">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+
+<span class="nc" id="L1447">    final Territory myCapital = ProData.myCapital;</span>
+
+    // Add max purchase defenders to capital for non-mobile factories (don't consider mobile factories since they may
+    // move elsewhere)
+<span class="nc" id="L1451">    final List&lt;Unit&gt; placeUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1452" title="All 2 branches missed.">    if (ProMatches.territoryHasNonMobileInfraFactoryAndIsNotConqueredOwnedLand(player, data).match(myCapital)) {</span>
+<span class="nc" id="L1453">      placeUnits.addAll(ProPurchaseUtils.findMaxPurchaseDefenders(player, myCapital, landPurchaseOptions));</span>
+    }
+
+    // Remove attack until capital can be defended
+    while (true) {
+<span class="nc bnc" id="L1458" title="All 2 branches missed.">      if (prioritizedTerritories.isEmpty()) {</span>
+<span class="nc" id="L1459">        break;</span>
+      }
+
+      // Determine max enemy counter attack units
+<span class="nc" id="L1463">      final List&lt;Territory&gt; territoriesToAttack = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1464" title="All 2 branches missed.">      for (final ProTerritory t : prioritizedTerritories) {</span>
+<span class="nc" id="L1465">        territoriesToAttack.add(t.getTerritory());</span>
+      }
+<span class="nc" id="L1467">      ProLogger.trace(&quot;Remaining territories to attack=&quot; + territoriesToAttack);</span>
+<span class="nc" id="L1468">      final List&lt;Territory&gt; territoriesToCheck = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1469">      territoriesToCheck.add(myCapital);</span>
+<span class="nc" id="L1470">      territoryManager.populateEnemyAttackOptions(territoriesToAttack, territoriesToCheck);</span>
+<span class="nc" id="L1471">      final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+<span class="nc bnc" id="L1472" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(myCapital) == null) {</span>
+<span class="nc" id="L1473">        break;</span>
+      }
+
+      // Find max remaining defenders
+<span class="nc" id="L1477">      final Set&lt;Territory&gt; territoriesAdjacentToCapital =</span>
+<span class="nc" id="L1478">          data.getMap().getNeighbors(myCapital, Matches.TerritoryIsLand);</span>
+<span class="nc" id="L1479">      final List&lt;Unit&gt; defenders = myCapital.getUnits().getMatches(Matches.isUnitAllied(player, data));</span>
+<span class="nc" id="L1480">      defenders.addAll(placeUnits);</span>
+<span class="nc bnc" id="L1481" title="All 2 branches missed.">      for (final Territory t : territoriesAdjacentToCapital) {</span>
+<span class="nc" id="L1482">        defenders.addAll(t.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedLand(player, false)));</span>
+      }
+<span class="nc bnc" id="L1484" title="All 2 branches missed.">      for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L1485">        defenders.removeAll(attackMap.get(t).getUnits());</span>
+      }
+
+      // Determine counter attack results to see if I can hold it
+<span class="nc" id="L1489">      final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(myCapital).getMaxUnits());</span>
+<span class="nc" id="L1490">      enemyAttackingUnits.addAll(enemyAttackOptions.getMax(myCapital).getMaxAmphibUnits());</span>
+<span class="nc" id="L1491">      final ProBattleResult result = calc.estimateDefendBattleResults(player, myCapital,</span>
+<span class="nc" id="L1492">          new ArrayList&lt;&gt;(enemyAttackingUnits), defenders, enemyAttackOptions.getMax(myCapital).getMaxBombardUnits());</span>
+<span class="nc" id="L1493">      ProLogger.trace(&quot;Current capital result hasLandUnitRemaining=&quot; + result.isHasLandUnitRemaining() + &quot;, TUVSwing=&quot;</span>
+<span class="nc" id="L1494">          + result.getTUVSwing() + &quot;, defenders=&quot; + defenders.size() + &quot;, attackers=&quot; + enemyAttackingUnits.size());</span>
+
+      // Determine attack that uses the most units per value from capital and remove it
+<span class="nc bnc" id="L1497" title="All 2 branches missed.">      if (result.isHasLandUnitRemaining()) {</span>
+<span class="nc" id="L1498">        double maxUnitsNearCapitalPerValue = 0.0;</span>
+<span class="nc" id="L1499">        Territory maxTerritory = null;</span>
+<span class="nc" id="L1500">        final Set&lt;Territory&gt; territoriesNearCapital = data.getMap().getNeighbors(myCapital, Matches.TerritoryIsLand);</span>
+<span class="nc" id="L1501">        territoriesNearCapital.add(myCapital);</span>
+<span class="nc bnc" id="L1502" title="All 2 branches missed.">        for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L1503">          int unitsNearCapital = 0;</span>
+<span class="nc bnc" id="L1504" title="All 2 branches missed.">          for (final Unit u : attackMap.get(t).getUnits()) {</span>
+<span class="nc bnc" id="L1505" title="All 2 branches missed.">            if (territoriesNearCapital.contains(ProData.unitTerritoryMap.get(u))) {</span>
+<span class="nc" id="L1506">              unitsNearCapital++;</span>
+            }
+          }
+<span class="nc" id="L1509">          final double unitsNearCapitalPerValue = unitsNearCapital / attackMap.get(t).getValue();</span>
+<span class="nc" id="L1510">          ProLogger.trace(t.getName() + &quot; has unit near capital per value: &quot; + unitsNearCapitalPerValue);</span>
+<span class="nc bnc" id="L1511" title="All 2 branches missed.">          if (unitsNearCapitalPerValue &gt; maxUnitsNearCapitalPerValue) {</span>
+<span class="nc" id="L1512">            maxUnitsNearCapitalPerValue = unitsNearCapitalPerValue;</span>
+<span class="nc" id="L1513">            maxTerritory = t;</span>
+          }
+        }
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">        if (maxTerritory != null) {</span>
+<span class="nc" id="L1517">          prioritizedTerritories.remove(attackMap.get(maxTerritory));</span>
+<span class="nc" id="L1518">          attackMap.get(maxTerritory).getUnits().clear();</span>
+<span class="nc" id="L1519">          attackMap.get(maxTerritory).getAmphibAttackMap().clear();</span>
+<span class="nc" id="L1520">          attackMap.get(maxTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1521">          ProLogger.debug(&quot;Removing territory to try to hold capital: &quot; + maxTerritory.getName());</span>
+        } else {
+          break;
+        }
+<span class="nc" id="L1525">      } else {</span>
+<span class="nc" id="L1526">        ProLogger.debug(&quot;Can hold capital: &quot; + myCapital.getName());</span>
+        break;
+      }
+    }
+<span class="nc" id="L1530">  }</span>
+
+  private void checkContestedSeaTerritories() {
+
+<span class="nc" id="L1534">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+
+<span class="nc bnc" id="L1536" title="All 2 branches missed.">    for (final Territory t : ProData.myUnitTerritories) {</span>
+<span class="nc bnc" id="L1537" title="All 4 branches missed.">      if (t.isWater() &amp;&amp; Matches.territoryHasEnemyUnits(player, data).match(t)</span>
+<span class="nc bnc" id="L1538" title="All 4 branches missed.">          &amp;&amp; (attackMap.get(t) == null || attackMap.get(t).getUnits().isEmpty())) {</span>
+
+        // Move into random adjacent safe sea territory
+<span class="nc" id="L1541">        final Set&lt;Territory&gt; possibleMoveTerritories =</span>
+<span class="nc" id="L1542">            data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnitsThrough(player, data, true));</span>
+<span class="nc bnc" id="L1543" title="All 2 branches missed.">        if (!possibleMoveTerritories.isEmpty()) {</span>
+<span class="nc" id="L1544">          final Territory moveToTerritory = possibleMoveTerritories.iterator().next();</span>
+<span class="nc" id="L1545">          final List&lt;Unit&gt; mySeaUnits = t.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedSea(player, true));</span>
+<span class="nc bnc" id="L1546" title="All 2 branches missed.">          if (attackMap.containsKey(moveToTerritory)) {</span>
+<span class="nc" id="L1547">            attackMap.get(moveToTerritory).addUnits(mySeaUnits);</span>
+<span class="nc" id="L1548">          } else {</span>
+<span class="nc" id="L1549">            final ProTerritory moveTerritoryData = new ProTerritory(moveToTerritory);</span>
+<span class="nc" id="L1550">            moveTerritoryData.addUnits(mySeaUnits);</span>
+<span class="nc" id="L1551">            attackMap.put(moveToTerritory, moveTerritoryData);</span>
+          }
+<span class="nc" id="L1553">          ProLogger.info(t + &quot; is a contested territory so moving subs to &quot; + moveToTerritory);</span>
+        }
+      }
+    }
+<span class="nc" id="L1557">  }</span>
+
+  private void logAttackMoves(final List&lt;ProTerritory&gt; prioritizedTerritories) {
+
+<span class="nc" id="L1561">    final Map&lt;Territory, ProTerritory&gt; attackMap = territoryManager.getAttackOptions().getTerritoryMap();</span>
+
+    // Print prioritization
+<span class="nc" id="L1564">    ProLogger.debug(&quot;Prioritized territories:&quot;);</span>
+<span class="nc bnc" id="L1565" title="All 2 branches missed.">    for (final ProTerritory attackTerritoryData : prioritizedTerritories) {</span>
+<span class="nc" id="L1566">      ProLogger.trace(&quot;  &quot; + attackTerritoryData.getMaxBattleResult().getTUVSwing() + &quot;  &quot;</span>
+<span class="nc" id="L1567">          + attackTerritoryData.getValue() + &quot;  &quot; + attackTerritoryData.getTerritory().getName());</span>
+    }
+
+    // Print enemy territories with enemy units vs my units
+<span class="nc" id="L1571">    ProLogger.debug(&quot;Territories that can be attacked:&quot;);</span>
+<span class="nc" id="L1572">    int count = 0;</span>
+<span class="nc bnc" id="L1573" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L1574">      count++;</span>
+<span class="nc" id="L1575">      ProLogger.trace(count + &quot;. ---&quot; + t.getName());</span>
+<span class="nc" id="L1576">      final Set&lt;Unit&gt; combinedUnits = new HashSet&lt;&gt;(attackMap.get(t).getMaxUnits());</span>
+<span class="nc" id="L1577">      combinedUnits.addAll(attackMap.get(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L1578">      ProLogger.trace(&quot;  --- My max units ---&quot;);</span>
+<span class="nc" id="L1579">      final Map&lt;String, Integer&gt; printMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1580" title="All 2 branches missed.">      for (final Unit unit : combinedUnits) {</span>
+<span class="nc bnc" id="L1581" title="All 2 branches missed.">        if (printMap.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1582">          printMap.put(unit.toStringNoOwner(), printMap.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1583">        } else {</span>
+<span class="nc" id="L1584">          printMap.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L1587" title="All 2 branches missed.">      for (final String key : printMap.keySet()) {</span>
+<span class="nc" id="L1588">        ProLogger.trace(&quot;    &quot; + printMap.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L1590">      ProLogger.trace(&quot;  --- My max bombard units ---&quot;);</span>
+<span class="nc" id="L1591">      final Map&lt;String, Integer&gt; printBombardMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1592" title="All 2 branches missed.">      for (final Unit unit : attackMap.get(t).getMaxBombardUnits()) {</span>
+<span class="nc bnc" id="L1593" title="All 2 branches missed.">        if (printBombardMap.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1594">          printBombardMap.put(unit.toStringNoOwner(), printBombardMap.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1595">        } else {</span>
+<span class="nc" id="L1596">          printBombardMap.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L1599" title="All 2 branches missed.">      for (final String key : printBombardMap.keySet()) {</span>
+<span class="nc" id="L1600">        ProLogger.trace(&quot;    &quot; + printBombardMap.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L1602">      final List&lt;Unit&gt; units3 = attackMap.get(t).getUnits();</span>
+<span class="nc" id="L1603">      ProLogger.trace(&quot;  --- My actual units ---&quot;);</span>
+<span class="nc" id="L1604">      final Map&lt;String, Integer&gt; printMap3 = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1605" title="All 2 branches missed.">      for (final Unit unit : units3) {</span>
+<span class="nc bnc" id="L1606" title="All 2 branches missed.">        if (printMap3.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1607">          printMap3.put(unit.toStringNoOwner(), printMap3.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1608">        } else {</span>
+<span class="nc" id="L1609">          printMap3.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L1612" title="All 2 branches missed.">      for (final String key : printMap3.keySet()) {</span>
+<span class="nc" id="L1613">        ProLogger.trace(&quot;    &quot; + printMap3.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L1615">      ProLogger.trace(&quot;  --- Enemy units ---&quot;);</span>
+<span class="nc" id="L1616">      final Map&lt;String, Integer&gt; printMap2 = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1617">      final List&lt;Unit&gt; units2 = attackMap.get(t).getMaxEnemyDefenders(player, data);</span>
+<span class="nc bnc" id="L1618" title="All 2 branches missed.">      for (final Unit unit : units2) {</span>
+<span class="nc bnc" id="L1619" title="All 2 branches missed.">        if (printMap2.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1620">          printMap2.put(unit.toStringNoOwner(), printMap2.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1621">        } else {</span>
+<span class="nc" id="L1622">          printMap2.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L1625" title="All 2 branches missed.">      for (final String key : printMap2.keySet()) {</span>
+<span class="nc" id="L1626">        ProLogger.trace(&quot;    &quot; + printMap2.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L1628">      ProLogger.trace(&quot;  --- Enemy Counter Attack Units ---&quot;);</span>
+<span class="nc" id="L1629">      final Map&lt;String, Integer&gt; printMap4 = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1630">      final List&lt;Unit&gt; units4 = attackMap.get(t).getMaxEnemyUnits();</span>
+<span class="nc bnc" id="L1631" title="All 2 branches missed.">      for (final Unit unit : units4) {</span>
+<span class="nc bnc" id="L1632" title="All 2 branches missed.">        if (printMap4.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1633">          printMap4.put(unit.toStringNoOwner(), printMap4.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1634">        } else {</span>
+<span class="nc" id="L1635">          printMap4.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L1638" title="All 2 branches missed.">      for (final String key : printMap4.keySet()) {</span>
+<span class="nc" id="L1639">        ProLogger.trace(&quot;    &quot; + printMap4.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L1641">      ProLogger.trace(&quot;  --- Enemy Counter Bombard Units ---&quot;);</span>
+<span class="nc" id="L1642">      final Map&lt;String, Integer&gt; printMap5 = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1643">      final Set&lt;Unit&gt; units5 = attackMap.get(t).getMaxEnemyBombardUnits();</span>
+<span class="nc bnc" id="L1644" title="All 2 branches missed.">      for (final Unit unit : units5) {</span>
+<span class="nc bnc" id="L1645" title="All 2 branches missed.">        if (printMap5.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1646">          printMap5.put(unit.toStringNoOwner(), printMap5.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1647">        } else {</span>
+<span class="nc" id="L1648">          printMap5.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L1651" title="All 2 branches missed.">      for (final String key : printMap5.keySet()) {</span>
+<span class="nc" id="L1652">        ProLogger.trace(&quot;    &quot; + printMap4.get(key) + &quot; &quot; + key);</span>
+      }
+    }
+<span class="nc" id="L1655">  }</span>
+
+  private boolean canAirSafelyLandAfterAttack(final Unit unit, final Territory t) {
+<span class="nc" id="L1658">    final boolean isAdjacentToAlliedFactory = Matches</span>
+<span class="nc" id="L1659">        .territoryHasNeighborMatching(data, ProMatches.territoryHasInfraFactoryAndIsAlliedLand(player, data)).match(t);</span>
+<span class="nc" id="L1660">    final int range = TripleAUnit.get(unit).getMovementLeft();</span>
+<span class="nc" id="L1661">    final int distance = data.getMap().getDistance_IgnoreEndForCondition(ProData.unitTerritoryMap.get(unit), t,</span>
+<span class="nc" id="L1662">        ProMatches.territoryCanMoveAirUnitsAndNoAA(player, data, true));</span>
+<span class="nc bnc" id="L1663" title="All 2 branches missed.">    final boolean usesMoreThanHalfOfRange = distance &gt; range / 2;</span>
+<span class="nc bnc" id="L1664" title="All 4 branches missed.">    return isAdjacentToAlliedFactory || !usesMoreThanHalfOfRange;</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

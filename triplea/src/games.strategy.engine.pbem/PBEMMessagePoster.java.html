@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PBEMMessagePoster.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.pbem</a> &gt; <span class="el_source">PBEMMessagePoster.java</span></div><h1>PBEMMessagePoster.java</h1><pre class="source lang-java linenums">package games.strategy.engine.pbem;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.Serializable;
+
+import javax.swing.JComponent;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.history.IDelegateHistoryWriter;
+import games.strategy.triplea.delegate.remote.IAbstractForumPosterDelegate;
+import games.strategy.triplea.ui.MainGameFrame;
+import games.strategy.triplea.ui.history.HistoryLog;
+import games.strategy.ui.ProgressWindow;
+
+/**
+ * This class is responsible for posting turn summary and email at the end of each round in a PBEM game.
+ * A new instance is created at end of turn, based on the Email and a forum poster stored in the game data.
+ * The needs to be serialized since it is invoked through the IAbstractEndTurnDelegate which require all objects to be
+ * serializable
+ * although the PBEM games will always be local
+ */
+public class PBEMMessagePoster implements Serializable {
+  public static final String FORUM_POSTER_PROP_NAME = &quot;games.strategy.engine.pbem.IForumPoster&quot;;
+  public static final String EMAIL_SENDER_PROP_NAME = &quot;games.strategy.engine.pbem.IEmailSender&quot;;
+  public static final String WEB_POSTER_PROP_NAME = &quot;games.strategy.engine.pbem.IWebPoster&quot;;
+  public static final String PBEM_GAME_PROP_NAME = &quot;games.strategy.engine.pbem.PBEMMessagePoster&quot;;
+  private static final long serialVersionUID = 2256265436928530566L;
+  private final IForumPoster m_forumPoster;
+  private final IEmailSender m_emailSender;
+  private final IWebPoster m_webSitePoster;
+<span class="nc" id="L37">  private transient File m_saveGameFile = null;</span>
+<span class="nc" id="L38">  private transient String m_turnSummary = null;</span>
+<span class="nc" id="L39">  private transient String m_saveGameRef = null;</span>
+<span class="nc" id="L40">  private transient String m_turnSummaryRef = null;</span>
+  private transient String m_emailSendStatus;
+  private transient String m_webPostStatus;
+  private transient PlayerID m_currentPlayer;
+  private transient final GameData m_gameData;
+  private transient int m_roundNumber;
+  private transient String m_gameNameAndInfo;
+
+<span class="nc" id="L48">  public PBEMMessagePoster(final GameData gameData, final PlayerID currentPlayer, final int roundNumber,</span>
+      final String title) {
+<span class="nc" id="L50">    m_gameData = gameData;</span>
+<span class="nc" id="L51">    m_currentPlayer = currentPlayer;</span>
+<span class="nc" id="L52">    m_roundNumber = roundNumber;</span>
+<span class="nc" id="L53">    m_forumPoster = (IForumPoster) gameData.getProperties().get(FORUM_POSTER_PROP_NAME);</span>
+<span class="nc" id="L54">    m_emailSender = (IEmailSender) gameData.getProperties().get(EMAIL_SENDER_PROP_NAME);</span>
+<span class="nc" id="L55">    m_webSitePoster = (IWebPoster) gameData.getProperties().get(WEB_POSTER_PROP_NAME);</span>
+<span class="nc" id="L56">    m_gameNameAndInfo =</span>
+<span class="nc" id="L57">        &quot;TripleA &quot; + title + &quot; for game: &quot; + gameData.getGameName() + &quot;, version: &quot; + gameData.getGameVersion();</span>
+<span class="nc" id="L58">  }</span>
+
+  public boolean hasMessengers() {
+<span class="nc bnc" id="L61" title="All 6 branches missed.">    return (m_forumPoster != null || m_emailSender != null || m_webSitePoster != null);</span>
+  }
+
+  public static boolean GameDataHasPlayByEmailOrForumMessengers(final GameData gameData) {
+<span class="nc bnc" id="L65" title="All 2 branches missed.">    if (gameData == null) {</span>
+<span class="nc" id="L66">      return false;</span>
+    }
+<span class="nc" id="L68">    final IForumPoster forumPoster = (IForumPoster) gameData.getProperties().get(FORUM_POSTER_PROP_NAME);</span>
+<span class="nc" id="L69">    final IEmailSender emailSender = (IEmailSender) gameData.getProperties().get(EMAIL_SENDER_PROP_NAME);</span>
+<span class="nc" id="L70">    final IWebPoster webPoster = (IWebPoster) gameData.getProperties().get(WEB_POSTER_PROP_NAME);</span>
+<span class="nc" id="L71">    final boolean isPBEM = gameData.getProperties().get(PBEM_GAME_PROP_NAME, false);</span>
+<span class="nc bnc" id="L72" title="All 8 branches missed.">    return (isPBEM &amp;&amp; (forumPoster != null || emailSender != null || webPoster != null));</span>
+  }
+
+  public IForumPoster getForumPoster() {
+<span class="nc" id="L76">    return m_forumPoster;</span>
+  }
+
+  public IWebPoster getWebPoster() {
+<span class="nc" id="L80">    return m_webSitePoster;</span>
+  }
+
+  public void setTurnSummary(final String turnSummary) {
+<span class="nc" id="L84">    m_turnSummary = turnSummary;</span>
+<span class="nc" id="L85">  }</span>
+
+  public void setSaveGame(final File saveGameFile) throws FileNotFoundException {
+<span class="nc" id="L88">    m_saveGameFile = saveGameFile;</span>
+<span class="nc" id="L89">  }</span>
+
+  public String getTurnSummaryRef() {
+<span class="nc" id="L92">    return m_turnSummaryRef;</span>
+  }
+
+  public String getSaveGameRef() {
+<span class="nc" id="L96">    return m_saveGameRef;</span>
+  }
+
+  /**
+   * Post summary to form and/or email, and writes the action performed to the history writer
+   *
+   * @param historyWriter
+   *        the history writer (which has no effect since save game has already be generated...) // todo (kg)
+   * @return true if all posts were successful
+   */
+  public boolean post(final IDelegateHistoryWriter historyWriter, final String title, final boolean includeSaveGame) {
+<span class="nc" id="L107">    boolean forumSuccess = true;</span>
+<span class="nc" id="L108">    final StringBuilder saveGameSb = new StringBuilder().append(&quot;triplea_&quot;);</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">    if (m_forumPoster != null) {</span>
+<span class="nc" id="L110">      saveGameSb.append(m_forumPoster.getTopicId()).append(&quot;_&quot;);</span>
+    }
+<span class="nc" id="L112">    saveGameSb.append(m_currentPlayer.getName().substring(0, Math.min(3, m_currentPlayer.getName().length() - 1)))</span>
+<span class="nc" id="L113">        .append(m_roundNumber).append(&quot;.tsvg&quot;);</span>
+<span class="nc" id="L114">    final String saveGameName = saveGameSb.toString();</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">    if (m_forumPoster != null) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">      if (includeSaveGame) {</span>
+<span class="nc" id="L117">        m_forumPoster.addSaveGame(m_saveGameFile, saveGameName);</span>
+      }
+      try {
+<span class="nc" id="L120">        forumSuccess = m_forumPoster.postTurnSummary((m_gameNameAndInfo + &quot;\n\n&quot; + m_turnSummary),</span>
+<span class="nc" id="L121">            &quot;TripleA &quot; + title + &quot;: &quot; + m_currentPlayer.getName() + &quot; round &quot; + m_roundNumber);</span>
+<span class="nc" id="L122">        m_turnSummaryRef = m_forumPoster.getTurnSummaryRef();</span>
+<span class="nc bnc" id="L123" title="All 4 branches missed.">        if (m_turnSummaryRef != null &amp;&amp; historyWriter != null) {</span>
+<span class="nc" id="L124">          historyWriter.startEvent(&quot;Turn Summary: &quot; + m_turnSummaryRef);</span>
+        }
+<span class="nc" id="L126">      } catch (final Exception e) {</span>
+<span class="nc" id="L127">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc" id="L130">    boolean emailSuccess = true;</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">    if (m_emailSender != null) {</span>
+<span class="nc" id="L132">      final StringBuilder subjectPostFix = new StringBuilder(m_currentPlayer.getName());</span>
+<span class="nc" id="L133">      subjectPostFix.append(&quot; - &quot;).append(&quot;round &quot;).append(m_roundNumber);</span>
+      try {
+<span class="nc" id="L135">        m_emailSender.sendEmail(subjectPostFix.toString(), convertToHtml((m_gameNameAndInfo + &quot;\n\n&quot; + m_turnSummary)),</span>
+<span class="nc" id="L136">            m_saveGameFile, saveGameName);</span>
+<span class="nc" id="L137">        m_emailSendStatus = &quot;Success, sent to &quot; + m_emailSender.getToAddress();</span>
+<span class="nc" id="L138">      } catch (final IOException e) {</span>
+<span class="nc" id="L139">        emailSuccess = false;</span>
+<span class="nc" id="L140">        m_emailSendStatus = &quot;Failed! Error &quot; + e.getMessage();</span>
+<span class="nc" id="L141">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc" id="L144">    boolean webSiteSuccess = true;</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    if (m_webSitePoster != null) {</span>
+<span class="nc" id="L146">      m_webSitePoster.addSaveGame(m_saveGameFile, saveGameName);</span>
+      try {
+<span class="nc" id="L148">        webSiteSuccess =</span>
+<span class="nc" id="L149">            m_webSitePoster.postTurnSummary(m_gameData, m_turnSummary, m_currentPlayer.getName(), m_roundNumber);</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        if (webSiteSuccess) {</span>
+<span class="nc" id="L151">          m_webPostStatus = &quot;Success! Sent State of Game &quot; + m_webSitePoster.getGameName() + &quot; to &quot;</span>
+<span class="nc" id="L152">              + m_webSitePoster.getHost() + &quot;\n&quot; + m_webSitePoster.getServerMessage();</span>
+<span class="nc" id="L153">        } else {</span>
+<span class="nc" id="L154">          m_webPostStatus = &quot;Failed! &quot; + m_webSitePoster.getServerMessage();</span>
+        }
+<span class="nc" id="L156">      } catch (final Exception e) {</span>
+<span class="nc" id="L157">        webSiteSuccess = false;</span>
+<span class="nc" id="L158">        m_webPostStatus = &quot;Failed! Error: &quot; + e.getMessage();</span>
+<span class="nc" id="L159">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc bnc" id="L162" title="All 2 branches missed.">    if (historyWriter != null) {</span>
+<span class="nc" id="L163">      final StringBuilder sb = new StringBuilder(&quot;Post Turn Summary&quot;);</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">      if (m_forumPoster != null) {</span>
+<span class="nc" id="L165">        sb.append(&quot; to &quot;).append(m_forumPoster.getDisplayName()).append(&quot; success = &quot;)</span>
+<span class="nc" id="L166">            .append(String.valueOf(forumSuccess));</span>
+      }
+<span class="nc bnc" id="L168" title="All 2 branches missed.">      if (m_emailSender != null) {</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (m_forumPoster != null) {</span>
+<span class="nc" id="L170">          sb.append(&quot; and to &quot;);</span>
+<span class="nc" id="L171">        } else {</span>
+<span class="nc" id="L172">          sb.append(&quot; to &quot;);</span>
+        }
+<span class="nc" id="L174">        sb.append(m_emailSender.getToAddress()).append(&quot; success = &quot;).append(String.valueOf(emailSuccess));</span>
+      }
+<span class="nc" id="L176">      historyWriter.startEvent(sb.toString());</span>
+    }
+<span class="nc bnc" id="L178" title="All 6 branches missed.">    return forumSuccess &amp;&amp; emailSuccess &amp;&amp; webSiteSuccess;</span>
+  }
+
+  /**
+   * Converts text to html, by transforming \n to &lt;br/&gt;
+   *
+   * @param string
+   *        the string to transform
+   * @return the transformed string
+   */
+  private String convertToHtml(final String string) {
+<span class="nc" id="L189">    return &quot;&lt;pre&gt;&lt;br/&gt;&quot; + string.replaceAll(&quot;\n&quot;, &quot;&lt;br/&gt;&quot;) + &quot;&lt;br/&gt;&lt;/pre&gt;&quot;;</span>
+  }
+
+  /**
+   * Get the configured email sender
+   *
+   * @return return an email sender or null
+   */
+  public IEmailSender getEmailSender() {
+<span class="nc" id="L198">    return m_emailSender;</span>
+  }
+
+  /**
+   * Return the status string from sending the email.
+   *
+   * @return a success of failure string, or null if no email sender was configured
+   */
+  public String getEmailSendStatus() {
+<span class="nc" id="L207">    return m_emailSendStatus;</span>
+  }
+
+  public String getWebPostStatus() {
+<span class="nc" id="L211">    return m_webPostStatus;</span>
+  }
+
+  public boolean alsoPostMoveSummary() {
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (m_forumPoster != null) {</span>
+<span class="nc" id="L216">      return m_forumPoster.getAlsoPostAfterCombatMove();</span>
+    }
+<span class="nc bnc" id="L218" title="All 2 branches missed.">    if (m_emailSender != null) {</span>
+<span class="nc" id="L219">      return m_emailSender.getAlsoPostAfterCombatMove();</span>
+    }
+<span class="nc" id="L221">    return false;</span>
+  }
+
+  public static void postTurn(final String title, final HistoryLog historyLog, final boolean includeSaveGame,
+      final PBEMMessagePoster posterPBEM, final IAbstractForumPosterDelegate postingDelegate,
+      final MainGameFrame mainGameFrame, final JComponent postButton) {
+<span class="nc" id="L227">    String message = &quot;&quot;;</span>
+<span class="nc" id="L228">    final IForumPoster turnSummaryMsgr = posterPBEM.getForumPoster();</span>
+<span class="nc" id="L229">    final StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">    if (turnSummaryMsgr != null) {</span>
+<span class="nc" id="L231">      sb.append(message).append(&quot;Post &quot;).append(title).append(&quot; &quot;);</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">      if (includeSaveGame) {</span>
+<span class="nc" id="L233">        sb.append(&quot;and save game &quot;);</span>
+      }
+<span class="nc" id="L235">      sb.append(&quot;to &quot;).append(turnSummaryMsgr.getDisplayName()).append(&quot;?\n&quot;);</span>
+    }
+<span class="nc" id="L237">    final IEmailSender emailSender = posterPBEM.getEmailSender();</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">    if (emailSender != null) {</span>
+<span class="nc" id="L239">      sb.append(&quot;Send email to &quot;).append(emailSender.getToAddress()).append(&quot;?\n&quot;);</span>
+    }
+<span class="nc" id="L241">    final IWebPoster webPoster = posterPBEM.getWebPoster();</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">    if (webPoster != null) {</span>
+<span class="nc" id="L243">      sb.append(&quot;Send game state of '&quot;).append(webPoster.getGameName()).append(&quot;' to &quot;).append(webPoster.getHost())</span>
+<span class="nc" id="L244">          .append(&quot;?\n&quot;);</span>
+    }
+<span class="nc" id="L246">    message = sb.toString();</span>
+<span class="nc" id="L247">    final int choice = JOptionPane.showConfirmDialog(mainGameFrame, message, &quot;Post &quot; + title + &quot;?&quot;, 2, -1, null);</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">    if (choice != 0) {</span>
+    } else {
+<span class="nc bnc" id="L250" title="All 2 branches missed.">      if (postButton != null) {</span>
+<span class="nc" id="L251">        postButton.setEnabled(false);</span>
+      }
+<span class="nc" id="L253">      final ProgressWindow progressWindow = new ProgressWindow(mainGameFrame, &quot;Posting &quot; + title + &quot;...&quot;);</span>
+<span class="nc" id="L254">      progressWindow.setVisible(true);</span>
+<span class="nc" id="L255">      final Runnable t = () -&gt; {</span>
+<span class="nc" id="L256">        boolean postOk = true;</span>
+<span class="nc" id="L257">        File saveGameFile = null;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">        if (postingDelegate != null) {</span>
+<span class="nc" id="L259">          postingDelegate.setHasPostedTurnSummary(true);</span>
+        }
+        try {
+<span class="nc" id="L262">          saveGameFile = File.createTempFile(&quot;triplea&quot;, &quot;.tsvg&quot;);</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">          if (saveGameFile != null) {</span>
+<span class="nc" id="L264">            mainGameFrame.getGame().saveGame(saveGameFile);</span>
+<span class="nc" id="L265">            posterPBEM.setSaveGame(saveGameFile);</span>
+          }
+<span class="nc" id="L267">        } catch (final Exception e) {</span>
+<span class="nc" id="L268">          postOk = false;</span>
+<span class="nc" id="L269">          ClientLogger.logQuietly(e);</span>
+        }
+<span class="nc" id="L271">        posterPBEM.setTurnSummary(historyLog.toString());</span>
+        try {
+          // forward the poster to the delegate which invokes post() on the poster
+<span class="nc bnc" id="L274" title="All 2 branches missed.">          if (postingDelegate != null) {</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">            if (!postingDelegate.postTurnSummary(posterPBEM, title, includeSaveGame)) {</span>
+<span class="nc" id="L276">              postOk = false;</span>
+            }
+<span class="nc" id="L278">          } else {</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">            if (!posterPBEM.post(null, title, includeSaveGame)) {</span>
+<span class="nc" id="L280">              postOk = false;</span>
+            }
+          }
+<span class="nc" id="L283">        } catch (final Exception e) {</span>
+<span class="nc" id="L284">          postOk = false;</span>
+<span class="nc" id="L285">          ClientLogger.logQuietly(e);</span>
+        }
+<span class="nc bnc" id="L287" title="All 2 branches missed.">        if (postingDelegate != null) {</span>
+<span class="nc" id="L288">          postingDelegate.setHasPostedTurnSummary(postOk);</span>
+        }
+<span class="nc" id="L290">        final StringBuilder sb1 = new StringBuilder();</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (posterPBEM.getForumPoster() != null) {</span>
+<span class="nc" id="L292">          final String saveGameRef = posterPBEM.getSaveGameRef();</span>
+<span class="nc" id="L293">          final String turnSummaryRef = posterPBEM.getTurnSummaryRef();</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">          if (saveGameRef != null) {</span>
+<span class="nc" id="L295">            sb1.append(&quot;\nSave Game : &quot;).append(saveGameRef);</span>
+          }
+<span class="nc bnc" id="L297" title="All 2 branches missed.">          if (turnSummaryRef != null) {</span>
+<span class="nc" id="L298">            sb1.append(&quot;\nSummary Text: &quot;).append(turnSummaryRef);</span>
+          }
+        }
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        if (posterPBEM.getEmailSender() != null) {</span>
+<span class="nc" id="L302">          sb1.append(&quot;\nEmails: &quot;).append(posterPBEM.getEmailSendStatus());</span>
+        }
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        if (posterPBEM.getWebPoster() != null) {</span>
+<span class="nc" id="L305">          sb1.append(&quot;\nWeb Site Post: &quot;).append(posterPBEM.getWebPostStatus());</span>
+        }
+<span class="nc" id="L307">        historyLog.getWriter().println(sb1.toString());</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        if (historyLog.isVisible()) {</span>
+<span class="nc" id="L309">          historyLog.setVisible(true);</span>
+        }
+        try {
+<span class="nc bnc" id="L312" title="All 4 branches missed.">          if (saveGameFile != null &amp;&amp; !saveGameFile.delete()) {</span>
+<span class="nc" id="L313">            System.out.println(</span>
+<span class="nc" id="L314">                (new StringBuilder()).append(&quot;INFO TripleA PBEM/PBF poster couldn't delete temporary savegame: &quot;)</span>
+<span class="nc" id="L315">                    .append(saveGameFile.getCanonicalPath()).toString());</span>
+          }
+<span class="nc" id="L317">        } catch (final IOException e) {</span>
+<span class="nc" id="L318">          ClientLogger.logQuietly(&quot;save game file = &quot; + saveGameFile, e);</span>
+        }
+<span class="nc" id="L320">        progressWindow.setVisible(false);</span>
+<span class="nc" id="L321">        progressWindow.removeAll();</span>
+<span class="nc" id="L322">        progressWindow.dispose();</span>
+<span class="nc" id="L323">        final boolean finalPostOk = postOk;</span>
+<span class="nc" id="L324">        final String finalMessage = sb1.toString();</span>
+<span class="nc" id="L325">        final Runnable runnable = () -&gt; {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">          if (postButton != null) {</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">            postButton.setEnabled(!finalPostOk);</span>
+          }
+<span class="nc bnc" id="L329" title="All 2 branches missed.">          if (finalPostOk) {</span>
+<span class="nc" id="L330">            JOptionPane.showMessageDialog(mainGameFrame, finalMessage, title + &quot; Posted&quot;,</span>
+<span class="nc" id="L331">                JOptionPane.INFORMATION_MESSAGE);</span>
+<span class="nc" id="L332">          } else {</span>
+<span class="nc" id="L333">            JOptionPane.showMessageDialog(mainGameFrame, finalMessage, title + &quot; Posted&quot;,</span>
+<span class="nc" id="L334">                JOptionPane.ERROR_MESSAGE);</span>
+          }
+<span class="nc" id="L336">        };</span>
+<span class="nc" id="L337">        SwingUtilities.invokeLater(runnable);</span>
+<span class="nc" id="L338">      };</span>
+      // start a new thread for posting the summary.
+<span class="nc" id="L340">      new Thread(t).start();</span>
+    }
+<span class="nc" id="L342">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

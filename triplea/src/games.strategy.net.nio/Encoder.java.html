@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Encoder.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net.nio</a> &gt; <span class="el_source">Encoder.java</span></div><h1>Encoder.java</h1><pre class="source lang-java linenums">package games.strategy.net.nio;
+
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.nio.channels.SocketChannel;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.net.IObjectStreamFactory;
+import games.strategy.net.MessageHeader;
+import games.strategy.net.Node;
+
+/**
+ * Encodes data to be written by a writer
+ */
+public class Encoder {
+<span class="fc" id="L18">  private static final Logger s_logger = Logger.getLogger(Encoder.class.getName());</span>
+  private final NIOWriter m_writer;
+  private final IObjectStreamFactory m_objectStreamFactory;
+  private final NIOSocket m_nioSocket;
+
+<span class="fc" id="L23">  public Encoder(final NIOSocket nioSocket, final NIOWriter writer, final IObjectStreamFactory objectStreamFactory) {</span>
+<span class="fc" id="L24">    m_nioSocket = nioSocket;</span>
+<span class="fc" id="L25">    m_writer = writer;</span>
+<span class="fc" id="L26">    m_objectStreamFactory = objectStreamFactory;</span>
+<span class="fc" id="L27">  }</span>
+
+  public void write(final SocketChannel to, final MessageHeader header) {
+<span class="pc bpc" id="L30" title="1 of 2 branches missed.">    if (s_logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L31">      s_logger.log(Level.FINEST, &quot;Encoding msg:&quot; + header + &quot; to:&quot; + to);</span>
+    }
+<span class="pc bpc" id="L33" title="1 of 2 branches missed.">    if (header.getFrom() == null) {</span>
+<span class="nc" id="L34">      throw new IllegalArgumentException(&quot;No from node&quot;);</span>
+    }
+<span class="pc bpc" id="L36" title="1 of 2 branches missed.">    if (to == null) {</span>
+<span class="nc" id="L37">      throw new IllegalArgumentException(&quot;No to channel!&quot;);</span>
+    }
+<span class="fc" id="L39">    final ByteArrayOutputStream2 sink = new ByteArrayOutputStream2(512);</span>
+    SocketWriteData data;
+    try {
+<span class="fc" id="L42">      write(header, m_objectStreamFactory.create(sink), to);</span>
+<span class="fc" id="L43">      data = new SocketWriteData(sink.getBuffer(), sink.size());</span>
+<span class="pc" id="L44">    } catch (final Exception e) {</span>
+      // we arent doing any io, just writing in memory
+      // so something is very wrong
+<span class="nc" id="L47">      s_logger.log(Level.SEVERE, &quot;Error writing object:&quot; + header, e);</span>
+<span class="nc" id="L48">      return;</span>
+    }
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">    if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L51">      s_logger.log(Level.FINER, &quot;encoded  msg:&quot; + header.getMessage() + &quot; size:&quot; + data.size());</span>
+    }
+<span class="fc" id="L53">    m_writer.enque(data, to);</span>
+<span class="fc" id="L54">  }</span>
+
+  private void write(final MessageHeader header, final ObjectOutputStream out, final SocketChannel remote)
+      throws IOException {
+<span class="pc bpc" id="L58" title="1 of 2 branches missed.">    if (header.getFrom() == null) {</span>
+<span class="nc" id="L59">      throw new IllegalArgumentException(&quot;null from&quot;);</span>
+    }
+    // a broadcast
+<span class="fc bfc" id="L62" title="All 2 branches covered.">    if (header.getFor() == null) {</span>
+<span class="fc" id="L63">      out.write(1);</span>
+<span class="fc" id="L64">    } else {</span>
+      // to a node
+<span class="fc" id="L66">      out.write(0);</span>
+      // the common case, skip writing the address
+<span class="fc bfc" id="L68" title="All 2 branches covered.">      if (header.getFor().equals(m_nioSocket.getRemoteNode(remote))) {</span>
+<span class="fc" id="L69">        out.write(1);</span>
+<span class="fc" id="L70">      } else {</span>
+        // this message is going to be relayed, write the destination
+<span class="fc" id="L72">        out.write(0);</span>
+<span class="fc" id="L73">        ((Node) header.getFor()).writeExternal(out);</span>
+      }
+    }
+<span class="fc bfc" id="L76" title="All 2 branches covered.">    if (header.getFrom().equals(m_nioSocket.getLocalNode())) {</span>
+<span class="fc" id="L77">      out.write(1);</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">    } else if (m_nioSocket.getLocalNode() == null) {</span>
+<span class="fc" id="L79">      out.write(2);</span>
+<span class="fc" id="L80">    } else {</span>
+<span class="fc" id="L81">      out.write(0);</span>
+<span class="fc" id="L82">      ((Node) header.getFrom()).writeExternal(out);</span>
+    }
+<span class="fc" id="L84">    final byte type = Decoder.getType(header.getMessage());</span>
+<span class="fc" id="L85">    out.write(type);</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">    if (type != Byte.MAX_VALUE) {</span>
+<span class="fc" id="L87">      ((Externalizable) header.getMessage()).writeExternal(out);</span>
+<span class="fc" id="L88">    } else {</span>
+<span class="fc" id="L89">      out.writeObject(header.getMessage());</span>
+    }
+<span class="fc" id="L91">    out.reset();</span>
+<span class="fc" id="L92">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

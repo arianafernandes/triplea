@@ -1,0 +1,632 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MoveDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">MoveDelegate.java</span></div><h1>MoveDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.AbstractTriggerAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.dataObjects.MoveValidationResult;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * Responsible for moving units on the board.
+ * &lt;p&gt;
+ * Responsible for checking the validity of a move, and for moving the units. &lt;br&gt;
+ */
+public class MoveDelegate extends AbstractMoveDelegate {
+
+<span class="fc" id="L43">  public static String CLEANING_UP_DURING_MOVEMENT_PHASE = &quot;Cleaning up during movement phase&quot;;</span>
+
+  // needToInitialize means we only do certain things once, so that if a game is saved then
+  // loaded, they aren't done again
+<span class="fc" id="L47">  private boolean m_needToInitialize = true;</span>
+<span class="fc" id="L48">  private boolean m_needToDoRockets = true;</span>
+<span class="fc" id="L49">  private IntegerMap&lt;Territory&gt; m_PUsLost = new IntegerMap&lt;&gt;();</span>
+
+<span class="fc" id="L51">  public MoveDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run, AND before &quot;start&quot; is called.
+   */
+  @Override
+  public void setDelegateBridgeAndPlayer(final IDelegateBridge iDelegateBridge) {
+<span class="fc" id="L58">    super.setDelegateBridgeAndPlayer(new GameDelegateBridge(iDelegateBridge));</span>
+<span class="fc" id="L59">  }</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L66">    super.start();</span>
+<span class="fc" id="L67">    final GameData data = getData();</span>
+<span class="fc bfc" id="L68" title="All 2 branches covered.">    if (m_needToInitialize) {</span>
+
+      // territory property changes triggered at beginning of combat move
+      // TODO create new delegate called &quot;start of turn&quot; and move them there.
+      // First set up a match for what we want to have fire as a default in this delegate. List out as a composite match
+      // OR. use 'null, null' because this is the Default firing location for any trigger that does NOT have 'when' set.
+<span class="fc" id="L74">      HashMap&lt;ICondition, Boolean&gt; testedConditions = null;</span>
+<span class="fc" id="L75">      final Match&lt;TriggerAttachment&gt; moveCombatDelegateBeforeBonusTriggerMatch =</span>
+<span class="fc" id="L76">          new CompositeMatchAnd&lt;&gt;(AbstractTriggerAttachment.availableUses,</span>
+<span class="fc" id="L77">              AbstractTriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="fc" id="L78">              new CompositeMatchOr&lt;TriggerAttachment&gt;(AbstractTriggerAttachment.notificationMatch(),</span>
+<span class="fc" id="L79">                  TriggerAttachment.playerPropertyMatch(), TriggerAttachment.relationshipTypePropertyMatch(),</span>
+<span class="fc" id="L80">                  TriggerAttachment.territoryPropertyMatch(), TriggerAttachment.territoryEffectPropertyMatch(),</span>
+<span class="fc" id="L81">                  TriggerAttachment.removeUnitsMatch(), TriggerAttachment.changeOwnershipMatch()));</span>
+<span class="fc" id="L82">      final Match&lt;TriggerAttachment&gt; moveCombatDelegateAfterBonusTriggerMatch =</span>
+<span class="fc" id="L83">          new CompositeMatchAnd&lt;&gt;(AbstractTriggerAttachment.availableUses,</span>
+<span class="fc" id="L84">              AbstractTriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="fc" id="L85">              new CompositeMatchOr&lt;TriggerAttachment&gt;(TriggerAttachment.placeMatch()));</span>
+<span class="fc" id="L86">      final Match&lt;TriggerAttachment&gt; moveCombatDelegateAllTriggerMatch = new CompositeMatchOr&lt;&gt;(</span>
+<span class="fc" id="L87">          moveCombatDelegateBeforeBonusTriggerMatch, moveCombatDelegateAfterBonusTriggerMatch);</span>
+<span class="fc bfc" id="L88" title="All 4 branches covered.">      if (GameStepPropertiesHelper.isCombatMove(data, false) &amp;&amp; games.strategy.triplea.Properties.getTriggers(data)) {</span>
+<span class="fc" id="L89">        final HashSet&lt;TriggerAttachment&gt; toFirePossible = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="fc" id="L90">            new HashSet&lt;&gt;(Collections.singleton(m_player)), moveCombatDelegateAllTriggerMatch, m_bridge);</span>
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">        if (!toFirePossible.isEmpty()) {</span>
+
+          // collect conditions and test them for ALL triggers, both those that we will fire before and those we will
+          // fire after.
+<span class="nc" id="L95">          testedConditions = TriggerAttachment.collectTestsForAllTriggers(toFirePossible, m_bridge);</span>
+<span class="nc" id="L96">          final HashSet&lt;TriggerAttachment&gt; toFireBeforeBonus =</span>
+<span class="nc" id="L97">              TriggerAttachment.collectForAllTriggersMatching(new HashSet&lt;&gt;(Collections.singleton(m_player)),</span>
+<span class="nc" id="L98">                  moveCombatDelegateBeforeBonusTriggerMatch, m_bridge);</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">          if (!toFireBeforeBonus.isEmpty()) {</span>
+
+            // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L102">            final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L103">                Match.getMatches(toFireBeforeBonus, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+
+            // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L106">            TriggerAttachment.triggerNotifications(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="nc" id="L107">                true);</span>
+<span class="nc" id="L108">            TriggerAttachment.triggerPlayerPropertyChange(toFireTestedAndSatisfied, m_bridge, null, null, true, true,</span>
+<span class="nc" id="L109">                true, true);</span>
+<span class="nc" id="L110">            TriggerAttachment.triggerRelationshipTypePropertyChange(toFireTestedAndSatisfied, m_bridge, null, null,</span>
+<span class="nc" id="L111">                true, true, true, true);</span>
+<span class="nc" id="L112">            TriggerAttachment.triggerTerritoryPropertyChange(toFireTestedAndSatisfied, m_bridge, null, null, true,</span>
+<span class="nc" id="L113">                true, true, true);</span>
+<span class="nc" id="L114">            TriggerAttachment.triggerTerritoryEffectPropertyChange(toFireTestedAndSatisfied, m_bridge, null, null,</span>
+<span class="nc" id="L115">                true, true, true, true);</span>
+<span class="nc" id="L116">            TriggerAttachment.triggerChangeOwnership(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="nc" id="L117">                true);</span>
+<span class="nc" id="L118">            TriggerAttachment.triggerUnitRemoval(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="nc" id="L119">                true);</span>
+          }
+        }
+      }
+
+      // repair 2-hit units at beginning of turn (some maps have combat move before purchase, so i think it is better to
+      // do this at beginning of combat move)
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">      if (GameStepPropertiesHelper.isRepairUnits(data)) {</span>
+<span class="nc" id="L127">        MoveDelegate.repairMultipleHitPointUnits(m_bridge, m_player);</span>
+      }
+
+      // reset any bonus of units, and give movement to units which begin the turn in the same territory as units with
+      // giveMovement (like air and naval bases)
+<span class="fc bfc" id="L132" title="All 2 branches covered.">      if (GameStepPropertiesHelper.isGiveBonusMovement(data)) {</span>
+<span class="fc" id="L133">        resetAndGiveBonusMovement();</span>
+      }
+
+      // take away all movement from allied fighters sitting on damaged carriers
+<span class="fc" id="L137">      removeMovementFromAirOnDamagedAlliedCarriers(m_bridge, m_player);</span>
+
+      // placing triggered units at beginning of combat move, but after bonuses and repairing, etc, have been done.
+<span class="fc bfc" id="L140" title="All 4 branches covered.">      if (GameStepPropertiesHelper.isCombatMove(data, false) &amp;&amp; games.strategy.triplea.Properties.getTriggers(data)) {</span>
+<span class="fc" id="L141">        final HashSet&lt;TriggerAttachment&gt; toFireAfterBonus = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="fc" id="L142">            new HashSet&lt;&gt;(Collections.singleton(m_player)), moveCombatDelegateAfterBonusTriggerMatch, m_bridge);</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">        if (!toFireAfterBonus.isEmpty()) {</span>
+
+          // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L146">          final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L147">              Match.getMatches(toFireAfterBonus, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+
+          // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L150">          TriggerAttachment.triggerUnitPlacement(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="nc" id="L151">              true);</span>
+        }
+      }
+<span class="pc bpc" id="L154" title="1 of 2 branches missed.">      if (GameStepPropertiesHelper.isResetUnitStateAtStart(data)) {</span>
+<span class="nc" id="L155">        resetUnitStateAndDelegateState();</span>
+      }
+<span class="fc" id="L157">      m_needToInitialize = false;</span>
+    }
+<span class="fc" id="L159">  }</span>
+
+  private void resetAndGiveBonusMovement() {
+<span class="fc" id="L162">    boolean addedHistoryEvent = false;</span>
+<span class="fc" id="L163">    final Change changeReset = resetBonusMovement();</span>
+<span class="pc bpc" id="L164" title="1 of 2 branches missed.">    if (!changeReset.isEmpty()) {</span>
+<span class="nc" id="L165">      m_bridge.getHistoryWriter().startEvent(&quot;Resetting and Giving Bonus Movement to Units&quot;);</span>
+<span class="nc" id="L166">      m_bridge.addChange(changeReset);</span>
+<span class="nc" id="L167">      addedHistoryEvent = true;</span>
+    }
+<span class="fc" id="L169">    Change changeBonus = null;</span>
+<span class="fc bfc" id="L170" title="All 2 branches covered.">    if (games.strategy.triplea.Properties.getUnitsMayGiveBonusMovement(getData())) {</span>
+<span class="fc" id="L171">      changeBonus = giveBonusMovement(m_bridge, m_player);</span>
+    }
+<span class="pc bpc" id="L173" title="1 of 4 branches missed.">    if (changeBonus != null &amp;&amp; !changeBonus.isEmpty()) {</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">      if (!addedHistoryEvent) {</span>
+<span class="nc" id="L175">        m_bridge.getHistoryWriter().startEvent(&quot;Resetting and Giving Bonus Movement to Units&quot;);</span>
+      }
+<span class="nc" id="L177">      m_bridge.addChange(changeBonus);</span>
+    }
+<span class="fc" id="L179">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   */
+  @Override
+  public void end() {
+<span class="fc" id="L186">    super.end();</span>
+<span class="fc" id="L187">    final GameData data = getData();</span>
+<span class="fc bfc" id="L188" title="All 2 branches covered.">    if (GameStepPropertiesHelper.isRemoveAirThatCanNotLand(data)) {</span>
+<span class="fc" id="L189">      removeAirThatCantLand();</span>
+    }
+
+    // WW2V2/WW2V3, fires at end of combat move
+    // WW2V1, fires at end of non combat move
+<span class="fc bfc" id="L194" title="All 2 branches covered.">    if (GameStepPropertiesHelper.isFireRockets(data)) {</span>
+<span class="pc bpc" id="L195" title="2 of 4 branches missed.">      if (m_needToDoRockets &amp;&amp; TechTracker.hasRocket(m_bridge.getPlayerID())) {</span>
+<span class="nc" id="L196">        final RocketsFireHelper helper = new RocketsFireHelper();</span>
+<span class="nc" id="L197">        helper.fireRockets(m_bridge, m_bridge.getPlayerID());</span>
+<span class="nc" id="L198">        m_needToDoRockets = false;</span>
+      }
+    }
+
+    // do at the end of the round, if we do it at the start of non combat, then we may do it in the middle of the round,
+    // while loading.
+<span class="fc bfc" id="L204" title="All 2 branches covered.">    if (GameStepPropertiesHelper.isResetUnitStateAtEnd(data)) {</span>
+<span class="fc" id="L205">      resetUnitStateAndDelegateState();</span>
+    }
+<span class="fc" id="L207">    m_needToInitialize = true;</span>
+<span class="fc" id="L208">    m_needToDoRockets = true;</span>
+<span class="fc" id="L209">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L213">    return saveState(true);</span>
+  }
+
+  /**
+   * Returns the state of the Delegate. We don't want to save the undoState if
+   * we are saving the state for an undo move (we don't need it, it will just
+   * take up extra space).
+   */
+  private Serializable saveState(final boolean saveUndo) {
+<span class="nc" id="L222">    final MoveExtendedDelegateState state = new MoveExtendedDelegateState();</span>
+<span class="nc" id="L223">    state.superState = super.saveState();</span>
+<span class="nc" id="L224">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L225">    state.m_needToDoRockets = m_needToDoRockets;</span>
+<span class="nc" id="L226">    state.m_PUsLost = m_PUsLost;</span>
+<span class="nc" id="L227">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L232">    final MoveExtendedDelegateState s = (MoveExtendedDelegateState) state;</span>
+<span class="nc" id="L233">    super.loadState(s.superState);</span>
+<span class="nc" id="L234">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L235">    m_needToDoRockets = s.m_needToDoRockets;</span>
+<span class="nc" id="L236">    m_PUsLost = s.m_PUsLost;</span>
+<span class="nc" id="L237">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc" id="L241">    final CompositeMatchAnd&lt;Unit&gt; moveableUnitOwnedByMe = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L242">    moveableUnitOwnedByMe.add(Matches.unitIsOwnedBy(m_player));</span>
+
+    // right now, land units on transports have movement taken away when they their transport moves
+<span class="nc" id="L245">    moveableUnitOwnedByMe.add(new CompositeMatchOr&lt;&gt;(Matches.unitHasMovementLeft,</span>
+<span class="nc" id="L246">        new CompositeMatchAnd&lt;Unit&gt;(Matches.UnitIsLand, Matches.unitIsBeingTransported())));</span>
+
+    // if not non combat, cannot move aa units
+<span class="nc bnc" id="L249" title="All 2 branches missed.">    if (GameStepPropertiesHelper.isCombatMove(getData(), false)) {</span>
+<span class="nc" id="L250">      moveableUnitOwnedByMe.add(Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+    }
+<span class="nc bnc" id="L252" title="All 2 branches missed.">    for (final Territory item : getData().getMap().getTerritories()) {</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">      if (item.getUnits().someMatch(moveableUnitOwnedByMe)) {</span>
+<span class="nc" id="L254">        return true;</span>
+      }
+    }
+<span class="nc" id="L257">    return false;</span>
+  }
+
+  private Change resetBonusMovement() {
+<span class="fc" id="L261">    final GameData data = getData();</span>
+<span class="fc" id="L262">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc bfc" id="L263" title="All 2 branches covered.">    for (final Unit u : data.getUnits()) {</span>
+<span class="pc bpc" id="L264" title="1 of 2 branches missed.">      if (TripleAUnit.get(u).getBonusMovement() != 0) {</span>
+<span class="nc" id="L265">        change.add(ChangeFactory.unitPropertyChange(u, 0, TripleAUnit.BONUS_MOVEMENT));</span>
+      }
+    }
+<span class="fc" id="L268">    return change;</span>
+  }
+
+  private void resetUnitStateAndDelegateState() {
+    // while not a 'unit state', this is fine here for now. since we only have one instance of this delegate, as long as
+    // it gets cleared once per player's turn block, we are fine.
+<span class="fc" id="L274">    m_PUsLost.clear();</span>
+<span class="fc" id="L275">    final Change change = getResetUnitStateChange(getData());</span>
+<span class="pc bpc" id="L276" title="1 of 2 branches missed.">    if (!change.isEmpty()) {</span>
+      // if no non-combat occurred, we may have cleanup left from combat
+      // that we need to spawn an event for
+<span class="fc" id="L279">      m_bridge.getHistoryWriter().startEvent(CLEANING_UP_DURING_MOVEMENT_PHASE);</span>
+<span class="fc" id="L280">      m_bridge.addChange(change);</span>
+    }
+<span class="fc" id="L282">  }</span>
+
+  public static Change getResetUnitStateChange(final GameData data) {
+<span class="fc" id="L285">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc bfc" id="L286" title="All 2 branches covered.">    for (final Unit u : data.getUnits()) {</span>
+<span class="fc" id="L287">      final TripleAUnit taUnit = TripleAUnit.get(u);</span>
+<span class="fc bfc" id="L288" title="All 2 branches covered.">      if (taUnit.getAlreadyMoved() != 0) {</span>
+<span class="fc" id="L289">        change.add(ChangeFactory.unitPropertyChange(u, 0, TripleAUnit.ALREADY_MOVED));</span>
+      }
+<span class="pc bpc" id="L291" title="1 of 2 branches missed.">      if (taUnit.getWasInCombat()) {</span>
+<span class="nc" id="L292">        change.add(ChangeFactory.unitPropertyChange(u, false, TripleAUnit.WAS_IN_COMBAT));</span>
+      }
+<span class="pc bpc" id="L294" title="1 of 2 branches missed.">      if (taUnit.getSubmerged()) {</span>
+<span class="nc" id="L295">        change.add(ChangeFactory.unitPropertyChange(u, false, TripleAUnit.SUBMERGED));</span>
+      }
+<span class="pc bpc" id="L297" title="1 of 2 branches missed.">      if (taUnit.getAirborne()) {</span>
+<span class="nc" id="L298">        change.add(ChangeFactory.unitPropertyChange(u, false, TripleAUnit.AIRBORNE));</span>
+      }
+<span class="pc bpc" id="L300" title="1 of 2 branches missed.">      if (taUnit.getLaunched() != 0) {</span>
+<span class="nc" id="L301">        change.add(ChangeFactory.unitPropertyChange(u, 0, TripleAUnit.LAUNCHED));</span>
+      }
+<span class="fc bfc" id="L303" title="All 2 branches covered.">      if (!taUnit.getUnloaded().isEmpty()) {</span>
+<span class="fc" id="L304">        change.add(ChangeFactory.unitPropertyChange(u, Collections.EMPTY_LIST, TripleAUnit.UNLOADED));</span>
+      }
+<span class="fc bfc" id="L306" title="All 2 branches covered.">      if (taUnit.getWasLoadedThisTurn()) {</span>
+<span class="fc" id="L307">        change.add(ChangeFactory.unitPropertyChange(u, Boolean.FALSE, TripleAUnit.LOADED_THIS_TURN));</span>
+      }
+<span class="fc bfc" id="L309" title="All 2 branches covered.">      if (taUnit.getUnloadedTo() != null) {</span>
+<span class="fc" id="L310">        change.add(ChangeFactory.unitPropertyChange(u, null, TripleAUnit.UNLOADED_TO));</span>
+      }
+<span class="fc bfc" id="L312" title="All 2 branches covered.">      if (taUnit.getWasUnloadedInCombatPhase()) {</span>
+<span class="fc" id="L313">        change.add(ChangeFactory.unitPropertyChange(u, Boolean.FALSE, TripleAUnit.UNLOADED_IN_COMBAT_PHASE));</span>
+      }
+<span class="fc bfc" id="L315" title="All 2 branches covered.">      if (taUnit.getWasAmphibious()) {</span>
+<span class="fc" id="L316">        change.add(ChangeFactory.unitPropertyChange(u, Boolean.FALSE, TripleAUnit.UNLOADED_AMPHIBIOUS));</span>
+      }
+    }
+<span class="fc" id="L319">    return change;</span>
+  }
+
+  private void removeMovementFromAirOnDamagedAlliedCarriers(final IDelegateBridge aBridge, final PlayerID player) {
+<span class="fc" id="L323">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L324">    final Match&lt;Unit&gt; crippledAlliedCarriersMatch = new CompositeMatchAnd&lt;&gt;(Matches.isUnitAllied(player, data),</span>
+<span class="fc" id="L325">        Matches.unitIsOwnedBy(player).invert(), Matches.UnitIsCarrier,</span>
+<span class="fc" id="L326">        Matches.UnitHasWhenCombatDamagedEffect(UnitAttachment.UNITSMAYNOTLEAVEALLIEDCARRIER));</span>
+<span class="fc" id="L327">    final Match&lt;Unit&gt; ownedFightersMatch =</span>
+<span class="fc" id="L328">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.UnitIsAir,</span>
+<span class="fc" id="L329">            Matches.UnitCanLandOnCarrier, Matches.unitHasMovementLeft);</span>
+<span class="fc" id="L330">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc bfc" id="L331" title="All 2 branches covered.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="fc" id="L332">      final Collection&lt;Unit&gt; ownedFighters = t.getUnits().getMatches(ownedFightersMatch);</span>
+<span class="fc bfc" id="L333" title="All 2 branches covered.">      if (ownedFighters.isEmpty()) {</span>
+<span class="fc" id="L334">        continue;</span>
+      }
+<span class="fc" id="L336">      final Collection&lt;Unit&gt; crippledAlliedCarriers =</span>
+<span class="fc" id="L337">          Match.getMatches(t.getUnits().getUnits(), crippledAlliedCarriersMatch);</span>
+<span class="pc bpc" id="L338" title="1 of 2 branches missed.">      if (crippledAlliedCarriers.isEmpty()) {</span>
+<span class="fc" id="L339">        continue;</span>
+      }
+<span class="nc bnc" id="L341" title="All 2 branches missed.">      for (final Unit fighter : ownedFighters) {</span>
+<span class="nc" id="L342">        final TripleAUnit taUnit = (TripleAUnit) fighter;</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        if (taUnit.getTransportedBy() != null) {</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">          if (crippledAlliedCarriers.contains(taUnit.getTransportedBy())) {</span>
+<span class="nc" id="L345">            change.add(ChangeFactory.markNoMovementChange(fighter));</span>
+          }
+        }
+      }
+    }
+<span class="pc bpc" id="L350" title="1 of 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L351">      aBridge.addChange(change);</span>
+    }
+<span class="fc" id="L353">  }</span>
+
+  private Change giveBonusMovement(final IDelegateBridge aBridge, final PlayerID player) {
+<span class="fc" id="L356">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L357">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc bfc" id="L358" title="All 2 branches covered.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="fc bfc" id="L359" title="All 2 branches covered.">      for (final Unit u : t.getUnits().getUnits()) {</span>
+<span class="pc bpc" id="L360" title="1 of 2 branches missed.">        if (Matches.UnitCanBeGivenBonusMovementByFacilitiesInItsTerritory(t, player, data).match(u)) {</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">          if (!Matches.isUnitAllied(player, data).match(u)) {</span>
+<span class="nc" id="L362">            continue;</span>
+          }
+<span class="nc" id="L364">          int bonusMovement = Integer.MIN_VALUE;</span>
+<span class="nc" id="L365">          final Collection&lt;Unit&gt; givesBonusUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L366">          final Match&lt;Unit&gt; givesBonusUnit = new CompositeMatchAnd&lt;&gt;(Matches.alliedUnit(player, data),</span>
+<span class="nc" id="L367">              Matches.UnitCanGiveBonusMovementToThisUnit(u));</span>
+<span class="nc" id="L368">          givesBonusUnits.addAll(Match.getMatches(t.getUnits().getUnits(), givesBonusUnit));</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">          if (Matches.UnitIsSea.match(u)) {</span>
+<span class="nc" id="L370">            final Match&lt;Unit&gt; givesBonusUnitLand = new CompositeMatchAnd&lt;&gt;(givesBonusUnit, Matches.UnitIsLand);</span>
+<span class="nc" id="L371">            final List&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L372">                new ArrayList&lt;&gt;(data.getMap().getNeighbors(t, Matches.TerritoryIsLand));</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">            for (final Territory current : neighbors) {</span>
+<span class="nc" id="L374">              givesBonusUnits.addAll(Match.getMatches(current.getUnits().getUnits(), givesBonusUnitLand));</span>
+            }
+<span class="nc bnc" id="L376" title="All 2 branches missed.">          } else if (Matches.UnitIsLand.match(u)) {</span>
+<span class="nc" id="L377">            final Match&lt;Unit&gt; givesBonusUnitSea = new CompositeMatchAnd&lt;&gt;(givesBonusUnit, Matches.UnitIsSea);</span>
+<span class="nc" id="L378">            final List&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L379">                new ArrayList&lt;&gt;(data.getMap().getNeighbors(t, Matches.TerritoryIsWater));</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">            for (final Territory current : neighbors) {</span>
+<span class="nc" id="L381">              givesBonusUnits.addAll(Match.getMatches(current.getUnits().getUnits(), givesBonusUnitSea));</span>
+            }
+          }
+<span class="nc bnc" id="L384" title="All 2 branches missed.">          for (final Unit bonusGiver : givesBonusUnits) {</span>
+<span class="nc" id="L385">            final int tempBonus = UnitAttachment.get(bonusGiver.getType()).getGivesMovement().getInt(u.getType());</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">            if (tempBonus &gt; bonusMovement) {</span>
+<span class="nc" id="L387">              bonusMovement = tempBonus;</span>
+            }
+          }
+<span class="nc bnc" id="L390" title="All 4 branches missed.">          if (bonusMovement != Integer.MIN_VALUE &amp;&amp; bonusMovement != 0) {</span>
+<span class="nc" id="L391">            bonusMovement = Math.max(bonusMovement, (UnitAttachment.get(u.getType()).getMovement(player) * -1));</span>
+<span class="nc" id="L392">            change.add(ChangeFactory.unitPropertyChange(u, bonusMovement, TripleAUnit.BONUS_MOVEMENT));</span>
+          }
+        }
+      }
+    }
+<span class="fc" id="L397">    return change;</span>
+  }
+
+  public static void repairMultipleHitPointUnits(final IDelegateBridge aBridge, final PlayerID player) {
+<span class="nc" id="L401">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L402">    final boolean repairOnlyOwn =</span>
+<span class="nc" id="L403">        games.strategy.triplea.Properties.getBattleshipsRepairAtBeginningOfRound(aBridge.getData());</span>
+<span class="nc" id="L404">    final Match&lt;Unit&gt; damagedUnits =</span>
+<span class="nc" id="L405">        new CompositeMatchAnd&lt;&gt;(Matches.UnitHasMoreThanOneHitPointTotal, Matches.UnitHasTakenSomeDamage);</span>
+<span class="nc" id="L406">    final Match&lt;Unit&gt; damagedUnitsOwned = new CompositeMatchAnd&lt;&gt;(damagedUnits, Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L407">    final Map&lt;Territory, Set&lt;Unit&gt;&gt; damagedMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L408">    final Iterator&lt;Territory&gt; iterTerritories = data.getMap().getTerritories().iterator();</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">    while (iterTerritories.hasNext()) {</span>
+<span class="nc" id="L410">      final Territory current = iterTerritories.next();</span>
+      final Set&lt;Unit&gt; damaged;
+<span class="nc bnc" id="L412" title="All 2 branches missed.">      if (!games.strategy.triplea.Properties.getTwoHitPointUnitsRequireRepairFacilities(data)) {</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        if (repairOnlyOwn) {</span>
+          // we only repair ours
+<span class="nc" id="L415">          damaged = new HashSet&lt;&gt;(current.getUnits().getMatches(damagedUnitsOwned));</span>
+<span class="nc" id="L416">        } else {</span>
+          // we repair everyone's
+<span class="nc" id="L418">          damaged = new HashSet&lt;&gt;(current.getUnits().getMatches(damagedUnits));</span>
+        }
+<span class="nc" id="L420">      } else {</span>
+<span class="nc" id="L421">        damaged = new HashSet&lt;&gt;(current.getUnits().getMatches(new CompositeMatchAnd&lt;&gt;(damagedUnitsOwned,</span>
+<span class="nc" id="L422">            Matches.UnitCanBeRepairedByFacilitiesInItsTerritory(current, player, data))));</span>
+      }
+<span class="nc bnc" id="L424" title="All 2 branches missed.">      if (!damaged.isEmpty()) {</span>
+<span class="nc" id="L425">        damagedMap.put(current, damaged);</span>
+      }
+    }
+<span class="nc bnc" id="L428" title="All 2 branches missed.">    if (damagedMap.isEmpty()) {</span>
+<span class="nc" id="L429">      return;</span>
+    }
+<span class="nc" id="L431">    final Map&lt;Unit, Territory&gt; fullyRepaired = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L432">    final IntegerMap&lt;Unit&gt; newHitsMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    for (final Entry&lt;Territory, Set&lt;Unit&gt;&gt; entry : damagedMap.entrySet()) {</span>
+<span class="nc bnc" id="L434" title="All 2 branches missed.">      for (final Unit u : entry.getValue()) {</span>
+<span class="nc" id="L435">        final int repairAmount = getLargestRepairRateForThisUnit(u, entry.getKey(), data);</span>
+<span class="nc" id="L436">        final int currentHits = u.getHits();</span>
+<span class="nc" id="L437">        final int newHits = Math.max(0, Math.min(currentHits, (currentHits - repairAmount)));</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">        if (newHits != currentHits) {</span>
+<span class="nc" id="L439">          newHitsMap.put(u, newHits);</span>
+        }
+<span class="nc bnc" id="L441" title="All 2 branches missed.">        if (newHits &lt;= 0) {</span>
+<span class="nc" id="L442">          fullyRepaired.put(u, entry.getKey());</span>
+        }
+      }
+    }
+<span class="nc" id="L446">    aBridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L447">        newHitsMap.size() + &quot; &quot; + MyFormatter.pluralize(&quot;unit&quot;, newHitsMap.size()) + &quot; repaired.&quot;,</span>
+<span class="nc" id="L448">        new HashSet&lt;&gt;(newHitsMap.keySet()));</span>
+<span class="nc" id="L449">    aBridge.addChange(ChangeFactory.unitsHit(newHitsMap));</span>
+
+    // now if damaged includes any carriers that are repairing, and have damaged abilities set for not allowing air
+    // units to leave while damaged, we need to remove those air units now
+<span class="nc" id="L453">    final Collection&lt;Unit&gt; damagedCarriers = Match.getMatches(fullyRepaired.keySet(),</span>
+<span class="nc" id="L454">        Matches.UnitHasWhenCombatDamagedEffect(UnitAttachment.UNITSMAYNOTLEAVEALLIEDCARRIER));</span>
+
+    // now cycle through those now-repaired carriers, and remove allied air from being dependent
+<span class="nc" id="L457">    final CompositeChange clearAlliedAir = new CompositeChange();</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">    for (final Unit carrier : damagedCarriers) {</span>
+<span class="nc" id="L459">      final CompositeChange change = MustFightBattle.clearTransportedByForAlliedAirOnCarrier(</span>
+<span class="nc" id="L460">          Collections.singleton(carrier), fullyRepaired.get(carrier), carrier.getOwner(), data);</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">      if (!change.isEmpty()) {</span>
+<span class="nc" id="L462">        clearAlliedAir.add(change);</span>
+      }
+    }
+<span class="nc bnc" id="L465" title="All 2 branches missed.">    if (!clearAlliedAir.isEmpty()) {</span>
+<span class="nc" id="L466">      aBridge.addChange(clearAlliedAir);</span>
+    }
+<span class="nc" id="L468">  }</span>
+
+  /**
+   * This has to be the exact same as Matches.UnitCanBeRepairedByFacilitiesInItsTerritory()
+   */
+  private static int getLargestRepairRateForThisUnit(final Unit unitToBeRepaired, final Territory territoryUnitIsIn,
+      final GameData data) {
+<span class="nc bnc" id="L475" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getTwoHitPointUnitsRequireRepairFacilities(data)) {</span>
+<span class="nc" id="L476">      return 1;</span>
+    }
+<span class="nc" id="L478">    final Set&lt;Unit&gt; repairUnitsForThisUnit = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L479">    final PlayerID owner = unitToBeRepaired.getOwner();</span>
+<span class="nc" id="L480">    final Match&lt;Unit&gt; repairUnit = new CompositeMatchAnd&lt;&gt;(Matches.alliedUnit(owner, data),</span>
+<span class="nc" id="L481">        Matches.UnitCanRepairOthers, Matches.UnitCanRepairThisUnit(unitToBeRepaired));</span>
+<span class="nc" id="L482">    repairUnitsForThisUnit.addAll(territoryUnitIsIn.getUnits().getMatches(repairUnit));</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">    if (Matches.UnitIsSea.match(unitToBeRepaired)) {</span>
+<span class="nc" id="L484">      final Match&lt;Unit&gt; repairUnitLand = new CompositeMatchAnd&lt;&gt;(repairUnit, Matches.UnitIsLand);</span>
+<span class="nc" id="L485">      final List&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L486">          new ArrayList&lt;&gt;(data.getMap().getNeighbors(territoryUnitIsIn, Matches.TerritoryIsLand));</span>
+<span class="nc bnc" id="L487" title="All 2 branches missed.">      for (final Territory current : neighbors) {</span>
+<span class="nc" id="L488">        repairUnitsForThisUnit.addAll(current.getUnits().getMatches(repairUnitLand));</span>
+      }
+<span class="nc bnc" id="L490" title="All 2 branches missed.">    } else if (Matches.UnitIsLand.match(unitToBeRepaired)) {</span>
+<span class="nc" id="L491">      final Match&lt;Unit&gt; repairUnitSea = new CompositeMatchAnd&lt;&gt;(repairUnit, Matches.UnitIsSea);</span>
+<span class="nc" id="L492">      final List&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L493">          new ArrayList&lt;&gt;(data.getMap().getNeighbors(territoryUnitIsIn, Matches.TerritoryIsWater));</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">      for (final Territory current : neighbors) {</span>
+<span class="nc" id="L495">        repairUnitsForThisUnit.addAll(current.getUnits().getMatches(repairUnitSea));</span>
+      }
+    }
+<span class="nc" id="L498">    int largest = 0;</span>
+<span class="nc bnc" id="L499" title="All 2 branches missed.">    for (final Unit u : repairUnitsForThisUnit) {</span>
+<span class="nc" id="L500">      final int repair = UnitAttachment.get(u.getType()).getRepairsUnits().getInt(unitToBeRepaired.getType());</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">      if (largest &lt; repair) {</span>
+<span class="nc" id="L502">        largest = repair;</span>
+      }
+    }
+<span class="nc" id="L505">    return largest;</span>
+  }
+
+  @Override
+  public String move(final Collection&lt;Unit&gt; units, final Route route, final Collection&lt;Unit&gt; transportsThatCanBeLoaded,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; newDependents) {
+<span class="fc" id="L511">    final GameData data = getData();</span>
+
+    // the reason we use this, is if we are in edit mode, we may have a different unit owner than the current player
+<span class="fc" id="L514">    final PlayerID player = getUnitsOwner(units);</span>
+<span class="fc" id="L515">    final MoveValidationResult result = MoveValidator.validateMove(units, route, player, transportsThatCanBeLoaded,</span>
+<span class="fc" id="L516">        newDependents, GameStepPropertiesHelper.isNonCombatMove(data, false), m_movesToUndo, data);</span>
+<span class="fc" id="L517">    final StringBuilder errorMsg = new StringBuilder(100);</span>
+<span class="fc bfc" id="L518" title="All 2 branches covered.">    final int numProblems = result.getTotalWarningCount() - (result.hasError() ? 0 : 1);</span>
+<span class="fc" id="L519">    final String numErrorsMsg =</span>
+<span class="fc bfc" id="L520" title="All 2 branches covered.">        numProblems &gt; 0 ? (&quot;; &quot; + numProblems + &quot; &quot; + MyFormatter.pluralize(&quot;error&quot;, numProblems) + &quot; not shown&quot;) : &quot;&quot;;</span>
+<span class="fc bfc" id="L521" title="All 2 branches covered.">    if (result.hasError()) {</span>
+<span class="fc" id="L522">      return errorMsg.append(result.getError()).append(numErrorsMsg).toString();</span>
+    }
+<span class="fc bfc" id="L524" title="All 2 branches covered.">    if (result.hasDisallowedUnits()) {</span>
+<span class="fc" id="L525">      return errorMsg.append(result.getDisallowedUnitWarning(0)).append(numErrorsMsg).toString();</span>
+    }
+<span class="fc" id="L527">    boolean isKamikaze = false;</span>
+<span class="fc" id="L528">    final boolean getKamikazeAir = games.strategy.triplea.Properties.getKamikaze_Airplanes(data);</span>
+<span class="fc" id="L529">    Collection&lt;Unit&gt; kamikazeUnits = new ArrayList&lt;&gt;();</span>
+
+    // confirm kamikaze moves, and remove them from unresolved units
+<span class="pc bpc" id="L532" title="2 of 4 branches missed.">    if (getKamikazeAir || Match.someMatch(units, Matches.UnitIsKamikaze)) {</span>
+<span class="nc" id="L533">      kamikazeUnits = result.getUnresolvedUnits(MoveValidator.NOT_ALL_AIR_UNITS_CAN_LAND);</span>
+<span class="nc bnc" id="L534" title="All 4 branches missed.">      if (kamikazeUnits.size() &gt; 0 &amp;&amp; getRemotePlayer().confirmMoveKamikaze()) {</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">        for (final Unit unit : kamikazeUnits) {</span>
+<span class="nc bnc" id="L536" title="All 4 branches missed.">          if (getKamikazeAir || Matches.UnitIsKamikaze.match(unit)) {</span>
+<span class="nc" id="L537">            result.removeUnresolvedUnit(MoveValidator.NOT_ALL_AIR_UNITS_CAN_LAND, unit);</span>
+<span class="nc" id="L538">            isKamikaze = true;</span>
+          }
+        }
+      }
+    }
+<span class="pc bpc" id="L543" title="1 of 2 branches missed.">    if (result.hasUnresolvedUnits()) {</span>
+<span class="nc" id="L544">      return errorMsg.append(result.getUnresolvedUnitWarning(0)).append(numErrorsMsg).toString();</span>
+    }
+
+    // allow user to cancel move if aa guns will fire
+<span class="fc" id="L548">    final AAInMoveUtil aaInMoveUtil = new AAInMoveUtil();</span>
+<span class="fc" id="L549">    aaInMoveUtil.initialize(m_bridge);</span>
+<span class="fc" id="L550">    final Collection&lt;Territory&gt; aaFiringTerritores = aaInMoveUtil.getTerritoriesWhereAAWillFire(route, units);</span>
+<span class="fc bfc" id="L551" title="All 2 branches covered.">    if (!aaFiringTerritores.isEmpty()) {</span>
+<span class="pc bpc" id="L552" title="1 of 2 branches missed.">      if (!getRemotePlayer().confirmMoveInFaceOfAA(aaFiringTerritores)) {</span>
+<span class="nc" id="L553">        return null;</span>
+      }
+    }
+
+    // do the move
+<span class="fc" id="L558">    final UndoableMove currentMove = new UndoableMove(units, route);</span>
+<span class="fc" id="L559">    final String transcriptText = MyFormatter.unitsToTextNoOwner(units) + &quot; moved from &quot; + route.getStart().getName()</span>
+<span class="fc" id="L560">        + &quot; to &quot; + route.getEnd().getName();</span>
+<span class="fc" id="L561">    m_bridge.getHistoryWriter().startEvent(transcriptText, currentMove.getDescriptionObject());</span>
+<span class="pc bpc" id="L562" title="1 of 2 branches missed.">    if (isKamikaze) {</span>
+<span class="nc" id="L563">      m_bridge.getHistoryWriter().addChildToEvent(&quot;This was a kamikaze move, for at least some of the units&quot;,</span>
+<span class="nc" id="L564">          kamikazeUnits);</span>
+    }
+<span class="fc" id="L566">    m_tempMovePerformer = new MovePerformer();</span>
+<span class="fc" id="L567">    m_tempMovePerformer.initialize(this);</span>
+<span class="fc" id="L568">    m_tempMovePerformer.moveUnits(units, route, player, transportsThatCanBeLoaded, newDependents, currentMove);</span>
+<span class="fc" id="L569">    m_tempMovePerformer = null;</span>
+<span class="fc" id="L570">    return null;</span>
+  }
+
+  public static Collection&lt;Territory&gt; getEmptyNeutral(final Route route) {
+<span class="fc" id="L574">    final Match&lt;Territory&gt; emptyNeutral =</span>
+<span class="fc" id="L575">        new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsEmpty, Matches.TerritoryIsNeutralButNotWater);</span>
+<span class="fc" id="L576">    final Collection&lt;Territory&gt; neutral = route.getMatches(emptyNeutral);</span>
+<span class="fc" id="L577">    return neutral;</span>
+  }
+
+  private void removeAirThatCantLand() {
+<span class="fc" id="L581">    final GameData data = getData();</span>
+<span class="fc bfc" id="L582" title="All 2 branches covered.">    final boolean lhtrCarrierProd = AirThatCantLandUtil.isLHTRCarrierProduction(data)</span>
+<span class="pc bpc" id="L583" title="1 of 2 branches missed.">        || AirThatCantLandUtil.isLandExistingFightersOnNewCarriers(data);</span>
+<span class="fc" id="L584">    boolean hasProducedCarriers = false;</span>
+<span class="fc bfc" id="L585" title="All 2 branches covered.">    for (final PlayerID p : GameStepPropertiesHelper.getCombinedTurns(data, m_player)) {</span>
+<span class="fc bfc" id="L586" title="All 2 branches covered.">      if (p.getUnits().someMatch(Matches.UnitIsCarrier)) {</span>
+<span class="fc" id="L587">        hasProducedCarriers = true;</span>
+<span class="fc" id="L588">        break;</span>
+      }
+    }
+<span class="fc" id="L591">    final AirThatCantLandUtil util = new AirThatCantLandUtil(m_bridge);</span>
+<span class="fc bfc" id="L592" title="All 4 branches covered.">    util.removeAirThatCantLand(m_player, lhtrCarrierProd &amp;&amp; hasProducedCarriers);</span>
+
+    // if edit mode has been on, we need to clean up after all players
+<span class="fc bfc" id="L595" title="All 2 branches covered.">    for (final PlayerID player : data.getPlayerList()) {</span>
+
+      // Check if player still has units to place
+<span class="fc bfc" id="L598" title="All 2 branches covered.">      if (!player.equals(m_player)) {</span>
+<span class="fc" id="L599">        util.removeAirThatCantLand(player,</span>
+<span class="pc bpc" id="L600" title="2 of 6 branches missed.">            ((player.getUnits().someMatch(Matches.UnitIsCarrier) || hasProducedCarriers) &amp;&amp; lhtrCarrierProd));</span>
+      }
+    }
+<span class="fc" id="L603">  }</span>
+
+  /**
+   * @return the number of PUs that have been lost by bombing, rockets, etc.
+   */
+  @Override
+  public int PUsAlreadyLost(final Territory t) {
+<span class="fc" id="L610">    return m_PUsLost.getInt(t);</span>
+  }
+
+  /**
+   * Add more PUs lost to a territory due to bombing, rockets, etc.
+   */
+  @Override
+  public void PUsLost(final Territory t, final int amt) {
+<span class="fc" id="L618">    m_PUsLost.add(t, amt);</span>
+<span class="fc" id="L619">  }</span>
+}
+
+
+<span class="nc" id="L623">class MoveExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 5352248885420819215L;
+  Serializable superState;
+  // add other variables here:
+<span class="nc" id="L627">  public boolean m_firstRun = true;</span>
+  public boolean m_needToInitialize;
+  public boolean m_needToDoRockets;
+  public IntegerMap&lt;Territory&gt; m_PUsLost;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

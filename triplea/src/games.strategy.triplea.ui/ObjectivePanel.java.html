@@ -1,0 +1,836 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ObjectivePanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">ObjectivePanel.java</span></div><h1>ObjectivePanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.Color;
+import java.awt.Component;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.DefaultCellEditor;
+import javax.swing.JButton;
+import javax.swing.JEditorPane;
+import javax.swing.JLabel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextField;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.IAttachment;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.events.GameDataChangeListener;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.display.IDisplay;
+import games.strategy.engine.framework.IGameModifiedChannel;
+import games.strategy.engine.gamePlayer.IRemotePlayer;
+import games.strategy.engine.history.DelegateHistoryWriter;
+import games.strategy.engine.history.IDelegateHistoryWriter;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.net.GUID;
+import games.strategy.sound.HeadlessSoundChannel;
+import games.strategy.sound.ISound;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.ResourceLoader;
+import games.strategy.triplea.ai.AbstractAI;
+import games.strategy.triplea.attachments.AbstractConditionsAttachment;
+import games.strategy.triplea.attachments.AbstractTriggerAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.PoliticalActionAttachment;
+import games.strategy.triplea.attachments.RulesAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.triplea.ui.display.HeadlessDisplay;
+import games.strategy.triplea.ui.display.ITripleADisplay;
+import games.strategy.ui.SwingAction;
+import games.strategy.util.IllegalCharacterRemover;
+import games.strategy.util.Tuple;
+import games.strategy.util.UrlStreams;
+
+/**
+ * A panel that will show all objectives for all players, including if the objective is filled or not.
+ */
+public class ObjectivePanel extends AbstractStatPanel {
+  private static final long serialVersionUID = 3759819236905645520L;
+  private Map&lt;String, Map&lt;ICondition, String&gt;&gt; m_statsObjective;
+  private ObjectiveTableModel m_objectiveModel;
+  private IDelegateBridge m_dummyDelegate;
+
+  public ObjectivePanel(final GameData data) {
+<span class="nc" id="L93">    super(data);</span>
+<span class="nc" id="L94">    m_dummyDelegate = new ObjectivePanelDummyDelegateBridge(data);</span>
+<span class="nc" id="L95">    initLayout();</span>
+<span class="nc" id="L96">  }</span>
+
+  @Override
+  public String getName() {
+<span class="nc" id="L100">    return ObjectiveProperties.getInstance().getProperty(ObjectiveProperties.OBJECTIVES_PANEL_NAME, &quot;Objectives&quot;);</span>
+  }
+
+  public boolean isEmpty() {
+<span class="nc" id="L104">    return m_statsObjective.isEmpty();</span>
+  }
+
+  public void removeDataChangeListener() {
+<span class="nc" id="L108">    m_objectiveModel.removeDataChangeListener();</span>
+<span class="nc" id="L109">  }</span>
+
+  @Override
+  protected void initLayout() {
+<span class="nc" id="L113">    setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L114">    m_objectiveModel = new ObjectiveTableModel();</span>
+<span class="nc" id="L115">    final JTable table = new JTable(m_objectiveModel);</span>
+<span class="nc" id="L116">    table.getTableHeader().setReorderingAllowed(false);</span>
+<span class="nc" id="L117">    final TableColumn column0 = table.getColumnModel().getColumn(0);</span>
+<span class="nc" id="L118">    column0.setPreferredWidth(34);</span>
+<span class="nc" id="L119">    column0.setWidth(34);</span>
+<span class="nc" id="L120">    column0.setMaxWidth(34);</span>
+<span class="nc" id="L121">    column0.setCellRenderer(new ColorTableCellRenderer());</span>
+<span class="nc" id="L122">    final TableColumn column1 = table.getColumnModel().getColumn(1);</span>
+<span class="nc" id="L123">    column1.setCellEditor(new EditorPaneCellEditor());</span>
+<span class="nc" id="L124">    column1.setCellRenderer(new EditorPaneTableCellRenderer());</span>
+<span class="nc" id="L125">    final JScrollPane scroll = new JScrollPane(table);</span>
+<span class="nc" id="L126">    final JButton refresh = new JButton(&quot;Refresh Objectives&quot;);</span>
+<span class="nc" id="L127">    refresh.setAlignmentY(Component.CENTER_ALIGNMENT);</span>
+<span class="nc" id="L128">    refresh.addActionListener(SwingAction.of(&quot;Refresh Objectives&quot;, e -&gt; {</span>
+<span class="nc" id="L129">      m_objectiveModel.loadData();</span>
+<span class="nc" id="L130">      SwingUtilities.invokeLater(() -&gt; table.repaint());</span>
+<span class="nc" id="L131">    }));</span>
+<span class="nc" id="L132">    add(Box.createVerticalStrut(6));</span>
+<span class="nc" id="L133">    add(refresh);</span>
+<span class="nc" id="L134">    add(Box.createVerticalStrut(6));</span>
+<span class="nc" id="L135">    add(scroll);</span>
+<span class="nc" id="L136">  }</span>
+
+  class ObjectiveTableModel extends AbstractTableModel implements GameDataChangeListener {
+    private static final long serialVersionUID = 2259315408905271333L;
+    private static final int COLUMNS_TOTAL = 2;
+<span class="nc" id="L141">    private boolean m_isDirty = true;</span>
+    private String[][] m_collectedData;
+<span class="nc" id="L143">    final Map&lt;String, List&lt;String&gt;&gt; m_sections = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L144">    private long m_timestamp = 0;</span>
+
+<span class="nc" id="L146">    public ObjectiveTableModel() {</span>
+<span class="nc" id="L147">      setObjectiveStats();</span>
+<span class="nc" id="L148">      m_data.addDataChangeListener(this);</span>
+<span class="nc" id="L149">      m_isDirty = true;</span>
+<span class="nc" id="L150">    }</span>
+
+    public void removeDataChangeListener() {
+<span class="nc" id="L153">      m_data.removeDataChangeListener(this);</span>
+<span class="nc" id="L154">    }</span>
+
+    private void setObjectiveStats() {
+<span class="nc" id="L157">      m_statsObjective = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L158">      final ObjectiveProperties op = ObjectiveProperties.getInstance();</span>
+<span class="nc" id="L159">      final Collection&lt;PlayerID&gt; allPlayers = m_data.getPlayerList().getPlayers();</span>
+<span class="nc" id="L160">      final String gameName =</span>
+<span class="nc" id="L161">          IllegalCharacterRemover.replaceIllegalCharacter(m_data.getGameName(), '_').replaceAll(&quot; &quot;, &quot;_&quot;).concat(&quot;.&quot;);</span>
+<span class="nc" id="L162">      final Map&lt;String, List&lt;String&gt;&gt; sectionsUnsorted = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L163">      final List&lt;String&gt; sectionsSorters = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L164">      final Map&lt;String, Map&lt;ICondition, String&gt;&gt; statsObjectiveUnsorted =</span>
+<span class="nc" id="L165">          new HashMap&lt;&gt;();</span>
+      // do sections first
+<span class="nc bnc" id="L167" title="All 2 branches missed.">      for (final Entry&lt;Object, Object&gt; entry : op.entrySet()) {</span>
+<span class="nc" id="L168">        final String fileKey = (String) entry.getKey();</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        if (!fileKey.startsWith(gameName)) {</span>
+<span class="nc" id="L170">          continue;</span>
+        }
+<span class="nc" id="L172">        final String[] key = fileKey.substring(gameName.length(), fileKey.length()).split(&quot;;&quot;);</span>
+<span class="nc" id="L173">        final String value = (String) entry.getValue();</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">        if (key.length != 2) {</span>
+<span class="nc" id="L175">          System.err.println(&quot;objective.properties keys must be 2 parts: &lt;game_name&gt;.&quot;</span>
+              + ObjectiveProperties.GROUP_PROPERTY + &quot;.&lt;#&gt;;player  OR  &lt;game_name&gt;.player;attachmentName&quot;);
+<span class="nc" id="L177">          continue;</span>
+        }
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if (!key[0].startsWith(ObjectiveProperties.GROUP_PROPERTY)) {</span>
+<span class="nc" id="L180">          continue;</span>
+        }
+<span class="nc" id="L182">        final String[] sorter = key[0].split(&quot;\\.&quot;);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">        if (sorter.length != 2) {</span>
+<span class="nc" id="L184">          System.err.println(</span>
+<span class="nc" id="L185">              &quot;objective.properties &quot; + ObjectiveProperties.GROUP_PROPERTY + &quot;must have .&lt;sorter&gt; after it: &quot; + key[0]);</span>
+<span class="nc" id="L186">          continue;</span>
+        }
+<span class="nc" id="L188">        sectionsSorters.add(sorter[1] + &quot;;&quot; + key[1]);</span>
+<span class="nc" id="L189">        sectionsUnsorted.put(key[1], Arrays.asList(value.split(&quot;;&quot;)));</span>
+      }
+<span class="nc" id="L191">      Collections.sort(sectionsSorters);</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">      for (final String section : sectionsSorters) {</span>
+<span class="nc" id="L193">        final String key = section.split(&quot;;&quot;)[1];</span>
+<span class="nc" id="L194">        m_sections.put(key, sectionsUnsorted.get(key));</span>
+<span class="nc" id="L195">        m_statsObjective.put(key, new LinkedHashMap&lt;&gt;());</span>
+<span class="nc" id="L196">        statsObjectiveUnsorted.put(key, new HashMap&lt;&gt;());</span>
+      }
+      // now do the stuff in the sections
+<span class="nc bnc" id="L199" title="All 2 branches missed.">      for (final Entry&lt;Object, Object&gt; entry : op.entrySet()) {</span>
+<span class="nc" id="L200">        final String fileKey = (String) entry.getKey();</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        if (!fileKey.startsWith(gameName)) {</span>
+<span class="nc" id="L202">          continue;</span>
+        }
+<span class="nc" id="L204">        final String[] key = fileKey.substring(gameName.length(), fileKey.length()).split(&quot;;&quot;);</span>
+<span class="nc" id="L205">        final String value = (String) entry.getValue();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">        if (key.length != 2) {</span>
+<span class="nc" id="L207">          System.err.println(&quot;objective.properties keys must be 2 parts: &lt;game_name&gt;.&quot;</span>
+              + ObjectiveProperties.GROUP_PROPERTY + &quot;.&lt;#&gt;;player  OR  &lt;game_name&gt;.player;attachmentName&quot;);
+<span class="nc" id="L209">          continue;</span>
+        }
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        if (key[0].startsWith(ObjectiveProperties.GROUP_PROPERTY)) {</span>
+<span class="nc" id="L212">          continue;</span>
+        }
+<span class="nc" id="L214">        final PlayerID player = m_data.getPlayerList().getPlayerID(key[0]);</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (player == null) {</span>
+          // could be an old map, or an old save, so we don't want to stop the game from running.
+<span class="nc" id="L217">          System.err.println(&quot;objective.properties player does not exist: &quot; + key[0]);</span>
+<span class="nc" id="L218">          continue;</span>
+        }
+<span class="nc" id="L220">        IAttachment attachment = null;</span>
+        try {
+<span class="nc bnc" id="L222" title="All 2 branches missed.">          if (key[1].contains(Constants.RULES_OBJECTIVE_PREFIX)</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">              || key[1].contains(Constants.RULES_CONDITION_PREFIX)) {</span>
+<span class="nc" id="L224">            attachment = RulesAttachment.get(player, key[1], allPlayers, true);</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">          } else if (key[1].contains(Constants.TRIGGER_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L226">            attachment = TriggerAttachment.get(player, key[1], allPlayers);</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">          } else if (key[1].contains(Constants.POLITICALACTION_ATTACHMENT_PREFIX)) {</span>
+<span class="nc" id="L228">            attachment = PoliticalActionAttachment.get(player, key[1], allPlayers);</span>
+<span class="nc" id="L229">          } else {</span>
+<span class="nc" id="L230">            System.err.println(&quot;objective.properties objective must begin with: &quot; + Constants.RULES_OBJECTIVE_PREFIX</span>
+                + &quot; or &quot; + Constants.RULES_CONDITION_PREFIX + &quot; or &quot; + Constants.TRIGGER_ATTACHMENT_PREFIX + &quot; or &quot;
+                + Constants.POLITICALACTION_ATTACHMENT_PREFIX);
+<span class="nc" id="L233">            continue;</span>
+          }
+<span class="nc" id="L235">        } catch (final Exception e) {</span>
+          // could be an old map, or an old save, so we don't want to stop the game from running.
+<span class="nc" id="L237">          System.err.println(e.getMessage());</span>
+<span class="nc" id="L238">          continue;</span>
+        }
+<span class="nc bnc" id="L240" title="All 2 branches missed.">        if (attachment == null) {</span>
+<span class="nc" id="L241">          System.err.println(&quot;objective.properties attachment does not exist: &quot; + key[1]);</span>
+<span class="nc" id="L242">          continue;</span>
+        }
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        if (!ICondition.class.isAssignableFrom(attachment.getClass())) {</span>
+<span class="nc" id="L245">          throw new IllegalStateException(&quot;(wtf??) attachment is not an ICondition: &quot; + attachment.getName());</span>
+        }
+        // find which section
+<span class="nc" id="L248">        boolean found = false;</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        if (m_sections.containsKey(player.getName())) {</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">          if (m_sections.get(player.getName()).contains(key[1])) {</span>
+<span class="nc" id="L251">            final Map&lt;ICondition, String&gt; map = statsObjectiveUnsorted.get(player.getName());</span>
+<span class="nc bnc" id="L252" title="All 2 branches missed.">            if (map == null) {</span>
+<span class="nc" id="L253">              throw new IllegalStateException(&quot;objective.properties group has nothing: &quot; + player.getName());</span>
+            }
+<span class="nc" id="L255">            map.put((ICondition) attachment, value);</span>
+<span class="nc" id="L256">            statsObjectiveUnsorted.put(player.getName(), map);</span>
+<span class="nc" id="L257">            found = true;</span>
+          }
+        }
+<span class="nc bnc" id="L260" title="All 2 branches missed.">        if (!found) {</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">          for (final Entry&lt;String, List&lt;String&gt;&gt; sectionEntry : m_sections.entrySet()) {</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">            if (sectionEntry.getValue().contains(key[1])) {</span>
+<span class="nc" id="L263">              final Map&lt;ICondition, String&gt; map = statsObjectiveUnsorted.get(sectionEntry.getKey());</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">              if (map == null) {</span>
+<span class="nc" id="L265">                throw new IllegalStateException(&quot;objective.properties group has nothing: &quot; + sectionEntry.getKey());</span>
+              }
+<span class="nc" id="L267">              map.put((ICondition) attachment, value);</span>
+<span class="nc" id="L268">              statsObjectiveUnsorted.put(sectionEntry.getKey(), map);</span>
+<span class="nc" id="L269">              break;</span>
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L274" title="All 2 branches missed.">      for (final Entry&lt;String, Map&lt;ICondition, String&gt;&gt; entry : m_statsObjective.entrySet()) {</span>
+<span class="nc" id="L275">        final Map&lt;ICondition, String&gt; mapUnsorted = statsObjectiveUnsorted.get(entry.getKey());</span>
+<span class="nc" id="L276">        final Map&lt;ICondition, String&gt; mapSorted = entry.getValue();</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">        for (final String conditionString : m_sections.get(entry.getKey())) {</span>
+<span class="nc" id="L278">          final Iterator&lt;ICondition&gt; conditionIter = mapUnsorted.keySet().iterator();</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">          while (conditionIter.hasNext()) {</span>
+<span class="nc" id="L280">            final ICondition condition = conditionIter.next();</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">            if (conditionString.equals(condition.getName())) {</span>
+<span class="nc" id="L282">              mapSorted.put(condition, mapUnsorted.get(condition));</span>
+<span class="nc" id="L283">              conditionIter.remove();</span>
+<span class="nc" id="L284">              break;</span>
+            }
+          }
+        }
+      }
+<span class="nc" id="L289">    }</span>
+
+    @Override
+    public synchronized Object getValueAt(final int row, final int col) {
+      // do not refresh too often, or else it will slow the game down seriously
+<span class="nc bnc" id="L294" title="All 4 branches missed.">      if (m_isDirty &amp;&amp; Calendar.getInstance().getTimeInMillis() &gt; m_timestamp + 10000) {</span>
+<span class="nc" id="L295">        loadData();</span>
+<span class="nc" id="L296">        m_isDirty = false;</span>
+<span class="nc" id="L297">        m_timestamp = Calendar.getInstance().getTimeInMillis();</span>
+      }
+<span class="nc" id="L299">      return m_collectedData[row][col];</span>
+    }
+
+    private synchronized void loadData() {
+<span class="nc" id="L303">      m_data.acquireReadLock();</span>
+      try {
+<span class="nc" id="L305">        final HashMap&lt;ICondition, String&gt; conditions = getConditionComment(getTestedConditions());</span>
+<span class="nc" id="L306">        m_collectedData = new String[getRowTotal()][COLUMNS_TOTAL];</span>
+<span class="nc" id="L307">        int row = 0;</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        for (final Entry&lt;String, Map&lt;ICondition, String&gt;&gt; mapEntry : m_statsObjective.entrySet()) {</span>
+<span class="nc" id="L309">          m_collectedData[row][1] =</span>
+<span class="nc" id="L310">              &quot;&lt;html&gt;&lt;span style=\&quot;font-size:140%\&quot;&gt;&lt;b&gt;&lt;em&gt;&quot; + mapEntry.getKey() + &quot;&lt;/em&gt;&lt;/b&gt;&lt;/span&gt;&lt;/html&gt;&quot;;</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">          for (final Entry&lt;ICondition, String&gt; attachmentEntry : mapEntry.getValue().entrySet()) {</span>
+<span class="nc" id="L312">            row++;</span>
+<span class="nc" id="L313">            m_collectedData[row][0] = conditions.get(attachmentEntry.getKey());</span>
+<span class="nc" id="L314">            m_collectedData[row][1] = &quot;&lt;html&gt;&quot; + attachmentEntry.getValue() + &quot;&lt;/html&gt;&quot;;</span>
+          }
+<span class="nc" id="L316">          row++;</span>
+<span class="nc" id="L317">          m_collectedData[row][1] = &quot;--------------------&quot;;</span>
+<span class="nc" id="L318">          row++;</span>
+        }
+<span class="nc" id="L320">      } finally {</span>
+<span class="nc" id="L321">        m_data.releaseReadLock();</span>
+<span class="nc" id="L322">      }</span>
+<span class="nc" id="L323">    }</span>
+
+    public HashMap&lt;ICondition, String&gt; getConditionComment(final HashMap&lt;ICondition, Boolean&gt; testedConditions) {
+<span class="nc" id="L326">      final HashMap&lt;ICondition, String&gt; conditionsComments = new HashMap&lt;&gt;(testedConditions.size());</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">      for (final Entry&lt;ICondition, Boolean&gt; entry : testedConditions.entrySet()) {</span>
+<span class="nc" id="L328">        final boolean satisfied = entry.getValue();</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (entry.getKey() instanceof TriggerAttachment) {</span>
+<span class="nc" id="L330">          final TriggerAttachment ta = (TriggerAttachment) entry.getKey();</span>
+<span class="nc" id="L331">          final int each = AbstractTriggerAttachment.getEachMultiple(ta);</span>
+<span class="nc" id="L332">          final int uses = ta.getUses();</span>
+<span class="nc bnc" id="L333" title="All 2 branches missed.">          if (uses &lt; 0) {</span>
+<span class="nc bnc" id="L334" title="All 4 branches missed.">            final String comment = satisfied ? (each &gt; 1 ? &quot;T&quot; + each : &quot;T&quot;) : &quot;F&quot;;</span>
+<span class="nc" id="L335">            conditionsComments.put(entry.getKey(), comment);</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">          } else if (uses == 0) {</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">            final String comment = satisfied ? &quot;Used&quot; : &quot;used&quot;;</span>
+<span class="nc" id="L338">            conditionsComments.put(entry.getKey(), comment);</span>
+<span class="nc" id="L339">          } else {</span>
+<span class="nc bnc" id="L340" title="All 4 branches missed.">            final String comment = uses + &quot;&quot; + (satisfied ? (each &gt; 1 ? &quot;T&quot; + each : &quot;T&quot;) : &quot;F&quot;);</span>
+<span class="nc" id="L341">            conditionsComments.put(entry.getKey(), comment);</span>
+          }
+<span class="nc bnc" id="L343" title="All 2 branches missed.">        } else if (entry.getKey() instanceof RulesAttachment) {</span>
+<span class="nc" id="L344">          final RulesAttachment ra = (RulesAttachment) entry.getKey();</span>
+<span class="nc" id="L345">          final int each = ra.getEachMultiple();</span>
+<span class="nc" id="L346">          final int uses = ra.getUses();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">          if (uses &lt; 0) {</span>
+<span class="nc bnc" id="L348" title="All 4 branches missed.">            final String comment = satisfied ? (each &gt; 1 ? &quot;T&quot; + each : &quot;T&quot;) : &quot;F&quot;;</span>
+<span class="nc" id="L349">            conditionsComments.put(entry.getKey(), comment);</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">          } else if (uses == 0) {</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">            final String comment = satisfied ? &quot;Used&quot; : &quot;used&quot;;</span>
+<span class="nc" id="L352">            conditionsComments.put(entry.getKey(), comment);</span>
+<span class="nc" id="L353">          } else {</span>
+<span class="nc bnc" id="L354" title="All 4 branches missed.">            final String comment = uses + &quot;&quot; + (satisfied ? (each &gt; 1 ? &quot;T&quot; + each : &quot;T&quot;) : &quot;F&quot;);</span>
+<span class="nc" id="L355">            conditionsComments.put(entry.getKey(), comment);</span>
+          }
+<span class="nc" id="L357">        } else {</span>
+<span class="nc" id="L358">          conditionsComments.put(entry.getKey(), entry.getValue().toString());</span>
+        }
+      }
+<span class="nc" id="L361">      return conditionsComments;</span>
+    }
+
+    public HashMap&lt;ICondition, Boolean&gt; getTestedConditions() {
+<span class="nc" id="L365">      final HashSet&lt;ICondition&gt; myConditions = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">      for (final Map&lt;ICondition, String&gt; map : m_statsObjective.values()) {</span>
+<span class="nc" id="L367">        myConditions.addAll(map.keySet());</span>
+      }
+<span class="nc" id="L369">      final HashSet&lt;ICondition&gt; allConditionsNeeded =</span>
+<span class="nc" id="L370">          AbstractConditionsAttachment.getAllConditionsRecursive(myConditions, null);</span>
+<span class="nc" id="L371">      return AbstractConditionsAttachment.testAllConditionsRecursive(allConditionsNeeded, null, m_dummyDelegate);</span>
+    }
+
+    @Override
+    public void gameDataChanged(final Change aChange) {
+<span class="nc" id="L376">      synchronized (this) {</span>
+<span class="nc" id="L377">        m_isDirty = true;</span>
+      }
+<span class="nc" id="L379">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L380">    }</span>
+
+    @Override
+    public String getColumnName(final int col) {
+<span class="nc bnc" id="L384" title="All 2 branches missed.">      if (col == 0) {</span>
+<span class="nc" id="L385">        return &quot;Done&quot;;</span>
+      } else {
+<span class="nc" id="L387">        return &quot;Objective Name&quot;;</span>
+      }
+    }
+
+    @Override
+    public int getColumnCount() {
+<span class="nc" id="L393">      return COLUMNS_TOTAL;</span>
+    }
+
+    @Override
+    public synchronized int getRowCount() {
+<span class="nc bnc" id="L398" title="All 2 branches missed.">      if (!m_isDirty) {</span>
+<span class="nc" id="L399">        return m_collectedData.length;</span>
+      } else {
+<span class="nc" id="L401">        m_data.acquireReadLock();</span>
+        try {
+<span class="nc" id="L403">          return getRowTotal();</span>
+<span class="nc" id="L404">        } finally {</span>
+<span class="nc" id="L405">          m_data.releaseReadLock();</span>
+<span class="nc" id="L406">        }</span>
+      }
+    }
+
+    private int getRowTotal() {
+<span class="nc" id="L411">      int rowsTotal = m_sections.size() * 2; // we include a space between sections as well</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">      for (final Map&lt;ICondition, String&gt; map : m_statsObjective.values()) {</span>
+<span class="nc" id="L413">        rowsTotal += map.size();</span>
+      }
+<span class="nc" id="L415">      return rowsTotal;</span>
+    }
+
+    public synchronized void setGameData(final GameData data) {
+<span class="nc" id="L419">      synchronized (this) {</span>
+<span class="nc" id="L420">        m_data.removeDataChangeListener(this);</span>
+<span class="nc" id="L421">        m_data = data;</span>
+<span class="nc" id="L422">        setObjectiveStats();</span>
+<span class="nc" id="L423">        m_data.addDataChangeListener(this);</span>
+<span class="nc" id="L424">        m_isDirty = true;</span>
+      }
+<span class="nc" id="L426">      repaint();</span>
+<span class="nc" id="L427">    }</span>
+  }
+
+  @Override
+  public void setGameData(final GameData data) {
+<span class="nc" id="L432">    m_dummyDelegate = new ObjectivePanelDummyDelegateBridge(data);</span>
+<span class="nc" id="L433">    m_data = data;</span>
+<span class="nc" id="L434">    m_objectiveModel.setGameData(data);</span>
+<span class="nc" id="L435">    m_objectiveModel.gameDataChanged(null);</span>
+<span class="nc" id="L436">  }</span>
+}
+
+
+/** TODO: copy paste overlap with NotifcationMessages.java */
+class ObjectiveProperties {
+  // Filename
+  private static final String PROPERTY_FILE = &quot;objectives.properties&quot;;
+  static final String GROUP_PROPERTY = &quot;TABLEGROUP&quot;;
+  static final String OBJECTIVES_PANEL_NAME = &quot;Objectives.Panel.Name&quot;;
+<span class="nc" id="L446">  private static ObjectiveProperties s_op = null;</span>
+<span class="nc" id="L447">  private static long s_timestamp = 0;</span>
+<span class="nc" id="L448">  private final Properties m_properties = new Properties();</span>
+
+<span class="nc" id="L450">  protected ObjectiveProperties() {</span>
+<span class="nc" id="L451">    final ResourceLoader loader = AbstractUIContext.getResourceLoader();</span>
+<span class="nc" id="L452">    final URL url = loader.getResource(PROPERTY_FILE);</span>
+<span class="nc bnc" id="L453" title="All 2 branches missed.">    if (url != null) {</span>
+<span class="nc" id="L454">      final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(url);</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">      if (inputStream.isPresent()) {</span>
+        try {
+<span class="nc" id="L457">          m_properties.load(inputStream.get());</span>
+<span class="nc" id="L458">        } catch (final IOException e) {</span>
+<span class="nc" id="L459">          System.out.println(&quot;Error reading &quot; + PROPERTY_FILE + &quot; : &quot; + e);</span>
+        }
+      }
+    }
+<span class="nc" id="L463">  }</span>
+
+  public static ObjectiveProperties getInstance() {
+<span class="nc bnc" id="L466" title="All 4 branches missed.">    if (s_op == null || Calendar.getInstance().getTimeInMillis() &gt; s_timestamp + 1000) { // cache properties for 1</span>
+                                                                                         // second
+<span class="nc" id="L468">      s_op = new ObjectiveProperties();</span>
+<span class="nc" id="L469">      s_timestamp = Calendar.getInstance().getTimeInMillis();</span>
+    }
+<span class="nc" id="L471">    return s_op;</span>
+  }
+
+  public String getProperty(final String objectiveKey) {
+<span class="nc" id="L475">    return getProperty(objectiveKey, &quot;Not Found In objectives.properties&quot;);</span>
+  }
+
+  public String getProperty(final String objectiveKey, final String defaultValue) {
+<span class="nc" id="L479">    return m_properties.getProperty(objectiveKey, defaultValue);</span>
+  }
+
+  public Set&lt;Entry&lt;Object, Object&gt;&gt; entrySet() {
+<span class="nc" id="L483">    return m_properties.entrySet();</span>
+  }
+}
+
+
+class ObjectivePanelDummyDelegateBridge implements IDelegateBridge {
+<span class="nc" id="L489">  private final ITripleADisplay m_display = new HeadlessDisplay();</span>
+<span class="nc" id="L490">  private final ISound m_soundChannel = new HeadlessSoundChannel();</span>
+<span class="nc" id="L491">  private final DelegateHistoryWriter m_writer = new DelegateHistoryWriter(new DummyGameModifiedChannel());</span>
+  private final GameData m_data;
+<span class="nc" id="L493">  private final ObjectivePanelDummyPlayer m_dummyAI =</span>
+<span class="nc" id="L494">      new ObjectivePanelDummyPlayer(&quot;objective panel dummy&quot;, &quot;None (AI)&quot;);</span>
+
+<span class="nc" id="L496">  public ObjectivePanelDummyDelegateBridge(final GameData data) {</span>
+<span class="nc" id="L497">    m_data = data;</span>
+<span class="nc" id="L498">  }</span>
+
+  @Override
+  public GameData getData() {
+<span class="nc" id="L502">    return m_data;</span>
+  }
+
+  @Override
+<span class="nc" id="L506">  public void leaveDelegateExecution() {}</span>
+
+  @Override
+  public Properties getStepProperties() {
+<span class="nc" id="L510">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public String getStepName() {
+<span class="nc" id="L515">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public IRemotePlayer getRemotePlayer(final PlayerID id) {
+<span class="nc" id="L520">    return m_dummyAI;</span>
+  }
+
+  @Override
+  public IRemotePlayer getRemotePlayer() {
+<span class="nc" id="L525">    return m_dummyAI;</span>
+  }
+
+  @Override
+  public int[] getRandom(final int max, final int count, final PlayerID player, final DiceType diceType,
+      final String annotation) {
+<span class="nc bnc" id="L531" title="All 2 branches missed.">    if (count &lt;= 0) {</span>
+<span class="nc" id="L532">      throw new IllegalStateException(&quot;count must be &gt; o, annotation:&quot; + annotation);</span>
+    }
+<span class="nc" id="L534">    final int[] numbers = new int[count];</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">    for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L536">      numbers[i] = getRandom(max, player, diceType, annotation);</span>
+    }
+<span class="nc" id="L538">    return numbers;</span>
+  }
+
+  @Override
+  public int getRandom(final int max, final PlayerID player, final DiceType diceType, final String annotation) {
+<span class="nc" id="L543">    return 0;</span>
+  }
+
+  @Override
+  public PlayerID getPlayerID() {
+<span class="nc" id="L548">    return PlayerID.NULL_PLAYERID;</span>
+  }
+
+  @Override
+  public IDelegateHistoryWriter getHistoryWriter() {
+<span class="nc" id="L553">    return m_writer;</span>
+  }
+
+  @Override
+  public IDisplay getDisplayChannelBroadcaster() {
+<span class="nc" id="L558">    return m_display;</span>
+  }
+
+  @Override
+  public ISound getSoundChannelBroadcaster() {
+<span class="nc" id="L563">    return m_soundChannel;</span>
+  }
+
+  @Override
+<span class="nc" id="L567">  public void enterDelegateExecution() {}</span>
+
+  @Override
+<span class="nc" id="L570">  public void addChange(final Change aChange) {}</span>
+
+  @Override
+<span class="nc" id="L573">  public void stopGameSequence() {}</span>
+}
+
+
+<span class="nc" id="L577">class DummyGameModifiedChannel implements IGameModifiedChannel {</span>
+  @Override
+<span class="nc" id="L579">  public void addChildToEvent(final String text, final Object renderingData) {}</span>
+
+  @Override
+<span class="nc" id="L582">  public void gameDataChanged(final Change aChange) {}</span>
+
+  @Override
+<span class="nc" id="L585">  public void shutDown() {}</span>
+
+  @Override
+<span class="nc" id="L588">  public void startHistoryEvent(final String event) {}</span>
+
+  @Override
+  public void stepChanged(final String stepName, final String delegateName, final PlayerID player, final int round,
+<span class="nc" id="L592">      final String displayName, final boolean loadedFromSavedGame) {}</span>
+
+  @Override
+<span class="nc" id="L595">  public void startHistoryEvent(final String event, final Object renderingData) {}</span>
+}
+
+
+class ObjectivePanelDummyPlayer extends AbstractAI {
+  public ObjectivePanelDummyPlayer(final String name, final String type) {
+<span class="nc" id="L601">    super(name, type);</span>
+<span class="nc" id="L602">  }</span>
+
+  @Override
+  protected void move(final boolean nonCombat, final IMoveDelegate moveDel, final GameData data,
+      final PlayerID player) {
+<span class="nc" id="L607">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  protected void place(final boolean placeForBid, final IAbstractPlaceDelegate placeDelegate, final GameData data,
+      final PlayerID player) {
+<span class="nc" id="L613">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  protected void purchase(final boolean purcahseForBid, final int PUsToSpend, final IPurchaseDelegate purchaseDelegate,
+      final GameData data, final PlayerID player) {
+<span class="nc" id="L619">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  protected void tech(final ITechDelegate techDelegate, final GameData data, final PlayerID player) {
+<span class="nc" id="L624">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public boolean confirmMoveInFaceOfAA(final Collection&lt;Territory&gt; aaFiringTerritories) {
+<span class="nc" id="L629">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getNumberOfFightersToMoveToNewCarrier(final Collection&lt;Unit&gt; fightersThatCanBeMoved,
+      final Territory from) {
+<span class="nc" id="L635">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Territory retreatQuery(final GUID battleID, final boolean submerge, final Territory battleSite,
+      final Collection&lt;Territory&gt; possibleTerritories, final String message) {
+<span class="nc" id="L641">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleUnitsQuery(final Territory scrambleTo,
+      final Map&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; possibleScramblers) {
+<span class="nc" id="L647">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; selectUnitsQuery(final Territory current, final Collection&lt;Unit&gt; possible,
+      final String message) {
+<span class="nc" id="L653">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public CasualtyDetails selectCasualties(final Collection&lt;Unit&gt; selectFrom,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents, final int count, final String message, final DiceRoll dice,
+      final PlayerID hit, final Collection&lt;Unit&gt; friendlyUnits, final PlayerID enemyPlayer,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers,
+      final CasualtyList defaultCasualties, final GUID battleID, final Territory battlesite,
+      final boolean allowMultipleHitsPerUnit) {
+<span class="nc" id="L663">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Territory selectTerritoryForAirToLand(final Collection&lt;Territory&gt; candidates, final Territory currentTerritory,
+      final String unitMessage) {
+<span class="nc" id="L669">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public boolean shouldBomberBomb(final Territory territory) {
+<span class="nc" id="L674">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Unit whatShouldBomberBomb(final Territory territory, final Collection&lt;Unit&gt; potentialTargets,
+      final Collection&lt;Unit&gt; bombers) {
+<span class="nc" id="L680">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public int[] selectFixedDice(final int numRolls, final int hitAt, final boolean hitOnlyIfEquals, final String message,
+      final int diceSides) {
+<span class="nc" id="L686">    final int[] dice = new int[numRolls];</span>
+<span class="nc bnc" id="L687" title="All 2 branches missed.">    for (int i = 0; i &lt; numRolls; i++) {</span>
+<span class="nc" id="L688">      dice[i] = (int) Math.ceil(Math.random() * diceSides);</span>
+    }
+<span class="nc" id="L690">    return dice;</span>
+  }
+}
+
+
+<span class="nc" id="L695">class ColorTableCellRenderer extends DefaultTableCellRenderer {</span>
+  private static final long serialVersionUID = 4197520597103598219L;
+<span class="nc" id="L697">  private final DefaultTableCellRenderer adaptee = new DefaultTableCellRenderer();</span>
+
+  @Override
+  public Component getTableCellRendererComponent(final JTable table, final Object value, final boolean isSelected,
+      final boolean hasFocus, final int row, final int column) {
+<span class="nc" id="L702">    adaptee.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);</span>
+<span class="nc" id="L703">    final JLabel renderer =</span>
+<span class="nc" id="L704">        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);</span>
+<span class="nc" id="L705">    renderer.setHorizontalAlignment(SwingConstants.CENTER);</span>
+<span class="nc bnc" id="L706" title="All 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L707">      renderer.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">    } else if (value.toString().contains(&quot;T&quot;)) {</span>
+<span class="nc" id="L709">      renderer.setBorder(BorderFactory.createMatteBorder(2, 2, 2, 2, Color.green));</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">    } else if (value.toString().contains(&quot;U&quot;)) {</span>
+<span class="nc" id="L711">      renderer.setBorder(BorderFactory.createMatteBorder(2, 2, 2, 2, Color.blue));</span>
+<span class="nc bnc" id="L712" title="All 2 branches missed.">    } else if (value.toString().contains(&quot;u&quot;)) {</span>
+<span class="nc" id="L713">      renderer.setBorder(BorderFactory.createMatteBorder(2, 2, 2, 2, Color.cyan));</span>
+<span class="nc" id="L714">    } else {</span>
+<span class="nc" id="L715">      renderer.setBorder(BorderFactory.createEmptyBorder());</span>
+    }
+<span class="nc" id="L717">    return renderer;</span>
+  }
+}
+
+
+// author: Heinz M. Kabutz (modified for JEditorPane by Mark Christopher Duncan)
+class EditorPaneCellEditor extends DefaultCellEditor {
+  private static final long serialVersionUID = 509377442956621991L;
+
+  public EditorPaneCellEditor() {
+<span class="nc" id="L727">    super(new JTextField());</span>
+<span class="nc" id="L728">    final JEditorPane textArea = new JEditorPane();</span>
+    // textArea.setWrapStyleWord(true);
+    // textArea.setLineWrap(true);
+<span class="nc" id="L731">    textArea.setEditable(false);</span>
+<span class="nc" id="L732">    textArea.setContentType(&quot;text/html&quot;);</span>
+<span class="nc" id="L733">    final JScrollPane scrollPane = new JScrollPane(textArea);</span>
+<span class="nc" id="L734">    scrollPane.setBorder(null);</span>
+<span class="nc" id="L735">    editorComponent = scrollPane;</span>
+<span class="nc" id="L736">    delegate = new DefaultCellEditor.EditorDelegate() {</span>
+      private static final long serialVersionUID = 5746645959173385516L;
+
+      @Override
+      public void setValue(final Object value) {
+<span class="nc bnc" id="L741" title="All 2 branches missed.">        textArea.setText((value != null) ? value.toString() : &quot;&quot;);</span>
+<span class="nc" id="L742">      }</span>
+
+      @Override
+      public Object getCellEditorValue() {
+<span class="nc" id="L746">        return textArea.getText();</span>
+      }
+    };
+<span class="nc" id="L749">  }</span>
+}
+
+
+// author: Heinz M. Kabutz (modified for JEditorPane by Mark Christopher Duncan)
+class EditorPaneTableCellRenderer extends JEditorPane implements TableCellRenderer {
+  private static final long serialVersionUID = -2835145877164663862L;
+<span class="nc" id="L756">  private final DefaultTableCellRenderer adaptee = new DefaultTableCellRenderer();</span>
+<span class="nc" id="L757">  private final Map&lt;JTable, Map&lt;Integer, Map&lt;Integer, Integer&gt;&gt;&gt; cellSizes = new HashMap&lt;&gt;();</span>
+
+<span class="nc" id="L759">  public EditorPaneTableCellRenderer() {</span>
+    // setLineWrap(true);
+    // setWrapStyleWord(true);
+<span class="nc" id="L762">    setEditable(false);</span>
+<span class="nc" id="L763">    setContentType(&quot;text/html&quot;);</span>
+<span class="nc" id="L764">  }</span>
+
+  @Override
+  public Component getTableCellRendererComponent(final JTable table, final Object obj, final boolean isSelected,
+      final boolean hasFocus, final int row, final int column) {
+    // set the colors, etc. using the standard for that platform
+<span class="nc" id="L770">    adaptee.getTableCellRendererComponent(table, obj, isSelected, hasFocus, row, column);</span>
+<span class="nc" id="L771">    setForeground(adaptee.getForeground());</span>
+<span class="nc" id="L772">    setBackground(adaptee.getBackground());</span>
+<span class="nc" id="L773">    setBorder(adaptee.getBorder());</span>
+<span class="nc" id="L774">    setFont(adaptee.getFont());</span>
+<span class="nc" id="L775">    setText(adaptee.getText());</span>
+    // This line was very important to get it working with JDK1.4
+<span class="nc" id="L777">    final TableColumnModel columnModel = table.getColumnModel();</span>
+<span class="nc" id="L778">    setSize(columnModel.getColumn(column).getWidth(), 100000);</span>
+<span class="nc" id="L779">    int height_wanted = (int) getPreferredSize().getHeight();</span>
+<span class="nc" id="L780">    addSize(table, row, column, height_wanted);</span>
+<span class="nc" id="L781">    height_wanted = findTotalMaximumRowSize(table, row);</span>
+<span class="nc bnc" id="L782" title="All 2 branches missed.">    if (height_wanted != table.getRowHeight(row)) {</span>
+<span class="nc" id="L783">      table.setRowHeight(row, height_wanted);</span>
+    }
+<span class="nc" id="L785">    return this;</span>
+  }
+
+  private void addSize(final JTable table, final int row, final int column, final int height) {
+<span class="nc" id="L789">    Map&lt;Integer, Map&lt;Integer, Integer&gt;&gt; rows = cellSizes.get(table);</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">    if (rows == null) {</span>
+<span class="nc" id="L791">      cellSizes.put(table, rows = new HashMap&lt;&gt;());</span>
+    }
+<span class="nc" id="L793">    Map&lt;Integer, Integer&gt; rowheights = rows.get(row);</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">    if (rowheights == null) {</span>
+<span class="nc" id="L795">      rows.put(row, rowheights = new HashMap&lt;&gt;());</span>
+    }
+<span class="nc" id="L797">    rowheights.put(column, height);</span>
+<span class="nc" id="L798">  }</span>
+
+  /**
+   * Look through all columns and get the renderer. If it is
+   * also a TextAreaRenderer, we look at the maximum height in
+   * its hash table for this row.
+   */
+  private static int findTotalMaximumRowSize(final JTable table, final int row) {
+<span class="nc" id="L806">    int maximum_height = 0;</span>
+<span class="nc" id="L807">    final Enumeration&lt;?&gt; columns = table.getColumnModel().getColumns();</span>
+<span class="nc bnc" id="L808" title="All 2 branches missed.">    while (columns.hasMoreElements()) {</span>
+<span class="nc" id="L809">      final TableColumn tc = (TableColumn) columns.nextElement();</span>
+<span class="nc" id="L810">      final TableCellRenderer cellRenderer = tc.getCellRenderer();</span>
+<span class="nc bnc" id="L811" title="All 2 branches missed.">      if (cellRenderer instanceof EditorPaneTableCellRenderer) {</span>
+<span class="nc" id="L812">        final EditorPaneTableCellRenderer tar = (EditorPaneTableCellRenderer) cellRenderer;</span>
+<span class="nc" id="L813">        maximum_height = Math.max(maximum_height, tar.findMaximumRowSize(table, row));</span>
+      }
+    }
+<span class="nc" id="L816">    return maximum_height;</span>
+  }
+
+  private int findMaximumRowSize(final JTable table, final int row) {
+<span class="nc" id="L820">    final Map&lt;Integer, Map&lt;Integer, Integer&gt;&gt; rows = cellSizes.get(table);</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">    if (rows == null) {</span>
+<span class="nc" id="L822">      return 0;</span>
+    }
+<span class="nc" id="L824">    final Map&lt;Integer, Integer&gt; rowheights = rows.get(row);</span>
+<span class="nc bnc" id="L825" title="All 2 branches missed.">    if (rowheights == null) {</span>
+<span class="nc" id="L826">      return 0;</span>
+    }
+<span class="nc" id="L828">    int maximum_height = 0;</span>
+<span class="nc bnc" id="L829" title="All 2 branches missed.">    for (final Entry&lt;Integer, Integer&gt; entry : rowheights.entrySet()) {</span>
+<span class="nc" id="L830">      final int cellHeight = entry.getValue();</span>
+<span class="nc" id="L831">      maximum_height = Math.max(maximum_height, cellHeight);</span>
+    }
+<span class="nc" id="L833">    return maximum_height;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

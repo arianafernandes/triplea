@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProSimulateTurnUtils.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI.simulate</a> &gt; <span class="el_source">ProSimulateTurnUtils.java</span></div><h1>ProSimulateTurnUtils.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI.simulate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipTracker;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.ai.proAI.ProData;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.data.ProTerritory;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.BattleDelegate;
+import games.strategy.triplea.delegate.BattleTracker;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.IBattle;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.OriginalOwnerTracker;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.util.Match;
+
+/**
+ * Pro AI simulate turn utilities.
+ */
+<span class="nc" id="L40">public class ProSimulateTurnUtils {</span>
+
+  public static void simulateBattles(final GameData data, final PlayerID player, final IDelegateBridge delegateBridge,
+      final ProOddsCalculator calc) {
+
+<span class="nc" id="L45">    ProLogger.info(&quot;Starting battle simulation phase&quot;);</span>
+
+<span class="nc" id="L47">    final BattleDelegate battleDelegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L48">    final Map&lt;BattleType, Collection&lt;Territory&gt;&gt; battleTerritories = battleDelegate.getBattles().getBattles();</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">    for (final Entry&lt;BattleType, Collection&lt;Territory&gt;&gt; entry : battleTerritories.entrySet()) {</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">      for (final Territory t : entry.getValue()) {</span>
+<span class="nc" id="L51">        final IBattle battle =</span>
+<span class="nc" id="L52">            battleDelegate.getBattleTracker().getPendingBattle(t, entry.getKey().isBombingRun(), entry.getKey());</span>
+<span class="nc" id="L53">        final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L54">        attackers.retainAll(t.getUnits().getUnits());</span>
+<span class="nc" id="L55">        final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L56">        defenders.retainAll(t.getUnits().getUnits());</span>
+<span class="nc" id="L57">        final Set&lt;Unit&gt; bombardingUnits = new HashSet&lt;&gt;(battle.getBombardingUnits());</span>
+<span class="nc" id="L58">        ProLogger.debug(&quot;---&quot; + t);</span>
+<span class="nc" id="L59">        ProLogger.debug(&quot;attackers=&quot; + attackers);</span>
+<span class="nc" id="L60">        ProLogger.debug(&quot;defenders=&quot; + defenders);</span>
+<span class="nc" id="L61">        ProLogger.debug(&quot;bombardingUnits=&quot; + bombardingUnits);</span>
+<span class="nc" id="L62">        final ProBattleResult result = calc.callBattleCalculator(player, t, attackers, defenders, bombardingUnits);</span>
+<span class="nc" id="L63">        final List&lt;Unit&gt; remainingUnits = result.getAverageAttackersRemaining();</span>
+<span class="nc" id="L64">        ProLogger.debug(&quot;remainingUnits=&quot; + remainingUnits);</span>
+
+        // Make updates to data
+<span class="nc" id="L67">        final List&lt;Unit&gt; attackersToRemove = new ArrayList&lt;&gt;(attackers);</span>
+<span class="nc" id="L68">        attackersToRemove.removeAll(remainingUnits);</span>
+<span class="nc" id="L69">        final List&lt;Unit&gt; defendersToRemove = Match.getMatches(defenders, Matches.UnitIsInfrastructure.invert());</span>
+<span class="nc" id="L70">        final List&lt;Unit&gt; infrastructureToChangeOwner = Match.getMatches(defenders, Matches.UnitIsInfrastructure);</span>
+<span class="nc" id="L71">        ProLogger.debug(&quot;attackersToRemove=&quot; + attackersToRemove);</span>
+<span class="nc" id="L72">        ProLogger.debug(&quot;defendersToRemove=&quot; + defendersToRemove);</span>
+<span class="nc" id="L73">        ProLogger.debug(&quot;infrastructureToChangeOwner=&quot; + infrastructureToChangeOwner);</span>
+<span class="nc" id="L74">        final Change attackerskilledChange = ChangeFactory.removeUnits(t, attackersToRemove);</span>
+<span class="nc" id="L75">        delegateBridge.addChange(attackerskilledChange);</span>
+<span class="nc" id="L76">        final Change defenderskilledChange = ChangeFactory.removeUnits(t, defendersToRemove);</span>
+<span class="nc" id="L77">        delegateBridge.addChange(defenderskilledChange);</span>
+<span class="nc" id="L78">        BattleTracker.captureOrDestroyUnits(t, player, player, delegateBridge, null);</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">        if (!checkIfCapturedTerritoryIsAlliedCapital(t, data, player, delegateBridge)) {</span>
+<span class="nc" id="L80">          delegateBridge.addChange(ChangeFactory.changeOwner(t, player));</span>
+        }
+<span class="nc" id="L82">        battleDelegate.getBattleTracker().getConquered().add(t);</span>
+<span class="nc" id="L83">        battleDelegate.getBattleTracker().removeBattle(battle);</span>
+<span class="nc" id="L84">        final Territory updatedTerritory = data.getMap().getTerritory(t.getName());</span>
+<span class="nc" id="L85">        ProLogger.debug(</span>
+<span class="nc" id="L86">            &quot;after changes owner=&quot; + updatedTerritory.getOwner() + &quot;, units=&quot; + updatedTerritory.getUnits().getUnits());</span>
+      }
+    }
+<span class="nc" id="L89">  }</span>
+
+  public static Map&lt;Territory, ProTerritory&gt; transferMoveMap(final Map&lt;Territory, ProTerritory&gt; moveMap,
+      final GameData toData, final PlayerID player) {
+
+<span class="nc" id="L94">    ProLogger.info(&quot;Transferring move map&quot;);</span>
+
+<span class="nc" id="L96">    final Map&lt;Unit, Territory&gt; unitTerritoryMap = ProData.unitTerritoryMap;</span>
+
+<span class="nc" id="L98">    final Map&lt;Territory, ProTerritory&gt; result = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L99">    final List&lt;Unit&gt; usedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">    for (final Territory fromTerritory : moveMap.keySet()) {</span>
+<span class="nc" id="L101">      final Territory toTerritory = toData.getMap().getTerritory(fromTerritory.getName());</span>
+<span class="nc" id="L102">      final ProTerritory patd = new ProTerritory(toTerritory);</span>
+<span class="nc" id="L103">      result.put(toTerritory, patd);</span>
+<span class="nc" id="L104">      final Map&lt;Unit, List&lt;Unit&gt;&gt; amphibAttackMap = moveMap.get(fromTerritory).getAmphibAttackMap();</span>
+<span class="nc" id="L105">      final Map&lt;Unit, Boolean&gt; isTransportingMap = moveMap.get(fromTerritory).getIsTransportingMap();</span>
+<span class="nc" id="L106">      final Map&lt;Unit, Territory&gt; transportTerritoryMap = moveMap.get(fromTerritory).getTransportTerritoryMap();</span>
+<span class="nc" id="L107">      final Map&lt;Unit, Territory&gt; bombardMap = moveMap.get(fromTerritory).getBombardTerritoryMap();</span>
+<span class="nc" id="L108">      ProLogger.debug(&quot;Transferring &quot; + fromTerritory + &quot; to &quot; + toTerritory);</span>
+<span class="nc" id="L109">      final List&lt;Unit&gt; amphibUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">      for (final Unit transport : amphibAttackMap.keySet()) {</span>
+<span class="nc" id="L111">        Unit toTransport = null;</span>
+<span class="nc" id="L112">        final List&lt;Unit&gt; toUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        if (isTransportingMap.get(transport)) {</span>
+<span class="nc" id="L114">          toTransport = transferLoadedTransport(transport, amphibAttackMap.get(transport), unitTerritoryMap, usedUnits,</span>
+<span class="nc" id="L115">              toData, player);</span>
+<span class="nc" id="L116">          toUnits.addAll(TransportTracker.transporting(toTransport));</span>
+<span class="nc" id="L117">        } else {</span>
+<span class="nc" id="L118">          toTransport = transferUnit(transport, unitTerritoryMap, usedUnits, toData, player);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">          for (final Unit u : amphibAttackMap.get(transport)) {</span>
+<span class="nc" id="L120">            final Unit toUnit = transferUnit(u, unitTerritoryMap, usedUnits, toData, player);</span>
+<span class="nc" id="L121">            toUnits.add(toUnit);</span>
+          }
+        }
+<span class="nc" id="L124">        patd.addUnits(toUnits);</span>
+<span class="nc" id="L125">        patd.putAmphibAttackMap(toTransport, toUnits);</span>
+<span class="nc" id="L126">        amphibUnits.addAll(amphibAttackMap.get(transport));</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        if (transportTerritoryMap.get(transport) != null) {</span>
+<span class="nc" id="L128">          patd.getTransportTerritoryMap().put(toTransport,</span>
+<span class="nc" id="L129">              toData.getMap().getTerritory(transportTerritoryMap.get(transport).getName()));</span>
+        }
+<span class="nc" id="L131">        ProLogger.trace(&quot;---Transferring transport=&quot; + transport + &quot; with units=&quot; + amphibAttackMap.get(transport)</span>
+<span class="nc" id="L132">            + &quot; unloadTerritory=&quot; + transportTerritoryMap.get(transport) + &quot; to transport=&quot; + toTransport</span>
+<span class="nc" id="L133">            + &quot; with units=&quot; + toUnits + &quot; unloadTerritory=&quot; + patd.getTransportTerritoryMap().get(toTransport));</span>
+      }
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      for (final Unit u : moveMap.get(fromTerritory).getUnits()) {</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        if (!amphibUnits.contains(u)) {</span>
+<span class="nc" id="L137">          final Unit toUnit = transferUnit(u, unitTerritoryMap, usedUnits, toData, player);</span>
+<span class="nc" id="L138">          patd.addUnit(toUnit);</span>
+<span class="nc" id="L139">          ProLogger.trace(&quot;---Transferring unit &quot; + u + &quot; to &quot; + toUnit);</span>
+        }
+      }
+<span class="nc bnc" id="L142" title="All 2 branches missed.">      for (final Unit u : moveMap.get(fromTerritory).getBombers()) {</span>
+<span class="nc" id="L143">        final Unit toUnit = transferUnit(u, unitTerritoryMap, usedUnits, toData, player);</span>
+<span class="nc" id="L144">        patd.getBombers().add(toUnit);</span>
+<span class="nc" id="L145">        ProLogger.trace(&quot;---Transferring bomber &quot; + u + &quot; to &quot; + toUnit);</span>
+      }
+<span class="nc bnc" id="L147" title="All 2 branches missed.">      for (final Unit u : bombardMap.keySet()) {</span>
+<span class="nc" id="L148">        final Unit toUnit = transferUnit(u, unitTerritoryMap, usedUnits, toData, player);</span>
+<span class="nc" id="L149">        patd.getBombardTerritoryMap().put(toUnit, toData.getMap().getTerritory(bombardMap.get(u).getName()));</span>
+<span class="nc" id="L150">        ProLogger.trace(&quot;---Transferring bombard=&quot; + u + &quot;, bombardFromTerritory=&quot; + bombardMap.get(u) + &quot; to bomard=&quot;</span>
+<span class="nc" id="L151">            + toUnit + &quot;, bombardFromTerritory=&quot; + patd.getBombardTerritoryMap().get(toUnit));</span>
+      }
+    }
+<span class="nc" id="L154">    return result;</span>
+  }
+
+  private static boolean checkIfCapturedTerritoryIsAlliedCapital(final Territory t, final GameData data,
+      final PlayerID player, final IDelegateBridge delegateBridge) {
+
+<span class="nc" id="L160">    final PlayerID terrOrigOwner = OriginalOwnerTracker.getOriginalOwner(t);</span>
+<span class="nc" id="L161">    final RelationshipTracker relationshipTracker = data.getRelationshipTracker();</span>
+<span class="nc" id="L162">    final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L163" title="All 6 branches missed.">    if (ta != null &amp;&amp; ta.getCapital() != null &amp;&amp; terrOrigOwner != null</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        &amp;&amp; TerritoryAttachment.getAllCapitals(terrOrigOwner, data).contains(t)</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">        &amp;&amp; relationshipTracker.isAllied(terrOrigOwner, player)) {</span>
+
+      // Give capital and any allied territories back to original owner
+<span class="nc" id="L168">      final Collection&lt;Territory&gt; originallyOwned = OriginalOwnerTracker.getOriginallyOwned(data, terrOrigOwner);</span>
+<span class="nc" id="L169">      final List&lt;Territory&gt; friendlyTerritories =</span>
+<span class="nc" id="L170">          Match.getMatches(originallyOwned, Matches.isTerritoryAllied(terrOrigOwner, data));</span>
+<span class="nc" id="L171">      friendlyTerritories.add(t);</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">      for (final Territory item : friendlyTerritories) {</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (item.getOwner() == terrOrigOwner) {</span>
+<span class="nc" id="L174">          continue;</span>
+        }
+<span class="nc" id="L176">        final Change takeOverFriendlyTerritories = ChangeFactory.changeOwner(item, terrOrigOwner);</span>
+<span class="nc" id="L177">        delegateBridge.addChange(takeOverFriendlyTerritories);</span>
+<span class="nc" id="L178">        final Collection&lt;Unit&gt; units = Match.getMatches(item.getUnits().getUnits(), Matches.UnitIsInfrastructure);</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">        if (!units.isEmpty()) {</span>
+<span class="nc" id="L180">          final Change takeOverNonComUnits = ChangeFactory.changeOwner(units, terrOrigOwner, t);</span>
+<span class="nc" id="L181">          delegateBridge.addChange(takeOverNonComUnits);</span>
+        }
+      }
+<span class="nc" id="L184">      return true;</span>
+    }
+<span class="nc" id="L186">    return false;</span>
+  }
+
+  private static Unit transferUnit(final Unit u, final Map&lt;Unit, Territory&gt; unitTerritoryMap,
+      final List&lt;Unit&gt; usedUnits, final GameData toData, final PlayerID player) {
+
+<span class="nc" id="L192">    final Territory unitTerritory = unitTerritoryMap.get(u);</span>
+<span class="nc" id="L193">    final List&lt;Unit&gt; toUnits = toData.getMap().getTerritory(unitTerritory.getName()).getUnits()</span>
+<span class="nc" id="L194">        .getMatches(ProMatches.unitIsOwnedAndMatchesTypeAndNotTransporting(player, u.getType()));</span>
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    for (final Unit toUnit : toUnits) {</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">      if (!usedUnits.contains(toUnit)) {</span>
+<span class="nc" id="L197">        usedUnits.add(toUnit);</span>
+<span class="nc" id="L198">        return toUnit;</span>
+      }
+    }
+<span class="nc" id="L201">    return null;</span>
+  }
+
+  private static Unit transferLoadedTransport(final Unit transport, final List&lt;Unit&gt; transportingUnits,
+      final Map&lt;Unit, Territory&gt; unitTerritoryMap, final List&lt;Unit&gt; usedUnits, final GameData toData,
+      final PlayerID player) {
+
+<span class="nc" id="L208">    final Territory unitTerritory = unitTerritoryMap.get(transport);</span>
+<span class="nc" id="L209">    final List&lt;Unit&gt; toTransports = toData.getMap().getTerritory(unitTerritory.getName()).getUnits()</span>
+<span class="nc" id="L210">        .getMatches(ProMatches.unitIsOwnedAndMatchesTypeAndIsTransporting(player, transport.getType()));</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">    for (final Unit toTransport : toTransports) {</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">      if (!usedUnits.contains(toTransport)) {</span>
+<span class="nc" id="L213">        final List&lt;Unit&gt; toTransportingUnits = (List&lt;Unit&gt;) TransportTracker.transporting(toTransport);</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (transportingUnits.size() == toTransportingUnits.size()) {</span>
+<span class="nc" id="L215">          boolean canTransfer = true;</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">          for (int i = 0; i &lt; transportingUnits.size(); i++) {</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (!transportingUnits.get(i).getType().equals(toTransportingUnits.get(i).getType())) {</span>
+<span class="nc" id="L218">              canTransfer = false;</span>
+<span class="nc" id="L219">              break;</span>
+            }
+          }
+<span class="nc bnc" id="L222" title="All 2 branches missed.">          if (canTransfer) {</span>
+<span class="nc" id="L223">            usedUnits.add(toTransport);</span>
+<span class="nc" id="L224">            usedUnits.addAll(toTransportingUnits);</span>
+<span class="nc" id="L225">            return toTransport;</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L230">    return null;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

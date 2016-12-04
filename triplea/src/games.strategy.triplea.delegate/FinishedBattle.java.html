@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>FinishedBattle.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">FinishedBattle.java</span></div><h1>FinishedBattle.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord.BattleResultDescription;
+import games.strategy.triplea.oddsCalculator.ta.BattleResults;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/**
+ * A sort of scripted battle made for blitzed/conquered territories without a fight.
+ * TODO: expand to cover all possible scripting battle needs.
+ */
+public class FinishedBattle extends AbstractBattle {
+  private static final long serialVersionUID = -5852495231826940879L;
+<span class="fc" id="L34">  private final Set&lt;Territory&gt; m_attackingFrom = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L35">  private final Collection&lt;Territory&gt; m_amphibiousAttackFrom = new ArrayList&lt;&gt;();</span>
+  // maps Territory-&gt; units (stores a collection of who is attacking from where, needed for undoing moves)
+<span class="fc" id="L37">  private final Map&lt;Territory, Collection&lt;Unit&gt;&gt; m_attackingFromMap = new HashMap&lt;&gt;();</span>
+
+  public FinishedBattle(final Territory battleSite, final PlayerID attacker, final BattleTracker battleTracker,
+      final boolean isBombingRun, final BattleType battleType, final GameData data,
+      final BattleResultDescription battleResultDescription, final WhoWon whoWon) {
+<span class="fc" id="L42">    super(battleSite, attacker, battleTracker, isBombingRun, battleType, data);</span>
+<span class="fc" id="L43">    m_battleResultDescription = battleResultDescription;</span>
+<span class="fc" id="L44">    m_whoWon = whoWon;</span>
+<span class="fc" id="L45">  }</span>
+
+  public void setDefendingUnits(final List&lt;Unit&gt; defendingUnits) {
+<span class="nc" id="L48">    m_defendingUnits = defendingUnits;</span>
+<span class="nc" id="L49">  }</span>
+
+  @Override
+  public boolean isEmpty() {
+<span class="nc" id="L53">    return m_attackingUnits.isEmpty();</span>
+  }
+
+  @Override
+  public void fight(final IDelegateBridge bridge) {
+<span class="nc bnc" id="L58" title="All 2 branches missed.">    if (!m_headless) {</span>
+<span class="nc" id="L59">      m_battleTracker.getBattleRecords().addResultToBattle(m_attacker, m_battleID, m_defender, m_attackerLostTUV,</span>
+<span class="nc" id="L60">          m_defenderLostTUV, m_battleResultDescription, new BattleResults(this, m_data));</span>
+    }
+<span class="nc" id="L62">    m_battleTracker.removeBattle(this);</span>
+<span class="nc" id="L63">    m_isOver = true;</span>
+<span class="nc" id="L64">  }</span>
+
+  @Override
+  public Change addAttackChange(final Route route, final Collection&lt;Unit&gt; units,
+      final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets) {
+<span class="fc" id="L69">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; addedTransporting = TransportTracker.transporting(units);</span>
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">    for (final Unit unit : addedTransporting.keySet()) {</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">      if (m_dependentUnits.get(unit) != null) {</span>
+<span class="nc" id="L72">        m_dependentUnits.get(unit).addAll(addedTransporting.get(unit));</span>
+<span class="nc" id="L73">      } else {</span>
+<span class="nc" id="L74">        m_dependentUnits.put(unit, addedTransporting.get(unit));</span>
+      }
+    }
+<span class="fc" id="L77">    final Territory attackingFrom = route.getTerritoryBeforeEnd();</span>
+<span class="fc" id="L78">    m_attackingFrom.add(attackingFrom);</span>
+<span class="fc" id="L79">    m_attackingUnits.addAll(units);</span>
+<span class="fc" id="L80">    m_attackingFromMap.putIfAbsent(attackingFrom, new ArrayList&lt;&gt;());</span>
+<span class="fc" id="L81">    final Collection&lt;Unit&gt; attackingFromMapUnits = m_attackingFromMap.get(attackingFrom);</span>
+<span class="fc" id="L82">    attackingFromMapUnits.addAll(units);</span>
+    // are we amphibious
+<span class="pc bpc" id="L84" title="2 of 6 branches missed.">    if (route.getStart().isWater() &amp;&amp; route.getEnd() != null &amp;&amp; !route.getEnd().isWater()</span>
+<span class="pc bpc" id="L85" title="1 of 2 branches missed.">        &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L86">      m_amphibiousAttackFrom.add(route.getTerritoryBeforeEnd());</span>
+<span class="fc" id="L87">      m_amphibiousLandAttackers.addAll(Match.getMatches(units, Matches.UnitIsLand));</span>
+<span class="fc" id="L88">      m_isAmphibious = true;</span>
+    }
+<span class="fc" id="L90">    return ChangeFactory.EMPTY_CHANGE;</span>
+  }
+
+  @Override
+  public void removeAttack(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L95">    m_attackingUnits.removeAll(units);</span>
+    // the route could be null, in the case of a unit in a territory where a sub is submerged.
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">    if (route == null) {</span>
+<span class="nc" id="L98">      return;</span>
+    }
+<span class="fc" id="L100">    final Territory attackingFrom = route.getTerritoryBeforeEnd();</span>
+<span class="fc" id="L101">    Collection&lt;Unit&gt; attackingFromMapUnits = m_attackingFromMap.get(attackingFrom);</span>
+    // handle possible null pointer
+<span class="pc bpc" id="L103" title="1 of 2 branches missed.">    if (attackingFromMapUnits == null) {</span>
+<span class="nc" id="L104">      attackingFromMapUnits = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L106">    attackingFromMapUnits.removeAll(units);</span>
+<span class="pc bpc" id="L107" title="1 of 2 branches missed.">    if (attackingFromMapUnits.isEmpty()) {</span>
+<span class="fc" id="L108">      m_attackingFrom.remove(attackingFrom);</span>
+    }
+    // deal with amphibious assaults
+<span class="pc bpc" id="L111" title="1 of 2 branches missed.">    if (attackingFrom.isWater()) {</span>
+<span class="nc bnc" id="L112" title="All 6 branches missed.">      if (route.getEnd() != null &amp;&amp; !route.getEnd().isWater() &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="nc" id="L113">        m_amphibiousLandAttackers.removeAll(Match.getMatches(units, Matches.UnitIsLand));</span>
+      }
+      // if none of the units is a land unit, the attack from
+      // that territory is no longer an amphibious assault
+<span class="nc bnc" id="L117" title="All 2 branches missed.">      if (Match.noneMatch(attackingFromMapUnits, Matches.UnitIsLand)) {</span>
+<span class="nc" id="L118">        m_amphibiousAttackFrom.remove(attackingFrom);</span>
+        // do we have any amphibious attacks left?
+<span class="nc bnc" id="L120" title="All 2 branches missed.">        m_isAmphibious = !m_amphibiousAttackFrom.isEmpty();</span>
+      }
+    }
+<span class="fc" id="L123">    final Iterator&lt;Unit&gt; dependents = m_dependentUnits.keySet().iterator();</span>
+<span class="pc bpc" id="L124" title="1 of 2 branches missed.">    while (dependents.hasNext()) {</span>
+<span class="nc" id="L125">      final Unit dependence = dependents.next();</span>
+<span class="nc" id="L126">      final Collection&lt;Unit&gt; dependent = m_dependentUnits.get(dependence);</span>
+<span class="nc" id="L127">      dependent.removeAll(units);</span>
+    }
+<span class="fc" id="L129">  }</span>
+
+  @Override
+  public void unitsLostInPrecedingBattle(final IBattle battle, final Collection&lt;Unit&gt; units,
+      final IDelegateBridge bridge, final boolean withdrawn) {
+<span class="nc" id="L134">    final Collection&lt;Unit&gt; lost = getDependentUnits(units);</span>
+<span class="nc" id="L135">    lost.addAll(Util.intersection(units, m_attackingUnits));</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    if (lost.size() != 0) {</span>
+<span class="nc" id="L137">      m_attackingUnits.removeAll(lost);</span>
+      /*
+       * TODO: these units are no longer in this territory, most probably. Plus they may have already been removed by
+       * another &quot;real&quot; battle
+       * class.
+       * final String transcriptText = MyFormatter.unitsToText(lost) + &quot; lost in &quot; + m_battleSite.getName();
+       * bridge.getHistoryWriter().startEvent(transcriptText);
+       * final Change change = ChangeFactory.removeUnits(m_battleSite, lost);
+       * bridge.addChange(change);
+       */
+<span class="nc bnc" id="L147" title="All 2 branches missed.">      if (m_attackingUnits.isEmpty()) {</span>
+<span class="nc" id="L148">        final IntegerMap&lt;UnitType&gt; costs = BattleCalculator.getCostsForTUV(m_attacker, m_data);</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">        final int tuvLostAttacker = (withdrawn ? 0 : BattleCalculator.getTUV(lost, m_attacker, costs, m_data));</span>
+<span class="nc" id="L150">        m_attackerLostTUV += tuvLostAttacker;</span>
+        // scripted?
+<span class="nc" id="L152">        m_whoWon = WhoWon.DEFENDER;</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">        if (!m_headless) {</span>
+<span class="nc" id="L154">          m_battleTracker.getBattleRecords().addResultToBattle(m_attacker, m_battleID, m_defender,</span>
+<span class="nc" id="L155">              m_attackerLostTUV, m_defenderLostTUV, BattleRecord.BattleResultDescription.LOST,</span>
+<span class="nc" id="L156">              new BattleResults(this, m_data));</span>
+        }
+<span class="nc" id="L158">        m_battleTracker.removeBattle(this);</span>
+      }
+    }
+<span class="nc" id="L161">  }</span>
+
+  /**
+   * @return territories where there are amphibious attacks
+   */
+  public Collection&lt;Territory&gt; getAmphibiousAttackTerritories() {
+<span class="nc" id="L167">    return m_amphibiousAttackFrom;</span>
+  }
+
+  public Collection&lt;Territory&gt; getAttackingFrom() {
+<span class="nc" id="L171">    return m_attackingFrom;</span>
+  }
+
+  public Map&lt;Territory, Collection&lt;Unit&gt;&gt; getAttackingFromMap() {
+<span class="nc" id="L175">    return m_attackingFromMap;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

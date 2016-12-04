@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DefaultPlayerBridge.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.gamePlayer</a> &gt; <span class="el_source">DefaultPlayerBridge.java</span></div><h1>DefaultPlayerBridge.java</h1><pre class="source lang-java linenums">package games.strategy.engine.gamePlayer;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.Properties;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.GameOverException;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.events.GameStepListener;
+import games.strategy.engine.delegate.IDelegate;
+import games.strategy.engine.delegate.IPersistentDelegate;
+import games.strategy.engine.framework.IGame;
+import games.strategy.engine.framework.ServerGame;
+import games.strategy.engine.message.IRemote;
+import games.strategy.engine.message.MessengerException;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.message.RemoteNotFoundException;
+
+/**
+ * Default implementation of PlayerBridge.
+ */
+public class DefaultPlayerBridge implements IPlayerBridge {
+  private final IGame m_game;
+  private String m_currentStep;
+  private String m_currentDelegate;
+
+  /** Creates new DefaultPlayerBridge */
+<span class="nc" id="L31">  public DefaultPlayerBridge(final IGame aGame) {</span>
+<span class="nc" id="L32">    m_game = aGame;</span>
+<span class="nc" id="L33">    final GameStepListener m_gameStepListener = (stepName, delegateName, player, round, displayName) -&gt; {</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">      if (stepName == null) {</span>
+<span class="nc" id="L35">        throw new IllegalArgumentException(&quot;Null step&quot;);</span>
+      }
+<span class="nc bnc" id="L37" title="All 2 branches missed.">      if (delegateName == null) {</span>
+<span class="nc" id="L38">        throw new IllegalArgumentException(&quot;Null delegate&quot;);</span>
+      }
+<span class="nc" id="L40">      m_currentStep = stepName;</span>
+<span class="nc" id="L41">      m_currentDelegate = delegateName;</span>
+<span class="nc" id="L42">    };</span>
+<span class="nc" id="L43">    m_game.addGameStepListener(m_gameStepListener);</span>
+<span class="nc" id="L44">  }</span>
+
+  /**
+   * Get the name of the current step being executed.
+   */
+  @Override
+  public String getStepName() {
+<span class="nc" id="L51">    return m_currentStep;</span>
+  }
+
+  @Override
+  public boolean isGameOver() {
+<span class="nc" id="L56">    return m_game.isGameOver();</span>
+  }
+
+  /**
+   * Return the game data
+   */
+  @Override
+  public GameData getGameData() {
+<span class="nc" id="L64">    return m_game.getData();</span>
+  }
+
+  @Override
+  public IRemote getRemoteDelegate() {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">    if (m_game.isGameOver()) {</span>
+<span class="nc" id="L70">      throw new GameOverException(&quot;Game Over&quot;);</span>
+    }
+    try {
+<span class="nc" id="L73">      m_game.getData().acquireReadLock();</span>
+      try {
+<span class="nc" id="L75">        final IDelegate delegate = m_game.getData().getDelegateList().getDelegate(m_currentDelegate);</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (delegate == null) {</span>
+<span class="nc" id="L77">          final String errorMessage = &quot;IDelegate in DefaultPlayerBridge.getRemote() cannot be null. CurrentStep: &quot;</span>
+<span class="nc" id="L78">              + m_currentStep + &quot;, and CurrentDelegate: &quot; + m_currentDelegate;</span>
+          // for some reason, client isn't getting or seeing the errors, so make sure we print it to err
+          // too
+<span class="nc" id="L81">          System.err.println(errorMessage);</span>
+          // Veqryn: hope that this suffices...?
+<span class="nc" id="L83">          throw new IllegalStateException(errorMessage);</span>
+        }
+        final RemoteName remoteName;
+        try {
+<span class="nc" id="L87">          remoteName = ServerGame.getRemoteName(delegate);</span>
+<span class="nc" id="L88">        } catch (final Exception e) {</span>
+<span class="nc" id="L89">          ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L90">          final String errorMessage =</span>
+<span class="nc" id="L91">              &quot;IDelegate IRemote interface class returned null or was not correct interface. CurrentStep: &quot;</span>
+<span class="nc" id="L92">                  + m_currentStep + &quot;, and CurrentDelegate: &quot; + m_currentDelegate;</span>
+          // for some reason, client isn't getting or seeing the errors, so make sure we print it to err
+          // too
+<span class="nc" id="L95">          System.err.println(errorMessage);</span>
+<span class="nc" id="L96">          throw new IllegalStateException(errorMessage, e);</span>
+        }
+<span class="nc" id="L98">        return getRemoteThatChecksForGameOver(m_game.getRemoteMessenger().getRemote(remoteName));</span>
+<span class="nc" id="L99">      } finally {</span>
+<span class="nc" id="L100">        m_game.getData().releaseReadLock();</span>
+<span class="nc" id="L101">      }</span>
+<span class="nc" id="L102">    } catch (final MessengerException me) {</span>
+<span class="nc" id="L103">      throw new GameOverException(&quot;Game Over!&quot;);</span>
+    }
+  }
+
+  @Override
+  public IRemote getRemotePersistentDelegate(final String name) {
+<span class="nc bnc" id="L109" title="All 2 branches missed.">    if (m_game.isGameOver()) {</span>
+<span class="nc" id="L110">      throw new GameOverException(&quot;Game Over&quot;);</span>
+    }
+    try {
+<span class="nc" id="L113">      m_game.getData().acquireReadLock();</span>
+      try {
+<span class="nc" id="L115">        final IDelegate delegate = m_game.getData().getDelegateList().getDelegate(name);</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">        if (delegate == null) {</span>
+<span class="nc" id="L117">          final String errorMessage =</span>
+<span class="nc" id="L118">              &quot;IDelegate in DefaultPlayerBridge.getRemote() cannot be null. Looking for delegate named: &quot; + name;</span>
+          // for some reason, client isn't getting or seeing the errors, so make sure we print it to err
+<span class="nc" id="L120">          System.err.println(errorMessage);</span>
+          // too
+<span class="nc" id="L122">          throw new IllegalStateException(errorMessage);</span>
+        }
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        if (!(delegate instanceof IPersistentDelegate)) {</span>
+<span class="nc" id="L125">          return null;</span>
+        }
+<span class="nc" id="L127">        return getRemoteThatChecksForGameOver(</span>
+<span class="nc" id="L128">            m_game.getRemoteMessenger().getRemote(ServerGame.getRemoteName(delegate)));</span>
+<span class="nc" id="L129">      } finally {</span>
+<span class="nc" id="L130">        m_game.getData().releaseReadLock();</span>
+<span class="nc" id="L131">      }</span>
+<span class="nc" id="L132">    } catch (final MessengerException me) {</span>
+<span class="nc" id="L133">      throw new GameOverException(&quot;Game Over!&quot;);</span>
+    }
+  }
+
+  @Override
+  public Properties getStepProperties() {
+<span class="nc" id="L139">    return m_game.getData().getSequence().getStep().getProperties();</span>
+  }
+
+  private IRemote getRemoteThatChecksForGameOver(final IRemote implementor) {
+<span class="nc" id="L143">    final Class&lt;?&gt;[] classes = implementor.getClass().getInterfaces();</span>
+<span class="nc" id="L144">    final GameOverInvocationHandler goih = new GameOverInvocationHandler(implementor, m_game);</span>
+<span class="nc" id="L145">    return (IRemote) Proxy.newProxyInstance(implementor.getClass().getClassLoader(), classes, goih);</span>
+  }
+}
+
+
+class GameOverInvocationHandler implements InvocationHandler {
+  private final Object m_delegate;
+  private final IGame m_game;
+
+<span class="nc" id="L154">  public GameOverInvocationHandler(final Object delegate, final IGame game) {</span>
+<span class="nc" id="L155">    m_delegate = delegate;</span>
+<span class="nc" id="L156">    m_game = game;</span>
+<span class="nc" id="L157">  }</span>
+
+  @Override
+  public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+    try {
+<span class="nc" id="L162">      return method.invoke(m_delegate, args);</span>
+<span class="nc" id="L163">    } catch (final InvocationTargetException ite) {</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">      if (!m_game.isGameOver()) {</span>
+<span class="nc" id="L165">        throw ite.getCause();</span>
+      } else {
+<span class="nc" id="L167">        throw new GameOverException(&quot;Game Over Exception!&quot;);</span>
+      }
+<span class="nc" id="L169">    } catch (final RemoteNotFoundException rnfe) {</span>
+<span class="nc" id="L170">      throw new GameOverException(&quot;Game Over!&quot;);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

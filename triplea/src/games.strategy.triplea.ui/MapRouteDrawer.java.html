@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MapRouteDrawer.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">MapRouteDrawer.java</span></div><h1>MapRouteDrawer.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui;
+
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics2D;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.RenderingHints;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Line2D;
+import java.awt.geom.Point2D;
+import java.awt.image.BufferedImage;
+import java.util.Arrays;
+import java.util.List;
+import java.util.function.Function;
+
+import org.apache.commons.math3.analysis.interpolation.SplineInterpolator;
+import org.apache.commons.math3.analysis.polynomials.PolynomialSplineFunction;
+
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.triplea.ui.mapdata.MapData;
+
+/**
+ * Draws a route on a map.
+ * Could be static, is non-static for JUnit/Mockito testing purposes
+ */
+<span class="fc" id="L30">public class MapRouteDrawer {</span>
+
+<span class="fc" id="L32">  private static final SplineInterpolator splineInterpolator = new SplineInterpolator();</span>
+  /**
+   * This value influences the &quot;resolution&quot; of the Path.
+   * Too low values make the Path look edgy, too high values will cause lag and rendering errors
+   * because the distance between the drawing segments is shorter than 2 pixels
+   */
+  public static final double DETAIL_LEVEL = 1.0;
+<span class="fc" id="L39">  private static final int arrowLength = 4;</span>
+
+  private RouteOptimizer routeOptimizer;
+
+  /**
+   * Draws the route to the screen.
+   */
+  public void drawRoute(final Graphics2D graphics, final RouteDescription routeDescription, final MapPanel mapPanel,
+      final MapData mapData, final String maxMovement) {
+<span class="pc bpc" id="L48" title="1 of 2 branches missed.">    if (routeOptimizer == null) {</span>
+<span class="fc" id="L49">      routeOptimizer = new RouteOptimizer(mapData, mapPanel);</span>
+    }
+<span class="fc" id="L51">    final Route route = routeDescription.getRoute();</span>
+<span class="pc bpc" id="L52" title="1 of 2 branches missed.">    if (route == null) {</span>
+<span class="nc" id="L53">      return;</span>
+    }
+    // set thickness and color of the future drawings
+<span class="fc" id="L56">    graphics.setStroke(new BasicStroke(3.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));</span>
+<span class="fc" id="L57">    graphics.setPaint(Color.red);</span>
+<span class="fc" id="L58">    graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);</span>
+
+<span class="fc" id="L60">    final int numTerritories = route.getAllTerritories().size();</span>
+<span class="fc" id="L61">    final int xOffset = mapPanel.getXOffset();</span>
+<span class="fc" id="L62">    final int yOffset = mapPanel.getYOffset();</span>
+<span class="fc" id="L63">    final Point[] points = routeOptimizer.getTranslatedRoute(getRoutePoints(routeDescription, mapData));</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">    final boolean tooFewTerritories = numTerritories &lt;= 1;</span>
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">    final boolean tooFewPoints = points.length &lt;= 2;</span>
+<span class="fc" id="L66">    final double scale = mapPanel.getScale();</span>
+<span class="pc bpc" id="L67" title="2 of 4 branches missed.">    if (tooFewTerritories || tooFewPoints) {</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">      if (routeDescription.getEnd() != null) {// AI has no End Point</span>
+<span class="nc" id="L69">        drawDirectPath(graphics, routeDescription.getStart(), routeDescription.getEnd(), xOffset, yOffset, scale);</span>
+<span class="nc" id="L70">      } else {</span>
+<span class="nc" id="L71">        drawDirectPath(graphics, points[0], points[points.length - 1], xOffset, yOffset, scale);</span>
+      }
+<span class="nc bnc" id="L73" title="All 4 branches missed.">      if (tooFewPoints &amp;&amp; !tooFewTerritories) {</span>
+<span class="nc" id="L74">        drawMoveLength(graphics, points, xOffset, yOffset, scale, numTerritories, maxMovement);</span>
+      }
+<span class="nc" id="L76">    } else {</span>
+<span class="fc" id="L77">      drawCurvedPath(graphics, points, xOffset, yOffset, scale);</span>
+<span class="fc" id="L78">      drawMoveLength(graphics, points, xOffset, yOffset, scale, numTerritories, maxMovement);</span>
+    }
+<span class="fc" id="L80">    drawJoints(graphics, points, xOffset, yOffset, scale);</span>
+<span class="fc" id="L81">    drawCustomCursor(graphics, routeDescription, xOffset, yOffset, scale);</span>
+<span class="fc" id="L82">  }</span>
+
+  /**
+   * Draws Points on the Map
+   *
+   * @param graphics The {@linkplain Graphics2D} Object being drawn on
+   * @param points The {@linkplain Point} array aka the &quot;Joints&quot; to be drawn
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param jointsize The diameter of the Points being drawn
+   * @param scale The scale-factor of the Map
+   */
+  private void drawJoints(final Graphics2D graphics, final Point[] points, final int xOffset, final int yOffset,
+      final double scale) {
+<span class="fc" id="L96">    final int jointsize = 10;</span>
+    // If the points array is bigger than 1 the last joint should not be drawn (draw an arrow instead)
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">    final Point[] newPoints = points.length &gt; 1 ? Arrays.copyOf(points, points.length - 1) : points;</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">    for (Point[] joints : routeOptimizer.getAllPoints(newPoints)) {</span>
+<span class="fc bfc" id="L100" title="All 2 branches covered.">      for (final Point p : joints) {</span>
+<span class="fc" id="L101">        graphics.fillOval((int) (((p.x - xOffset) - (jointsize / 2) / scale) * scale),</span>
+<span class="fc" id="L102">            (int) (((p.y - yOffset) - (jointsize / 2) / scale) * scale), jointsize, jointsize);</span>
+      }
+    }
+<span class="fc" id="L105">  }</span>
+
+  /**
+   * Draws a specified CursorImage if available
+   *
+   * @param graphics The {@linkplain Graphics2D} Object being drawn on
+   * @param routeDescription The RouteDescription object containing the CursorImage
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param scale The scale-factor of the Map
+   */
+  private void drawCustomCursor(final Graphics2D graphics, final RouteDescription routeDescription, final int xOffset,
+      final int yOffset, final double scale) {
+<span class="fc" id="L118">    final BufferedImage cursorImage = (BufferedImage) routeDescription.getCursorImage();</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">    if (cursorImage != null) {</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">      for (Point[] endPoint : routeOptimizer.getAllPoints(routeOptimizer.getLastEndPoint())) {</span>
+<span class="nc" id="L121">        graphics.drawImage(cursorImage,</span>
+<span class="nc" id="L122">            (int) (((endPoint[0].x - xOffset) - (cursorImage.getWidth() / 2)) * scale),</span>
+<span class="nc" id="L123">            (int) (((endPoint[0].y - yOffset) - (cursorImage.getHeight() / 2)) * scale), null);</span>
+      }
+    }
+
+<span class="fc" id="L127">  }</span>
+
+  /**
+   * Draws a straight Line from the start to the stop of the specified {@linkplain RouteDescription}
+   * Also draws a small little point at the end of the Line.
+   *
+   * @param graphics The {@linkplain Graphics2D} Object being drawn on
+   * @param start The start {@linkplain Point} of the Path
+   * @param end The end {@linkplain Point} of the Path
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param jointsize The diameter of the Points being drawn
+   * @param scale The scale-factor of the Map
+   */
+  private void drawDirectPath(final Graphics2D graphics, final Point start, final Point end, final int xOffset,
+      final int yOffset, final double scale) {
+<span class="nc" id="L143">    final Point[] points = routeOptimizer.getTranslatedRoute(start, end);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    for (Point[] newPoints : routeOptimizer.getAllPoints(points)) {</span>
+<span class="nc" id="L145">      drawLineWithTranslate(graphics, new Line2D.Float(newPoints[0], newPoints[1]), xOffset,</span>
+<span class="nc" id="L146">          yOffset, scale);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">      if (newPoints[0].distance(newPoints[1]) &gt; arrowLength) {</span>
+<span class="nc" id="L148">        drawArrow(graphics, newPoints[0], newPoints[1], xOffset, yOffset, scale);</span>
+      }
+    }
+<span class="nc" id="L151">  }</span>
+
+  /**
+   * Centripetal parameterization&lt;br&gt;
+   *
+   * Check &lt;a href=&quot;http://stackoverflow.com/a/37370620/5769952&quot;&gt;http://stackoverflow.com/a/37370620/5769952&lt;/a&gt; for
+   * more information
+   *
+   * @param points - The Points which should be parameterized
+   * @return A Parameter-Array called the &quot;Index&quot;
+   */
+  protected double[] createParameterizedIndex(final Point[] points) {
+<span class="fc" id="L163">    final double[] index = new double[points.length];</span>
+<span class="fc bfc" id="L164" title="All 2 branches covered.">    if (index.length &gt; 0) {</span>
+<span class="fc" id="L165">      index[0] = 0;</span>
+    }
+<span class="fc bfc" id="L167" title="All 2 branches covered.">    for (int i = 1; i &lt; points.length; i++) {</span>
+<span class="fc" id="L168">      index[i] = index[i - 1] + Math.sqrt(points[i - 1].distance(points[i]));</span>
+    }
+<span class="fc" id="L170">    return index;</span>
+  }
+
+  /**
+   * Draws a line to the Screen regarding the Map-Offset and scale
+   *
+   * @param graphics The {@linkplain Graphics2D} Object to be drawn on
+   * @param line The Line to be drawn
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param scale The scale-factor of the Map
+   */
+  private void drawLineWithTranslate(final Graphics2D graphics, final Line2D line, final double xOffset,
+      final double yOffset,
+      final double scale) {
+<span class="fc" id="L185">    final Point2D point1 =</span>
+<span class="fc" id="L186">        new Point2D.Double((line.getP1().getX() - xOffset) * scale, (line.getP1().getY() - yOffset) * scale);</span>
+<span class="fc" id="L187">    final Point2D point2 =</span>
+<span class="fc" id="L188">        new Point2D.Double((line.getP2().getX() - xOffset) * scale, (line.getP2().getY() - yOffset) * scale);</span>
+    // Don't draw if won't be visible anyway
+<span class="pc bpc" id="L190" title="3 of 4 branches missed.">    if (graphics.getClip().contains(point1) || graphics.getClip().contains(point2)) {</span>
+<span class="fc" id="L191">      graphics.draw(new Line2D.Double(point1, point2));</span>
+    }
+<span class="fc" id="L193">  }</span>
+
+  /**
+   * Creates a {@linkplain Point} Array out of a {@linkplain RouteDescription} and a {@linkplain MapData} object
+   *
+   * @param routeDescription {@linkplain RouteDescription} containing the Route information
+   * @param mapData {@linkplain MapData} Object containing Information about the Map Coordinates
+   * @return The {@linkplain Point} array specified by the {@linkplain RouteDescription} and {@linkplain MapData}
+   *         objects
+   */
+  protected Point[] getRoutePoints(final RouteDescription routeDescription, final MapData mapData) {
+<span class="fc" id="L204">    final List&lt;Territory&gt; territories = routeDescription.getRoute().getAllTerritories();</span>
+<span class="fc" id="L205">    final int numTerritories = territories.size();</span>
+<span class="fc" id="L206">    final Point[] points = new Point[numTerritories];</span>
+<span class="fc bfc" id="L207" title="All 2 branches covered.">    for (int i = 0; i &lt; numTerritories; i++) {</span>
+<span class="fc" id="L208">      points[i] = mapData.getCenter(territories.get(i));</span>
+    }
+<span class="pc bpc" id="L210" title="1 of 2 branches missed.">    if (routeDescription.getStart() != null) {</span>
+<span class="fc" id="L211">      points[0] = routeDescription.getStart();</span>
+    }
+<span class="pc bpc" id="L213" title="2 of 4 branches missed.">    if (routeDescription.getEnd() != null &amp;&amp; numTerritories &gt; 1) {</span>
+<span class="fc" id="L214">      points[numTerritories - 1] = routeDescription.getEnd();</span>
+    }
+<span class="fc" id="L216">    return points;</span>
+  }
+
+  /**
+   * Creates double arrays of y or x coordinates of the given {@linkplain Point} Array
+   *
+   * @param points The {@linkplain Point} Array containing the Coordinates
+   * @param extractor A function specifying which value to return
+   * @return A double array with values specified by the given function
+   */
+  protected double[] getValues(final Point[] points, final Function&lt;Point, Double&gt; extractor) {
+<span class="fc" id="L227">    final double[] result = new double[points.length];</span>
+<span class="fc bfc" id="L228" title="All 2 branches covered.">    for (int i = 0; i &lt; points.length; i++) {</span>
+<span class="fc" id="L229">      result[i] = extractor.apply(points[i]);</span>
+    }
+<span class="fc" id="L231">    return result;</span>
+
+  }
+
+  /**
+   * Creates a double array containing y coordinates of a {@linkplain PolynomialSplineFunction} with the above specified
+   * {@code DETAIL_LEVEL}
+   *
+   * @param fuction The {@linkplain PolynomialSplineFunction} with the values
+   * @param index the parameterized array to indicate the maximum Values
+   * @return an array of double-precision y values of the specified function
+   */
+  protected double[] getCoords(final PolynomialSplineFunction fuction, final double[] index) {
+<span class="fc" id="L244">    final double defaultCoordSize = index[index.length - 1];</span>
+<span class="fc" id="L245">    final double[] coords = new double[(int) Math.round(DETAIL_LEVEL * defaultCoordSize) + 1];</span>
+<span class="fc" id="L246">    final double stepSize = fuction.getKnots()[fuction.getKnots().length - 1] / coords.length;</span>
+<span class="fc" id="L247">    double curValue = 0;</span>
+<span class="fc bfc" id="L248" title="All 2 branches covered.">    for (int i = 0; i &lt; coords.length; i++) {</span>
+<span class="fc" id="L249">      coords[i] = fuction.value(curValue);</span>
+<span class="fc" id="L250">      curValue += stepSize;</span>
+    }
+<span class="fc" id="L252">    return coords;</span>
+  }
+
+  /**
+   * Draws how many moves are left
+   *
+   * @param graphics The {@linkplain Graphics2D} Object to be drawn on
+   * @param points The {@linkplain Point} array of the unit's tour
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param scale The scale-factor of the Map
+   * @param numTerritories how many Territories the unit traveled so far
+   * @param maxMovement The String indicating how man
+   */
+  private void drawMoveLength(final Graphics2D graphics, final Point[] points,
+      final int xOffset, final int yOffset, final double scale, final int numTerritories,
+      final String maxMovement) {
+<span class="fc" id="L269">    final Point cursorPos = points[points.length - 1];</span>
+<span class="fc" id="L270">    final String unitMovementLeft =</span>
+<span class="pc bpc" id="L271" title="2 of 4 branches missed.">        maxMovement == null || maxMovement.trim().length() == 0 ? &quot;&quot;</span>
+<span class="fc" id="L272">            : &quot;    /&quot; + maxMovement;</span>
+<span class="fc" id="L273">    final BufferedImage movementImage = new BufferedImage(50, 20, BufferedImage.TYPE_INT_ARGB);</span>
+<span class="fc" id="L274">    createMovementLeftImage(movementImage, String.valueOf(numTerritories - 1), unitMovementLeft);</span>
+
+<span class="fc" id="L276">    final int textXOffset = -movementImage.getWidth() / 2;</span>
+<span class="fc" id="L277">    final int yDir = cursorPos.y - points[numTerritories - 2].y;</span>
+<span class="pc bpc" id="L278" title="1 of 2 branches missed.">    final int textYOffset = yDir &gt; 0 ? movementImage.getHeight() : movementImage.getHeight() * -2;</span>
+<span class="fc bfc" id="L279" title="All 2 branches covered.">    for (Point[] cursorPositions : routeOptimizer.getAllPoints(cursorPos)) {</span>
+<span class="fc" id="L280">      graphics.drawImage(movementImage,</span>
+<span class="fc" id="L281">          (int) ((cursorPositions[0].x + textXOffset - xOffset) * scale),</span>
+<span class="fc" id="L282">          (int) ((cursorPositions[0].y + textYOffset - yOffset) * scale), null);</span>
+    }
+<span class="fc" id="L284">  }</span>
+
+  /**
+   * Draws a smooth curve through the given array of points
+   * This algorithm is called Spline-Interpolation
+   * because the Apache-commons-math library we are using here does not accept
+   * values but {@code f(x)=y} with x having to increase all the time
+   * the idea behind this is to use a parameter array - the so called index
+   * as x array and splitting the points into a x and y coordinates array.
+   *
+   * Finally those 2 interpolated arrays get unified into a single {@linkplain Point} array and drawn to the Map
+   *
+   * @param graphics The {@linkplain Graphics2D} Object to be drawn on
+   * @param points The Knot Points for the Spline-Interpolator aka the joints
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param scale The scale-factor of the Map
+   */
+  private void drawCurvedPath(final Graphics2D graphics, final Point[] points, final int xOffset, final int yOffset,
+      final double scale) {
+<span class="fc" id="L304">    final double[] index = createParameterizedIndex(points);</span>
+<span class="fc" id="L305">    final PolynomialSplineFunction xcurve =</span>
+<span class="fc" id="L306">        splineInterpolator.interpolate(index, getValues(points, point -&gt; point.getX()));</span>
+<span class="fc" id="L307">    final double[] xcoords = getCoords(xcurve, index);</span>
+<span class="fc" id="L308">    final PolynomialSplineFunction ycurve =</span>
+<span class="fc" id="L309">        splineInterpolator.interpolate(index, getValues(points, point -&gt; point.getY()));</span>
+<span class="fc" id="L310">    final double[] ycoords = getCoords(ycurve, index);</span>
+<span class="fc" id="L311">    List&lt;Line2D&gt; lines = routeOptimizer.getAllNormalizedLines(xcoords, ycoords);</span>
+<span class="fc bfc" id="L312" title="All 2 branches covered.">    for (Line2D line : lines) {</span>
+<span class="fc" id="L313">      drawLineWithTranslate(graphics, line, xOffset, yOffset, scale);</span>
+    }
+    // draws the Line to the Cursor on every possible screen, so that the line ends at the cursor no matter what...
+<span class="fc" id="L316">    List&lt;Point[]&gt; finishingPoints = routeOptimizer.getAllPoints(RouteOptimizer.getPoint(new Point2D.Double(xcoords[xcoords.length - 1], ycoords[ycoords.length - 1])), points[points.length - 1]);</span>
+<span class="pc bpc" id="L317" title="1 of 2 branches missed.">    boolean hasArrowEnoughSpace = points[points.length - 2].distance(points[points.length - 1]) &gt; arrowLength;</span>
+<span class="fc bfc" id="L318" title="All 2 branches covered.">    for(Point[] finishingPointArray : finishingPoints){</span>
+<span class="fc" id="L319">    drawLineWithTranslate(graphics,</span>
+<span class="fc" id="L320">        new Line2D.Double(finishingPointArray[0], finishingPointArray[1]),</span>
+<span class="fc" id="L321">        xOffset, yOffset, scale);</span>
+<span class="pc bpc" id="L322" title="1 of 2 branches missed.">      if (hasArrowEnoughSpace) {</span>
+<span class="fc" id="L323">        drawArrow(graphics, finishingPointArray[0], finishingPointArray[1], xOffset, yOffset, scale);</span>
+      }
+    }
+<span class="fc" id="L326">  }</span>
+
+  /**
+   * This draws how many moves are left on the given {@linkplain BufferedImage}
+   *
+   * @param image The Image to be drawn on
+   * @param curMovement How many territories the unit traveled so far
+   * @param maxMovement How many territories is allowed to travel. Is empty when the unit traveled too far
+   */
+  private void createMovementLeftImage(final BufferedImage image, final String curMovement, final String maxMovement) {
+<span class="fc" id="L336">    final Graphics2D textG2D = image.createGraphics();</span>
+<span class="fc" id="L337">    textG2D.setColor(Color.YELLOW);</span>
+<span class="fc" id="L338">    textG2D.setFont(new Font(&quot;Dialog&quot;, Font.BOLD, 20));</span>
+<span class="fc" id="L339">    final int textThicknessOffset = textG2D.getFontMetrics().stringWidth(curMovement) / 2;</span>
+<span class="fc" id="L340">    final boolean distanceTooBig = maxMovement.equals(&quot;&quot;);</span>
+<span class="pc bpc" id="L341" title="1 of 2 branches missed.">    textG2D.drawString(curMovement, distanceTooBig ? image.getWidth() / 2 - textThicknessOffset : 10,</span>
+<span class="fc" id="L342">        image.getHeight());</span>
+<span class="pc bpc" id="L343" title="1 of 2 branches missed.">    if (!distanceTooBig) {</span>
+<span class="fc" id="L344">      textG2D.setColor(new Color(33, 0, 127));</span>
+<span class="fc" id="L345">      textG2D.setFont(new Font(&quot;Dialog&quot;, Font.BOLD, 16));</span>
+<span class="fc" id="L346">      textG2D.drawString(maxMovement, 10, image.getHeight());</span>
+    }
+<span class="fc" id="L348">  }</span>
+
+  /**
+   * Creates an Arrow-Shape
+   *
+   * @param from The {@linkplain Point2D} specifying the direction of the Arrow
+   * @param to The {@linkplain Point2D} where the arrow is placed
+   * @return A transformed Arrow-Shape
+   */
+  private static Shape createArrowTipShape(final Point2D from, final Point2D to) {
+<span class="fc" id="L358">    final int arrowOffset = 1;</span>
+<span class="fc" id="L359">    final Polygon arrowPolygon = new Polygon();</span>
+<span class="fc" id="L360">    arrowPolygon.addPoint(arrowOffset - arrowLength, arrowLength / 2);</span>
+<span class="fc" id="L361">    arrowPolygon.addPoint(arrowOffset, 0);</span>
+<span class="fc" id="L362">    arrowPolygon.addPoint(arrowOffset - arrowLength, arrowLength / -2);</span>
+
+
+<span class="fc" id="L365">    final AffineTransform transform = new AffineTransform();</span>
+<span class="fc" id="L366">    transform.translate(to.getX(), to.getY());</span>
+<span class="fc" id="L367">    transform.scale(arrowLength, arrowLength);</span>
+<span class="fc" id="L368">    final double rotate = Math.atan2(to.getY() - from.getY(), to.getX() - from.getX());</span>
+<span class="fc" id="L369">    transform.rotate(rotate);</span>
+
+<span class="fc" id="L371">    return transform.createTransformedShape(arrowPolygon);</span>
+  }
+
+  /**
+   * Draws an Arrow on the {@linkplain Graphics2D} Object
+   *
+   * @param graphics The {@linkplain Graphics2D} object to draw on
+   * @param from The destination {@linkplain Point2D} form the Arrow
+   * @param to The placement {@linkplain Point2D} for the Arrow
+   * @param xOffset The horizontal pixel-difference between the frame and the Map
+   * @param yOffset The vertical pixel-difference between the frame and the Map
+   * @param scale The scale-factor of the Map
+   */
+  private static void drawArrow(final Graphics2D graphics, final Point2D from, final Point2D to, final int xOffset,
+      final int yOffset, final double scale) {
+<span class="fc" id="L386">    final Point2D scaledStart = new Point2D.Double((from.getX() - xOffset) * scale,</span>
+<span class="fc" id="L387">        (from.getY() - yOffset) * scale);</span>
+<span class="fc" id="L388">    final Point2D scaledEnd = new Point2D.Double((to.getX() - xOffset) * scale,</span>
+<span class="fc" id="L389">        (to.getY() - yOffset) * scale);</span>
+<span class="fc" id="L390">    graphics.fill(createArrowTipShape(scaledStart, scaledEnd));</span>
+<span class="fc" id="L391">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

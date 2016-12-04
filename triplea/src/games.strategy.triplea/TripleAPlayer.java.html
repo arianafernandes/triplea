@@ -1,0 +1,759 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TripleAPlayer.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea</a> &gt; <span class="el_source">TripleAPlayer.java</span></div><h1>TripleAPlayer.java</h1><pre class="source lang-java linenums">package games.strategy.triplea;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import javax.swing.AbstractAction;
+import javax.swing.ButtonModel;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.RepairRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.net.GUID;
+import games.strategy.sound.ClipPlayer;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.PoliticalActionAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UserActionAttachment;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.GameStepPropertiesHelper;
+import games.strategy.triplea.delegate.IBattle;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.dataObjects.BattleListing;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.delegate.dataObjects.FightBattleDetails;
+import games.strategy.triplea.delegate.dataObjects.MoveDescription;
+import games.strategy.triplea.delegate.dataObjects.TechResults;
+import games.strategy.triplea.delegate.dataObjects.TechRoll;
+import games.strategy.triplea.delegate.remote.IAbstractForumPosterDelegate;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IBattleDelegate;
+import games.strategy.triplea.delegate.remote.IEditDelegate;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.triplea.delegate.remote.IPoliticsDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.triplea.delegate.remote.IUserActionDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.AbstractHumanPlayer;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.ui.BattleDisplay;
+import games.strategy.triplea.ui.PlaceData;
+import games.strategy.triplea.ui.TripleAFrame;
+import games.strategy.ui.SwingAction;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * As a rule, nothing that changes GameData should be in here.
+ * It should be using a Change done in a delegate, and done through an IDelegate, which we get through
+ * getPlayerBridge().getRemote()
+ */
+public class TripleAPlayer extends AbstractHumanPlayer&lt;TripleAFrame&gt; implements ITripleAPlayer {
+<span class="nc" id="L69">  private boolean m_soundPlayedAlreadyCombatMove = false;</span>
+<span class="nc" id="L70">  private boolean m_soundPlayedAlreadyNonCombatMove = false;</span>
+<span class="nc" id="L71">  private boolean m_soundPlayedAlreadyPurchase = false;</span>
+<span class="nc" id="L72">  private boolean m_soundPlayedAlreadyTechnology = false;</span>
+<span class="nc" id="L73">  private boolean m_soundPlayedAlreadyBattle = false;</span>
+<span class="nc" id="L74">  private boolean m_soundPlayedAlreadyEndTurn = false;</span>
+<span class="nc" id="L75">  private boolean m_soundPlayedAlreadyPlacement = false;</span>
+
+  /** Creates new TripleAPlayer */
+  public TripleAPlayer(final String name, final String type) {
+<span class="nc" id="L79">    super(name, type);</span>
+<span class="nc" id="L80">  }</span>
+
+  @Override
+  public void reportError(final String error) {
+<span class="nc" id="L84">    ui.notifyError(error);</span>
+<span class="nc" id="L85">  }</span>
+
+  @Override
+  public void reportMessage(final String message, final String title) {
+<span class="nc bnc" id="L89" title="All 2 branches missed.">    if (ui != null) {</span>
+<span class="nc" id="L90">      ui.notifyMessage(message, title);</span>
+    }
+<span class="nc" id="L92">  }</span>
+
+  @Override
+  public void start(final String name) {
+    // must call super.start
+<span class="nc" id="L97">    super.start(name);</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L99">      return;</span>
+    }
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    if (ui == null) {</span>
+      // We will get here if we are loading a save game of a map that we do not have. Caller code should be doing
+      // the error handling, so just return..
+<span class="nc" id="L104">      return;</span>
+    }
+    // TODO: parsing which UI thing we should run based on the string name of a possibly extended delegate
+    // class seems like a bad way of doing this whole method. however i can't think of anything better right now.
+    // This is how we find out our game step: getGameData().getSequence().getStep()
+    // The game step contains information, like the exact delegate and the delegate's class,
+    // that we can further use if needed. This is how we get our communication bridge for affecting the gamedata:
+    // (ISomeDelegate) getPlayerBridge().getRemote()
+    // We should never touch the game data directly. All changes to game data are done through the remote,
+    // which then changes the game using the DelegateBridge -&gt; change factory
+<span class="nc" id="L114">    ui.requiredTurnSeries(getPlayerID());</span>
+<span class="nc" id="L115">    boolean badStep = false;</span>
+<span class="nc" id="L116">    enableEditModeMenu();</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">    if (name.endsWith(&quot;Tech&quot;)) {</span>
+<span class="nc" id="L118">      tech();</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">    } else if (name.endsWith(&quot;TechActivation&quot;)) {</span>
+    } // the delegate handles everything
+<span class="nc bnc" id="L121" title="All 4 branches missed.">    else if (name.endsWith(&quot;Bid&quot;) || name.endsWith(&quot;Purchase&quot;)) {</span>
+<span class="nc" id="L122">      purchase(GameStepPropertiesHelper.isBid(getGameData()));</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Move&quot;)) {</span>
+<span class="nc" id="L124">      final boolean nonCombat = GameStepPropertiesHelper.isNonCombatMove(getGameData(), false);</span>
+<span class="nc" id="L125">      move(nonCombat, name);</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">      if (!nonCombat) {</span>
+<span class="nc" id="L127">        ui.waitForMoveForumPoster(getPlayerID(), getPlayerBridge());</span>
+        // TODO only do forum post if there is a combat
+      }
+<span class="nc bnc" id="L130" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Battle&quot;)) {</span>
+<span class="nc" id="L131">      battle();</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Place&quot;)) {</span>
+<span class="nc" id="L133">      place(GameStepPropertiesHelper.isBid(getGameData()));</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">    } else if (name.endsWith(&quot;Politics&quot;)) {</span>
+<span class="nc" id="L135">      politics(true);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    } else if (name.endsWith(&quot;UserActions&quot;)) {</span>
+<span class="nc" id="L137">      userActions(true);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">    } else if (name.endsWith(&quot;EndTurn&quot;)) {</span>
+<span class="nc" id="L139">      endTurn();</span>
+      // reset our sounds
+<span class="nc" id="L141">      m_soundPlayedAlreadyCombatMove = false;</span>
+<span class="nc" id="L142">      m_soundPlayedAlreadyNonCombatMove = false;</span>
+<span class="nc" id="L143">      m_soundPlayedAlreadyPurchase = false;</span>
+<span class="nc" id="L144">      m_soundPlayedAlreadyTechnology = false;</span>
+<span class="nc" id="L145">      m_soundPlayedAlreadyBattle = false;</span>
+<span class="nc" id="L146">      m_soundPlayedAlreadyEndTurn = false;</span>
+<span class="nc" id="L147">      m_soundPlayedAlreadyPlacement = false;</span>
+<span class="nc" id="L148">    } else {</span>
+<span class="nc" id="L149">      badStep = true;</span>
+    }
+<span class="nc" id="L151">    disableEditModeMenu();</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">    if (badStep) {</span>
+<span class="nc" id="L153">      throw new IllegalArgumentException(&quot;Unrecognized step name:&quot; + name);</span>
+    }
+<span class="nc" id="L155">  }</span>
+
+  private void enableEditModeMenu() {
+    try {
+<span class="nc" id="L159">      ui.setEditDelegate((IEditDelegate) getPlayerBridge().getRemotePersistentDelegate(&quot;edit&quot;));</span>
+<span class="nc" id="L160">    } catch (final Exception e) {</span>
+<span class="nc" id="L161">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L163">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L164">      ui.getEditModeButtonModel().addActionListener(m_editModeAction);</span>
+<span class="nc" id="L165">      ui.getEditModeButtonModel().setEnabled(true);</span>
+<span class="nc" id="L166">    });</span>
+<span class="nc" id="L167">  }</span>
+
+  private void disableEditModeMenu() {
+<span class="nc" id="L170">    ui.setEditDelegate(null);</span>
+<span class="nc" id="L171">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L172">      ui.getEditModeButtonModel().setEnabled(false);</span>
+<span class="nc" id="L173">      ui.getEditModeButtonModel().removeActionListener(m_editModeAction);</span>
+<span class="nc" id="L174">    });</span>
+<span class="nc" id="L175">  }</span>
+
+<span class="nc" id="L177">  private final AbstractAction m_editModeAction = SwingAction.of(e -&gt; {</span>
+<span class="nc" id="L178">    final boolean editMode = ((ButtonModel) e.getSource()).isSelected();</span>
+    try {
+      // Set edit mode
+      // All GameDataChangeListeners will be notified upon success
+<span class="nc" id="L182">      final IEditDelegate editDelegate = (IEditDelegate) getPlayerBridge().getRemotePersistentDelegate(&quot;edit&quot;);</span>
+<span class="nc" id="L183">      editDelegate.setEditMode(editMode);</span>
+<span class="nc" id="L184">    } catch (final Exception exception) {</span>
+<span class="nc" id="L185">      exception.printStackTrace();</span>
+      // toggle back to previous state since setEditMode failed
+<span class="nc bnc" id="L187" title="All 2 branches missed.">      ui.getEditModeButtonModel().setSelected(!ui.getEditModeButtonModel().isSelected());</span>
+    }
+
+<span class="nc" id="L190">  });</span>
+
+  private void politics(final boolean firstRun) {
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L194">      return;</span>
+    }
+    final IPoliticsDelegate iPoliticsDelegate;
+    try {
+<span class="nc" id="L198">      iPoliticsDelegate = (IPoliticsDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L199">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L200">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L201">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+<span class="nc" id="L202">      ClientLogger.logQuietly(errorContext, e);</span>
+<span class="nc" id="L203">      throw new IllegalStateException(errorContext, e);</span>
+    }
+
+<span class="nc" id="L206">    final PoliticalActionAttachment actionChoice =</span>
+<span class="nc" id="L207">        ui.getPoliticalActionChoice(getPlayerID(), firstRun, iPoliticsDelegate);</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">    if (actionChoice != null) {</span>
+<span class="nc" id="L209">      iPoliticsDelegate.attemptAction(actionChoice);</span>
+<span class="nc" id="L210">      politics(false);</span>
+    }
+<span class="nc" id="L212">  }</span>
+
+  private void userActions(final boolean firstRun) {
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L216">      return;</span>
+    }
+    final IUserActionDelegate iUserActionDelegate;
+    try {
+<span class="nc" id="L220">      iUserActionDelegate = (IUserActionDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L221">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L222">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L223">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L225">      System.err.println(errorContext);</span>
+<span class="nc" id="L226">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L227">      throw new IllegalStateException(errorContext, e);</span>
+    }
+<span class="nc" id="L229">    final UserActionAttachment actionChoice = ui.getUserActionChoice(getPlayerID(), firstRun, iUserActionDelegate);</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">    if (actionChoice != null) {</span>
+<span class="nc" id="L231">      iUserActionDelegate.attemptAction(actionChoice);</span>
+<span class="nc" id="L232">      userActions(false);</span>
+    }
+<span class="nc" id="L234">  }</span>
+
+  @Override
+  public boolean acceptAction(final PlayerID playerSendingProposal, final String acceptanceQuestion,
+      final boolean politics) {
+<span class="nc" id="L239">    final GameData data = getGameData();</span>
+<span class="nc bnc" id="L240" title="All 4 branches missed.">    if (!getPlayerID().amNotDeadYet(data) || getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L241">      return true;</span>
+    }
+<span class="nc" id="L243">    return ui.acceptAction(playerSendingProposal, &quot;To &quot; + getPlayerID().getName() + &quot;: &quot; + acceptanceQuestion,</span>
+<span class="nc" id="L244">        politics);</span>
+  }
+
+  private void tech() {
+<span class="nc bnc" id="L248" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L249">      return;</span>
+    }
+    final ITechDelegate techDelegate;
+    try {
+<span class="nc" id="L253">      techDelegate = (ITechDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L254">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L255">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L256">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L258">      System.err.println(errorContext);</span>
+<span class="nc" id="L259">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L260">      throw new IllegalStateException(errorContext, e);</span>
+    }
+
+
+<span class="nc" id="L264">    final PlayerID id = getPlayerID();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">    if (!m_soundPlayedAlreadyTechnology) {</span>
+<span class="nc" id="L266">      ClipPlayer.play(SoundPath.CLIP_PHASE_TECHNOLOGY, id);</span>
+<span class="nc" id="L267">      m_soundPlayedAlreadyTechnology = true;</span>
+    }
+<span class="nc" id="L269">    final TechRoll techRoll = ui.getTechRolls(id);</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">    if (techRoll != null) {</span>
+<span class="nc" id="L271">      final TechResults techResults = techDelegate.rollTech(techRoll.getRolls(), techRoll.getTech(),</span>
+<span class="nc" id="L272">          techRoll.getNewTokens(), techRoll.getWhoPaysHowMuch());</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">      if (techResults.isError()) {</span>
+<span class="nc" id="L274">        ui.notifyError(techResults.getErrorString());</span>
+<span class="nc" id="L275">        tech();</span>
+<span class="nc" id="L276">      } else {</span>
+<span class="nc" id="L277">        ui.notifyTechResults(techResults);</span>
+      }
+    }
+<span class="nc" id="L280">  }</span>
+
+  private void move(final boolean nonCombat, final String stepName) {
+<span class="nc bnc" id="L283" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L284">      return;</span>
+    }
+    final IMoveDelegate moveDel;
+    try {
+<span class="nc" id="L288">      moveDel = (IMoveDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L289">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L290">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L291">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L293">      System.err.println(errorContext);</span>
+<span class="nc" id="L294">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L295">      throw new IllegalStateException(errorContext, e);</span>
+    }
+
+<span class="nc" id="L298">    final PlayerID id = getPlayerID();</span>
+
+<span class="nc bnc" id="L300" title="All 4 branches missed.">    if (nonCombat &amp;&amp; !m_soundPlayedAlreadyNonCombatMove) {</span>
+<span class="nc" id="L301">      ClipPlayer.play(SoundPath.CLIP_PHASE_MOVE_NONCOMBAT, id);</span>
+<span class="nc" id="L302">      m_soundPlayedAlreadyNonCombatMove = true;</span>
+    }
+
+<span class="nc bnc" id="L305" title="All 4 branches missed.">    if (!nonCombat &amp;&amp; !m_soundPlayedAlreadyCombatMove) {</span>
+<span class="nc" id="L306">      ClipPlayer.play(SoundPath.CLIP_PHASE_MOVE_COMBAT, id);</span>
+<span class="nc" id="L307">      m_soundPlayedAlreadyCombatMove = true;</span>
+    }
+    // getMove will block until all moves are done. We recursively call this same method
+    // until getMove stops blocking.
+<span class="nc" id="L311">    final MoveDescription moveDescription = ui.getMove(id, getPlayerBridge(), nonCombat, stepName);</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">    if (moveDescription == null) {</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">      if (GameStepPropertiesHelper.isRemoveAirThatCanNotLand(getGameData())) {</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">        if (!canAirLand(true, id)) {</span>
+          // continue with the move loop
+<span class="nc" id="L316">          move(nonCombat, stepName);</span>
+        }
+      }
+<span class="nc bnc" id="L319" title="All 2 branches missed.">      if (!nonCombat) {</span>
+<span class="nc bnc" id="L320" title="All 2 branches missed.">        if (canUnitsFight()) {</span>
+<span class="nc" id="L321">          move(nonCombat, stepName);</span>
+        }
+      }
+<span class="nc" id="L324">      return;</span>
+    }
+<span class="nc" id="L326">    final String error = moveDel.move(moveDescription.getUnits(), moveDescription.getRoute(),</span>
+<span class="nc" id="L327">        moveDescription.getTransportsThatCanBeLoaded(), moveDescription.getDependentUnits());</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L329">      ui.notifyError(error);</span>
+    }
+<span class="nc" id="L331">    move(nonCombat, stepName);</span>
+<span class="nc" id="L332">  }</span>
+
+  private boolean canAirLand(final boolean movePhase, final PlayerID player) {
+    Collection&lt;Territory&gt; airCantLand;
+    try {
+<span class="nc bnc" id="L337" title="All 2 branches missed.">      if (movePhase) {</span>
+<span class="nc" id="L338">        airCantLand = ((IMoveDelegate) getPlayerBridge().getRemoteDelegate()).getTerritoriesWhereAirCantLand(player);</span>
+<span class="nc" id="L339">      } else {</span>
+<span class="nc" id="L340">        airCantLand = ((IAbstractPlaceDelegate) getPlayerBridge().getRemoteDelegate()).getTerritoriesWhereAirCantLand();</span>
+      }
+<span class="nc" id="L342">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L343">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L344">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L346">      System.err.println(errorContext);</span>
+<span class="nc" id="L347">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L348">      throw new IllegalStateException(errorContext, e);</span>
+    }
+<span class="nc bnc" id="L350" title="All 2 branches missed.">    if (airCantLand.isEmpty()) {</span>
+<span class="nc" id="L351">      return true;</span>
+    } else {
+<span class="nc" id="L353">      return ui.getOKToLetAirDie(getPlayerID(), airCantLand, movePhase);</span>
+    }
+  }
+
+  private boolean canUnitsFight() {
+    Collection&lt;Territory&gt; unitsCantFight;
+    try {
+<span class="nc" id="L360">      unitsCantFight = ((IMoveDelegate) getPlayerBridge().getRemoteDelegate()).getTerritoriesWhereUnitsCantFight();</span>
+<span class="nc" id="L361">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L362">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L363">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+<span class="nc" id="L364">      ClientLogger.logQuietly(errorContext, e);</span>
+<span class="nc" id="L365">      throw new IllegalStateException(errorContext, e);</span>
+    }
+<span class="nc bnc" id="L367" title="All 2 branches missed.">    if (unitsCantFight.isEmpty()) {</span>
+<span class="nc" id="L368">      return false;</span>
+    } else {
+<span class="nc bnc" id="L370" title="All 2 branches missed.">      return !ui.getOKToLetUnitsDie(unitsCantFight, true);</span>
+    }
+  }
+
+  private void purchase(final boolean bid) {
+<span class="nc bnc" id="L375" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L376">      return;</span>
+    }
+
+<span class="nc" id="L379">    final PlayerID id = getPlayerID();</span>
+    // play a sound for this phase
+<span class="nc bnc" id="L381" title="All 4 branches missed.">    if (!bid &amp;&amp; !m_soundPlayedAlreadyPurchase) {</span>
+<span class="nc" id="L382">      ClipPlayer.play(SoundPath.CLIP_PHASE_PURCHASE, id);</span>
+<span class="nc" id="L383">      m_soundPlayedAlreadyPurchase = true;</span>
+    }
+    // Check if any factories need to be repaired
+<span class="nc" id="L386">    String error = null;</span>
+<span class="nc bnc" id="L387" title="All 4 branches missed.">    if (id.getRepairFrontier() != null &amp;&amp; id.getRepairFrontier().getRules() != null</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">        &amp;&amp; !id.getRepairFrontier().getRules().isEmpty()) {</span>
+<span class="nc" id="L389">      final GameData data = getGameData();</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">      if (isDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L391">        final Match&lt;Unit&gt; myDamaged =</span>
+<span class="nc" id="L392">            new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(id), Matches.UnitHasTakenSomeBombingUnitDamage);</span>
+<span class="nc" id="L393">        final Collection&lt;Unit&gt; damagedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">        for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L395">          damagedUnits.addAll(Match.getMatches(t.getUnits().getUnits(), myDamaged));</span>
+        }
+<span class="nc bnc" id="L397" title="All 2 branches missed.">        if (damagedUnits.size() &gt; 0) {</span>
+<span class="nc" id="L398">          final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; repair =</span>
+<span class="nc" id="L399">              ui.getRepair(id, bid, GameStepPropertiesHelper.getRepairPlayers(data, id));</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">          if (repair != null) {</span>
+            final IPurchaseDelegate purchaseDel;
+            try {
+<span class="nc" id="L403">              purchaseDel = (IPurchaseDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L404">            } catch (final ClassCastException e) {</span>
+<span class="nc" id="L405">              final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName()</span>
+<span class="nc" id="L406">                  + &quot;, Remote class name: &quot; + getPlayerBridge().getRemoteDelegate().getClass();</span>
+              // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L408">              System.err.println(errorContext);</span>
+<span class="nc" id="L409">              ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L410">              throw new IllegalStateException(errorContext, e);</span>
+            }
+<span class="nc" id="L412">            error = purchaseDel.purchaseRepair(repair);</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">            if (error != null) {</span>
+<span class="nc" id="L414">              ui.notifyError(error);</span>
+              // dont give up, keep going
+<span class="nc" id="L416">              purchase(bid);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L422">    final IntegerMap&lt;ProductionRule&gt; prod = ui.getProduction(id, bid);</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">    if (prod == null) {</span>
+<span class="nc" id="L424">      return;</span>
+    }
+    final IPurchaseDelegate purchaseDel;
+    try {
+<span class="nc" id="L428">      purchaseDel = (IPurchaseDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L429">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L430">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L431">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L433">      System.err.println(errorContext);</span>
+<span class="nc" id="L434">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L435">      throw new IllegalStateException(errorContext, e);</span>
+    }
+<span class="nc" id="L437">    error = purchaseDel.purchase(prod);</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L439">      ui.notifyError(error);</span>
+      // dont give up, keep going
+<span class="nc" id="L441">      purchase(bid);</span>
+    }
+<span class="nc" id="L443">  }</span>
+
+  private void battle() {
+<span class="nc bnc" id="L446" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L447">      return;</span>
+    }
+    final IBattleDelegate battleDel;
+    try {
+<span class="nc" id="L451">      battleDel = (IBattleDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L452">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L453">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L454">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+<span class="nc" id="L455">      ClientLogger.logQuietly(errorContext, e); // TODO: this code is triplicated in the code..</span>
+<span class="nc" id="L456">      throw new IllegalStateException(errorContext, e);</span>
+    }
+
+<span class="nc" id="L459">    final PlayerID id = getPlayerID();</span>
+<span class="nc" id="L460">    while (true) {</span>
+<span class="nc bnc" id="L461" title="All 2 branches missed.">      if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L462">        return;</span>
+      }
+<span class="nc" id="L464">      final BattleListing battles = battleDel.getBattles();</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">      if (battles.isEmpty()) {</span>
+<span class="nc" id="L466">        final IBattle battle = battleDel.getCurrentBattle();</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">        if (battle != null) {</span>
+          // this should never happen, but it happened once....
+<span class="nc" id="L469">          System.err.println(&quot;Current battle exists but is not on pending list:  &quot; + battle.toString());</span>
+<span class="nc" id="L470">          battleDel.fightCurrentBattle();</span>
+        }
+<span class="nc" id="L472">        return;</span>
+      }
+<span class="nc bnc" id="L474" title="All 2 branches missed.">      if (!m_soundPlayedAlreadyBattle) {</span>
+<span class="nc" id="L475">        ClipPlayer.play(SoundPath.CLIP_PHASE_BATTLE, id);</span>
+<span class="nc" id="L476">        m_soundPlayedAlreadyBattle = true;</span>
+      }
+<span class="nc" id="L478">      final FightBattleDetails details = ui.getBattle(id, battles.getBattles());</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">      if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L480">        return;</span>
+      }
+<span class="nc bnc" id="L482" title="All 2 branches missed.">      if (details != null) {</span>
+<span class="nc" id="L483">        final String error =</span>
+<span class="nc" id="L484">            battleDel.fightBattle(details.getWhere(), details.isBombingRaid(), details.getBattleType());</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">        if (error != null) {</span>
+<span class="nc" id="L486">          ui.notifyError(error);</span>
+        }
+      }
+    }
+  }
+
+  private void place(final boolean bid) {
+<span class="nc bnc" id="L493" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L494">      return;</span>
+    }
+<span class="nc" id="L496">    final PlayerID id = getPlayerID();</span>
+    final IAbstractPlaceDelegate placeDel;
+    try {
+<span class="nc" id="L499">      placeDel = (IAbstractPlaceDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L500">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L501">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L502">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L504">      System.err.println(errorContext);</span>
+<span class="nc" id="L505">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L506">      throw new IllegalStateException(errorContext, e);</span>
+    }
+<span class="nc" id="L508">    while (true) {</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">      if (!m_soundPlayedAlreadyPlacement) {</span>
+<span class="nc" id="L510">        ClipPlayer.play(SoundPath.CLIP_PHASE_PLACEMENT, id);</span>
+<span class="nc" id="L511">        m_soundPlayedAlreadyPlacement = true;</span>
+      }
+<span class="nc" id="L513">      final PlaceData placeData = ui.waitForPlace(id, bid, getPlayerBridge());</span>
+<span class="nc bnc" id="L514" title="All 2 branches missed.">      if (placeData == null) {</span>
+        // this only happens in lhtr rules
+<span class="nc bnc" id="L516" title="All 4 branches missed.">        if (!GameStepPropertiesHelper.isRemoveAirThatCanNotLand(getGameData()) || canAirLand(false, id)</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">            || getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L518">          return;</span>
+        } else {
+          continue;
+        }
+      }
+<span class="nc" id="L523">      final String error = placeDel.placeUnits(placeData.getUnits(), placeData.getAt());</span>
+<span class="nc bnc" id="L524" title="All 2 branches missed.">      if (error != null) {</span>
+<span class="nc" id="L525">        ui.notifyError(error);</span>
+      }
+    }
+  }
+
+  private void endTurn() {
+<span class="nc bnc" id="L531" title="All 2 branches missed.">    if (getPlayerBridge().isGameOver()) {</span>
+<span class="nc" id="L532">      return;</span>
+    }
+<span class="nc" id="L534">    final GameData data = getGameData();</span>
+    // play a sound for this phase
+    final IAbstractForumPosterDelegate endTurnDelegate;
+    try {
+<span class="nc" id="L538">      endTurnDelegate = (IAbstractForumPosterDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L539">    } catch (final ClassCastException e) {</span>
+<span class="nc" id="L540">      final String errorContext = &quot;PlayerBridge step name: &quot; + getPlayerBridge().getStepName() + &quot;, Remote class name: &quot;</span>
+<span class="nc" id="L541">          + getPlayerBridge().getRemoteDelegate().getClass();</span>
+      // for some reason the client is not seeing or getting these errors, so print to err too
+<span class="nc" id="L543">      System.err.println(errorContext);</span>
+<span class="nc" id="L544">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L545">      throw new IllegalStateException(errorContext, e);</span>
+    }
+<span class="nc bnc" id="L547" title="All 4 branches missed.">    if (!m_soundPlayedAlreadyEndTurn &amp;&amp; TerritoryAttachment.doWeHaveEnoughCapitalsToProduce(getPlayerID(), data)) {</span>
+      // do not play if we are reloading a savegame from pbem (gets annoying)
+<span class="nc bnc" id="L549" title="All 2 branches missed.">      if (!endTurnDelegate.getHasPostedTurnSummary()) {</span>
+<span class="nc" id="L550">        ClipPlayer.play(SoundPath.CLIP_PHASE_END_TURN, getPlayerID());</span>
+      }
+<span class="nc" id="L552">      m_soundPlayedAlreadyEndTurn = true;</span>
+    }
+<span class="nc" id="L554">    ui.waitForEndTurn(getPlayerID(), getPlayerBridge());</span>
+<span class="nc" id="L555">  }</span>
+
+  @Override
+  public CasualtyDetails selectCasualties(final Collection&lt;Unit&gt; selectFrom,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents, final int count, final String message, final DiceRoll dice,
+      final PlayerID hit, final Collection&lt;Unit&gt; friendlyUnits, final PlayerID enemyPlayer,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers,
+      final CasualtyList defaultCasualties, final GUID battleID, final Territory battlesite,
+      final boolean allowMultipleHitsPerUnit) {
+<span class="nc" id="L564">    return ui.getBattlePanel().getCasualties(selectFrom, dependents, count, message, dice, hit, defaultCasualties,</span>
+<span class="nc" id="L565">        battleID, allowMultipleHitsPerUnit);</span>
+  }
+
+  @Override
+  public int[] selectFixedDice(final int numDice, final int hitAt, final boolean hitOnlyIfEquals, final String title,
+      final int diceSides) {
+<span class="nc" id="L571">    return ui.selectFixedDice(numDice, hitAt, hitOnlyIfEquals, title, diceSides);</span>
+  }
+
+  @Override
+  public Territory selectBombardingTerritory(final Unit unit, final Territory unitTerritory,
+      final Collection&lt;Territory&gt; territories, final boolean noneAvailable) {
+<span class="nc" id="L577">    return ui.getBattlePanel().getBombardment(unit, unitTerritory, territories, noneAvailable);</span>
+  }
+
+  /*
+   * Ask if the player wants to attack subs
+   */
+  @Override
+  public boolean selectAttackSubs(final Territory unitTerritory) {
+<span class="nc" id="L585">    return ui.getBattlePanel().getAttackSubs(unitTerritory);</span>
+  }
+
+  /*
+   * Ask if the player wants to attack transports
+   */
+  @Override
+  public boolean selectAttackTransports(final Territory unitTerritory) {
+<span class="nc" id="L593">    return ui.getBattlePanel().getAttackTransports(unitTerritory);</span>
+  }
+
+  /*
+   * Ask if the player wants to attack units
+   */
+  @Override
+  public boolean selectAttackUnits(final Territory unitTerritory) {
+<span class="nc" id="L601">    return ui.getBattlePanel().getAttackUnits(unitTerritory);</span>
+  }
+
+  /*
+   * Ask if the player wants to shore bombard
+   */
+  @Override
+  public boolean selectShoreBombard(final Territory unitTerritory) {
+<span class="nc" id="L609">    return ui.getBattlePanel().getShoreBombard(unitTerritory);</span>
+  }
+
+  @Override
+  public boolean shouldBomberBomb(final Territory territory) {
+<span class="nc" id="L614">    return ui.getStrategicBombingRaid(territory);</span>
+  }
+
+  @Override
+  public Unit whatShouldBomberBomb(final Territory territory, final Collection&lt;Unit&gt; potentialTargets,
+      final Collection&lt;Unit&gt; bombers) {
+<span class="nc" id="L620">    return ui.getStrategicBombingRaidTarget(territory, potentialTargets, bombers);</span>
+  }
+
+  @Override
+  public Territory whereShouldRocketsAttack(final Collection&lt;Territory&gt; candidates, final Territory from) {
+<span class="nc" id="L625">    return ui.getRocketAttack(candidates, from);</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getNumberOfFightersToMoveToNewCarrier(final Collection&lt;Unit&gt; fightersThatCanBeMoved,
+      final Territory from) {
+<span class="nc" id="L631">    return ui.moveFightersToCarrier(fightersThatCanBeMoved, from);</span>
+  }
+
+  @Override
+  public Territory selectTerritoryForAirToLand(final Collection&lt;Territory&gt; candidates, final Territory currentTerritory,
+      final String unitMessage) {
+<span class="nc" id="L637">    return ui.selectTerritoryForAirToLand(candidates, currentTerritory, unitMessage);</span>
+  }
+
+  @Override
+  public boolean confirmMoveInFaceOfAA(final Collection&lt;Territory&gt; aaFiringTerritories) {
+<span class="nc" id="L642">    final String question = &quot;Your units will be fired on in: &quot;</span>
+<span class="nc" id="L643">        + MyFormatter.defaultNamedToTextList(aaFiringTerritories, &quot; and &quot;, false) + &quot;.  Do you still want to move?&quot;;</span>
+<span class="nc" id="L644">    return ui.getOK(question);</span>
+  }
+
+  @Override
+  public boolean confirmMoveKamikaze() {
+<span class="nc" id="L649">    final String question = &quot;Not all air units in destination territory can land, do you still want to move?&quot;;</span>
+<span class="nc" id="L650">    return ui.getOK(question);</span>
+  }
+
+  @Override
+  public boolean confirmMoveHariKari() {
+<span class="nc" id="L655">    final String question = &quot;All units in destination territory will automatically die, do you still want to move?&quot;;</span>
+<span class="nc" id="L656">    return ui.getOK(question);</span>
+  }
+
+  @Override
+  public Territory retreatQuery(final GUID battleID, final boolean submerge, final Territory battleTerritory,
+      final Collection&lt;Territory&gt; possibleTerritories, final String message) {
+<span class="nc" id="L662">    return ui.getBattlePanel().getRetreat(battleID, message, possibleTerritories, submerge);</span>
+  }
+
+  @Override
+  public HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleUnitsQuery(final Territory scrambleTo,
+      final Map&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; possibleScramblers) {
+<span class="nc" id="L668">    return ui.scrambleUnitsQuery(scrambleTo, possibleScramblers);</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; selectUnitsQuery(final Territory current, final Collection&lt;Unit&gt; possible,
+      final String message) {
+<span class="nc" id="L674">    return ui.selectUnitsQuery(current, possible, message);</span>
+  }
+
+  @Override
+  public void confirmEnemyCasualties(final GUID battleId, final String message, final PlayerID hitPlayer) {
+    // no need, we have already confirmed since we are firing player
+<span class="nc bnc" id="L680" title="All 2 branches missed.">    if (ui.getLocalPlayers().playing(hitPlayer)) {</span>
+<span class="nc" id="L681">      return;</span>
+    }
+    // we dont want to confirm enemy casualties
+<span class="nc bnc" id="L684" title="All 2 branches missed.">    if (!BattleDisplay.getShowEnemyCasualtyNotification()) {</span>
+<span class="nc" id="L685">      return;</span>
+    }
+<span class="nc" id="L687">    ui.getBattlePanel().confirmCasualties(battleId, message);</span>
+<span class="nc" id="L688">  }</span>
+
+  @Override
+  public void confirmOwnCasualties(final GUID battleId, final String message) {
+<span class="nc" id="L692">    ui.getBattlePanel().confirmCasualties(battleId, message);</span>
+<span class="nc" id="L693">  }</span>
+
+  public final boolean isDamageFromBombingDoneToUnitsInsteadOfTerritories(final GameData data) {
+<span class="nc" id="L696">    return games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data);</span>
+  }
+
+  @Override
+  public HashMap&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; selectKamikazeSuicideAttacks(
+      final HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; possibleUnitsToAttack) {
+<span class="nc" id="L702">    final PlayerID id = getPlayerID();</span>
+<span class="nc" id="L703">    final PlayerAttachment pa = PlayerAttachment.get(id);</span>
+<span class="nc bnc" id="L704" title="All 2 branches missed.">    if (pa == null) {</span>
+<span class="nc" id="L705">      return null;</span>
+    }
+<span class="nc" id="L707">    final IntegerMap&lt;Resource&gt; resourcesAndAttackValues = pa.getSuicideAttackResources();</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">    if (resourcesAndAttackValues.size() &lt;= 0) {</span>
+<span class="nc" id="L709">      return null;</span>
+    }
+<span class="nc" id="L711">    final IntegerMap&lt;Resource&gt; playerResourceCollection = id.getResources().getResourcesCopy();</span>
+<span class="nc" id="L712">    final IntegerMap&lt;Resource&gt; attackTokens = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L713" title="All 2 branches missed.">    for (final Resource possible : resourcesAndAttackValues.keySet()) {</span>
+<span class="nc" id="L714">      final int amount = playerResourceCollection.getInt(possible);</span>
+<span class="nc bnc" id="L715" title="All 2 branches missed.">      if (amount &gt; 0) {</span>
+<span class="nc" id="L716">        attackTokens.put(possible, amount);</span>
+      }
+    }
+<span class="nc bnc" id="L719" title="All 2 branches missed.">    if (attackTokens.size() &lt;= 0) {</span>
+<span class="nc" id="L720">      return null;</span>
+    }
+<span class="nc" id="L722">    final HashMap&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; rVal =</span>
+<span class="nc" id="L723">        new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L724" title="All 2 branches missed.">    for (final Entry&lt;Resource, Integer&gt; entry : attackTokens.entrySet()) {</span>
+<span class="nc" id="L725">      final Resource r = entry.getKey();</span>
+<span class="nc" id="L726">      final int max = entry.getValue();</span>
+<span class="nc" id="L727">      final HashMap&lt;Territory, IntegerMap&lt;Unit&gt;&gt; selection =</span>
+<span class="nc" id="L728">          ui.selectKamikazeSuicideAttacks(possibleUnitsToAttack, r, max);</span>
+<span class="nc bnc" id="L729" title="All 2 branches missed.">      for (final Entry&lt;Territory, IntegerMap&lt;Unit&gt;&gt; selectionEntry : selection.entrySet()) {</span>
+<span class="nc" id="L730">        final Territory t = selectionEntry.getKey();</span>
+<span class="nc" id="L731">        HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt; currentTerr = rVal.get(t);</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">        if (currentTerr == null) {</span>
+<span class="nc" id="L733">          currentTerr = new HashMap&lt;&gt;();</span>
+        }
+<span class="nc bnc" id="L735" title="All 2 branches missed.">        for (final Entry&lt;Unit, Integer&gt; unitEntry : selectionEntry.getValue().entrySet()) {</span>
+<span class="nc" id="L736">          final Unit u = unitEntry.getKey();</span>
+<span class="nc" id="L737">          IntegerMap&lt;Resource&gt; currentUnit = currentTerr.get(u);</span>
+<span class="nc bnc" id="L738" title="All 2 branches missed.">          if (currentUnit == null) {</span>
+<span class="nc" id="L739">            currentUnit = new IntegerMap&lt;&gt;();</span>
+          }
+<span class="nc" id="L741">          currentUnit.add(r, unitEntry.getValue());</span>
+<span class="nc" id="L742">          currentTerr.put(u, currentUnit);</span>
+        }
+<span class="nc" id="L744">        rVal.put(t, currentTerr);</span>
+      }
+    }
+<span class="nc" id="L747">    return rVal;</span>
+  }
+
+  @Override
+  public Tuple&lt;Territory, Set&lt;Unit&gt;&gt; pickTerritoryAndUnits(final List&lt;Territory&gt; territoryChoices,
+      final List&lt;Unit&gt; unitChoices, final int unitsPerPick) {
+<span class="nc bnc" id="L753" title="All 6 branches missed.">    if (territoryChoices == null || territoryChoices.isEmpty() || unitsPerPick &lt; 1) {</span>
+<span class="nc" id="L754">      return Tuple.of(null, new HashSet&lt;Unit&gt;());</span>
+    }
+<span class="nc" id="L756">    return ui.pickTerritoryAndUnits(this.getPlayerID(), territoryChoices, unitChoices, unitsPerPick);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

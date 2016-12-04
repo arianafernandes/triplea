@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EndRoundDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">EndRoundDelegate.java</span></div><h1>EndRoundDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
+
+import javax.swing.JOptionPane;
+
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.PlayerList;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.framework.headlessGameServer.HeadlessGameServer;
+import games.strategy.engine.message.IRemote;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.attachments.AbstractTriggerAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.CountDownLatchHandler;
+import games.strategy.util.EventThreadJOptionPane;
+import games.strategy.util.LocalizeHTML;
+import games.strategy.util.Match;
+
+/**
+ * A delegate used to check for end of game conditions.
+ */
+@MapSupport
+public class EndRoundDelegate extends BaseTripleADelegate {
+<span class="fc" id="L42">  private boolean m_gameOver = false;</span>
+<span class="fc" id="L43">  private Collection&lt;PlayerID&gt; m_winners = new ArrayList&lt;&gt;();</span>
+
+  /** Creates a new instance of EndRoundDelegate */
+<span class="fc" id="L46">  public EndRoundDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="nc" id="L53">    super.start();</span>
+<span class="nc bnc" id="L54" title="All 2 branches missed.">    if (m_gameOver) {</span>
+<span class="nc" id="L55">      return;</span>
+    }
+<span class="nc" id="L57">    String victoryMessage = null;</span>
+<span class="nc" id="L58">    final GameData data = getData();</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">    if (isPacificTheater()) {</span>
+<span class="nc" id="L60">      final PlayerID japanese = data.getPlayerList().getPlayerID(Constants.PLAYER_NAME_JAPANESE);</span>
+<span class="nc" id="L61">      final PlayerAttachment pa = PlayerAttachment.get(japanese);</span>
+<span class="nc bnc" id="L62" title="All 4 branches missed.">      if (pa != null &amp;&amp; pa.getVps() &gt;= 22) {</span>
+<span class="nc" id="L63">        victoryMessage = &quot;Axis achieve VP victory&quot;;</span>
+<span class="nc" id="L64">        m_bridge.getHistoryWriter().startEvent(victoryMessage);</span>
+<span class="nc" id="L65">        final Collection&lt;PlayerID&gt; winners = data.getAllianceTracker()</span>
+<span class="nc" id="L66">            .getPlayersInAlliance(data.getAllianceTracker().getAlliancesPlayerIsIn(japanese).iterator().next());</span>
+<span class="nc" id="L67">        signalGameOver(victoryMessage, winners, m_bridge);</span>
+      }
+    }
+    // Check for Winning conditions
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (isTotalVictory()) // Check for Win by Victory Cities</span>
+    {
+<span class="nc" id="L73">      victoryMessage = &quot; achieve TOTAL VICTORY with &quot;;</span>
+<span class="nc" id="L74">      checkVictoryCities(m_bridge, victoryMessage, &quot; Total Victory VCs&quot;);</span>
+    }
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (isHonorableSurrender()) {</span>
+<span class="nc" id="L77">      victoryMessage = &quot; achieve an HONORABLE VICTORY with &quot;;</span>
+<span class="nc" id="L78">      checkVictoryCities(m_bridge, victoryMessage, &quot; Honorable Victory VCs&quot;);</span>
+    }
+<span class="nc bnc" id="L80" title="All 2 branches missed.">    if (isProjectionOfPower()) {</span>
+<span class="nc" id="L81">      victoryMessage = &quot; achieve victory through a PROJECTION OF POWER with &quot;;</span>
+<span class="nc" id="L82">      checkVictoryCities(m_bridge, victoryMessage, &quot; Projection of Power VCs&quot;);</span>
+    }
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (isEconomicVictory()) // Check for regular economic victory</span>
+    {
+<span class="nc" id="L86">      final Iterator&lt;String&gt; allianceIter = data.getAllianceTracker().getAlliances().iterator();</span>
+<span class="nc" id="L87">      String allianceName = null;</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">      while (allianceIter.hasNext()) {</span>
+<span class="nc" id="L89">        allianceName = allianceIter.next();</span>
+<span class="nc" id="L90">        final int victoryAmount = getEconomicVictoryAmount(data, allianceName);</span>
+<span class="nc" id="L91">        final Set&lt;PlayerID&gt; teamMembers = data.getAllianceTracker().getPlayersInAlliance(allianceName);</span>
+<span class="nc" id="L92">        final Iterator&lt;PlayerID&gt; teamIter = teamMembers.iterator();</span>
+<span class="nc" id="L93">        int teamProd = 0;</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">        while (teamIter.hasNext()) {</span>
+<span class="nc" id="L95">          final PlayerID player = teamIter.next();</span>
+<span class="nc" id="L96">          teamProd += getProduction(player);</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">          if (teamProd &gt;= victoryAmount) {</span>
+<span class="nc" id="L98">            victoryMessage = allianceName + &quot; achieve economic victory&quot;;</span>
+<span class="nc" id="L99">            m_bridge.getHistoryWriter().startEvent(victoryMessage);</span>
+<span class="nc" id="L100">            final Collection&lt;PlayerID&gt; winners = data.getAllianceTracker().getPlayersInAlliance(allianceName);</span>
+            // Added this to end the game on victory conditions
+<span class="nc" id="L102">            signalGameOver(victoryMessage, winners, m_bridge);</span>
+          }
+        }
+      }
+    }
+    // now check for generic trigger based victories
+<span class="nc bnc" id="L108" title="All 2 branches missed.">    if (isTriggeredVictory()) {</span>
+      // First set up a match for what we want to have fire as a default in this delegate. List out as a composite match
+      // OR.
+      // use 'null, null' because this is the Default firing location for any trigger that does NOT have 'when' set.
+<span class="nc" id="L112">      final Match&lt;TriggerAttachment&gt; endRoundDelegateTriggerMatch =</span>
+<span class="nc" id="L113">          new CompositeMatchAnd&lt;&gt;(AbstractTriggerAttachment.availableUses,</span>
+<span class="nc" id="L114">              AbstractTriggerAttachment.whenOrDefaultMatch(null, null), new CompositeMatchOr&lt;TriggerAttachment&gt;(</span>
+<span class="nc" id="L115">                  TriggerAttachment.activateTriggerMatch(), TriggerAttachment.victoryMatch()));</span>
+      // get all possible triggers based on this match.
+<span class="nc" id="L117">      final HashSet&lt;TriggerAttachment&gt; toFirePossible = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="nc" id="L118">          new HashSet&lt;&gt;(data.getPlayerList().getPlayers()), endRoundDelegateTriggerMatch, m_bridge);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">      if (!toFirePossible.isEmpty()) {</span>
+        // get all conditions possibly needed by these triggers, and then test them.
+<span class="nc" id="L121">        final HashMap&lt;ICondition, Boolean&gt; testedConditions =</span>
+<span class="nc" id="L122">            TriggerAttachment.collectTestsForAllTriggers(toFirePossible, m_bridge);</span>
+        // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L124">        final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L125">            Match.getMatches(toFirePossible, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+        // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L127">        TriggerAttachment.triggerActivateTriggerOther(testedConditions, toFireTestedAndSatisfied, m_bridge, null, null,</span>
+<span class="nc" id="L128">            true, true, true, true);</span>
+        // will call
+<span class="nc" id="L130">        TriggerAttachment.triggerVictory(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true, true);</span>
+        // signalGameOver itself
+      }
+    }
+<span class="nc bnc" id="L134" title="All 4 branches missed.">    if (isWW2V2() || isWW2V3()) {</span>
+<span class="nc" id="L135">      return;</span>
+    }
+<span class="nc" id="L137">    final PlayerList playerList = data.getPlayerList();</span>
+    // now test older maps that only use these 5 players, to see if someone has won
+<span class="nc" id="L139">    final PlayerID russians = playerList.getPlayerID(Constants.PLAYER_NAME_RUSSIANS);</span>
+<span class="nc" id="L140">    final PlayerID germans = playerList.getPlayerID(Constants.PLAYER_NAME_GERMANS);</span>
+<span class="nc" id="L141">    final PlayerID british = playerList.getPlayerID(Constants.PLAYER_NAME_BRITISH);</span>
+<span class="nc" id="L142">    final PlayerID japanese = playerList.getPlayerID(Constants.PLAYER_NAME_JAPANESE);</span>
+<span class="nc" id="L143">    final PlayerID americans = playerList.getPlayerID(Constants.PLAYER_NAME_AMERICANS);</span>
+<span class="nc bnc" id="L144" title="All 10 branches missed.">    if (germans == null || russians == null || british == null || japanese == null || americans == null</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        || playerList.size() &gt; 5) {</span>
+<span class="nc" id="L146">      return;</span>
+    }
+    // Quick check to see who still owns their own capital
+<span class="nc" id="L149">    final boolean russia =</span>
+<span class="nc" id="L150">        TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(russians, data).getOwner().equals(russians);</span>
+<span class="nc" id="L151">    final boolean germany =</span>
+<span class="nc" id="L152">        TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(germans, data).getOwner().equals(germans);</span>
+<span class="nc" id="L153">    final boolean britain =</span>
+<span class="nc" id="L154">        TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(british, data).getOwner().equals(british);</span>
+<span class="nc" id="L155">    final boolean japan =</span>
+<span class="nc" id="L156">        TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(japanese, data).getOwner().equals(japanese);</span>
+<span class="nc" id="L157">    final boolean america =</span>
+<span class="nc" id="L158">        TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(americans, data).getOwner().equals(americans);</span>
+<span class="nc" id="L159">    int count = 0;</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">    if (!russia) {</span>
+<span class="nc" id="L161">      count++;</span>
+    }
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    if (!britain) {</span>
+<span class="nc" id="L164">      count++;</span>
+    }
+<span class="nc bnc" id="L166" title="All 2 branches missed.">    if (!america) {</span>
+<span class="nc" id="L167">      count++;</span>
+    }
+<span class="nc" id="L169">    victoryMessage = &quot; achieve a military victory&quot;;</span>
+<span class="nc bnc" id="L170" title="All 6 branches missed.">    if (germany &amp;&amp; japan &amp;&amp; count &gt;= 2) {</span>
+<span class="nc" id="L171">      m_bridge.getHistoryWriter().startEvent(&quot;Axis&quot; + victoryMessage);</span>
+<span class="nc" id="L172">      final Collection&lt;PlayerID&gt; winners = data.getAllianceTracker().getPlayersInAlliance(&quot;Axis&quot;);</span>
+<span class="nc" id="L173">      signalGameOver(&quot;Axis&quot; + victoryMessage, winners, m_bridge);</span>
+    }
+<span class="nc bnc" id="L175" title="All 10 branches missed.">    if (russia &amp;&amp; !germany &amp;&amp; britain &amp;&amp; !japan &amp;&amp; america) {</span>
+<span class="nc" id="L176">      m_bridge.getHistoryWriter().startEvent(&quot;Allies&quot; + victoryMessage);</span>
+<span class="nc" id="L177">      final Collection&lt;PlayerID&gt; winners = data.getAllianceTracker().getPlayersInAlliance(&quot;Allies&quot;);</span>
+<span class="nc" id="L178">      signalGameOver(&quot;Allies&quot; + victoryMessage, winners, m_bridge);</span>
+    }
+<span class="nc" id="L180">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L184">    super.end();</span>
+<span class="nc" id="L185">    final GameData data = getData();</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getTriggers(data)) {</span>
+<span class="nc" id="L187">      final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">      for (final PlayerID player : data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L189">        change.add(AbstractTriggerAttachment.triggerSetUsedForThisRound(player, m_bridge));</span>
+      }
+<span class="nc bnc" id="L191" title="All 2 branches missed.">      if (!change.isEmpty()) {</span>
+<span class="nc" id="L192">        m_bridge.getHistoryWriter().startEvent(&quot;Setting uses for triggers used this round.&quot;);</span>
+<span class="nc" id="L193">        m_bridge.addChange(change);</span>
+      }
+    }
+<span class="nc" id="L196">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L200">    final EndRoundExtendedDelegateState state = new EndRoundExtendedDelegateState();</span>
+<span class="nc" id="L201">    state.superState = super.saveState();</span>
+<span class="nc" id="L202">    state.m_gameOver = m_gameOver;</span>
+<span class="nc" id="L203">    state.m_winners = m_winners;</span>
+<span class="nc" id="L204">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L209">    final EndRoundExtendedDelegateState s = (EndRoundExtendedDelegateState) state;</span>
+<span class="nc" id="L210">    super.loadState(s.superState);</span>
+<span class="nc" id="L211">    m_gameOver = s.m_gameOver;</span>
+<span class="nc" id="L212">    m_winners = s.m_winners;</span>
+<span class="nc" id="L213">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc" id="L217">    return false;</span>
+  }
+
+  private void checkVictoryCities(final IDelegateBridge aBridge, final String victoryMessage,
+      final String victoryType) {
+<span class="nc" id="L222">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L223">    final Iterator&lt;String&gt; allianceIter = data.getAllianceTracker().getAlliances().iterator();</span>
+<span class="nc" id="L224">    String allianceName = null;</span>
+<span class="nc" id="L225">    final Collection&lt;Territory&gt; territories = data.getMap().getTerritories();</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">    while (allianceIter.hasNext()) {</span>
+<span class="nc" id="L227">      allianceName = allianceIter.next();</span>
+<span class="nc" id="L228">      final int vcAmount = getVCAmount(data, allianceName, victoryType);</span>
+<span class="nc" id="L229">      final Set&lt;PlayerID&gt; teamMembers = data.getAllianceTracker().getPlayersInAlliance(allianceName);</span>
+<span class="nc" id="L230">      int teamVCs = 0;</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">      for (final Territory t : territories) {</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">        if (Matches.isTerritoryOwnedBy(teamMembers).match(t)) {</span>
+<span class="nc" id="L233">          final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">          if (ta != null) {</span>
+<span class="nc" id="L235">            teamVCs += ta.getVictoryCity();</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L239" title="All 2 branches missed.">      if (teamVCs &gt;= vcAmount) {</span>
+<span class="nc" id="L240">        aBridge.getHistoryWriter().startEvent(allianceName + victoryMessage + vcAmount + &quot; Victory Cities!&quot;);</span>
+<span class="nc" id="L241">        final Collection&lt;PlayerID&gt; winners = data.getAllianceTracker().getPlayersInAlliance(allianceName);</span>
+        // Added this to end the game on victory conditions
+<span class="nc" id="L243">        signalGameOver(allianceName + victoryMessage + vcAmount + &quot; Victory Cities!&quot;, winners, aBridge);</span>
+      }
+    }
+<span class="nc" id="L246">  }</span>
+
+  private int getEconomicVictoryAmount(final GameData data, final String alliance) {
+<span class="nc" id="L249">    return data.getProperties().get(alliance + &quot; Economic Victory&quot;, 200);</span>
+  }
+
+  private int getVCAmount(final GameData data, final String alliance, final String type) {
+<span class="nc" id="L253">    int defaultVC = 20;</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">    if (type.equals(&quot; Total Victory VCs&quot;)) {</span>
+<span class="nc" id="L255">      defaultVC = 18;</span>
+<span class="nc bnc" id="L256" title="All 2 branches missed.">    } else if (type.equals(&quot; Honorable Victory VCs&quot;)) {</span>
+<span class="nc" id="L257">      defaultVC = 15;</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">    } else if (type.equals(&quot; Projection of Power VCs&quot;)) {</span>
+<span class="nc" id="L259">      defaultVC = 13;</span>
+    }
+<span class="nc" id="L261">    return data.getProperties().get((alliance + type), defaultVC);</span>
+  }
+
+  /**
+   * Notify all players that the game is over.
+   *
+   * @param status
+   *        the &quot;game over&quot; text to be displayed to each user.
+   */
+  public void signalGameOver(final String status, final Collection&lt;PlayerID&gt; winners, final IDelegateBridge aBridge) {
+    // TO NOT USE m_bridge, because it might be null here! use aBridge instead.
+    // If the game is over, we need to be able to alert all UIs to that fact.
+    // The display object can send a message to all UIs.
+<span class="nc bnc" id="L274" title="All 2 branches missed.">    if (!m_gameOver) {</span>
+<span class="nc" id="L275">      m_gameOver = true;</span>
+<span class="nc" id="L276">      m_winners = winners;</span>
+<span class="nc" id="L277">      aBridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_GAME_WON,</span>
+<span class="nc bnc" id="L278" title="All 4 branches missed.">          ((m_winners != null &amp;&amp; !m_winners.isEmpty()) ? m_winners.iterator().next()</span>
+<span class="nc" id="L279">              : PlayerID.NULL_PLAYERID));</span>
+      // send a message to everyone's screen except the HOST (there is no 'current player' for the end round delegate)
+<span class="nc" id="L281">      final String title = &quot;Victory Achieved&quot;</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">          + (winners.isEmpty() ? &quot;&quot; : &quot; by &quot; + MyFormatter.defaultNamedToTextList(winners, &quot;, &quot;, false));</span>
+      // we send the bridge, because we can call this method from outside this delegate, which
+      // means our local copy of m_bridge could be null.
+<span class="nc" id="L285">      getDisplay(aBridge).reportMessageToAll((&quot;&lt;html&gt;&quot; + status + &quot;&lt;/html&gt;&quot;), title, true, false, true);</span>
+      final boolean stopGame;
+<span class="nc bnc" id="L287" title="All 2 branches missed.">      if (HeadlessGameServer.headless()) {</span>
+        // a terrible dirty hack, but I can't think of a better way to do it right now. If we are headless, end the
+        // game.
+<span class="nc" id="L290">        stopGame = true;</span>
+<span class="nc" id="L291">      } else {</span>
+        // now tell the HOST, and see if they want to continue the game.
+<span class="nc" id="L293">        String displayMessage = LocalizeHTML.localizeImgLinksInHTML(status);</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">        if (displayMessage.endsWith(&quot;&lt;/body&gt;&quot;)) {</span>
+<span class="nc" id="L295">          displayMessage = displayMessage.substring(0, displayMessage.length() - &quot;&lt;/body&gt;&quot;.length())</span>
+<span class="nc" id="L296">              + &quot;&lt;/br&gt;&lt;p&gt;Do you want to continue?&lt;/p&gt;&lt;/body&gt;&quot;;</span>
+<span class="nc" id="L297">        } else {</span>
+<span class="nc" id="L298">          displayMessage = displayMessage + &quot;&lt;/br&gt;&lt;p&gt;Do you want to continue?&lt;/p&gt;&quot;;</span>
+        }
+        // this is currently the ONLY instance of JOptionPane that is allowed outside of the UI classes. maybe there is
+        // a better way?
+<span class="nc bnc" id="L302" title="All 2 branches missed.">        stopGame = (JOptionPane.OK_OPTION != EventThreadJOptionPane.showConfirmDialog(null,</span>
+<span class="nc" id="L303">            (&quot;&lt;html&gt;&quot; + displayMessage + &quot;&lt;/html&gt;&quot;), &quot;Continue Game?  (&quot; + title + &quot;)&quot;, JOptionPane.YES_NO_OPTION,</span>
+<span class="nc" id="L304">            new CountDownLatchHandler(true)));</span>
+      }
+<span class="nc bnc" id="L306" title="All 2 branches missed.">      if (stopGame) {</span>
+<span class="nc" id="L307">        aBridge.stopGameSequence();</span>
+      }
+    }
+<span class="nc" id="L310">  }</span>
+
+  /**
+   * if null, the game is not over yet
+   */
+  public Collection&lt;PlayerID&gt; getWinners() {
+<span class="nc bnc" id="L316" title="All 2 branches missed.">    if (!m_gameOver) {</span>
+<span class="nc" id="L317">      return null;</span>
+    }
+<span class="nc" id="L319">    return m_winners;</span>
+  }
+
+  private boolean isWW2V2() {
+<span class="nc" id="L323">    return games.strategy.triplea.Properties.getWW2V2(getData());</span>
+  }
+
+  private boolean isWW2V3() {
+<span class="nc" id="L327">    return games.strategy.triplea.Properties.getWW2V3(getData());</span>
+  }
+
+  private boolean isPacificTheater() {
+<span class="nc" id="L331">    return games.strategy.triplea.Properties.getPacificTheater(getData());</span>
+  }
+
+  private boolean isTotalVictory() {
+<span class="nc" id="L335">    return games.strategy.triplea.Properties.getTotalVictory(getData());</span>
+  }
+
+  private boolean isHonorableSurrender() {
+<span class="nc" id="L339">    return games.strategy.triplea.Properties.getHonorableSurrender(getData());</span>
+  }
+
+  private boolean isProjectionOfPower() {
+<span class="nc" id="L343">    return games.strategy.triplea.Properties.getProjectionOfPower(getData());</span>
+  }
+
+  private boolean isEconomicVictory() {
+<span class="nc" id="L347">    return games.strategy.triplea.Properties.getEconomicVictory(getData());</span>
+  }
+
+  private boolean isTriggeredVictory() {
+<span class="nc" id="L351">    return games.strategy.triplea.Properties.getTriggeredVictory(getData());</span>
+  }
+
+  public int getProduction(final PlayerID id) {
+<span class="nc" id="L355">    int sum = 0;</span>
+<span class="nc" id="L356">    final Iterator&lt;Territory&gt; territories = getData().getMap().iterator();</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">    while (territories.hasNext()) {</span>
+<span class="nc" id="L358">      final Territory current = territories.next();</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">      if (current.getOwner().equals(id)) {</span>
+<span class="nc" id="L360">        sum += TerritoryAttachment.getProduction(current);</span>
+      }
+    }
+<span class="nc" id="L363">    return sum;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L368">    return null;</span>
+  }
+}
+
+
+<span class="nc" id="L373">class EndRoundExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 8770361633528374127L;
+  Serializable superState;
+  // add other variables here:
+<span class="nc" id="L377">  public boolean m_gameOver = false;</span>
+<span class="nc" id="L378">  public Collection&lt;PlayerID&gt; m_winners = new ArrayList&lt;&gt;();</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

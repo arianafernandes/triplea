@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>RemoteRandom.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.random</a> &gt; <span class="el_source">RemoteRandom.java</span></div><h1>RemoteRandom.java</h1><pre class="source lang-java linenums">package games.strategy.engine.random;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import games.strategy.engine.framework.IGame;
+import games.strategy.engine.framework.VerifiedRandomNumbers;
+import games.strategy.engine.vault.NotUnlockedException;
+import games.strategy.engine.vault.Vault;
+import games.strategy.engine.vault.VaultID;
+
+public class RemoteRandom implements IRemoteRandom {
+<span class="nc" id="L13">  private static List&lt;VerifiedRandomNumbers&gt; s_verifiedRandomNumbers = new ArrayList&lt;&gt;();</span>
+
+  public synchronized static List&lt;VerifiedRandomNumbers&gt; getVerifiedRandomNumbers() {
+<span class="nc" id="L16">    return new ArrayList&lt;&gt;(s_verifiedRandomNumbers);</span>
+  }
+
+  private synchronized static void addVerifiedRandomNumber(final VerifiedRandomNumbers number) {
+<span class="nc" id="L20">    s_verifiedRandomNumbers.add(number);</span>
+<span class="nc" id="L21">  }</span>
+
+<span class="nc" id="L23">  private final PlainRandomSource m_plainRandom = new PlainRandomSource();</span>
+  private final IGame m_game;
+  // remembered from generate to unlock
+  private VaultID m_remoteVaultID;
+  private String m_annotation;
+  private int m_max;
+  // have we recieved a generate request, but not a unlock request
+  private boolean m_waitingForUnlock;
+  private int[] m_localNumbers;
+
+  /**
+   * @param id
+   */
+<span class="nc" id="L36">  public RemoteRandom(final IGame game) {</span>
+<span class="nc" id="L37">    m_game = game;</span>
+<span class="nc" id="L38">  }</span>
+
+  @Override
+  public int[] generate(final int max, final int count, final String annotation, final VaultID remoteVaultID)
+      throws IllegalStateException {
+<span class="nc bnc" id="L43" title="All 2 branches missed.">    if (m_waitingForUnlock) {</span>
+<span class="nc" id="L44">      throw new IllegalStateException(&quot;Being asked to generate random numbers, but we havent finished last generation. &quot;</span>
+          // TODO: maybe we should wait instead of crashing the game?
+<span class="nc" id="L46">          + &quot;Asked for: &quot; + count + &quot;x&quot; + max + &quot; for &quot; + annotation);</span>
+    }
+<span class="nc" id="L48">    m_waitingForUnlock = true;</span>
+    // clean up here, we know these keys arent needed anymore so release them
+    // we cant do this earlier without synchronizing between the server and the client
+    // but here we know they arent needed anymore
+<span class="nc bnc" id="L52" title="All 2 branches missed.">    if (m_remoteVaultID != null) {</span>
+<span class="nc" id="L53">      m_game.getVault().release(m_remoteVaultID);</span>
+    }
+<span class="nc" id="L55">    m_remoteVaultID = remoteVaultID;</span>
+<span class="nc" id="L56">    m_annotation = annotation;</span>
+<span class="nc" id="L57">    m_max = max;</span>
+<span class="nc" id="L58">    m_localNumbers = m_plainRandom.getRandom(max, count, annotation);</span>
+<span class="nc" id="L59">    m_game.getVault().waitForID(remoteVaultID, 15000);</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    if (!m_game.getVault().knowsAbout(remoteVaultID)) {</span>
+<span class="nc" id="L61">      throw new IllegalStateException(</span>
+<span class="nc" id="L62">          &quot;Vault id not known, have:&quot; + m_game.getVault().knownIds() + &quot; looking for:&quot; + remoteVaultID);</span>
+    }
+<span class="nc" id="L64">    return m_localNumbers;</span>
+  }
+
+  @Override
+  public void verifyNumbers() throws IllegalStateException {
+<span class="nc" id="L69">    final Vault vault = m_game.getVault();</span>
+<span class="nc" id="L70">    vault.waitForIdToUnlock(m_remoteVaultID, 15000);</span>
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (!vault.isUnlocked(m_remoteVaultID)) {</span>
+<span class="nc" id="L72">      throw new IllegalStateException(&quot;Server did not unlock random numbers, cheating is suspected&quot;);</span>
+    }
+    int[] remoteNumbers;
+    try {
+<span class="nc" id="L76">      remoteNumbers = CryptoRandomSource.bytesToInts(vault.get(m_remoteVaultID));</span>
+<span class="nc" id="L77">    } catch (final NotUnlockedException e1) {</span>
+<span class="nc" id="L78">      e1.printStackTrace();</span>
+<span class="nc" id="L79">      throw new IllegalStateException(&quot;Could not unlock numbers, cheating suspected&quot;);</span>
+    }
+<span class="nc" id="L81">    final int[] verifiedNumbers = CryptoRandomSource.xor(remoteNumbers, m_localNumbers, m_max);</span>
+<span class="nc" id="L82">    addVerifiedRandomNumber(new VerifiedRandomNumbers(m_annotation, verifiedNumbers));</span>
+<span class="nc" id="L83">    m_waitingForUnlock = false;</span>
+<span class="nc" id="L84">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

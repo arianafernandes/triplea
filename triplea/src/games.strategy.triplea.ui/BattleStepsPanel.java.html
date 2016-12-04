@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BattleStepsPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">BattleStepsPanel.java</span></div><h1>BattleStepsPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.BorderLayout;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.logging.Logger;
+
+import javax.swing.DefaultListModel;
+import javax.swing.DefaultListSelectionModel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+
+import games.strategy.util.ThreadUtil;
+
+/**
+ * A panel for showing the battle steps in a display.
+ * Contains code for walking from the current step, to a given step
+ * there is a delay while we walk so that the user can see the steps progression.
+ * Users of this class should deactive it after they are done.
+ */
+class BattleStepsPanel extends JPanel implements Active {
+  private static final long serialVersionUID = 911638924664810435L;
+<span class="nc" id="L27">  private static final Logger log = Logger.getLogger(BattleStepsPanel.class.getName());</span>
+  // if this is the target step, we want to walk to the last step
+<span class="nc" id="L29">  private final static String LAST_STEP = &quot;NULL MARKER FOR LAST STEP&quot;;</span>
+<span class="nc" id="L30">  private final DefaultListModel&lt;String&gt; m_listModel = new DefaultListModel&lt;&gt;();</span>
+<span class="nc" id="L31">  private final JList&lt;String&gt; m_list = new JList&lt;&gt;(m_listModel);</span>
+<span class="nc" id="L32">  private final MyListSelectionModel m_listSelectionModel = new MyListSelectionModel();</span>
+  // the step we want to reach
+<span class="nc" id="L34">  private String m_targetStep = null;</span>
+  // all changes to state should be done while locked on this object.
+  // when we reach the target step, or when we want to walk the step
+  // notifyAll on this object
+<span class="nc" id="L38">  private final Object m_mutex = new Object();</span>
+<span class="nc" id="L39">  private final List&lt;CountDownLatch&gt; m_waiters = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L40">  private boolean m_hasWalkThread = false;</span>
+
+<span class="nc" id="L42">  BattleStepsPanel() {</span>
+<span class="nc" id="L43">    setLayout(new BorderLayout());</span>
+<span class="nc" id="L44">    add(m_list, BorderLayout.CENTER);</span>
+<span class="nc" id="L45">    m_list.setBackground(this.getBackground());</span>
+<span class="nc" id="L46">    m_list.setSelectionModel(m_listSelectionModel);</span>
+<span class="nc" id="L47">  }</span>
+
+  @Override
+  public void deactivate() {
+<span class="nc" id="L51">    wakeAll();</span>
+<span class="nc" id="L52">  }</span>
+
+  private void wakeAll() {
+<span class="nc" id="L55">    synchronized (m_mutex) {</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">      for (final CountDownLatch l : m_waiters) {</span>
+<span class="nc" id="L57">        l.countDown();</span>
+      }
+<span class="nc" id="L59">      m_waiters.clear();</span>
+    }
+<span class="nc" id="L61">  }</span>
+
+  /**
+   * Set the steps given, setting the selected step to the first step.
+   *
+   * @param steps
+   */
+  public void listBattle(final List&lt;String&gt; steps) {
+<span class="nc bnc" id="L69" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L70">      throw new IllegalStateException(&quot;Not in dispatch thread&quot;);</span>
+    }
+<span class="nc" id="L72">    synchronized (m_mutex) {</span>
+<span class="nc" id="L73">      m_listModel.removeAllElements();</span>
+<span class="nc" id="L74">      final Iterator&lt;String&gt; iter = steps.iterator();</span>
+<span class="nc bnc" id="L75" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L76">        m_listModel.addElement(iter.next());</span>
+      }
+<span class="nc" id="L78">      m_listSelectionModel.hiddenSetSelectionInterval(0);</span>
+<span class="nc bnc" id="L79" title="All 2 branches missed.">      if (!steps.contains(m_targetStep)) {</span>
+<span class="nc" id="L80">        m_targetStep = null;</span>
+      }
+    }
+<span class="nc" id="L83">    validate();</span>
+<span class="nc" id="L84">  }</span>
+
+  private void clearTargetStep() {
+<span class="nc" id="L87">    synchronized (m_mutex) {</span>
+<span class="nc" id="L88">      m_targetStep = null;</span>
+    }
+<span class="nc" id="L90">    wakeAll();</span>
+<span class="nc" id="L91">  }</span>
+
+  private boolean doneWalkingSteps() {
+<span class="nc" id="L94">    synchronized (m_mutex) {</span>
+      // not looking for anything
+<span class="nc bnc" id="L96" title="All 2 branches missed.">      if (m_targetStep == null) {</span>
+<span class="nc" id="L97">        return true;</span>
+      }
+      // we cant find it, something is wrong
+<span class="nc bnc" id="L100" title="All 4 branches missed.">      if (!m_targetStep.equals(LAST_STEP) &amp;&amp; m_listModel.lastIndexOf(m_targetStep) == -1) {</span>
+<span class="nc" id="L101">        new IllegalStateException(&quot;Step not found:&quot; + m_targetStep + &quot; in:&quot; + m_listModel).printStackTrace();</span>
+<span class="nc" id="L102">        clearTargetStep();</span>
+<span class="nc" id="L103">        return true;</span>
+      }
+      // at end, we are done
+<span class="nc bnc" id="L106" title="All 4 branches missed.">      if (m_targetStep.equals(LAST_STEP) &amp;&amp; m_list.getSelectedIndex() == m_listModel.getSize() - 1) {</span>
+<span class="nc" id="L107">        return true;</span>
+      }
+      // we found it, we are done
+<span class="nc bnc" id="L110" title="All 2 branches missed.">      if (m_targetStep.equals(m_list.getSelectedValue())) {</span>
+<span class="nc" id="L111">        return true;</span>
+      }
+    }
+<span class="nc" id="L114">    return false;</span>
+  }
+
+  /**
+   * Walks through and pause at each list item until we find our target.
+   */
+  private void walkStep() {
+<span class="nc bnc" id="L121" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L122">      throw new IllegalStateException(&quot;Wrong thread&quot;);</span>
+    }
+<span class="nc bnc" id="L124" title="All 2 branches missed.">    if (doneWalkingSteps()) {</span>
+<span class="nc" id="L125">      wakeAll();</span>
+<span class="nc" id="L126">      return;</span>
+    }
+<span class="nc" id="L128">    int index = m_list.getSelectedIndex() + 1;</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">    if (index &gt;= m_list.getModel().getSize()) {</span>
+<span class="nc" id="L130">      index = 0;</span>
+    }
+<span class="nc" id="L132">    m_listSelectionModel.hiddenSetSelectionInterval(index);</span>
+<span class="nc" id="L133">    waitThenWalk();</span>
+<span class="nc" id="L134">  }</span>
+
+  private void waitThenWalk() {
+<span class="nc" id="L137">    final Thread t = new Thread(&quot;Walk single step started at:&quot; + new Date()) {</span>
+      @Override
+      public void run() {
+<span class="nc" id="L140">        synchronized (m_mutex) {</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">          if (m_hasWalkThread) {</span>
+<span class="nc" id="L142">            return;</span>
+          }
+<span class="nc" id="L144">          m_hasWalkThread = true;</span>
+        }
+        try {
+<span class="nc" id="L147">          ThreadUtil.sleep(330);</span>
+<span class="nc" id="L148">          SwingUtilities.invokeLater(() -&gt; walkStep());</span>
+<span class="nc" id="L149">        } finally {</span>
+<span class="nc" id="L150">          synchronized (m_mutex) {</span>
+<span class="nc" id="L151">            m_hasWalkThread = false;</span>
+          }
+<span class="nc" id="L153">        }</span>
+<span class="nc" id="L154">      }</span>
+    };
+<span class="nc" id="L156">    t.start();</span>
+<span class="nc" id="L157">  }</span>
+
+  /**
+   * This method blocks until the last step is reached, unless
+   * this method is called from the swing event thread.
+   */
+  public void walkToLastStep() {
+<span class="nc" id="L164">    synchronized (m_mutex) {</span>
+<span class="nc" id="L165">      m_targetStep = LAST_STEP;</span>
+    }
+<span class="nc" id="L167">    goToTarget();</span>
+<span class="nc" id="L168">  }</span>
+
+  /**
+   * Set the target step for this panel
+   * This method returns immediatly, and must be called from the swing event thread.
+   */
+  public void setStep(final String step) {
+<span class="nc" id="L175">    synchronized (m_mutex) {</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">      if (m_listModel.indexOf(step) != -1) {</span>
+<span class="nc" id="L177">        m_targetStep = step;</span>
+<span class="nc" id="L178">      } else {</span>
+<span class="nc" id="L179">        log.info(&quot;Could not find step name:&quot; + step);</span>
+      }
+    }
+<span class="nc" id="L182">    goToTarget();</span>
+<span class="nc" id="L183">  }</span>
+
+  private void goToTarget() {
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L187">      throw new IllegalStateException(&quot;Not swing event thread&quot;);</span>
+    }
+<span class="nc" id="L189">    waitThenWalk();</span>
+<span class="nc" id="L190">  }</span>
+}
+
+
+/**
+ * Doesnt allow the user to change the selection, must be done through
+ * hiddenSetSelectionInterval.
+ */
+<span class="nc" id="L198">class MyListSelectionModel extends DefaultListSelectionModel {</span>
+  private static final long serialVersionUID = -4359950441657840015L;
+
+  @Override
+<span class="nc" id="L202">  public void setSelectionInterval(final int index0, final int index1) {}</span>
+
+  public void hiddenSetSelectionInterval(final int index) {
+<span class="nc" id="L205">    super.setSelectionInterval(index, index);</span>
+<span class="nc" id="L206">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

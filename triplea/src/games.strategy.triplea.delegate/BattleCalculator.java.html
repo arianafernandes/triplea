@@ -1,0 +1,1484 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BattleCalculator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">BattleCalculator.java</span></div><h1>BattleCalculator.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.NamedAttachable;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionFrontier;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.ResourceCollection;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.net.GUID;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleA;
+import games.strategy.triplea.ai.weakAI.WeakAI;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.attachments.UnitSupportAttachment;
+import games.strategy.triplea.delegate.Die.DieType;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.LinkedIntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Triple;
+import games.strategy.util.Tuple;
+
+/**
+ * Utiltity class for determing casualties and selecting casualties. The code
+ * was being dduplicated all over the place.
+ */
+public class BattleCalculator {
+<span class="fc" id="L57">  private static Map&lt;String, List&lt;UnitType&gt;&gt; oolCache = new ConcurrentHashMap&lt;&gt;();</span>
+
+  public static void clearOOLCache() {
+<span class="nc" id="L60">    oolCache.clear();</span>
+<span class="nc" id="L61">  }</span>
+
+  // There is a problem with this variable, that it isn't
+  // private static IntegerMap&lt;UnitType&gt; s_costsForTuvForAllPlayersMergedAndAveraged;
+  // being cleared out when we switch maps.
+  // we want to sort in a determined way so that those looking at the dice results
+  // can tell what dice is for who
+  // we also want to sort by movement, so casualties will be choosen as the
+  // units with least movement
+  public static void sortPreBattle(final List&lt;Unit&gt; units) {
+<span class="fc" id="L71">    final Comparator&lt;Unit&gt; comparator = (u1, u2) -&gt; {</span>
+<span class="fc bfc" id="L72" title="All 2 branches covered.">      if (u1.getUnitType().equals(u2.getUnitType())) {</span>
+<span class="fc" id="L73">        return UnitComparator.getLowestToHighestMovementComparator().compare(u1, u2);</span>
+      }
+<span class="fc" id="L75">      return u1.getUnitType().getName().compareTo(u2.getUnitType().getName());</span>
+    };
+<span class="fc" id="L77">    Collections.sort(units, comparator);</span>
+<span class="fc" id="L78">  }</span>
+
+  public static int getTotalHitpointsLeft(final Collection&lt;Unit&gt; units) {
+<span class="pc bpc" id="L81" title="2 of 4 branches missed.">    if (units == null || units.isEmpty()) {</span>
+<span class="nc" id="L82">      return 0;</span>
+    }
+<span class="fc" id="L84">    int rVal = 0;</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">    for (final Unit u : units) {</span>
+<span class="fc" id="L86">      final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="fc" id="L87">      rVal += ua.getHitPoints();</span>
+<span class="fc" id="L88">      rVal -= u.getHits();</span>
+    }
+<span class="fc" id="L90">    return rVal;</span>
+  }
+
+  public static int getTotalHitpointsLeft(final Unit unit) {
+<span class="nc bnc" id="L94" title="All 2 branches missed.">    if (unit == null) {</span>
+<span class="nc" id="L95">      return 0;</span>
+    }
+<span class="nc" id="L97">    final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc" id="L98">    return ua.getHitPoints() - unit.getHits();</span>
+  }
+
+  /**
+   * Choose plane casualties according to specified rules
+   */
+  public static CasualtyDetails getAACasualties(final boolean defending, final Collection&lt;Unit&gt; planes,
+      final Collection&lt;Unit&gt; allFriendlyUnits, final Collection&lt;Unit&gt; defendingAA, final Collection&lt;Unit&gt; allEnemyUnits,
+      final DiceRoll dice, final IDelegateBridge bridge, final PlayerID firingPlayer, final PlayerID hitPlayer,
+      final GUID battleID, final Territory terr, final Collection&lt;TerritoryEffect&gt; territoryEffects,
+      final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers) {
+<span class="pc bpc" id="L109" title="1 of 2 branches missed.">    if (planes.isEmpty()) {</span>
+<span class="nc" id="L110">      return new CasualtyDetails();</span>
+    }
+<span class="fc" id="L112">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L113">    final boolean allowMultipleHitsPerUnit =</span>
+<span class="fc" id="L114">        Match.allMatch(defendingAA, Matches.UnitAAShotDamageableInsteadOfKillingInstantly);</span>
+<span class="fc bfc" id="L115" title="All 2 branches covered.">    if (isChooseAA(data)) {</span>
+<span class="fc" id="L116">      final String text = &quot;Select &quot; + dice.getHits() + &quot; casualties from aa fire in &quot; + terr.getName();</span>
+<span class="fc" id="L117">      return selectCasualties(null, hitPlayer, planes, allFriendlyUnits, firingPlayer, allEnemyUnits, amphibious,</span>
+<span class="fc" id="L118">          amphibiousLandAttackers, terr, territoryEffects, bridge, text, dice, defending, battleID, false,</span>
+<span class="fc" id="L119">          dice.getHits(), allowMultipleHitsPerUnit);</span>
+    } else {
+<span class="pc bpc" id="L121" title="1 of 4 branches missed.">      if (Properties.getLow_Luck(data) || Properties.getLL_AA_ONLY(data)) {</span>
+<span class="fc" id="L122">        return getLowLuckAACasualties(defending, planes, defendingAA, dice, bridge, allowMultipleHitsPerUnit);</span>
+      } else {
+        // priority goes: choose -&gt; individually -&gt; random
+        // if none are set, we roll individually
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">        if (isRollAAIndividually(data)) {</span>
+<span class="fc" id="L127">          return IndividuallyFiredAACasualties(defending, planes, defendingAA, dice, bridge, allowMultipleHitsPerUnit);</span>
+        }
+<span class="nc bnc" id="L129" title="All 2 branches missed.">        if (isRandomAACasualties(data)) {</span>
+<span class="nc" id="L130">          return RandomAACasualties(planes, dice, bridge, allowMultipleHitsPerUnit);</span>
+        }
+<span class="nc" id="L132">        return IndividuallyFiredAACasualties(defending, planes, defendingAA, dice, bridge, allowMultipleHitsPerUnit);</span>
+      }
+    }
+  }
+
+  /**
+   * http://triplea.sourceforge.net/mywiki/Forum#nabble-td4658925%7Ca4658925
+   * returns two lists, the first list is the air units that can be evenly divided into groups of 3 or 6 (depending on
+   * radar)
+   * the second list is all the air units that do not fit in the first list
+   */
+  private static Tuple&lt;List&lt;List&lt;Unit&gt;&gt;, List&lt;Unit&gt;&gt; categorizeLowLuckAirUnits(final Collection&lt;Unit&gt; units,
+      final int groupSize) {
+<span class="fc" id="L145">    final Collection&lt;UnitCategory&gt; categorizedAir = UnitSeperator.categorize(units, null, false, true);</span>
+<span class="fc" id="L146">    final List&lt;List&lt;Unit&gt;&gt; groupsOfSize = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L147">    final List&lt;Unit&gt; toRoll = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L148" title="All 2 branches covered.">    for (final UnitCategory uc : categorizedAir) {</span>
+<span class="fc" id="L149">      final int remainder = uc.getUnits().size() % groupSize;</span>
+<span class="fc" id="L150">      final int splitPosition = uc.getUnits().size() - remainder;</span>
+<span class="fc" id="L151">      final List&lt;Unit&gt; group = new ArrayList&lt;&gt;(uc.getUnits().subList(0, splitPosition));</span>
+<span class="fc bfc" id="L152" title="All 2 branches covered.">      if (!group.isEmpty()) {</span>
+<span class="fc bfc" id="L153" title="All 2 branches covered.">        for (int i = 0; i &lt; splitPosition; i += groupSize) {</span>
+<span class="fc" id="L154">          final List&lt;Unit&gt; miniGroup = new ArrayList&lt;&gt;(uc.getUnits().subList(i, i + groupSize));</span>
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">          if (!miniGroup.isEmpty()) {</span>
+<span class="fc" id="L156">            groupsOfSize.add(miniGroup);</span>
+          }
+        }
+      }
+<span class="fc" id="L160">      toRoll.addAll(uc.getUnits().subList(splitPosition, uc.getUnits().size()));</span>
+    }
+<span class="fc" id="L162">    return Tuple.of(groupsOfSize, toRoll);</span>
+  }
+
+  private static CasualtyDetails getLowLuckAACasualties(final boolean defending, final Collection&lt;Unit&gt; planes,
+      final Collection&lt;Unit&gt; defendingAA, final DiceRoll dice, final IDelegateBridge bridge,
+      final boolean allowMultipleHitsPerUnit) {
+    {
+<span class="fc" id="L169">      final Set&lt;Unit&gt; duplicatesCheckSet1 = new HashSet&lt;&gt;(planes);</span>
+<span class="pc bpc" id="L170" title="1 of 2 branches missed.">      if (planes.size() != duplicatesCheckSet1.size()) {</span>
+<span class="nc" id="L171">        throw new IllegalStateException(</span>
+<span class="nc" id="L172">            &quot;Duplicate Units Detected: Original List:&quot; + planes + &quot;  HashSet:&quot; + duplicatesCheckSet1);</span>
+      }
+<span class="fc" id="L174">      final Set&lt;Unit&gt; duplicatesCheckSet2 = new HashSet&lt;&gt;(defendingAA);</span>
+<span class="pc bpc" id="L175" title="1 of 2 branches missed.">      if (defendingAA.size() != duplicatesCheckSet2.size()) {</span>
+<span class="nc" id="L176">        throw new IllegalStateException(</span>
+<span class="nc" id="L177">            &quot;Duplicate Units Detected: Original List:&quot; + defendingAA + &quot;  HashSet:&quot; + duplicatesCheckSet2);</span>
+      }
+    }
+<span class="fc" id="L180">    int hitsLeft = dice.getHits();</span>
+<span class="pc bpc" id="L181" title="1 of 2 branches missed.">    if (hitsLeft &lt;= 0) {</span>
+<span class="nc" id="L182">      return new CasualtyDetails();</span>
+    }
+    // if we can damage units, do it now
+<span class="fc" id="L185">    final CasualtyDetails finalCasualtyDetails = new CasualtyDetails();</span>
+<span class="fc" id="L186">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L187">    final Tuple&lt;Integer, Integer&gt; attackThenDiceSides =</span>
+<span class="pc bpc" id="L188" title="1 of 2 branches missed.">        DiceRoll.getAAattackAndMaxDiceSides(defendingAA, data, !defending);</span>
+<span class="fc" id="L189">    final int highestAttack = attackThenDiceSides.getFirst();</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">    if (highestAttack &lt; 1) {</span>
+<span class="nc" id="L191">      return new CasualtyDetails();</span>
+    }
+<span class="fc" id="L193">    final int chosenDiceSize = attackThenDiceSides.getSecond();</span>
+<span class="fc" id="L194">    final Triple&lt;Integer, Integer, Boolean&gt; triple =</span>
+<span class="pc bpc" id="L195" title="1 of 2 branches missed.">        DiceRoll.getTotalAAPowerThenHitsAndFillSortedDiceThenIfAllUseSameAttack(null, null, !defending, defendingAA,</span>
+<span class="fc" id="L196">            planes, data, false);</span>
+    // final int totalPower = triple.getFirst();
+<span class="fc" id="L198">    final boolean allSameAttackPower = triple.getThird();</span>
+    // multiple HP units need to be counted multiple times:
+<span class="fc" id="L200">    final List&lt;Unit&gt; planesList = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L201" title="All 2 branches covered.">    for (final Unit plane : planes) {</span>
+<span class="fc" id="L202">      final int hpLeft =</span>
+<span class="pc bpc" id="L203" title="1 of 2 branches missed.">          allowMultipleHitsPerUnit ? (UnitAttachment.get(plane.getType()).getHitPoints() - plane.getHits())</span>
+<span class="fc" id="L204">              : (Math.min(1, UnitAttachment.get(plane.getType()).getHitPoints() - plane.getHits()));</span>
+<span class="fc bfc" id="L205" title="All 2 branches covered.">      for (int hp = 0; hp &lt; hpLeft; ++hp) {</span>
+        // if allowMultipleHitsPerUnit, then because the number of rolls exactly equals the hitpoints of all units,
+        // we roll multiple times for any unit with multiple hitpoints
+<span class="fc" id="L208">        planesList.add(plane);</span>
+      }
+    }
+    // killing the air by groups does not work if the the attack power is different for some of the rolls
+    // also, killing by groups does not work if some of the aa guns have 'MayOverStackAA' and we have more hits than the
+    // total number of
+    // groups (including the remainder group)
+    // (when i mean, 'does not work', i mean that it is no longer a mathematically fair way to find casualties)
+    // find group size (if no groups, do dice sides)
+    final int groupSize;
+<span class="pc bpc" id="L218" title="1 of 2 branches missed.">    if (allSameAttackPower) {</span>
+<span class="fc" id="L219">      groupSize = chosenDiceSize / highestAttack;</span>
+<span class="fc" id="L220">    } else {</span>
+<span class="nc" id="L221">      groupSize = chosenDiceSize;</span>
+    }
+<span class="fc" id="L223">    final int numberOfGroupsByDiceSides = (int) Math.ceil((double) planesList.size() / (double) groupSize);</span>
+<span class="pc bpc" id="L224" title="1 of 2 branches missed.">    final boolean tooManyHitsToDoGroups = hitsLeft &gt; numberOfGroupsByDiceSides;</span>
+<span class="pc bpc" id="L225" title="3 of 6 branches missed.">    if (!allSameAttackPower || tooManyHitsToDoGroups || chosenDiceSize % highestAttack != 0) {</span>
+      // we have too many hits, so just pick randomly
+<span class="nc" id="L227">      return RandomAACasualties(planes, dice, bridge, allowMultipleHitsPerUnit);</span>
+    } else {
+      // if we have a group of 6 fighters and 2 bombers, and dicesides is 6, and attack was 1, then we would want 1
+      // fighter to die for sure.
+      // this is what groupsize is for.
+      // if the attack is greater than 1 though, and all use the same attack power, then the group size can be smaller
+      // (ie: attack is 2, and
+      // we have 3 fighters and 2 bombers, we would want 1 fighter to die for sure).
+      // categorize with groupSize
+<span class="fc" id="L236">      final Tuple&lt;List&lt;List&lt;Unit&gt;&gt;, List&lt;Unit&gt;&gt; airSplit = categorizeLowLuckAirUnits(planesList, groupSize);</span>
+      // the non rolling air units
+      // if we are less hits than the number of groups, OR we have equal hits to number of groups but we also have a
+      // remainder that is equal
+      // to or greater than group size,
+      // THEN we need to make sure to pick randomly, and include the remainder group. (reason we do not do this with any
+      // remainder size, is
+      // because we might have missed the dice roll to hit the remainder)
+<span class="fc" id="L244">      if (hitsLeft &lt; (airSplit.getFirst().size()</span>
+<span class="fc bfc" id="L245" title="All 2 branches covered.">          + ((int) Math.ceil((double) airSplit.getSecond().size() / (double) groupSize)))) {</span>
+        // fewer hits than groups.
+<span class="fc" id="L247">        final List&lt;Unit&gt; tempPossibleHitUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L248" title="All 2 branches covered.">        for (final List&lt;Unit&gt; group : airSplit.getFirst()) {</span>
+<span class="fc" id="L249">          tempPossibleHitUnits.add(group.get(0));</span>
+        }
+<span class="pc bpc" id="L251" title="1 of 2 branches missed.">        if (airSplit.getSecond().size() &gt; 0) {</span>
+          // if we have a remainder group, we need to add some of them into the mix
+          // but we have to do so randomly.
+<span class="fc" id="L254">          final List&lt;Unit&gt; remainders = new ArrayList&lt;&gt;(airSplit.getSecond());</span>
+<span class="pc bpc" id="L255" title="1 of 2 branches missed.">          if (remainders.size() == 1) {</span>
+<span class="nc" id="L256">            tempPossibleHitUnits.add(remainders.remove(0));</span>
+<span class="nc" id="L257">          } else {</span>
+<span class="fc" id="L258">            final int numberOfRemainderGroups = (int) Math.ceil((double) remainders.size() / (double) groupSize);</span>
+<span class="fc" id="L259">            final int[] randomRemainder = bridge.getRandom(remainders.size(), numberOfRemainderGroups, null,</span>
+<span class="fc" id="L260">                DiceType.ENGINE, &quot;Deciding which planes should die due to AA fire&quot;);</span>
+<span class="fc" id="L261">            int pos2 = 0;</span>
+<span class="fc bfc" id="L262" title="All 2 branches covered.">            for (final int element : randomRemainder) {</span>
+<span class="fc" id="L263">              pos2 += element;</span>
+<span class="fc" id="L264">              tempPossibleHitUnits.add(remainders.remove(pos2 % remainders.size()));</span>
+            }
+          }
+        }
+<span class="fc" id="L268">        final int[] hitRandom = bridge.getRandom(tempPossibleHitUnits.size(), hitsLeft, null, DiceType.ENGINE,</span>
+<span class="fc" id="L269">            &quot;Deciding which planes should die due to AA fire&quot;);</span>
+        // now we find the
+<span class="fc" id="L271">        int pos = 0;</span>
+<span class="fc bfc" id="L272" title="All 2 branches covered.">        for (final int element : hitRandom) {</span>
+<span class="fc" id="L273">          pos += element;</span>
+<span class="fc" id="L274">          final Unit unitHit = tempPossibleHitUnits.remove(pos % tempPossibleHitUnits.size());</span>
+<span class="pc bpc" id="L275" title="1 of 2 branches missed.">          if (allowMultipleHitsPerUnit &amp;&amp; (Collections.frequency(finalCasualtyDetails.getDamaged(),</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">              unitHit) &lt; (getTotalHitpointsLeft(unitHit) - 1))) {</span>
+<span class="nc" id="L277">            finalCasualtyDetails.addToDamaged(unitHit);</span>
+<span class="nc" id="L278">          } else {</span>
+<span class="fc" id="L279">            finalCasualtyDetails.addToKilled(unitHit);</span>
+          }
+        }
+<span class="fc" id="L282">        hitsLeft = 0;</span>
+<span class="fc" id="L283">      } else {</span>
+        // kill one in every group
+<span class="fc bfc" id="L285" title="All 2 branches covered.">        for (final List&lt;Unit&gt; group : airSplit.getFirst()) {</span>
+<span class="fc" id="L286">          final Unit unitHit = group.get(0);</span>
+<span class="pc bpc" id="L287" title="1 of 2 branches missed.">          if (allowMultipleHitsPerUnit &amp;&amp; (Collections.frequency(finalCasualtyDetails.getDamaged(),</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">              unitHit) &lt; (getTotalHitpointsLeft(unitHit) - 1))) {</span>
+<span class="nc" id="L289">            finalCasualtyDetails.addToDamaged(unitHit);</span>
+<span class="nc" id="L290">          } else {</span>
+<span class="fc" id="L291">            finalCasualtyDetails.addToKilled(unitHit);</span>
+          }
+<span class="fc" id="L293">          hitsLeft--;</span>
+        }
+        // for any hits left over...
+<span class="fc bfc" id="L296" title="All 2 branches covered.">        if (hitsLeft == airSplit.getSecond().size()) {</span>
+<span class="fc bfc" id="L297" title="All 2 branches covered.">          for (final Unit unitHit : airSplit.getSecond()) {</span>
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">            if (allowMultipleHitsPerUnit &amp;&amp; (Collections.frequency(finalCasualtyDetails.getDamaged(),</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">                unitHit) &lt; (getTotalHitpointsLeft(unitHit) - 1))) {</span>
+<span class="nc" id="L300">              finalCasualtyDetails.addToDamaged(unitHit);</span>
+<span class="nc" id="L301">            } else {</span>
+<span class="fc" id="L302">              finalCasualtyDetails.addToKilled(unitHit);</span>
+            }
+          }
+<span class="fc" id="L305">          hitsLeft = 0;</span>
+<span class="pc bpc" id="L306" title="1 of 2 branches missed.">        } else if (hitsLeft != 0) {</span>
+          // the remainder
+          // roll all at once to prevent frequent random calls, important for pbem games
+<span class="fc" id="L309">          final int[] hitRandom = bridge.getRandom(airSplit.getSecond().size(), hitsLeft, null, DiceType.ENGINE,</span>
+<span class="fc" id="L310">              &quot;Deciding which planes should die due to AA fire&quot;);</span>
+<span class="fc" id="L311">          int pos = 0;</span>
+<span class="fc bfc" id="L312" title="All 2 branches covered.">          for (final int element : hitRandom) {</span>
+<span class="fc" id="L313">            pos += element;</span>
+<span class="fc" id="L314">            final Unit unitHit = airSplit.getSecond().remove(pos % airSplit.getSecond().size());</span>
+<span class="pc bpc" id="L315" title="1 of 2 branches missed.">            if (allowMultipleHitsPerUnit &amp;&amp; (Collections.frequency(finalCasualtyDetails.getDamaged(),</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">                unitHit) &lt; (getTotalHitpointsLeft(unitHit) - 1))) {</span>
+<span class="nc" id="L317">              finalCasualtyDetails.addToDamaged(unitHit);</span>
+<span class="nc" id="L318">            } else {</span>
+<span class="fc" id="L319">              finalCasualtyDetails.addToKilled(unitHit);</span>
+            }
+          }
+<span class="fc" id="L322">          hitsLeft = 0;</span>
+        }
+      }
+    }
+    // double check
+<span class="pc bpc" id="L327" title="1 of 2 branches missed.">    if (finalCasualtyDetails.size() != dice.getHits()) {</span>
+<span class="nc" id="L328">      throw new IllegalStateException(</span>
+<span class="nc" id="L329">          &quot;wrong number of casulaties, expected:&quot; + dice + &quot; but got: &quot; + finalCasualtyDetails);</span>
+    }
+<span class="fc" id="L331">    return finalCasualtyDetails;</span>
+  }
+
+  /**
+   * Choose plane casualties randomly
+   */
+  public static CasualtyDetails RandomAACasualties(final Collection&lt;Unit&gt; planes, final DiceRoll dice,
+      final IDelegateBridge bridge, final boolean allowMultipleHitsPerUnit) {
+    {
+<span class="nc" id="L340">      final Set&lt;Unit&gt; duplicatesCheckSet1 = new HashSet&lt;&gt;(planes);</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">      if (planes.size() != duplicatesCheckSet1.size()) {</span>
+<span class="nc" id="L342">        throw new IllegalStateException(</span>
+<span class="nc" id="L343">            &quot;Duplicate Units Detected: Original List:&quot; + planes + &quot;  HashSet:&quot; + duplicatesCheckSet1);</span>
+      }
+    }
+<span class="nc" id="L346">    final int hitsLeft = dice.getHits();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">    if (hitsLeft &lt;= 0) {</span>
+<span class="nc" id="L348">      return new CasualtyDetails();</span>
+    }
+<span class="nc" id="L350">    final CasualtyDetails finalCasualtyDetails = new CasualtyDetails();</span>
+    // normal behavior is instant kill, which means planes.size()
+<span class="nc bnc" id="L352" title="All 2 branches missed.">    final int planeHP = (allowMultipleHitsPerUnit ? getTotalHitpointsLeft(planes) : planes.size());</span>
+<span class="nc" id="L353">    final List&lt;Unit&gt; planesList = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">    for (final Unit plane : planes) {</span>
+<span class="nc" id="L355">      final int hpLeft =</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">          allowMultipleHitsPerUnit ? (UnitAttachment.get(plane.getType()).getHitPoints() - plane.getHits())</span>
+<span class="nc" id="L357">              : (Math.min(1, UnitAttachment.get(plane.getType()).getHitPoints() - plane.getHits()));</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">      for (int hp = 0; hp &lt; hpLeft; ++hp) {</span>
+        // if allowMultipleHitsPerUnit, then because the number of rolls exactly equals the hitpoints of all units,
+        // we roll multiple times for any unit with multiple hitpoints
+<span class="nc" id="L361">        planesList.add(plane);</span>
+      }
+    }
+    // We need to choose which planes die randomly
+<span class="nc bnc" id="L365" title="All 2 branches missed.">    if (hitsLeft &lt; planeHP) {</span>
+      // roll all at once to prevent frequent random calls, important for pbem games
+<span class="nc" id="L367">      final int[] hitRandom =</span>
+<span class="nc" id="L368">          bridge.getRandom(planeHP, hitsLeft, null, DiceType.ENGINE, &quot;Deciding which planes should die due to AA fire&quot;);</span>
+<span class="nc" id="L369">      int pos = 0;</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">      for (final int element : hitRandom) {</span>
+<span class="nc" id="L371">        pos += element;</span>
+<span class="nc" id="L372">        final Unit unitHit = planesList.remove(pos % planesList.size());</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">        if (allowMultipleHitsPerUnit &amp;&amp; (Collections.frequency(finalCasualtyDetails.getDamaged(),</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">            unitHit) &lt; (getTotalHitpointsLeft(unitHit) - 1))) {</span>
+<span class="nc" id="L375">          finalCasualtyDetails.addToDamaged(unitHit);</span>
+<span class="nc" id="L376">        } else {</span>
+<span class="nc" id="L377">          finalCasualtyDetails.addToKilled(unitHit);</span>
+        }
+      }
+<span class="nc" id="L380">    } else {</span>
+<span class="nc bnc" id="L381" title="All 2 branches missed.">      for (final Unit plane : planesList) {</span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">        if (finalCasualtyDetails.getKilled().contains(plane)) {</span>
+<span class="nc" id="L383">          finalCasualtyDetails.addToDamaged(plane);</span>
+<span class="nc" id="L384">        } else {</span>
+<span class="nc" id="L385">          finalCasualtyDetails.addToKilled(plane);</span>
+        }
+      }
+    }
+<span class="nc" id="L389">    return finalCasualtyDetails;</span>
+  }
+
+  /**
+   * Choose plane casualties based on individual AA shots at each aircraft.
+   */
+  private static CasualtyDetails IndividuallyFiredAACasualties(final boolean defending, final Collection&lt;Unit&gt; planes,
+      final Collection&lt;Unit&gt; defendingAA, final DiceRoll dice, final IDelegateBridge bridge,
+      final boolean allowMultipleHitsPerUnit) {
+    // if we have aa guns that are not infinite, then we need to randomly decide the aa casualties since there are not
+    // enough rolls to have
+    // a single roll for each aircraft, or too many rolls
+    // normal behavior is instant kill, which means planes.size()
+<span class="pc bpc" id="L402" title="1 of 2 branches missed.">    final int planeHP = (allowMultipleHitsPerUnit ? getTotalHitpointsLeft(planes) : planes.size());</span>
+
+<span class="pc bpc" id="L404" title="1 of 2 branches missed.">    if (DiceRoll.getTotalAAattacks(defendingAA, planes) != planeHP) {</span>
+<span class="nc" id="L405">      return RandomAACasualties(planes, dice, bridge, allowMultipleHitsPerUnit);</span>
+    }
+<span class="fc" id="L407">    final Triple&lt;Integer, Integer, Boolean&gt; triple =</span>
+<span class="pc bpc" id="L408" title="1 of 2 branches missed.">        DiceRoll.getTotalAAPowerThenHitsAndFillSortedDiceThenIfAllUseSameAttack(null, null, !defending, defendingAA,</span>
+<span class="fc" id="L409">            planes, bridge.getData(), false);</span>
+<span class="fc" id="L410">    final boolean allSameAttackPower = triple.getThird();</span>
+<span class="pc bpc" id="L411" title="1 of 2 branches missed.">    if (!allSameAttackPower) {</span>
+<span class="nc" id="L412">      return RandomAACasualties(planes, dice, bridge, allowMultipleHitsPerUnit);</span>
+    }
+<span class="fc" id="L414">    final Tuple&lt;Integer, Integer&gt; attackThenDiceSides =</span>
+<span class="pc bpc" id="L415" title="1 of 2 branches missed.">        DiceRoll.getAAattackAndMaxDiceSides(defendingAA, bridge.getData(), !defending);</span>
+<span class="fc" id="L416">    final int highestAttack = attackThenDiceSides.getFirst();</span>
+    // int chosenDiceSize = attackThenDiceSides[1];
+<span class="fc" id="L418">    final CasualtyDetails finalCasualtyDetails = new CasualtyDetails();</span>
+<span class="fc" id="L419">    final int hits = dice.getHits();</span>
+<span class="fc" id="L420">    final List&lt;Unit&gt; planesList = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L421" title="All 2 branches covered.">    for (final Unit plane : planes) {</span>
+<span class="fc" id="L422">      final int hpLeft =</span>
+<span class="pc bpc" id="L423" title="1 of 2 branches missed.">          allowMultipleHitsPerUnit ? (UnitAttachment.get(plane.getType()).getHitPoints() - plane.getHits())</span>
+<span class="fc" id="L424">              : (Math.min(1, UnitAttachment.get(plane.getType()).getHitPoints() - plane.getHits()));</span>
+<span class="fc bfc" id="L425" title="All 2 branches covered.">      for (int hp = 0; hp &lt; hpLeft; ++hp) {</span>
+        // if allowMultipleHitsPerUnit, then because the number of rolls exactly equals the hitpoints of all units,
+        // we roll multiple times for any unit with multiple hitpoints
+<span class="fc" id="L428">        planesList.add(plane);</span>
+      }
+    }
+    // We need to choose which planes die based on their position in the list and the individual AA rolls
+<span class="pc bpc" id="L432" title="1 of 2 branches missed.">    if (hits &gt; planeHP) {</span>
+<span class="nc" id="L433">      throw new IllegalStateException(&quot;Cannot have more hits than number of die rolls&quot;);</span>
+    }
+<span class="fc bfc" id="L435" title="All 2 branches covered.">    if (hits &lt; planeHP) {</span>
+<span class="fc" id="L436">      final List&lt;Die&gt; rolls = dice.getRolls(highestAttack);</span>
+<span class="fc bfc" id="L437" title="All 2 branches covered.">      for (int i = 0; i &lt; rolls.size(); i++) {</span>
+<span class="fc" id="L438">        final Die die = rolls.get(i);</span>
+<span class="fc bfc" id="L439" title="All 2 branches covered.">        if (die.getType() == DieType.HIT) {</span>
+<span class="fc" id="L440">          final Unit unit = planesList.get(i);</span>
+<span class="pc bpc" id="L441" title="1 of 2 branches missed.">          if (allowMultipleHitsPerUnit</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">              &amp;&amp; (Collections.frequency(finalCasualtyDetails.getDamaged(), unit) &lt; (getTotalHitpointsLeft(unit) - 1))) {</span>
+<span class="nc" id="L443">            finalCasualtyDetails.addToDamaged(unit);</span>
+<span class="nc" id="L444">          } else {</span>
+<span class="fc" id="L445">            finalCasualtyDetails.addToKilled(unit);</span>
+          }
+        }
+      }
+<span class="fc" id="L449">    } else {</span>
+<span class="fc bfc" id="L450" title="All 2 branches covered.">      for (final Unit plane : planesList) {</span>
+<span class="pc bpc" id="L451" title="1 of 2 branches missed.">        if (finalCasualtyDetails.getKilled().contains(plane)) {</span>
+<span class="nc" id="L452">          finalCasualtyDetails.addToDamaged(plane);</span>
+<span class="nc" id="L453">        } else {</span>
+<span class="fc" id="L454">          finalCasualtyDetails.addToKilled(plane);</span>
+        }
+      }
+    }
+<span class="fc" id="L458">    return finalCasualtyDetails;</span>
+  }
+
+  /**
+   * @param battleID
+   *        may be null if we are not in a battle (eg, if this is an aa fire due to moving
+   */
+  public static CasualtyDetails selectCasualties(final String step, final PlayerID player,
+      final Collection&lt;Unit&gt; targetsToPickFrom, final Collection&lt;Unit&gt; friendlyUnits, final PlayerID enemyPlayer,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers,
+      final Territory battlesite, final Collection&lt;TerritoryEffect&gt; territoryEffects, final IDelegateBridge bridge,
+      final String text, final DiceRoll dice, final boolean defending, final GUID battleID, final boolean headLess,
+      final int extraHits, final boolean allowMultipleHitsPerUnit) {
+<span class="pc bpc" id="L471" title="1 of 2 branches missed.">    if (targetsToPickFrom.isEmpty()) {</span>
+<span class="nc" id="L472">      return new CasualtyDetails();</span>
+    }
+<span class="pc bpc" id="L474" title="1 of 2 branches missed.">    if (!friendlyUnits.containsAll(targetsToPickFrom)) {</span>
+<span class="nc" id="L475">      throw new IllegalStateException(&quot;friendlyUnits should but does not contain all units from targetsToPickFrom&quot;);</span>
+    }
+<span class="fc" id="L477">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L478">    final boolean isEditMode = BaseEditDelegate.getEditMode(data);</span>
+    ITripleAPlayer tripleaPlayer;
+<span class="pc bpc" id="L480" title="1 of 2 branches missed.">    if (player.isNull()) {</span>
+<span class="nc" id="L481">      tripleaPlayer = new WeakAI(player.getName(), TripleA.WEAK_COMPUTER_PLAYER_TYPE);</span>
+<span class="nc" id="L482">    } else {</span>
+<span class="fc" id="L483">      tripleaPlayer = (ITripleAPlayer) bridge.getRemotePlayer(player);</span>
+    }
+    Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents;
+<span class="fc bfc" id="L486" title="All 2 branches covered.">    if (headLess) {</span>
+<span class="fc" id="L487">      dependents = Collections.emptyMap();</span>
+<span class="fc" id="L488">    } else {</span>
+<span class="fc" id="L489">      dependents = getDependents(targetsToPickFrom);</span>
+    }
+<span class="pc bpc" id="L491" title="3 of 4 branches missed.">    if (isEditMode &amp;&amp; !headLess) {</span>
+<span class="nc" id="L492">      final CasualtyDetails editSelection = tripleaPlayer.selectCasualties(targetsToPickFrom, dependents, 0, text, dice,</span>
+<span class="nc" id="L493">          player, friendlyUnits, enemyPlayer, enemyUnits, amphibious, amphibiousLandAttackers, new CasualtyList(),</span>
+<span class="nc" id="L494">          battleID, battlesite, allowMultipleHitsPerUnit);</span>
+<span class="nc" id="L495">      List&lt;Unit&gt; killed = editSelection.getKilled();</span>
+      // if partial retreat is possible, kill amphibious units first
+<span class="nc bnc" id="L497" title="All 2 branches missed.">      if (isPartialAmphibiousRetreat(data)) {</span>
+<span class="nc" id="L498">        killed = killAmphibiousFirst(killed, targetsToPickFrom);</span>
+      }
+<span class="nc" id="L500">      return editSelection;</span>
+    }
+<span class="fc bfc" id="L502" title="All 2 branches covered.">    if (dice.getHits() == 0) {</span>
+<span class="fc" id="L503">      return new CasualtyDetails(Collections.emptyList(), Collections.emptyList(), true);</span>
+    }
+<span class="fc" id="L505">    int hitsRemaining = dice.getHits();</span>
+<span class="fc bfc" id="L506" title="All 2 branches covered.">    if (isTransportCasualtiesRestricted(data)) {</span>
+<span class="fc" id="L507">      hitsRemaining = extraHits;</span>
+    }
+<span class="pc bpc" id="L509" title="1 of 4 branches missed.">    if (!isEditMode &amp;&amp; allTargetsOneTypeOneHitPoint(targetsToPickFrom, dependents)) {</span>
+<span class="fc" id="L510">      final List&lt;Unit&gt; killed = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L511">      final Iterator&lt;Unit&gt; iter = targetsToPickFrom.iterator();</span>
+<span class="fc bfc" id="L512" title="All 2 branches covered.">      for (int i = 0; i &lt; hitsRemaining; i++) {</span>
+<span class="pc bpc" id="L513" title="1 of 2 branches missed.">        if (i &gt;= targetsToPickFrom.size()) {</span>
+<span class="nc" id="L514">          break;</span>
+        }
+<span class="fc" id="L516">        killed.add(iter.next());</span>
+      }
+<span class="fc" id="L518">      return new CasualtyDetails(killed, Collections.emptyList(), true);</span>
+    }
+    // Create production cost map, Maybe should do this elsewhere, but in case prices change, we do it here.
+<span class="fc" id="L521">    final IntegerMap&lt;UnitType&gt; costs = getCostsForTUV(player, data);</span>
+<span class="fc" id="L522">    final Tuple&lt;CasualtyList, List&lt;Unit&gt;&gt; defaultCasualtiesAndSortedTargets = getDefaultCasualties(targetsToPickFrom,</span>
+<span class="fc" id="L523">        hitsRemaining, defending, player, enemyUnits, amphibious, amphibiousLandAttackers,</span>
+<span class="fc" id="L524">        battlesite, costs, territoryEffects, data, allowMultipleHitsPerUnit, true);</span>
+<span class="fc" id="L525">    final CasualtyList defaultCasualties = defaultCasualtiesAndSortedTargets.getFirst();</span>
+<span class="fc" id="L526">    final List&lt;Unit&gt; sortedTargetsToPickFrom = defaultCasualtiesAndSortedTargets.getSecond();</span>
+<span class="pc bpc" id="L527" title="1 of 2 branches missed.">    if (sortedTargetsToPickFrom.size() != targetsToPickFrom.size()</span>
+<span class="pc bpc" id="L528" title="1 of 2 branches missed.">        || !targetsToPickFrom.containsAll(sortedTargetsToPickFrom)</span>
+<span class="pc bpc" id="L529" title="1 of 2 branches missed.">        || !sortedTargetsToPickFrom.containsAll(targetsToPickFrom)) {</span>
+<span class="nc" id="L530">      throw new IllegalStateException(&quot;sortedTargetsToPickFrom must contain the same units as targetsToPickFrom list&quot;);</span>
+    }
+<span class="fc" id="L532">    final int totalHitpoints =</span>
+<span class="fc bfc" id="L533" title="All 2 branches covered.">        (allowMultipleHitsPerUnit ? getTotalHitpointsLeft(sortedTargetsToPickFrom) : sortedTargetsToPickFrom.size());</span>
+    final CasualtyDetails casualtySelection;
+<span class="pc bpc" id="L535" title="1 of 2 branches missed.">    if (hitsRemaining &gt;= totalHitpoints) {</span>
+<span class="nc" id="L536">      casualtySelection = new CasualtyDetails(defaultCasualties, true);</span>
+<span class="nc" id="L537">    } else {</span>
+<span class="fc" id="L538">      casualtySelection = tripleaPlayer.selectCasualties(sortedTargetsToPickFrom, dependents, hitsRemaining, text, dice,</span>
+<span class="fc" id="L539">          player, friendlyUnits, enemyPlayer, enemyUnits, amphibious, amphibiousLandAttackers, defaultCasualties,</span>
+<span class="fc" id="L540">          battleID, battlesite, allowMultipleHitsPerUnit);</span>
+    }
+<span class="fc" id="L542">    List&lt;Unit&gt; killed = casualtySelection.getKilled();</span>
+    // if partial retreat is possible, kill amphibious units first
+<span class="fc bfc" id="L544" title="All 2 branches covered.">    if (isPartialAmphibiousRetreat(data)) {</span>
+<span class="fc" id="L545">      killed = killAmphibiousFirst(killed, sortedTargetsToPickFrom);</span>
+    }
+<span class="fc" id="L547">    final List&lt;Unit&gt; damaged = casualtySelection.getDamaged();</span>
+<span class="fc" id="L548">    int numhits = killed.size();</span>
+<span class="fc bfc" id="L549" title="All 2 branches covered.">    if (!allowMultipleHitsPerUnit) {</span>
+<span class="fc" id="L550">      damaged.clear();</span>
+<span class="fc" id="L551">    } else {</span>
+<span class="fc bfc" id="L552" title="All 2 branches covered.">      for (final Unit unit : killed) {</span>
+<span class="fc" id="L553">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L554">        final int damageToUnit = Collections.frequency(damaged, unit);</span>
+        // allowed damage
+<span class="fc" id="L556">        numhits += Math.max(0, Math.min(damageToUnit, (ua.getHitPoints() - (1 + unit.getHits()))));</span>
+<span class="fc" id="L557">        final Iterator&lt;Unit&gt; iter = damaged.iterator();</span>
+<span class="pc bpc" id="L558" title="1 of 2 branches missed.">        while (iter.hasNext()) {</span>
+<span class="nc bnc" id="L559" title="All 2 branches missed.">          if (unit.equals(iter.next())) {</span>
+            // remove from damaged list, since they will die
+<span class="nc" id="L561">            iter.remove();</span>
+          }
+        }
+      }
+    }
+    // check right number
+<span class="pc bpc" id="L567" title="1 of 2 branches missed.">    if (!isEditMode</span>
+<span class="pc bpc" id="L568" title="2 of 4 branches missed.">        &amp;&amp; !(numhits + damaged.size() == (hitsRemaining &gt; totalHitpoints ? totalHitpoints : hitsRemaining))) {</span>
+<span class="nc" id="L569">      tripleaPlayer.reportError(&quot;Wrong number of casualties selected&quot;);</span>
+<span class="nc bnc" id="L570" title="All 2 branches missed.">      if (headLess) {</span>
+<span class="nc" id="L571">        System.err.println(&quot;Possible Infinite Loop: Wrong number of casualties selected: number of hits on units &quot;</span>
+<span class="nc" id="L572">            + (numhits + damaged.size()) + &quot; != number of hits to take &quot;</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">            + (hitsRemaining &gt; totalHitpoints ? totalHitpoints : hitsRemaining) + &quot;, for &quot;</span>
+<span class="nc" id="L574">            + casualtySelection.toString());</span>
+      }
+<span class="nc" id="L576">      return selectCasualties(step, player, sortedTargetsToPickFrom, friendlyUnits, enemyPlayer, enemyUnits, amphibious,</span>
+<span class="nc" id="L577">          amphibiousLandAttackers, battlesite, territoryEffects, bridge, text, dice, defending, battleID, headLess,</span>
+<span class="nc" id="L578">          extraHits, allowMultipleHitsPerUnit);</span>
+    }
+    // check we have enough of each type
+<span class="pc bpc" id="L581" title="2 of 4 branches missed.">    if (!sortedTargetsToPickFrom.containsAll(killed) || !sortedTargetsToPickFrom.containsAll(damaged)) {</span>
+<span class="nc" id="L582">      tripleaPlayer.reportError(&quot;Cannot remove enough units of those types&quot;);</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">      if (headLess) {</span>
+<span class="nc" id="L584">        System.err.println(&quot;Possible Infinite Loop: Cannot remove enough units of those types: targets &quot;</span>
+<span class="nc" id="L585">            + MyFormatter.unitsToTextNoOwner(sortedTargetsToPickFrom) + &quot;, for &quot; + casualtySelection.toString());</span>
+      }
+<span class="nc" id="L587">      return selectCasualties(step, player, sortedTargetsToPickFrom, friendlyUnits, enemyPlayer, enemyUnits, amphibious,</span>
+<span class="nc" id="L588">          amphibiousLandAttackers, battlesite, territoryEffects, bridge, text, dice, defending, battleID, headLess,</span>
+<span class="nc" id="L589">          extraHits, allowMultipleHitsPerUnit);</span>
+    }
+<span class="fc" id="L591">    return casualtySelection;</span>
+  }
+
+  private static List&lt;Unit&gt; killAmphibiousFirst(final List&lt;Unit&gt; killed, final Collection&lt;Unit&gt; targets) {
+<span class="fc" id="L595">    final Collection&lt;Unit&gt; allAmphibUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L596">    final Collection&lt;Unit&gt; killedNonAmphibUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L597">    final Collection&lt;UnitType&gt; amphibTypes = new ArrayList&lt;&gt;();</span>
+    // Get a list of all selected killed units that are NOT amphibious
+<span class="fc" id="L599">    final Match&lt;Unit&gt; aMatch = new CompositeMatchAnd&lt;&gt;(Matches.UnitIsLand, Matches.UnitWasNotAmphibious);</span>
+<span class="fc" id="L600">    killedNonAmphibUnits.addAll(Match.getMatches(killed, aMatch));</span>
+    // If all killed units are amphibious, just return them
+<span class="fc bfc" id="L602" title="All 2 branches covered.">    if (killedNonAmphibUnits.isEmpty()) {</span>
+<span class="fc" id="L603">      return killed;</span>
+    }
+    // Get a list of all units that are amphibious and remove those that are killed
+<span class="fc" id="L606">    allAmphibUnits.addAll(Match.getMatches(targets, Matches.UnitWasAmphibious));</span>
+<span class="fc" id="L607">    allAmphibUnits.removeAll(Match.getMatches(killed, Matches.UnitWasAmphibious));</span>
+<span class="fc" id="L608">    final Iterator&lt;Unit&gt; allAmphibUnitsIter = allAmphibUnits.iterator();</span>
+    // Get a collection of the unit types of the amphib units
+<span class="pc bpc" id="L610" title="1 of 2 branches missed.">    while (allAmphibUnitsIter.hasNext()) {</span>
+<span class="nc" id="L611">      final Unit unit = allAmphibUnitsIter.next();</span>
+<span class="nc" id="L612">      final UnitType ut = unit.getType();</span>
+<span class="nc bnc" id="L613" title="All 2 branches missed.">      if (!amphibTypes.contains(ut)) {</span>
+<span class="nc" id="L614">        amphibTypes.add(ut);</span>
+      }
+    }
+    // For each killed unit- see if there is an amphib unit that can be killed instead
+<span class="fc bfc" id="L618" title="All 2 branches covered.">    for (final Unit unit : killedNonAmphibUnits) {</span>
+<span class="pc bpc" id="L619" title="1 of 2 branches missed.">      if (amphibTypes.contains(unit.getType())) { // add a unit from the collection</span>
+<span class="nc" id="L620">        final List&lt;Unit&gt; oneAmphibUnit = Match.getNMatches(allAmphibUnits, 1, Matches.unitIsOfType(unit.getType()));</span>
+<span class="nc bnc" id="L621" title="All 2 branches missed.">        if (oneAmphibUnit.size() &gt; 0) {</span>
+<span class="nc" id="L622">          final Unit amphibUnit = oneAmphibUnit.iterator().next();</span>
+<span class="nc" id="L623">          killed.remove(unit);</span>
+<span class="nc" id="L624">          killed.add(amphibUnit);</span>
+<span class="nc" id="L625">          allAmphibUnits.remove(amphibUnit);</span>
+<span class="nc" id="L626">        } else</span>
+        // If there are no more units of that type, remove the type from the collection
+        {
+<span class="nc" id="L629">          amphibTypes.remove(unit.getType());</span>
+        }
+      }
+    }
+<span class="fc" id="L633">    return killed;</span>
+  }
+
+  /**
+   * A unit with two hitpoints will be listed twice if they will die. The first time they are listed it is as damaged.
+   * The second time they
+   * are listed, it is dead.
+   */
+  private static Tuple&lt;CasualtyList, List&lt;Unit&gt;&gt; getDefaultCasualties(final Collection&lt;Unit&gt; targetsToPickFrom,
+      final int hits, final boolean defending, final PlayerID player, final Collection&lt;Unit&gt; enemyUnits,
+      final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers, final Territory battlesite,
+      final IntegerMap&lt;UnitType&gt; costs, final Collection&lt;TerritoryEffect&gt; territoryEffects, final GameData data,
+      final boolean allowMultipleHitsPerUnit, final boolean bonus) {
+<span class="fc" id="L646">    final CasualtyList defaultCasualtySelection = new CasualtyList();</span>
+    // Sort units by power and cost in ascending order
+<span class="fc" id="L648">    final List&lt;Unit&gt; sorted = sortUnitsForCasualtiesWithSupport(targetsToPickFrom, hits, defending, player,</span>
+<span class="fc" id="L649">        enemyUnits, amphibious, amphibiousLandAttackers, battlesite, costs,</span>
+<span class="fc" id="L650">        territoryEffects, data, allowMultipleHitsPerUnit, bonus);</span>
+    // Remove two hit bb's selecting them first for default casualties
+<span class="fc" id="L652">    int numSelectedCasualties = 0;</span>
+<span class="fc bfc" id="L653" title="All 2 branches covered.">    if (allowMultipleHitsPerUnit) {</span>
+<span class="fc bfc" id="L654" title="All 2 branches covered.">      for (final Unit unit : sorted) {</span>
+        // Stop if we have already selected as many hits as there are targets
+<span class="pc bpc" id="L656" title="1 of 2 branches missed.">        if (numSelectedCasualties &gt;= hits) {</span>
+<span class="nc" id="L657">          return Tuple.of(defaultCasualtySelection, sorted);</span>
+        }
+<span class="fc" id="L659">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L660">        final int extraHP = Math.min((hits - numSelectedCasualties), (ua.getHitPoints() - (1 + unit.getHits())));</span>
+<span class="pc bpc" id="L661" title="1 of 2 branches missed.">        for (int i = 0; i &lt; extraHP; i++) {</span>
+<span class="nc" id="L662">          numSelectedCasualties++;</span>
+<span class="nc" id="L663">          defaultCasualtySelection.addToDamaged(unit);</span>
+        }
+      }
+    }
+    // Select units
+<span class="pc bpc" id="L668" title="1 of 2 branches missed.">    for (final Unit unit : sorted) {</span>
+      // Stop if we have already selected as many hits as there are targets
+<span class="fc bfc" id="L670" title="All 2 branches covered.">      if (numSelectedCasualties &gt;= hits) {</span>
+<span class="fc" id="L671">        return Tuple.of(defaultCasualtySelection, sorted);</span>
+      }
+<span class="fc" id="L673">      defaultCasualtySelection.addToKilled(unit);</span>
+<span class="fc" id="L674">      numSelectedCasualties++;</span>
+    }
+<span class="nc" id="L676">    return Tuple.of(defaultCasualtySelection, sorted);</span>
+  }
+
+  /**
+   * The purpose of this is to return a list in the PERFECT order of which units should be selected to die first,
+   * And that means that certain units MUST BE INTERLEAVED.
+   * This list assumes that you have already taken any extra hit points away from any 2 hitpoint units.
+   * Example: You have a 1 attack Artillery unit that supports, and a 1 attack infantry unit that can receive support.
+   * The best selection of units to die is first to take whichever unit has excess, then cut that down til they are both
+   * the same size,
+   * then to take 1 artillery followed by 1 infantry, followed by 1 artillery, then 1 inf, etc, until everyone is dead.
+   * If you just return all infantry followed by all artillery, or the other way around, you will be missing out on some
+   * important support
+   * provided.
+   * (Veqryn)
+   */
+  private static List&lt;Unit&gt; sortUnitsForCasualtiesWithSupport(final Collection&lt;Unit&gt; targetsToPickFrom, final int hits,
+      final boolean defending, final PlayerID player, final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious,
+      final Collection&lt;Unit&gt; amphibiousLandAttackers, final Territory battlesite, final IntegerMap&lt;UnitType&gt; costs,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final GameData data, final boolean allowMultipleHitsPerUnit,
+      final boolean bonus) {
+<span class="pc bpc" id="L697" title="1 of 2 branches missed.">    if (!GameRunner.getCasualtySelectionSlow()) {</span>
+<span class="fc" id="L698">      return sortUnitsForCasualtiesWithSupportNewWithCaching(targetsToPickFrom, defending, player,</span>
+<span class="fc" id="L699">          enemyUnits, amphibious, amphibiousLandAttackers, battlesite, costs, territoryEffects, data,</span>
+<span class="fc" id="L700">          bonus);</span>
+    } else {
+<span class="nc" id="L702">      return sortUnitsForCasualtiesWithSupportBruteForce(targetsToPickFrom, hits, defending, enemyUnits, amphibious,</span>
+<span class="nc" id="L703">          amphibiousLandAttackers, battlesite, costs, territoryEffects, data,</span>
+<span class="nc" id="L704">          allowMultipleHitsPerUnit, bonus);</span>
+    }
+  }
+
+  private static List&lt;Unit&gt; sortUnitsForCasualtiesWithSupportNewWithCaching(final Collection&lt;Unit&gt; targetsToPickFrom,
+      final boolean defending, final PlayerID player,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious,
+      final Collection&lt;Unit&gt; amphibiousLandAttackers, final Territory battlesite, final IntegerMap&lt;UnitType&gt; costs,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final GameData data,
+      final boolean bonus) {
+    // Convert unit lists to unit type lists
+<span class="fc" id="L715">    final List&lt;UnitType&gt; targetTypes = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L716" title="All 2 branches covered.">    for (final Unit u : targetsToPickFrom) {</span>
+<span class="fc" id="L717">      targetTypes.add(u.getType());</span>
+    }
+<span class="fc" id="L719">    final List&lt;UnitType&gt; amphibTypes = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L720" title="All 2 branches covered.">    if (amphibiousLandAttackers != null) {</span>
+<span class="fc bfc" id="L721" title="All 2 branches covered.">      for (final Unit u : amphibiousLandAttackers) {</span>
+<span class="fc" id="L722">        amphibTypes.add(u.getType());</span>
+      }
+    }
+    // Calculate hashes and cache key
+<span class="fc" id="L726">    int targetsHashCode = 1;</span>
+<span class="fc bfc" id="L727" title="All 2 branches covered.">    for (final UnitType ut : targetTypes) {</span>
+<span class="fc" id="L728">      targetsHashCode += ut.hashCode();</span>
+    }
+<span class="fc" id="L730">    targetsHashCode *= 31;</span>
+<span class="fc" id="L731">    int amphibHashCode = 1;</span>
+<span class="fc bfc" id="L732" title="All 2 branches covered.">    for (final UnitType ut : amphibTypes) {</span>
+<span class="fc" id="L733">      amphibHashCode += ut.hashCode();</span>
+    }
+<span class="fc" id="L735">    amphibHashCode *= 31;</span>
+<span class="fc" id="L736">    String key = player.getName() + &quot;|&quot; + battlesite.getName() + &quot;|&quot; + defending + &quot;|&quot; + amphibious + &quot;|&quot;</span>
+<span class="fc" id="L737">        + targetsHashCode + &quot;|&quot; + amphibHashCode;</span>
+    // Check OOL cache
+<span class="fc" id="L739">    final List&lt;UnitType&gt; stored = oolCache.get(key);</span>
+<span class="fc bfc" id="L740" title="All 2 branches covered.">    if (stored != null) {</span>
+      // System.out.println(&quot;Hit with cacheSize=&quot; + oolCache.size() + &quot;, key=&quot; + key);
+<span class="fc" id="L742">      final List&lt;Unit&gt; result = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L743">      final List&lt;Unit&gt; selectFrom = new ArrayList&lt;&gt;(targetsToPickFrom);</span>
+<span class="fc bfc" id="L744" title="All 2 branches covered.">      for (final UnitType ut : stored) {</span>
+<span class="fc bfc" id="L745" title="All 2 branches covered.">        for (final Iterator&lt;Unit&gt; it = selectFrom.iterator(); it.hasNext();) {</span>
+<span class="fc" id="L746">          final Unit u = it.next();</span>
+<span class="fc bfc" id="L747" title="All 2 branches covered.">          if (ut.equals(u.getType())) {</span>
+<span class="fc" id="L748">            result.add(u);</span>
+<span class="fc" id="L749">            it.remove();</span>
+          }
+        }
+      }
+<span class="fc" id="L753">      return result;</span>
+    }
+    // System.out.println(&quot;Miss with cacheSize=&quot; + oolCache.size() + &quot;, key=&quot; + key);
+    // Sort enough units to kill off
+<span class="fc" id="L757">    final List&lt;Unit&gt; sortedUnitsList = new ArrayList&lt;&gt;(targetsToPickFrom);</span>
+<span class="fc" id="L758">    Collections.sort(sortedUnitsList, new UnitBattleComparator(defending, costs, territoryEffects, data, bonus, false));</span>
+    // Sort units starting with strongest so that support gets added to them first
+<span class="fc" id="L760">    Collections.reverse(sortedUnitsList);</span>
+<span class="fc" id="L761">    final UnitBattleComparator unitComparatorWithoutPrimaryPower =</span>
+<span class="fc" id="L762">        new UnitBattleComparator(defending, costs, territoryEffects, data, bonus, true);</span>
+<span class="fc" id="L763">    final List&lt;Unit&gt; sortedWellEnoughUnitsList = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L764">    final Map&lt;Unit, IntegerMap&lt;Unit&gt;&gt; unitSupportPowerMap = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L765">    final Map&lt;Unit, IntegerMap&lt;Unit&gt;&gt; unitSupportRollsMap = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L766">    final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; unitPowerAndRollsMap = DiceRoll.getUnitPowerAndRollsForNormalBattles(</span>
+<span class="fc" id="L767">        sortedUnitsList, new ArrayList&lt;&gt;(enemyUnits), defending, false, data, battlesite,</span>
+<span class="fc" id="L768">        territoryEffects, amphibious, amphibiousLandAttackers, unitSupportPowerMap, unitSupportRollsMap);</span>
+    // Sort units starting with weakest for finding the worst units
+<span class="fc" id="L770">    Collections.reverse(sortedUnitsList);</span>
+<span class="fc bfc" id="L771" title="All 2 branches covered.">    for (int i = 0; i &lt; sortedUnitsList.size(); ++i) {</span>
+      // Loop through all target units to find the best unit to take as casualty
+<span class="fc" id="L773">      Unit worstUnit = null;</span>
+<span class="fc" id="L774">      int minPower = Integer.MAX_VALUE;</span>
+<span class="fc" id="L775">      final Set&lt;UnitType&gt; unitTypes = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L776" title="All 2 branches covered.">      for (final Unit u : sortedUnitsList) {</span>
+<span class="fc bfc" id="L777" title="All 2 branches covered.">        if (unitTypes.contains(u.getType())) {</span>
+<span class="fc" id="L778">          continue;</span>
+        }
+<span class="fc" id="L780">        unitTypes.add(u.getType());</span>
+        // Find unit power
+<span class="fc" id="L782">        final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; currentUnitMap = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L783">        currentUnitMap.put(u, unitPowerAndRollsMap.get(u));</span>
+<span class="fc" id="L784">        int power = DiceRoll.getTotalPower(currentUnitMap, data);</span>
+        // Add any support power that it provides to other units
+<span class="fc" id="L786">        final IntegerMap&lt;Unit&gt; unitSupportPowerMapForUnit = unitSupportPowerMap.get(u);</span>
+<span class="pc bpc" id="L787" title="1 of 2 branches missed.">        if (unitSupportPowerMapForUnit != null) {</span>
+<span class="nc bnc" id="L788" title="All 2 branches missed.">          for (final Unit supportedUnit : unitSupportPowerMapForUnit.keySet()) {</span>
+<span class="nc" id="L789">            Tuple&lt;Integer, Integer&gt; strengthAndRolls = unitPowerAndRollsMap.get(supportedUnit);</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">            if (strengthAndRolls == null) {</span>
+<span class="nc" id="L791">              continue;</span>
+            }
+            // Remove any rolls provided by this support so they aren't counted twice
+<span class="nc" id="L794">            final IntegerMap&lt;Unit&gt; unitSupportRollsMapForUnit = unitSupportRollsMap.get(u);</span>
+<span class="nc bnc" id="L795" title="All 2 branches missed.">            if (unitSupportRollsMapForUnit != null) {</span>
+<span class="nc" id="L796">              strengthAndRolls = Tuple.of(strengthAndRolls.getFirst(),</span>
+<span class="nc" id="L797">                  strengthAndRolls.getSecond() - unitSupportRollsMapForUnit.getInt(supportedUnit));</span>
+            }
+            // If one roll then just add the power
+<span class="nc bnc" id="L800" title="All 2 branches missed.">            if (strengthAndRolls.getSecond() == 1) {</span>
+<span class="nc" id="L801">              power += unitSupportPowerMapForUnit.getInt(supportedUnit);</span>
+<span class="nc" id="L802">              continue;</span>
+            }
+            // Find supported unit power with support
+<span class="nc" id="L805">            final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; supportedUnitMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L806">            supportedUnitMap.put(supportedUnit, strengthAndRolls);</span>
+<span class="nc" id="L807">            final int powerWithSupport = DiceRoll.getTotalPower(supportedUnitMap, data);</span>
+            // Find supported unit power without support
+<span class="nc" id="L809">            final int strengthWithoutSupport =</span>
+<span class="nc" id="L810">                strengthAndRolls.getFirst() - unitSupportPowerMapForUnit.getInt(supportedUnit);</span>
+<span class="nc" id="L811">            final Tuple&lt;Integer, Integer&gt; strengthAndRollsWithoutSupport =</span>
+<span class="nc" id="L812">                Tuple.of(strengthWithoutSupport, strengthAndRolls.getSecond());</span>
+<span class="nc" id="L813">            supportedUnitMap.put(supportedUnit, strengthAndRollsWithoutSupport);</span>
+<span class="nc" id="L814">            final int powerWithoutSupport = DiceRoll.getTotalPower(supportedUnitMap, data);</span>
+            // Add the actual power provided by the support
+<span class="nc" id="L816">            final int addedPower = powerWithSupport - powerWithoutSupport;</span>
+<span class="nc" id="L817">            power += addedPower;</span>
+          }
+        }
+        // Add any power from support rolls that it provides to other units
+<span class="fc" id="L821">        final IntegerMap&lt;Unit&gt; unitSupportRollsMapForUnit = unitSupportRollsMap.get(u);</span>
+<span class="pc bpc" id="L822" title="1 of 2 branches missed.">        if (unitSupportRollsMapForUnit != null) {</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">          for (final Unit supportedUnit : unitSupportRollsMapForUnit.keySet()) {</span>
+<span class="nc" id="L824">            final Tuple&lt;Integer, Integer&gt; strengthAndRolls = unitPowerAndRollsMap.get(supportedUnit);</span>
+<span class="nc bnc" id="L825" title="All 2 branches missed.">            if (strengthAndRolls == null) {</span>
+<span class="nc" id="L826">              continue;</span>
+            }
+            // Find supported unit power with support
+<span class="nc" id="L829">            final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; supportedUnitMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L830">            supportedUnitMap.put(supportedUnit, strengthAndRolls);</span>
+<span class="nc" id="L831">            final int powerWithSupport = DiceRoll.getTotalPower(supportedUnitMap, data);</span>
+            // Find supported unit power without support
+<span class="nc" id="L833">            final int rollsWithoutSupport =</span>
+<span class="nc" id="L834">                strengthAndRolls.getSecond() - unitSupportRollsMap.get(u).getInt(supportedUnit);</span>
+<span class="nc" id="L835">            final Tuple&lt;Integer, Integer&gt; strengthAndRollsWithoutSupport =</span>
+<span class="nc" id="L836">                Tuple.of(strengthAndRolls.getFirst(), rollsWithoutSupport);</span>
+<span class="nc" id="L837">            supportedUnitMap.put(supportedUnit, strengthAndRollsWithoutSupport);</span>
+<span class="nc" id="L838">            final int powerWithoutSupport = DiceRoll.getTotalPower(supportedUnitMap, data);</span>
+            // Add the actual power provided by the support
+<span class="nc" id="L840">            final int addedPower = powerWithSupport - powerWithoutSupport;</span>
+<span class="nc" id="L841">            power += addedPower;</span>
+          }
+        }
+        // Check if unit has lower power
+<span class="pc bpc" id="L845" title="1 of 6 branches missed.">        if (power &lt; minPower || (power == minPower &amp;&amp; unitComparatorWithoutPrimaryPower.compare(u, worstUnit) &lt; 0)) {</span>
+<span class="fc" id="L846">          worstUnit = u;</span>
+<span class="fc" id="L847">          minPower = power;</span>
+        }
+      }
+      // Add worst unit to sorted list, update any units it supported, and remove from other collections
+<span class="fc" id="L851">      final IntegerMap&lt;Unit&gt; unitSupportPowerMapForUnit = unitSupportPowerMap.get(worstUnit);</span>
+<span class="pc bpc" id="L852" title="1 of 2 branches missed.">      if (unitSupportPowerMapForUnit != null) {</span>
+<span class="nc bnc" id="L853" title="All 2 branches missed.">        for (final Unit supportedUnit : unitSupportPowerMapForUnit.keySet()) {</span>
+<span class="nc" id="L854">          final Tuple&lt;Integer, Integer&gt; strengthAndRolls = unitPowerAndRollsMap.get(supportedUnit);</span>
+<span class="nc bnc" id="L855" title="All 2 branches missed.">          if (strengthAndRolls == null) {</span>
+<span class="nc" id="L856">            continue;</span>
+          }
+<span class="nc" id="L858">          final int strengthWithoutSupport =</span>
+<span class="nc" id="L859">              strengthAndRolls.getFirst() - unitSupportPowerMapForUnit.getInt(supportedUnit);</span>
+<span class="nc" id="L860">          final Tuple&lt;Integer, Integer&gt; strengthAndRollsWithoutSupport =</span>
+<span class="nc" id="L861">              Tuple.of(strengthWithoutSupport, strengthAndRolls.getSecond());</span>
+<span class="nc" id="L862">          unitPowerAndRollsMap.put(supportedUnit, strengthAndRollsWithoutSupport);</span>
+<span class="nc" id="L863">          sortedUnitsList.remove(supportedUnit);</span>
+<span class="nc" id="L864">          sortedUnitsList.add(0, supportedUnit);</span>
+        }
+      }
+<span class="fc" id="L867">      final IntegerMap&lt;Unit&gt; unitSupportRollsMapForUnit = unitSupportRollsMap.get(worstUnit);</span>
+<span class="pc bpc" id="L868" title="1 of 2 branches missed.">      if (unitSupportRollsMapForUnit != null) {</span>
+<span class="nc bnc" id="L869" title="All 2 branches missed.">        for (final Unit supportedUnit : unitSupportRollsMapForUnit.keySet()) {</span>
+<span class="nc" id="L870">          final Tuple&lt;Integer, Integer&gt; strengthAndRolls = unitPowerAndRollsMap.get(supportedUnit);</span>
+<span class="nc bnc" id="L871" title="All 2 branches missed.">          if (strengthAndRolls == null) {</span>
+<span class="nc" id="L872">            continue;</span>
+          }
+<span class="nc" id="L874">          final int rollsWithoutSupport =</span>
+<span class="nc" id="L875">              strengthAndRolls.getSecond() - unitSupportRollsMapForUnit.getInt(supportedUnit);</span>
+<span class="nc" id="L876">          final Tuple&lt;Integer, Integer&gt; strengthAndRollsWithoutSupport =</span>
+<span class="nc" id="L877">              Tuple.of(strengthAndRolls.getFirst(), rollsWithoutSupport);</span>
+<span class="nc" id="L878">          unitPowerAndRollsMap.put(supportedUnit, strengthAndRollsWithoutSupport);</span>
+<span class="nc" id="L879">          sortedUnitsList.remove(supportedUnit);</span>
+<span class="nc" id="L880">          sortedUnitsList.add(0, supportedUnit);</span>
+        }
+      }
+<span class="fc" id="L883">      sortedWellEnoughUnitsList.add(worstUnit);</span>
+<span class="fc" id="L884">      sortedUnitsList.remove(worstUnit);</span>
+<span class="fc" id="L885">      unitPowerAndRollsMap.remove(worstUnit);</span>
+<span class="fc" id="L886">      unitSupportPowerMap.remove(worstUnit);</span>
+<span class="fc" id="L887">      unitSupportRollsMap.remove(worstUnit);</span>
+    }
+<span class="fc" id="L889">    sortedWellEnoughUnitsList.addAll(sortedUnitsList);</span>
+    // Cache result and all subsets of the result
+<span class="fc" id="L891">    final List&lt;UnitType&gt; unitTypes = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L892" title="All 2 branches covered.">    for (final Unit u : sortedWellEnoughUnitsList) {</span>
+<span class="fc" id="L893">      unitTypes.add(u.getType());</span>
+    }
+<span class="fc bfc" id="L895" title="All 2 branches covered.">    for (final Iterator&lt;UnitType&gt; it = unitTypes.iterator(); it.hasNext();) {</span>
+<span class="fc" id="L896">      oolCache.put(key, new ArrayList&lt;&gt;(unitTypes));</span>
+<span class="fc" id="L897">      final UnitType unitTypeToRemove = it.next();</span>
+<span class="fc" id="L898">      targetTypes.remove(unitTypeToRemove);</span>
+<span class="fc bfc" id="L899" title="All 2 branches covered.">      if (Collections.frequency(targetTypes, unitTypeToRemove) &lt; Collections.frequency(amphibTypes, unitTypeToRemove)) {</span>
+<span class="fc" id="L900">        amphibTypes.remove(unitTypeToRemove);</span>
+      }
+<span class="fc" id="L902">      targetsHashCode = 1;</span>
+<span class="fc bfc" id="L903" title="All 2 branches covered.">      for (final UnitType ut : targetTypes) {</span>
+<span class="fc" id="L904">        targetsHashCode += ut.hashCode();</span>
+      }
+<span class="fc" id="L906">      targetsHashCode *= 31;</span>
+<span class="fc" id="L907">      amphibHashCode = 1;</span>
+<span class="fc bfc" id="L908" title="All 2 branches covered.">      for (final UnitType ut : amphibTypes) {</span>
+<span class="fc" id="L909">        amphibHashCode += ut.hashCode();</span>
+      }
+<span class="fc" id="L911">      amphibHashCode *= 31;</span>
+<span class="fc" id="L912">      key = player.getName() + &quot;|&quot; + battlesite.getName() + &quot;|&quot; + defending + &quot;|&quot; + amphibious + &quot;|&quot; + targetsHashCode</span>
+<span class="fc" id="L913">          + &quot;|&quot; + amphibHashCode;</span>
+<span class="fc" id="L914">      it.remove();</span>
+    }
+<span class="fc" id="L916">    return sortedWellEnoughUnitsList;</span>
+  }
+
+  private static List&lt;Unit&gt; sortUnitsForCasualtiesWithSupportBruteForce(final Collection&lt;Unit&gt; targetsToPickFrom,
+      final int hits, final boolean defending, final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious,
+      final Collection&lt;Unit&gt; amphibiousLandAttackers, final Territory battlesite, final IntegerMap&lt;UnitType&gt; costs,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final GameData data, final boolean allowMultipleHitsPerUnit,
+      final boolean bonus) {
+<span class="nc" id="L924">    final List&lt;Unit&gt; sortedUnitsList = new ArrayList&lt;&gt;(targetsToPickFrom);</span>
+<span class="nc" id="L925">    Collections.sort(sortedUnitsList, new UnitBattleComparator(defending, costs, territoryEffects, data, bonus, false));</span>
+    // Select optimal units to kill
+<span class="nc" id="L927">    int numberOfUnitsWeMustSort = hits;</span>
+<span class="nc" id="L928">    int extraHP = 0;</span>
+<span class="nc bnc" id="L929" title="All 2 branches missed.">    if (allowMultipleHitsPerUnit) {</span>
+<span class="nc bnc" id="L930" title="All 2 branches missed.">      for (final Unit unit : sortedUnitsList) {</span>
+<span class="nc" id="L931">        extraHP += Math.max(0, UnitAttachment.get(unit.getType()).getHitPoints() - (1 + unit.getHits()));</span>
+<span class="nc bnc" id="L932" title="All 2 branches missed.">        if (extraHP &gt;= hits) {</span>
+          // no units will be killed as we have enough extra hp, so who cares about doing the time-expensive sort
+          // when the UnitBattleComparator is good enough
+<span class="nc" id="L935">          return sortedUnitsList;</span>
+        }
+      }
+      // if we have to take 6 hits, and we can damage 2 units, then we really
+      // only have to sort for the first 4 units to die (if we can damage 4
+      // units, then we still have to sort those first 4 in case one of them
+      // will have to die)
+<span class="nc" id="L942">      numberOfUnitsWeMustSort = Math.max(extraHP, hits - extraHP);</span>
+    }
+<span class="nc bnc" id="L944" title="All 2 branches missed.">    if (hits &gt; extraHP + sortedUnitsList.size()) {</span>
+      // if we are going to lose all units, just return this list
+<span class="nc" id="L946">      return sortedUnitsList;</span>
+    }
+<span class="nc" id="L948">    final UnitBattleComparator unitComparatorWithoutPrimaryPower =</span>
+<span class="nc" id="L949">        new UnitBattleComparator(defending, costs, territoryEffects, data, bonus, true);</span>
+<span class="nc" id="L950">    final List&lt;Unit&gt; sortedWellEnoughUnitsList = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">    for (int i = 0; i &lt; numberOfUnitsWeMustSort; ++i) {</span>
+      // Loop through all target units to find the best unit to take as casualty
+<span class="nc" id="L953">      Unit worstUnit = null;</span>
+<span class="nc" id="L954">      int maxPowerDifference = Integer.MIN_VALUE;</span>
+<span class="nc" id="L955">      final Set&lt;UnitType&gt; unitTypes = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L956" title="All 2 branches missed.">      for (final Unit u : sortedUnitsList) {</span>
+<span class="nc bnc" id="L957" title="All 2 branches missed.">        if (unitTypes.contains(u.getType())) {</span>
+          // Only check each unit type once
+<span class="nc" id="L959">          continue;</span>
+        }
+<span class="nc" id="L961">        unitTypes.add(u.getType());</span>
+        // Find my power without current unit
+<span class="nc" id="L963">        final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(sortedUnitsList);</span>
+<span class="nc" id="L964">        units.remove(u);</span>
+<span class="nc" id="L965">        final List&lt;Unit&gt; enemyUnitList = new ArrayList&lt;&gt;(enemyUnits);</span>
+<span class="nc" id="L966">        Collections.reverse(units);</span>
+<span class="nc" id="L967">        final int power = DiceRoll</span>
+<span class="nc" id="L968">            .getTotalPower(DiceRoll.getUnitPowerAndRollsForNormalBattles(units, enemyUnitList, defending,</span>
+<span class="nc" id="L969">                false, data, battlesite, territoryEffects, amphibious, amphibiousLandAttackers), data);</span>
+        // Find enemy power without current unit (need to consider this since supports can decrease enemy
+        // attack/defense)
+<span class="nc" id="L972">        final int enemyPower = DiceRoll</span>
+<span class="nc" id="L973">            .getTotalPower(</span>
+<span class="nc bnc" id="L974" title="All 2 branches missed.">                DiceRoll.getUnitPowerAndRollsForNormalBattles(enemyUnitList, units, !defending, false,</span>
+<span class="nc" id="L975">                    data, battlesite, territoryEffects, amphibious, amphibiousLandAttackers),</span>
+<span class="nc" id="L976">                data);</span>
+        // Check if unit has higher power
+<span class="nc" id="L978">        final int powerDifference = power - enemyPower;</span>
+<span class="nc bnc" id="L979" title="All 2 branches missed.">        if (powerDifference &gt; maxPowerDifference</span>
+<span class="nc bnc" id="L980" title="All 4 branches missed.">            || (powerDifference == maxPowerDifference &amp;&amp; unitComparatorWithoutPrimaryPower.compare(u, worstUnit) &lt; 0)) {</span>
+<span class="nc" id="L981">          worstUnit = u;</span>
+<span class="nc" id="L982">          maxPowerDifference = powerDifference;</span>
+        }
+      }
+<span class="nc" id="L985">      sortedUnitsList.remove(worstUnit);</span>
+<span class="nc" id="L986">      sortedWellEnoughUnitsList.add(worstUnit);</span>
+    }
+<span class="nc" id="L988">    sortedWellEnoughUnitsList.addAll(sortedUnitsList);</span>
+<span class="nc" id="L989">    return sortedWellEnoughUnitsList;</span>
+  }
+
+  public static Map&lt;Unit, Collection&lt;Unit&gt;&gt; getDependents(final Collection&lt;Unit&gt; targets) {
+    // just worry about transports
+<span class="fc" id="L994">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L995" title="All 2 branches covered.">    for (final Unit target : targets) {</span>
+<span class="fc" id="L996">      dependents.put(target, TransportTracker.transportingAndUnloaded(target));</span>
+    }
+<span class="fc" id="L998">    return dependents;</span>
+  }
+
+  /**
+   * Return map where keys are unit types and values are PU costs of that unit type, based on a player.
+   * Any production rule that produces multiple units
+   * (like artillery in NWO, costs 7 but makes 2 artillery, meaning effective price is 3.5 each)
+   * will have their costs rounded up on a per unit basis (so NWO artillery will become 4).
+   * Therefore, this map should NOT be used for Purchasing information!
+   *
+   * @param player
+   *        The player to get costs schedule for
+   * @param data
+   *        The game data.
+   * @return a map of unit types to PU cost
+   */
+  public static IntegerMap&lt;UnitType&gt; getCostsForTUV(final PlayerID player, final GameData data) {
+    final Resource PUS;
+<span class="fc" id="L1016">    data.acquireReadLock();</span>
+    try {
+<span class="fc" id="L1018">      PUS = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="pc" id="L1019">    } finally {</span>
+<span class="pc" id="L1020">      data.releaseReadLock();</span>
+<span class="nc" id="L1021">    }</span>
+<span class="fc" id="L1022">    final IntegerMap&lt;UnitType&gt; costs = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1023">    final ProductionFrontier frontier = player.getProductionFrontier();</span>
+    // any one will do then
+<span class="pc bpc" id="L1025" title="1 of 2 branches missed.">    if (frontier == null) {</span>
+<span class="nc" id="L1026">      return getCostsForTuvForAllPlayersMergedAndAveraged(data);</span>
+    }
+<span class="fc bfc" id="L1028" title="All 2 branches covered.">    for (final ProductionRule rule : frontier.getRules()) {</span>
+<span class="fc" id="L1029">      final int costPerGroup = rule.getCosts().getInt(PUS);</span>
+<span class="fc" id="L1030">      final NamedAttachable resourceOrUnit = rule.getResults().keySet().iterator().next();</span>
+<span class="pc bpc" id="L1031" title="1 of 2 branches missed.">      if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L1032">        continue;</span>
+      }
+<span class="fc" id="L1034">      final UnitType type = (UnitType) resourceOrUnit;</span>
+<span class="fc" id="L1035">      final int numberProduced = rule.getResults().getInt(type);</span>
+      // we average the cost for a single unit, rounding up
+<span class="fc" id="L1037">      final int roundedCostPerSingle = (int) Math.ceil((double) costPerGroup / (double) numberProduced);</span>
+<span class="fc" id="L1038">      costs.put(type, roundedCostPerSingle);</span>
+    }
+    // since our production frontier may not cover all the units we control, and not the enemy units,
+    // we will add any unit types not in our list, based on the list for everyone
+<span class="fc" id="L1042">    final IntegerMap&lt;UnitType&gt; costsAll = getCostsForTuvForAllPlayersMergedAndAveraged(data);</span>
+<span class="fc bfc" id="L1043" title="All 2 branches covered.">    for (final UnitType ut : costsAll.keySet()) {</span>
+<span class="pc bpc" id="L1044" title="1 of 2 branches missed.">      if (!costs.keySet().contains(ut)) {</span>
+<span class="nc" id="L1045">        costs.put(ut, costsAll.getInt(ut));</span>
+      }
+    }
+<span class="fc" id="L1048">    return costs;</span>
+  }
+
+  /**
+   * Return a map where key are unit types and values are the AVERAGED for all RULES (not for all players).
+   * Any production rule that produces multiple units
+   * (like artillery in NWO, costs 7 but makes 2 artillery, meaning effective price is 3.5 each)
+   * will have their costs rounded up on a per unit basis.
+   * Therefore, this map should NOT be used for Purchasing information!
+   *
+   * @param data
+   */
+  public static IntegerMap&lt;UnitType&gt; getCostsForTuvForAllPlayersMergedAndAveraged(final GameData data) {
+    /*
+     * if (s_costsForTuvForAllPlayersMergedAndAveraged != null &amp;&amp; s_costsForTuvForAllPlayersMergedAndAveraged.size() &gt;
+     * 0)
+     * return s_costsForTuvForAllPlayersMergedAndAveraged;
+     */
+    final Resource PUS;
+<span class="fc" id="L1067">    data.acquireReadLock();</span>
+    try {
+<span class="fc" id="L1069">      PUS = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="pc" id="L1070">    } finally {</span>
+<span class="pc" id="L1071">      data.releaseReadLock();</span>
+<span class="nc" id="L1072">    }</span>
+<span class="fc" id="L1073">    final IntegerMap&lt;UnitType&gt; costs = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1074">    final HashMap&lt;UnitType, List&lt;Integer&gt;&gt; differentCosts = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L1075" title="All 2 branches covered.">    for (final ProductionRule rule : data.getProductionRuleList().getProductionRules()) {</span>
+      // only works for the first result, so we are assuming each purchase frontier only gives one type of unit
+<span class="fc" id="L1077">      final NamedAttachable resourceOrUnit = rule.getResults().keySet().iterator().next();</span>
+<span class="pc bpc" id="L1078" title="1 of 2 branches missed.">      if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L1079">        continue;</span>
+      }
+<span class="fc" id="L1081">      final UnitType ut = (UnitType) resourceOrUnit;</span>
+<span class="fc" id="L1082">      final int numberProduced = rule.getResults().getInt(ut);</span>
+<span class="fc" id="L1083">      final int costPerGroup = rule.getCosts().getInt(PUS);</span>
+      // we round up the cost
+<span class="fc" id="L1085">      final int roundedCostPerSingle = (int) Math.ceil((double) costPerGroup / (double) numberProduced);</span>
+<span class="fc bfc" id="L1086" title="All 2 branches covered.">      if (differentCosts.containsKey(ut)) {</span>
+<span class="fc" id="L1087">        differentCosts.get(ut).add(roundedCostPerSingle);</span>
+<span class="fc" id="L1088">      } else {</span>
+<span class="fc" id="L1089">        final List&lt;Integer&gt; listTemp = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1090">        listTemp.add(roundedCostPerSingle);</span>
+<span class="fc" id="L1091">        differentCosts.put(ut, listTemp);</span>
+      }
+    }
+<span class="fc bfc" id="L1094" title="All 2 branches covered.">    for (final UnitType ut : differentCosts.keySet()) {</span>
+<span class="fc" id="L1095">      int totalCosts = 0;</span>
+<span class="fc" id="L1096">      final List&lt;Integer&gt; costsForType = differentCosts.get(ut);</span>
+<span class="fc bfc" id="L1097" title="All 2 branches covered.">      for (final int cost : costsForType) {</span>
+<span class="fc" id="L1098">        totalCosts += cost;</span>
+      }
+<span class="fc" id="L1100">      final int averagedCost = (int) Math.round(((double) totalCosts / (double) costsForType.size()));</span>
+<span class="fc" id="L1101">      costs.put(ut, averagedCost);</span>
+    }
+    // There is a problem with this variable, that it isn't being cleared out when we
+    // s_costsForTuvForAllPlayersMergedAndAveraged = costs;
+    // switch maps.
+<span class="fc" id="L1106">    return costs;</span>
+  }
+
+  /**
+   * Return map where keys are unit types and values are resource costs of that unit type, based on a player.
+   * Any production rule that produces multiple units
+   * (like artillery in NWO, costs 7 but makes 2 artillery, meaning effective price is 3.5 each)
+   * will have their costs rounded up on a per unit basis.
+   * Therefore, this map should NOT be used for Purchasing information!
+   *
+   * @param data
+   * @param includeAverageForMissingUnits
+   */
+  public static Map&lt;PlayerID, Map&lt;UnitType, ResourceCollection&gt;&gt; getResourceCostsForTUV(final GameData data,
+      final boolean includeAverageForMissingUnits) {
+<span class="nc" id="L1121">    final LinkedHashMap&lt;PlayerID, Map&lt;UnitType, ResourceCollection&gt;&gt; rVal =</span>
+<span class="nc" id="L1122">        new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">    final Map&lt;UnitType, ResourceCollection&gt; average = includeAverageForMissingUnits</span>
+<span class="nc" id="L1124">        ? getResourceCostsForTUVForAllPlayersMergedAndAveraged(data) : new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1125">    final List&lt;PlayerID&gt; players = data.getPlayerList().getPlayers();</span>
+<span class="nc" id="L1126">    players.add(PlayerID.NULL_PLAYERID);</span>
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">    for (final PlayerID p : players) {</span>
+<span class="nc" id="L1128">      final ProductionFrontier frontier = p.getProductionFrontier();</span>
+      // any one will do then
+<span class="nc bnc" id="L1130" title="All 2 branches missed.">      if (frontier == null) {</span>
+<span class="nc" id="L1131">        rVal.put(p, average);</span>
+<span class="nc" id="L1132">        continue;</span>
+      }
+<span class="nc" id="L1134">      Map&lt;UnitType, ResourceCollection&gt; current = rVal.get(p);</span>
+<span class="nc bnc" id="L1135" title="All 2 branches missed.">      if (current == null) {</span>
+<span class="nc" id="L1136">        current = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L1137">        rVal.put(p, current);</span>
+      }
+<span class="nc bnc" id="L1139" title="All 2 branches missed.">      for (final ProductionRule rule : frontier.getRules()) {</span>
+<span class="nc bnc" id="L1140" title="All 8 branches missed.">        if (rule == null || rule.getResults() == null || rule.getResults().isEmpty() || rule.getCosts() == null</span>
+<span class="nc bnc" id="L1141" title="All 2 branches missed.">            || rule.getCosts().isEmpty()) {</span>
+<span class="nc" id="L1142">          continue;</span>
+        }
+<span class="nc" id="L1144">        final IntegerMap&lt;NamedAttachable&gt; unitMap = rule.getResults();</span>
+<span class="nc" id="L1145">        final ResourceCollection costPerGroup = new ResourceCollection(data, rule.getCosts());</span>
+<span class="nc" id="L1146">        final Set&lt;UnitType&gt; units = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1147" title="All 2 branches missed.">        for (final NamedAttachable resourceOrUnit : unitMap.keySet()) {</span>
+<span class="nc bnc" id="L1148" title="All 2 branches missed.">          if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L1149">            continue;</span>
+          }
+<span class="nc" id="L1151">          units.add((UnitType) resourceOrUnit);</span>
+        }
+<span class="nc bnc" id="L1153" title="All 2 branches missed.">        if (units.isEmpty()) {</span>
+<span class="nc" id="L1154">          continue;</span>
+        }
+<span class="nc" id="L1156">        final int totalProduced = unitMap.totalValues();</span>
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">        if (totalProduced == 1) {</span>
+<span class="nc" id="L1158">          current.put(units.iterator().next(), costPerGroup);</span>
+<span class="nc bnc" id="L1159" title="All 2 branches missed.">        } else if (totalProduced &gt; 1) {</span>
+<span class="nc" id="L1160">          costPerGroup.discount((double) 1 / (double) totalProduced);</span>
+<span class="nc bnc" id="L1161" title="All 2 branches missed.">          for (final UnitType ut : units) {</span>
+<span class="nc" id="L1162">            current.put(ut, costPerGroup);</span>
+          }
+        }
+      }
+      // since our production frontier may not cover all the units we control, and not the enemy units,
+      // we will add any unit types not in our list, based on the list for everyone
+<span class="nc bnc" id="L1168" title="All 2 branches missed.">      for (final UnitType ut : average.keySet()) {</span>
+<span class="nc bnc" id="L1169" title="All 2 branches missed.">        if (!current.keySet().contains(ut)) {</span>
+<span class="nc" id="L1170">          current.put(ut, average.get(ut));</span>
+        }
+      }
+    }
+<span class="nc" id="L1174">    rVal.put(null, average);</span>
+<span class="nc" id="L1175">    return rVal;</span>
+  }
+
+  /**
+   * Return a map where key are unit types and values are the AVERAGED for all players.
+   * Any production rule that produces multiple units
+   * (like artillery in NWO, costs 7 but makes 2 artillery, meaning effective price is 3.5 each)
+   * will have their costs rounded up on a per unit basis.
+   * Therefore, this map should NOT be used for Purchasing information!
+   *
+   * @param data
+   */
+  private static Map&lt;UnitType, ResourceCollection&gt; getResourceCostsForTUVForAllPlayersMergedAndAveraged(
+      final GameData data) {
+<span class="nc" id="L1189">    final Map&lt;UnitType, ResourceCollection&gt; average = new HashMap&lt;&gt;();</span>
+    final Resource PUS;
+<span class="nc" id="L1191">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L1193">      PUS = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L1194">    } finally {</span>
+<span class="nc" id="L1195">      data.releaseReadLock();</span>
+<span class="nc" id="L1196">    }</span>
+<span class="nc" id="L1197">    final IntegerMap&lt;Resource&gt; defaultMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L1198">    defaultMap.put(PUS, 1);</span>
+<span class="nc" id="L1199">    final ResourceCollection defaultResources = new ResourceCollection(data, defaultMap);</span>
+<span class="nc" id="L1200">    final Map&lt;UnitType, List&lt;ResourceCollection&gt;&gt; backups = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1201">    final Map&lt;UnitType, ResourceCollection&gt; backupAveraged = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">    for (final ProductionRule rule : data.getProductionRuleList().getProductionRules()) {</span>
+<span class="nc bnc" id="L1203" title="All 8 branches missed.">      if (rule == null || rule.getResults() == null || rule.getResults().isEmpty() || rule.getCosts() == null</span>
+<span class="nc bnc" id="L1204" title="All 2 branches missed.">          || rule.getCosts().isEmpty()) {</span>
+<span class="nc" id="L1205">        continue;</span>
+      }
+<span class="nc" id="L1207">      final IntegerMap&lt;NamedAttachable&gt; unitMap = rule.getResults();</span>
+<span class="nc" id="L1208">      final ResourceCollection costPerGroup = new ResourceCollection(data, rule.getCosts());</span>
+<span class="nc" id="L1209">      final Set&lt;UnitType&gt; units = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1210" title="All 2 branches missed.">      for (final NamedAttachable resourceOrUnit : unitMap.keySet()) {</span>
+<span class="nc bnc" id="L1211" title="All 2 branches missed.">        if (!(resourceOrUnit instanceof UnitType)) {</span>
+<span class="nc" id="L1212">          continue;</span>
+        }
+<span class="nc" id="L1214">        units.add((UnitType) resourceOrUnit);</span>
+      }
+<span class="nc bnc" id="L1216" title="All 2 branches missed.">      if (units.isEmpty()) {</span>
+<span class="nc" id="L1217">        continue;</span>
+      }
+<span class="nc" id="L1219">      final int totalProduced = unitMap.totalValues();</span>
+<span class="nc bnc" id="L1220" title="All 2 branches missed.">      if (totalProduced == 1) {</span>
+<span class="nc" id="L1221">        final UnitType ut = units.iterator().next();</span>
+<span class="nc" id="L1222">        List&lt;ResourceCollection&gt; current = backups.get(ut);</span>
+<span class="nc bnc" id="L1223" title="All 2 branches missed.">        if (current == null) {</span>
+<span class="nc" id="L1224">          current = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1225">          backups.put(ut, current);</span>
+        }
+<span class="nc" id="L1227">        current.add(costPerGroup);</span>
+<span class="nc bnc" id="L1228" title="All 2 branches missed.">      } else if (totalProduced &gt; 1) {</span>
+<span class="nc" id="L1229">        costPerGroup.discount((double) 1 / (double) totalProduced);</span>
+<span class="nc bnc" id="L1230" title="All 2 branches missed.">        for (final UnitType ut : units) {</span>
+<span class="nc" id="L1231">          List&lt;ResourceCollection&gt; current = backups.get(ut);</span>
+<span class="nc bnc" id="L1232" title="All 2 branches missed.">          if (current == null) {</span>
+<span class="nc" id="L1233">            current = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1234">            backups.put(ut, current);</span>
+          }
+<span class="nc" id="L1236">          current.add(costPerGroup);</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L1240" title="All 2 branches missed.">    for (final Entry&lt;UnitType, List&lt;ResourceCollection&gt;&gt; entry : backups.entrySet()) {</span>
+<span class="nc" id="L1241">      final ResourceCollection avgCost =</span>
+<span class="nc" id="L1242">          new ResourceCollection(entry.getValue().toArray(new ResourceCollection[entry.getValue().size()]), data);</span>
+<span class="nc bnc" id="L1243" title="All 2 branches missed.">      if (entry.getValue().size() &gt; 1) {</span>
+<span class="nc" id="L1244">        avgCost.discount((double) 1 / (double) entry.getValue().size());</span>
+      }
+<span class="nc" id="L1246">      backupAveraged.put(entry.getKey(), avgCost);</span>
+    }
+<span class="nc" id="L1248">    final Map&lt;PlayerID, Map&lt;UnitType, ResourceCollection&gt;&gt; allPlayersCurrent = getResourceCostsForTUV(data, false);</span>
+<span class="nc" id="L1249">    allPlayersCurrent.remove(null);</span>
+<span class="nc bnc" id="L1250" title="All 2 branches missed.">    for (final UnitType ut : data.getUnitTypeList().getAllUnitTypes()) {</span>
+<span class="nc" id="L1251">      final List&lt;ResourceCollection&gt; costs = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1252" title="All 2 branches missed.">      for (final Map&lt;UnitType, ResourceCollection&gt; entry : allPlayersCurrent.values()) {</span>
+<span class="nc bnc" id="L1253" title="All 2 branches missed.">        if (entry.get(ut) != null) {</span>
+<span class="nc" id="L1254">          costs.add(entry.get(ut));</span>
+        }
+      }
+<span class="nc bnc" id="L1257" title="All 2 branches missed.">      if (costs.isEmpty()) {</span>
+<span class="nc" id="L1258">        final ResourceCollection backup = backupAveraged.get(ut);</span>
+<span class="nc bnc" id="L1259" title="All 2 branches missed.">        if (backup != null) {</span>
+<span class="nc" id="L1260">          costs.add(backup);</span>
+<span class="nc" id="L1261">        } else {</span>
+<span class="nc" id="L1262">          costs.add(defaultResources);</span>
+        }
+      }
+<span class="nc" id="L1265">      final ResourceCollection avgCost =</span>
+<span class="nc" id="L1266">          new ResourceCollection(costs.toArray(new ResourceCollection[costs.size()]), data);</span>
+<span class="nc bnc" id="L1267" title="All 2 branches missed.">      if (costs.size() &gt; 1) {</span>
+<span class="nc" id="L1268">        avgCost.discount((double) 1 / (double) costs.size());</span>
+      }
+<span class="nc" id="L1270">      average.put(ut, avgCost);</span>
+    }
+<span class="nc" id="L1272">    return average;</span>
+  }
+
+  /**
+   * Return the total unit value
+   *
+   * @param units
+   *        A collection of units
+   * @param costs
+   *        An integer map of unit types to costs.
+   * @return the total unit value.
+   */
+  public static int getTUV(final Collection&lt;Unit&gt; units, final IntegerMap&lt;UnitType&gt; costs) {
+<span class="fc" id="L1285">    int tuv = 0;</span>
+<span class="fc bfc" id="L1286" title="All 2 branches covered.">    for (final Unit u : units) {</span>
+<span class="fc" id="L1287">      final int unitValue = costs.getInt(u.getType());</span>
+<span class="fc" id="L1288">      tuv += unitValue;</span>
+    }
+<span class="fc" id="L1290">    return tuv;</span>
+  }
+
+  /**
+   * Return the total unit value for a certain player and his allies
+   *
+   * @param units
+   *        A collection of units
+   * @param player
+   *        The player to calculate the TUV for.
+   * @param costs
+   *        An integer map of unit types to costs
+   * @return the total unit value.
+   */
+  public static int getTUV(final Collection&lt;Unit&gt; units, final PlayerID player, final IntegerMap&lt;UnitType&gt; costs,
+      final GameData data) {
+<span class="fc" id="L1306">    final Collection&lt;Unit&gt; playerUnits = Match.getMatches(units, Matches.alliedUnit(player, data));</span>
+<span class="fc" id="L1307">    return getTUV(playerUnits, costs);</span>
+  }
+
+  /**
+   * Checks if the given collections target are all of one category as defined
+   * by UnitSeperator.categorize and they are not two hit units.
+   *
+   * @param targets
+   *        a collection of target units
+   * @param dependents
+   *        map of depend units for target units
+   */
+  private static boolean allTargetsOneTypeOneHitPoint(final Collection&lt;Unit&gt; targets,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents) {
+<span class="fc" id="L1321">    final Set&lt;UnitCategory&gt; categorized = UnitSeperator.categorize(targets, dependents, false, false);</span>
+<span class="fc bfc" id="L1322" title="All 2 branches covered.">    if (categorized.size() == 1) {</span>
+<span class="fc" id="L1323">      final UnitCategory unitCategory = categorized.iterator().next();</span>
+<span class="pc bpc" id="L1324" title="1 of 2 branches missed.">      if (unitCategory.getHitPoints() - unitCategory.getDamaged() &lt;= 1) {</span>
+<span class="fc" id="L1325">        return true;</span>
+      }
+    }
+<span class="fc" id="L1328">    return false;</span>
+  }
+
+  public static int getRolls(final Collection&lt;Unit&gt; units, final PlayerID id,
+      final boolean defend, final boolean bombing, final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportRulesFriendly,
+      final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftFriendlyCopy,
+      final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportRulesEnemy,
+      final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftEnemyCopy,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects) {
+<span class="fc" id="L1337">    int count = 0;</span>
+<span class="fc bfc" id="L1338" title="All 2 branches covered.">    for (final Unit unit : units) {</span>
+<span class="fc" id="L1339">      final int unitRoll = getRolls(unit, id, defend, bombing, supportRulesFriendly, supportLeftFriendlyCopy,</span>
+<span class="fc" id="L1340">          supportRulesEnemy, supportLeftEnemyCopy, territoryEffects);</span>
+<span class="fc" id="L1341">      count += unitRoll;</span>
+    }
+<span class="fc" id="L1343">    return count;</span>
+  }
+
+  public static int getRolls(final Collection&lt;Unit&gt; units, final PlayerID id, final boolean defend,
+      final boolean bombing, final Collection&lt;TerritoryEffect&gt; territoryEffects) {
+<span class="fc" id="L1348">    return getRolls(units, id, defend, bombing, new HashSet&lt;&gt;(),</span>
+<span class="fc" id="L1349">        new IntegerMap&lt;&gt;(), new HashSet&lt;&gt;(),</span>
+<span class="fc" id="L1350">        new IntegerMap&lt;&gt;(), territoryEffects);</span>
+  }
+
+  public static int getRolls(final Unit unit, final PlayerID id, final boolean defend,
+      final boolean bombing, final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportRulesFriendly,
+      final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftFriendlyCopy,
+      final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportRulesEnemy,
+      final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftEnemyCopy,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects) {
+<span class="fc" id="L1359">    final UnitAttachment unitAttachment = UnitAttachment.get(unit.getType());</span>
+    int rolls;
+<span class="fc bfc" id="L1361" title="All 2 branches covered.">    if (defend) {</span>
+<span class="fc" id="L1362">      rolls = unitAttachment.getDefenseRolls(id);</span>
+<span class="fc" id="L1363">    } else {</span>
+<span class="fc" id="L1364">      rolls = unitAttachment.getAttackRolls(id);</span>
+    }
+<span class="fc" id="L1366">    final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; dummyEmptyMap =</span>
+<span class="fc" id="L1367">        new HashMap&lt;&gt;();</span>
+<span class="fc" id="L1368">    rolls += DiceRoll.getSupport(unit, supportRulesFriendly, supportLeftFriendlyCopy, dummyEmptyMap, null, false, true);</span>
+<span class="fc" id="L1369">    rolls += DiceRoll.getSupport(unit, supportRulesEnemy, supportLeftEnemyCopy, dummyEmptyMap, null, false, true);</span>
+<span class="fc" id="L1370">    rolls = Math.max(0, rolls);</span>
+    // if we are strategic bombing, we do not care what the strength of the unit is...
+<span class="pc bpc" id="L1372" title="1 of 2 branches missed.">    if (bombing) {</span>
+<span class="fc" id="L1373">      return rolls;</span>
+    }
+    int strength;
+<span class="nc bnc" id="L1376" title="All 2 branches missed.">    if (defend) {</span>
+<span class="nc" id="L1377">      strength = unitAttachment.getDefense(unit.getOwner());</span>
+<span class="nc" id="L1378">    } else {</span>
+<span class="nc" id="L1379">      strength = unitAttachment.getAttack(unit.getOwner());</span>
+    }
+    // TODO: we should add in isMarine bonus too...
+<span class="nc" id="L1382">    strength +=</span>
+<span class="nc" id="L1383">        DiceRoll.getSupport(unit, supportRulesFriendly, supportLeftFriendlyCopy, dummyEmptyMap, null, true, false);</span>
+<span class="nc" id="L1384">    strength += DiceRoll.getSupport(unit, supportRulesEnemy, supportLeftEnemyCopy, dummyEmptyMap, null, true, false);</span>
+<span class="nc" id="L1385">    strength += TerritoryEffectHelper.getTerritoryCombatBonus(unit.getType(), territoryEffects, defend);</span>
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">    if (strength &lt;= 0) {</span>
+<span class="nc" id="L1387">      rolls = 0;</span>
+    }
+<span class="nc" id="L1389">    return rolls;</span>
+  }
+
+  public static int getRolls(final Unit unit, final PlayerID id, final boolean defend,
+      final boolean bombing, final Collection&lt;TerritoryEffect&gt; territoryEffects) {
+<span class="fc" id="L1394">    return getRolls(unit, id, defend, bombing, new HashSet&lt;&gt;(),</span>
+<span class="fc" id="L1395">        new IntegerMap&lt;&gt;(), new HashSet&lt;&gt;(),</span>
+<span class="fc" id="L1396">        new IntegerMap&lt;&gt;(), territoryEffects);</span>
+  }
+
+  /**
+   * @return Can transports be used as cannon fodder
+   */
+  private static boolean isTransportCasualtiesRestricted(final GameData data) {
+<span class="fc" id="L1403">    return games.strategy.triplea.Properties.getTransportCasualtiesRestricted(data);</span>
+  }
+
+  /**
+   * @return Random AA Casualties - casualties randomly assigned
+   */
+  private static boolean isRandomAACasualties(final GameData data) {
+<span class="nc" id="L1410">    return games.strategy.triplea.Properties.getRandomAACasualties(data);</span>
+  }
+
+  /**
+   * @return Roll AA Individually - roll against each aircraft
+   */
+  private static boolean isRollAAIndividually(final GameData data) {
+<span class="fc" id="L1417">    return games.strategy.triplea.Properties.getRollAAIndividually(data);</span>
+  }
+
+  /**
+   * @return Choose AA - attacker selects casualties
+   */
+  private static boolean isChooseAA(final GameData data) {
+<span class="fc" id="L1424">    return games.strategy.triplea.Properties.getChoose_AA_Casualties(data);</span>
+  }
+
+  /**
+   * @return Can the attacker retreat non-amphibious units
+   */
+  private static boolean isPartialAmphibiousRetreat(final GameData data) {
+<span class="fc" id="L1431">    return games.strategy.triplea.Properties.getPartialAmphibiousRetreat(data);</span>
+  }
+
+  // nothing but static
+<span class="nc" id="L1435">  private BattleCalculator() {}</span>
+
+  /**
+   * This returns the exact Power that a unit has according to what DiceRoll.rollDiceLowLuck() would give it.
+   * As such, it needs to exactly match DiceRoll, otherwise this method will become useless.
+   * It does NOT take into account SUPPORT.
+   * It DOES take into account ROLLS.
+   * It needs to be updated to take into account isMarine.
+   */
+  public static int getUnitPowerForSorting(final Unit current, final boolean defending, final GameData data,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects) {
+<span class="fc" id="L1446">    final boolean lhtrBombers = games.strategy.triplea.Properties.getLHTR_Heavy_Bombers(data);</span>
+<span class="fc" id="L1447">    final UnitAttachment ua = UnitAttachment.get(current.getType());</span>
+    int rolls;
+<span class="fc bfc" id="L1449" title="All 2 branches covered.">    if (defending) {</span>
+<span class="fc" id="L1450">      rolls = ua.getDefenseRolls(current.getOwner());</span>
+<span class="fc" id="L1451">    } else {</span>
+<span class="fc" id="L1452">      rolls = ua.getAttackRolls(current.getOwner());</span>
+    }
+    // int strength = 0;
+<span class="fc" id="L1455">    int strengthWithoutSupport = 0;</span>
+    // Find the strength the unit has without support
+    // lhtr heavy bombers take best of n dice for both attack and defense
+<span class="pc bpc" id="L1458" title="5 of 6 branches missed.">    if (rolls &gt; 1 &amp;&amp; (lhtrBombers || ua.getChooseBestRoll())) {</span>
+<span class="nc bnc" id="L1459" title="All 2 branches missed.">      if (defending) {</span>
+<span class="nc" id="L1460">        strengthWithoutSupport = ua.getDefense(current.getOwner());</span>
+<span class="nc" id="L1461">      } else {</span>
+<span class="nc" id="L1462">        strengthWithoutSupport = ua.getAttack(current.getOwner());</span>
+      }
+<span class="nc" id="L1464">      strengthWithoutSupport +=</span>
+<span class="nc" id="L1465">          TerritoryEffectHelper.getTerritoryCombatBonus(current.getType(), territoryEffects, defending);</span>
+      // just add one like LL if we are LHTR bombers
+<span class="nc" id="L1467">      strengthWithoutSupport = Math.min(Math.max(strengthWithoutSupport + 1, 0), data.getDiceSides());</span>
+<span class="nc" id="L1468">    } else {</span>
+<span class="fc bfc" id="L1469" title="All 2 branches covered.">      for (int i = 0; i &lt; rolls; i++) {</span>
+        int tempStrength;
+<span class="fc bfc" id="L1471" title="All 2 branches covered.">        if (defending) {</span>
+<span class="fc" id="L1472">          tempStrength = ua.getDefense(current.getOwner());</span>
+<span class="fc" id="L1473">        } else {</span>
+<span class="fc" id="L1474">          tempStrength = ua.getAttack(current.getOwner());</span>
+        }
+<span class="fc" id="L1476">        strengthWithoutSupport +=</span>
+<span class="fc" id="L1477">            TerritoryEffectHelper.getTerritoryCombatBonus(current.getType(), territoryEffects, defending);</span>
+<span class="fc" id="L1478">        strengthWithoutSupport += Math.min(Math.max(tempStrength, 0), data.getDiceSides());</span>
+      }
+    }
+<span class="fc" id="L1481">    return strengthWithoutSupport;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

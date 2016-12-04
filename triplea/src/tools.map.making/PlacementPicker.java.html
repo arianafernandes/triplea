@@ -1,0 +1,684 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PlacementPicker.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.map.making</a> &gt; <span class="el_source">PlacementPicker.java</span></div><h1>PlacementPicker.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package tools.map.making;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.HeadlessException;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.LineNumberReader;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import javax.swing.Action;
+import javax.swing.JCheckBoxMenuItem;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.triplea.image.UnitImageFactory;
+import games.strategy.triplea.ui.mapdata.MapData;
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import games.strategy.util.PointFileReaderWriter;
+import tools.image.FileOpen;
+import tools.image.FileSave;
+
+public class PlacementPicker extends JFrame {
+  private static final long serialVersionUID = 953019978051420881L;
+  private final JCheckBoxMenuItem showAllModeItem;
+  private final JCheckBoxMenuItem showOverflowModeItem;
+  private final JCheckBoxMenuItem showIncompleteModeItem;
+<span class="nc" id="L61">  private static boolean s_showAllMode = false;</span>
+<span class="nc" id="L62">  private static boolean s_showOverflowMode = false;</span>
+<span class="nc" id="L63">  private static boolean s_showIncompleteMode = false;</span>
+<span class="nc" id="L64">  private static int s_incompleteNum = 1;</span>
+  private Point m_currentSquare;
+  private Image m_image;
+<span class="nc" id="L67">  private final JLabel m_location = new JLabel();</span>
+<span class="nc" id="L68">  private Map&lt;String, List&lt;Polygon&gt;&gt; m_polygons = new HashMap&lt;&gt;();</span>
+  private Map&lt;String, List&lt;Point&gt;&gt; m_placements;
+  private List&lt;Point&gt; m_currentPlacements;
+  private String m_currentCountry;
+<span class="nc" id="L72">  private static int PLACEWIDTH = UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+<span class="nc" id="L73">  private static int PLACEHEIGHT = UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+<span class="nc" id="L74">  private static boolean placeDimensionsSet = false;</span>
+<span class="nc" id="L75">  private static double unit_zoom_percent = 1;</span>
+<span class="nc" id="L76">  private static int unit_width = UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+<span class="nc" id="L77">  private static int unit_height = UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+<span class="nc" id="L78">  private static File s_mapFolderLocation = null;</span>
+  private static final String TRIPLEA_MAP_FOLDER = &quot;triplea.map.folder&quot;;
+  private static final String TRIPLEA_UNIT_ZOOM = &quot;triplea.unit.zoom&quot;;
+  private static final String TRIPLEA_UNIT_WIDTH = &quot;triplea.unit.width&quot;;
+<span class="nc" id="L82">  private static final String TRIPLEA_UNIT_HEIGHT = &quot;triplea.unit.height&quot;;</span>
+
+  public static String[] getProperties() {
+<span class="nc" id="L85">    return new String[] {TRIPLEA_MAP_FOLDER, TRIPLEA_UNIT_ZOOM, TRIPLEA_UNIT_WIDTH, TRIPLEA_UNIT_HEIGHT};</span>
+  }
+
+  /**
+   * main(java.lang.String[])
+   * Main program begins here.
+   * Asks the user to select the map then runs the
+   * the actual placement picker program.
+   *
+   * @param args the command line arguments
+   */
+  public static void main(final String[] args) {
+<span class="nc" id="L97">    handleCommandLineArgs(args);</span>
+<span class="nc" id="L98">    JOptionPane.showMessageDialog(null,</span>
+<span class="nc" id="L99">        new JLabel(&quot;&lt;html&gt;&quot; + &quot;This is the PlacementPicker, it will create a place.txt file for you. &quot;</span>
+            + &quot;&lt;br&gt;In order to run this, you must already have created a centers.txt file and a polygons.txt file. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;The program will ask for unit scale (unit zoom) level [normally between 0.5 and 1.0], &quot;
+            + &quot;&lt;br&gt;Then it will ask for the unit image size when not zoomed [normally 48x48]. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;If you want to have less, or more, room around the edges of your units, you can change the unit size. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;After it starts, you may Load an existing place.txt file, that way you can make changes to it then save it. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;LEFT CLICK = Select a new territory. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;Holding CTRL/SHIFT + LEFT CLICK = Create a new placement for that territory. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;RIGHT CLICK = Remove last placement for that territory. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;Holding CTRL/SHIFT + RIGHT CLICK = Save all placements for that territory. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;It is a very good idea to check each territory using the PlacementPicker after running the AutoPlacementFinder &quot;
+            + &quot;&lt;br&gt;to make sure there are enough placements for each territory. If not, you can always add more then save it. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;IF there are not enough placements, the units will Overflow to the RIGHT of the very LAST placement made, &quot;
+            + &quot;&lt;br&gt;so be sure that the last placement is on the right side of the territory &quot;
+            + &quot;&lt;br&gt;or that it does not overflow directly on top of other placements. &quot;
+            + &quot;&lt;br&gt;&lt;br&gt;To show all placements, or see the overflow direction, or see which territories you have not yet completed enough, &quot;
+            + &quot;&lt;br&gt;placements for, turn on the mode options in the 'edit' menu. &quot; + &quot;&lt;/html&gt;&quot;));
+<span class="nc" id="L116">    System.out.println(&quot;Select the map&quot;);</span>
+<span class="nc" id="L117">    final FileOpen mapSelection = new FileOpen(&quot;Select The Map&quot;, s_mapFolderLocation, &quot;.gif&quot;, &quot;.png&quot;);</span>
+<span class="nc" id="L118">    final String mapName = mapSelection.getPathString();</span>
+<span class="nc bnc" id="L119" title="All 4 branches missed.">    if (s_mapFolderLocation == null &amp;&amp; mapSelection.getFile() != null) {</span>
+<span class="nc" id="L120">      s_mapFolderLocation = mapSelection.getFile().getParentFile();</span>
+    }
+<span class="nc bnc" id="L122" title="All 2 branches missed.">    if (mapName != null) {</span>
+<span class="nc" id="L123">      final PlacementPicker picker = new PlacementPicker(mapName);</span>
+<span class="nc" id="L124">      picker.setSize(800, 600);</span>
+<span class="nc" id="L125">      picker.setLocationRelativeTo(null);</span>
+<span class="nc" id="L126">      picker.setVisible(true);</span>
+<span class="nc" id="L127">    } else {</span>
+<span class="nc" id="L128">      System.out.println(&quot;No Image Map Selected. Shutting down.&quot;);</span>
+<span class="nc" id="L129">      System.exit(0);</span>
+    }
+<span class="nc" id="L131">  }// end main</span>
+
+  /**
+   * Constructor PlacementPicker(java.lang.String)
+   * Setus up all GUI components, initializes variables with
+   * default or needed values, and prepares the map for user
+   * commands.
+   *
+   * @param java
+   *        .lang.String mapName name of map file
+   */
+  public PlacementPicker(final String mapName) {
+<span class="nc" id="L143">    super(&quot;Placement Picker&quot;);</span>
+<span class="nc" id="L144">    setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    if (!placeDimensionsSet) {</span>
+      try {
+<span class="nc" id="L147">        File file = null;</span>
+<span class="nc bnc" id="L148" title="All 4 branches missed.">        if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+<span class="nc" id="L149">          file = new File(s_mapFolderLocation, &quot;map.properties&quot;);</span>
+        }
+<span class="nc bnc" id="L151" title="All 4 branches missed.">        if (file == null || !file.exists()) {</span>
+<span class="nc" id="L152">          file = new File(new File(mapName).getParent() + File.separator + &quot;map.properties&quot;);</span>
+        }
+<span class="nc bnc" id="L154" title="All 2 branches missed.">        if (file.exists()) {</span>
+<span class="nc" id="L155">          double scale = unit_zoom_percent;</span>
+<span class="nc" id="L156">          int width = unit_width;</span>
+<span class="nc" id="L157">          int height = unit_height;</span>
+<span class="nc" id="L158">          boolean found = false;</span>
+<span class="nc" id="L159">          final String scaleProperty = MapData.PROPERTY_UNITS_SCALE + &quot;=&quot;;</span>
+<span class="nc" id="L160">          final String widthProperty = MapData.PROPERTY_UNITS_WIDTH + &quot;=&quot;;</span>
+<span class="nc" id="L161">          final String heightProperty = MapData.PROPERTY_UNITS_HEIGHT + &quot;=&quot;;</span>
+<span class="nc" id="L162">          final FileReader reader = new FileReader(file);</span>
+<span class="nc" id="L163">          final LineNumberReader reader2 = new LineNumberReader(reader);</span>
+<span class="nc" id="L164">          int i = 0;</span>
+<span class="nc" id="L165">          while (true) {</span>
+<span class="nc" id="L166">            reader2.setLineNumber(i);</span>
+<span class="nc" id="L167">            final String line = reader2.readLine();</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">            if (line == null) {</span>
+<span class="nc" id="L169">              break;</span>
+            }
+<span class="nc bnc" id="L171" title="All 2 branches missed.">            if (line.contains(scaleProperty)) {</span>
+              try {
+<span class="nc" id="L173">                scale = Double.parseDouble(line.substring(line.indexOf(scaleProperty) + scaleProperty.length()).trim());</span>
+<span class="nc" id="L174">                found = true;</span>
+<span class="nc" id="L175">              } catch (final NumberFormatException ex) {</span>
+              }
+            }
+<span class="nc bnc" id="L178" title="All 2 branches missed.">            if (line.contains(widthProperty)) {</span>
+              try {
+<span class="nc" id="L180">                width = Integer.parseInt(line.substring(line.indexOf(widthProperty) + widthProperty.length()).trim());</span>
+<span class="nc" id="L181">                found = true;</span>
+<span class="nc" id="L182">              } catch (final NumberFormatException ex) {</span>
+              }
+            }
+<span class="nc bnc" id="L185" title="All 2 branches missed.">            if (line.contains(heightProperty)) {</span>
+              try {
+<span class="nc" id="L187">                height =</span>
+<span class="nc" id="L188">                    Integer.parseInt(line.substring(line.indexOf(heightProperty) + heightProperty.length()).trim());</span>
+<span class="nc" id="L189">                found = true;</span>
+<span class="nc" id="L190">              } catch (final NumberFormatException ex) {</span>
+              }
+            }
+          }
+<span class="nc" id="L194">          reader2.close();</span>
+<span class="nc" id="L195">          i++;</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">          if (found) {</span>
+<span class="nc" id="L197">            final int result = JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L198">                &quot;A map.properties file was found in the map's folder, &quot;</span>
+                    + &quot;\r\n do you want to use the file to supply the info for the placement box size? &quot;
+<span class="nc" id="L200">                    + &quot;\r\n Zoom = &quot; + scale + &quot;,  Width = &quot; + width + &quot;,  Height = &quot; + height + &quot;,    Result = (&quot;</span>
+<span class="nc" id="L201">                    + ((int) (scale * width)) + &quot;x&quot; + ((int) (scale * height)) + &quot;)&quot;,</span>
+<span class="nc" id="L202">                &quot;File Suggestion&quot;, 1);</span>
+
+<span class="nc bnc" id="L204" title="All 2 branches missed.">            if (result == 0) {</span>
+<span class="nc" id="L205">              unit_zoom_percent = scale;</span>
+<span class="nc" id="L206">              PLACEWIDTH = (int) (unit_zoom_percent * width);</span>
+<span class="nc" id="L207">              PLACEHEIGHT = (int) (unit_zoom_percent * height);</span>
+<span class="nc" id="L208">              placeDimensionsSet = true;</span>
+            }
+          }
+        }
+<span class="nc" id="L212">      } catch (final Exception ex) {</span>
+      }
+    }
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (!placeDimensionsSet || JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L216">        &quot;Placement Box Size already set (&quot; + PLACEWIDTH + &quot;x&quot; + PLACEHEIGHT + &quot;), &quot;</span>
+<span class="nc" id="L217">            + &quot;do you wish to continue with this?\r\nSelect Yes to continue, Select No to override and change the size.&quot;,</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        &quot;Placement Box Size&quot;, JOptionPane.YES_NO_OPTION) == 1) {</span>
+      try {
+<span class="nc" id="L220">        final String result = getUnitsScale();</span>
+        try {
+<span class="nc" id="L222">          unit_zoom_percent = Double.parseDouble(result.toLowerCase());</span>
+<span class="nc" id="L223">        } catch (final NumberFormatException ex) {</span>
+        }
+<span class="nc" id="L225">        final String width = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L226">            &quot;Enter the unit's image width in pixels (unscaled / without zoom).\r\n(e.g. 48)&quot;);</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        if (width != null) {</span>
+          try {
+<span class="nc" id="L229">            PLACEWIDTH = (int) (unit_zoom_percent * Integer.parseInt(width));</span>
+<span class="nc" id="L230">          } catch (final NumberFormatException ex) {</span>
+          }
+        }
+<span class="nc" id="L233">        final String height = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L234">            &quot;Enter the unit's image height in pixels (unscaled / without zoom).\r\n(e.g. 48)&quot;);</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">        if (height != null) {</span>
+          try {
+<span class="nc" id="L237">            PLACEHEIGHT = (int) (unit_zoom_percent * Integer.parseInt(height));</span>
+<span class="nc" id="L238">          } catch (final NumberFormatException ex) {</span>
+          }
+        }
+<span class="nc" id="L241">        placeDimensionsSet = true;</span>
+<span class="nc" id="L242">      } catch (final Exception ex) {</span>
+      }
+    }
+<span class="nc" id="L245">    File file = null;</span>
+<span class="nc bnc" id="L246" title="All 4 branches missed.">    if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+<span class="nc" id="L247">      file = new File(s_mapFolderLocation, &quot;polygons.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L249" title="All 4 branches missed.">    if (file == null || !file.exists()) {</span>
+<span class="nc" id="L250">      file = new File(new File(mapName).getParent() + File.separator + &quot;polygons.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L252" title="All 4 branches missed.">    if (file.exists() &amp;&amp; JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L253">        &quot;A polygons.txt file was found in the map's folder, do you want to use the file to supply the territories?&quot;,</span>
+<span class="nc" id="L254">        &quot;File Suggestion&quot;, 1) == 0) {</span>
+      try {
+<span class="nc" id="L256">        System.out.println(&quot;Polygons : &quot; + file.getPath());</span>
+<span class="nc" id="L257">        m_polygons = PointFileReaderWriter.readOneToManyPolygons(new FileInputStream(file.getPath()));</span>
+<span class="nc" id="L258">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L259">        ex1.printStackTrace();</span>
+      }
+<span class="nc" id="L261">    } else {</span>
+      try {
+<span class="nc" id="L263">        System.out.println(&quot;Select the Polygons file&quot;);</span>
+<span class="nc" id="L264">        final String polyPath = new FileOpen(&quot;Select A Polygon File&quot;, s_mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        if (polyPath != null) {</span>
+<span class="nc" id="L266">          System.out.println(&quot;Polygons : &quot; + polyPath);</span>
+<span class="nc" id="L267">          m_polygons = PointFileReaderWriter.readOneToManyPolygons(new FileInputStream(polyPath));</span>
+<span class="nc" id="L268">        } else {</span>
+<span class="nc" id="L269">          System.out.println(&quot;Polygons file not given. Will run regardless&quot;);</span>
+        }
+<span class="nc" id="L271">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L272">        ex1.printStackTrace();</span>
+      }
+    }
+<span class="nc" id="L275">    createImage(mapName);</span>
+<span class="nc" id="L276">    final JPanel imagePanel = createMainPanel();</span>
+    /*
+     * Add a mouse listener to show
+     * X : Y coordinates on the lower
+     * left corner of the screen.
+     */
+<span class="nc" id="L282">    imagePanel.addMouseMotionListener(new MouseMotionAdapter() {</span>
+      @Override
+      public void mouseMoved(final MouseEvent e) {
+<span class="nc" id="L285">        m_location.setText(&quot;x:&quot; + e.getX() + &quot; y:&quot; + e.getY());</span>
+<span class="nc" id="L286">        m_currentSquare = new Point(e.getPoint());</span>
+<span class="nc" id="L287">        repaint();</span>
+<span class="nc" id="L288">      }</span>
+    });
+    /*
+     * Add a mouse listener to monitor
+     * for right mouse button being
+     * clicked.
+     */
+<span class="nc" id="L295">    imagePanel.addMouseListener(new MouseAdapter() {</span>
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc bnc" id="L298" title="All 4 branches missed.">        mouseEvent(e.getPoint(), e.isControlDown() || e.isShiftDown(), SwingUtilities.isRightMouseButton(e));</span>
+<span class="nc" id="L299">      }</span>
+    });
+    // set up the image panel size dimensions ...etc
+<span class="nc" id="L302">    imagePanel.setMinimumSize(new Dimension(m_image.getWidth(this), m_image.getHeight(this)));</span>
+<span class="nc" id="L303">    imagePanel.setPreferredSize(new Dimension(m_image.getWidth(this), m_image.getHeight(this)));</span>
+<span class="nc" id="L304">    imagePanel.setMaximumSize(new Dimension(m_image.getWidth(this), m_image.getHeight(this)));</span>
+    // set up the layout manager
+<span class="nc" id="L306">    this.getContentPane().setLayout(new BorderLayout());</span>
+<span class="nc" id="L307">    this.getContentPane().add(new JScrollPane(imagePanel), BorderLayout.CENTER);</span>
+<span class="nc" id="L308">    this.getContentPane().add(m_location, BorderLayout.SOUTH);</span>
+    // set up the actions
+<span class="nc" id="L310">    final Action openAction = SwingAction.of(&quot;Load Placements&quot;, e -&gt; loadPlacements());</span>
+<span class="nc" id="L311">    openAction.putValue(Action.SHORT_DESCRIPTION, &quot;Load An Existing Placement File&quot;);</span>
+<span class="nc" id="L312">    final Action saveAction = SwingAction.of(&quot;Save Placements&quot;, e -&gt; savePlacements());</span>
+<span class="nc" id="L313">    saveAction.putValue(Action.SHORT_DESCRIPTION, &quot;Save The Placements To File&quot;);</span>
+<span class="nc" id="L314">    final Action exitAction = SwingAction.of(&quot;Exit&quot;, e -&gt; System.exit(0));</span>
+<span class="nc" id="L315">    exitAction.putValue(Action.SHORT_DESCRIPTION, &quot;Exit The Program&quot;);</span>
+    // set up the menu items
+<span class="nc" id="L317">    final JMenuItem openItem = new JMenuItem(openAction);</span>
+<span class="nc" id="L318">    openItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_MASK));</span>
+<span class="nc" id="L319">    final JMenuItem saveItem = new JMenuItem(saveAction);</span>
+<span class="nc" id="L320">    saveItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK));</span>
+<span class="nc" id="L321">    final JMenuItem exitItem = new JMenuItem(exitAction);</span>
+    // set up the menu bar
+<span class="nc" id="L323">    final JMenuBar menuBar = new JMenuBar();</span>
+<span class="nc" id="L324">    setJMenuBar(menuBar);</span>
+<span class="nc" id="L325">    final JMenu fileMenu = new JMenu(&quot;File&quot;);</span>
+<span class="nc" id="L326">    fileMenu.setMnemonic('F');</span>
+<span class="nc" id="L327">    fileMenu.add(openItem);</span>
+<span class="nc" id="L328">    fileMenu.add(saveItem);</span>
+<span class="nc" id="L329">    fileMenu.addSeparator();</span>
+<span class="nc" id="L330">    fileMenu.add(exitItem);</span>
+<span class="nc" id="L331">    s_showAllMode = false;</span>
+<span class="nc" id="L332">    s_showOverflowMode = false;</span>
+<span class="nc" id="L333">    s_showIncompleteMode = false;</span>
+<span class="nc" id="L334">    s_incompleteNum = 1;</span>
+<span class="nc" id="L335">    showAllModeItem = new JCheckBoxMenuItem(&quot;Show All Placements Mode&quot;, false);</span>
+<span class="nc" id="L336">    showAllModeItem.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L339">        s_showAllMode = showAllModeItem.getState();</span>
+<span class="nc" id="L340">        repaint();</span>
+<span class="nc" id="L341">      }</span>
+    });
+<span class="nc" id="L343">    showOverflowModeItem = new JCheckBoxMenuItem(&quot;Show Overflow Mode&quot;, false);</span>
+<span class="nc" id="L344">    showOverflowModeItem.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L347">        s_showOverflowMode = showOverflowModeItem.getState();</span>
+<span class="nc" id="L348">        repaint();</span>
+<span class="nc" id="L349">      }</span>
+    });
+<span class="nc" id="L351">    showIncompleteModeItem = new JCheckBoxMenuItem(&quot;Show Incomplete Placements Mode&quot;, false);</span>
+<span class="nc" id="L352">    showIncompleteModeItem.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc bnc" id="L355" title="All 2 branches missed.">        if (showIncompleteModeItem.getState()) {</span>
+<span class="nc" id="L356">          final String num = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L357">              &quot;Enter the minimum number of placements each territory must have.\r\n(examples: 1, 4, etc.)&quot;);</span>
+          try {
+<span class="nc" id="L359">            s_incompleteNum = Math.max(1, Math.min(50, Integer.parseInt(num)));</span>
+<span class="nc" id="L360">          } catch (final Exception ex) {</span>
+<span class="nc" id="L361">            s_incompleteNum = 1;</span>
+          }
+        }
+<span class="nc" id="L364">        s_showIncompleteMode = showIncompleteModeItem.getState();</span>
+<span class="nc" id="L365">        repaint();</span>
+<span class="nc" id="L366">      }</span>
+    });
+<span class="nc" id="L368">    final JMenu editMenu = new JMenu(&quot;Edit&quot;);</span>
+<span class="nc" id="L369">    editMenu.setMnemonic('E');</span>
+<span class="nc" id="L370">    editMenu.add(showAllModeItem);</span>
+<span class="nc" id="L371">    editMenu.add(showOverflowModeItem);</span>
+<span class="nc" id="L372">    editMenu.add(showIncompleteModeItem);</span>
+<span class="nc" id="L373">    menuBar.add(fileMenu);</span>
+<span class="nc" id="L374">    menuBar.add(editMenu);</span>
+<span class="nc" id="L375">  }// end</span>
+   // constructor
+
+  /**
+   * createImage(java.lang.String)
+   * creates the image map and makes sure
+   * it is properly loaded.
+   *
+   * @param mapName
+   *        .lang.String mapName the path of image map
+   */
+  private void createImage(final String mapName) {
+<span class="nc" id="L387">    m_image = Toolkit.getDefaultToolkit().createImage(mapName);</span>
+<span class="nc" id="L388">    Util.ensureImageLoaded(m_image);</span>
+<span class="nc" id="L389">  }</span>
+
+  /**
+   * javax.swing.JPanel createMainPanel()
+   * Creates the main panel and returns
+   * a JPanel object.
+   *
+   * @return javax.swing.JPanel the panel to return
+   */
+  private JPanel createMainPanel() {
+<span class="nc" id="L399">    final JPanel imagePanel = new JPanel() {</span>
+      private static final long serialVersionUID = -3941975573431195136L;
+
+      @Override
+      public void paint(final Graphics g) {
+        // super.paint(g);
+<span class="nc" id="L405">        g.drawImage(m_image, 0, 0, this);</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">        if (s_showAllMode) {</span>
+<span class="nc" id="L407">          g.setColor(Color.yellow);</span>
+<span class="nc bnc" id="L408" title="All 2 branches missed.">          for (final Entry&lt;String, List&lt;Point&gt;&gt; entry : m_placements.entrySet()) {</span>
+<span class="nc bnc" id="L409" title="All 4 branches missed.">            if (entry.getKey().equals(m_currentCountry) &amp;&amp; m_currentPlacements != null</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">                &amp;&amp; !m_currentPlacements.isEmpty()) {</span>
+<span class="nc" id="L411">              continue;</span>
+            }
+<span class="nc" id="L413">            final Iterator&lt;Point&gt; pointIter = entry.getValue().iterator();</span>
+<span class="nc bnc" id="L414" title="All 2 branches missed.">            while (pointIter.hasNext()) {</span>
+<span class="nc" id="L415">              final Point item = pointIter.next();</span>
+<span class="nc" id="L416">              g.fillRect(item.x, item.y, PLACEWIDTH, PLACEHEIGHT);</span>
+<span class="nc bnc" id="L417" title="All 4 branches missed.">              if (s_showOverflowMode &amp;&amp; !pointIter.hasNext()) {</span>
+<span class="nc" id="L418">                g.setColor(Color.gray);</span>
+<span class="nc" id="L419">                g.fillRect(item.x + PLACEWIDTH, item.y + PLACEHEIGHT / 2, PLACEWIDTH, 4);</span>
+<span class="nc" id="L420">                g.setColor(Color.yellow);</span>
+              }
+            }
+          }
+        }
+<span class="nc bnc" id="L425" title="All 2 branches missed.">        if (s_showIncompleteMode) {</span>
+<span class="nc" id="L426">          g.setColor(Color.green);</span>
+<span class="nc" id="L427">          final Set&lt;String&gt; territories = new HashSet&lt;&gt;(m_polygons.keySet());</span>
+<span class="nc" id="L428">          final Iterator&lt;String&gt; terrIter = territories.iterator();</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">          while (terrIter.hasNext()) {</span>
+<span class="nc" id="L430">            final String terr = terrIter.next();</span>
+<span class="nc" id="L431">            final List&lt;Point&gt; points = m_placements.get(terr);</span>
+<span class="nc bnc" id="L432" title="All 4 branches missed.">            if (points != null &amp;&amp; points.size() &gt;= s_incompleteNum) {</span>
+<span class="nc" id="L433">              terrIter.remove();</span>
+            }
+          }
+<span class="nc bnc" id="L436" title="All 2 branches missed.">          for (final String terr : territories) {</span>
+<span class="nc" id="L437">            final List&lt;Polygon&gt; polys = m_polygons.get(terr);</span>
+<span class="nc bnc" id="L438" title="All 4 branches missed.">            if (polys == null || polys.isEmpty()) {</span>
+<span class="nc" id="L439">              continue;</span>
+            }
+<span class="nc bnc" id="L441" title="All 2 branches missed.">            for (final Polygon poly : polys) {</span>
+<span class="nc" id="L442">              g.fillPolygon(poly);</span>
+            }
+          }
+        }
+<span class="nc" id="L446">        g.setColor(Color.red);</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">        if (m_currentSquare != null) {</span>
+<span class="nc" id="L448">          g.drawRect(m_currentSquare.x, m_currentSquare.y, PLACEWIDTH, PLACEHEIGHT);</span>
+        }
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        if (m_currentPlacements == null) {</span>
+<span class="nc" id="L451">          return;</span>
+        }
+<span class="nc" id="L453">        final Iterator&lt;Point&gt; pointIter = m_currentPlacements.iterator();</span>
+<span class="nc bnc" id="L454" title="All 2 branches missed.">        while (pointIter.hasNext()) {</span>
+<span class="nc" id="L455">          final Point item = pointIter.next();</span>
+<span class="nc" id="L456">          g.fillRect(item.x, item.y, PLACEWIDTH, PLACEHEIGHT);</span>
+<span class="nc bnc" id="L457" title="All 4 branches missed.">          if (s_showOverflowMode &amp;&amp; !pointIter.hasNext()) {</span>
+<span class="nc" id="L458">            g.setColor(Color.gray);</span>
+<span class="nc" id="L459">            g.fillRect(item.x + PLACEWIDTH, item.y + PLACEHEIGHT / 2, PLACEWIDTH, 4);</span>
+<span class="nc" id="L460">            g.setColor(Color.red);</span>
+          }
+        }
+<span class="nc" id="L463">      }// paint</span>
+    };
+<span class="nc" id="L465">    return imagePanel;</span>
+  }
+
+  /**
+   * savePlacements()
+   * Saves the placements to disk.
+   */
+  private void savePlacements() {
+<span class="nc" id="L473">    final String fileName =</span>
+<span class="nc" id="L474">        new FileSave(&quot;Where To Save place.txt ?&quot;, &quot;place.txt&quot;, s_mapFolderLocation).getPathString();</span>
+    try {
+<span class="nc bnc" id="L476" title="All 2 branches missed.">      if (fileName == null) {</span>
+<span class="nc" id="L477">        return;</span>
+      }
+<span class="nc" id="L479">      final FileOutputStream out = new FileOutputStream(fileName);</span>
+<span class="nc" id="L480">      PointFileReaderWriter.writeOneToMany(out, new HashMap&lt;&gt;(m_placements));</span>
+<span class="nc" id="L481">      out.flush();</span>
+<span class="nc" id="L482">      out.close();</span>
+<span class="nc" id="L483">      System.out.println(&quot;Data written to :&quot; + new File(fileName).getCanonicalPath());</span>
+<span class="nc" id="L484">    } catch (final Exception ex) {</span>
+<span class="nc" id="L485">      ClientLogger.logQuietly(&quot;fileName = &quot; + fileName, ex);</span>
+    }
+<span class="nc" id="L487">  }</span>
+
+  /**
+   * loadPlacements()
+   * Loads a pre-defined file with map placement points.
+   */
+  private void loadPlacements() {
+<span class="nc" id="L494">    System.out.println(&quot;Load a placement file&quot;);</span>
+<span class="nc" id="L495">    final String placeName = new FileOpen(&quot;Load A Placement File&quot;, s_mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+    try {
+<span class="nc bnc" id="L497" title="All 2 branches missed.">      if (placeName == null) {</span>
+<span class="nc" id="L498">        return;</span>
+      }
+<span class="nc" id="L500">      final FileInputStream in = new FileInputStream(placeName);</span>
+<span class="nc" id="L501">      m_placements = PointFileReaderWriter.readOneToMany(in);</span>
+<span class="nc" id="L502">      repaint();</span>
+<span class="nc" id="L503">    } catch (final HeadlessException | IOException ex) {</span>
+<span class="nc" id="L504">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L506">  }</span>
+
+  /**
+   * mouseEvent(java.awt.Point, java.lang.boolean, java.lang.boolean)
+   * Usage:
+   * left button start in territory
+   * left button + control, add point
+   * right button and ctrl write
+   * right button remove last
+   *
+   * @param java
+   *        .awt.Point point a point clicked by mouse
+   * @param java
+   *        .lang.boolean ctrlDown true if ctrl key was hit
+   * @param java
+   *        .lang.boolean rightMouse true if the right mouse button was hit
+   */
+  private void mouseEvent(final Point point, final boolean ctrlDown, final boolean rightMouse) {
+<span class="nc bnc" id="L524" title="All 4 branches missed.">    if (!rightMouse &amp;&amp; !ctrlDown) {</span>
+<span class="nc" id="L525">      m_currentCountry = Util.findTerritoryName(point, m_polygons, &quot;there be dragons&quot;);</span>
+      // If there isn't an existing array, create one
+<span class="nc bnc" id="L527" title="All 4 branches missed.">      if (m_placements == null || m_placements.get(m_currentCountry) == null) {</span>
+<span class="nc" id="L528">        m_currentPlacements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L529">      } else {</span>
+<span class="nc" id="L530">        m_currentPlacements = new ArrayList&lt;&gt;(m_placements.get(m_currentCountry));</span>
+      }
+<span class="nc" id="L532">      JOptionPane.showMessageDialog(this, m_currentCountry);</span>
+<span class="nc bnc" id="L533" title="All 4 branches missed.">    } else if (!rightMouse &amp;&amp; ctrlDown) {</span>
+<span class="nc bnc" id="L534" title="All 2 branches missed.">      if (m_currentPlacements != null) {</span>
+<span class="nc" id="L535">        m_currentPlacements.add(point);</span>
+      }
+<span class="nc bnc" id="L537" title="All 4 branches missed.">    } else if (rightMouse &amp;&amp; ctrlDown) {</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">      if (m_currentPlacements != null) {</span>
+        // If there isn't an existing hashmap, create one
+<span class="nc bnc" id="L540" title="All 2 branches missed.">        if (m_placements == null) {</span>
+<span class="nc" id="L541">          m_placements = new HashMap&lt;&gt;();</span>
+        }
+<span class="nc" id="L543">        m_placements.put(m_currentCountry, m_currentPlacements);</span>
+<span class="nc" id="L544">        m_currentPlacements = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L545">        System.out.println(&quot;done:&quot; + m_currentCountry);</span>
+      }
+<span class="nc bnc" id="L547" title="All 2 branches missed.">    } else if (rightMouse) {</span>
+<span class="nc bnc" id="L548" title="All 4 branches missed.">      if (m_currentPlacements != null &amp;&amp; !m_currentPlacements.isEmpty()) {</span>
+<span class="nc" id="L549">        m_currentPlacements.remove(m_currentPlacements.size() - 1);</span>
+      }
+    }
+<span class="nc" id="L552">    repaint();</span>
+<span class="nc" id="L553">  }</span>
+
+  private static String getUnitsScale() {
+<span class="nc" id="L556">    final String unitsScale = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L557">        &quot;Enter the unit's scale (zoom).\r\n(e.g. 1.25, 1, 0.875, 0.8333, 0.75, 0.6666, 0.5625, 0.5)&quot;);</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">    if (unitsScale != null) {</span>
+<span class="nc" id="L559">      return unitsScale;</span>
+    } else {
+<span class="nc" id="L561">      return &quot;1&quot;;</span>
+    }
+  }
+
+  private static String getValue(final String arg) {
+<span class="nc" id="L566">    final int index = arg.indexOf('=');</span>
+<span class="nc bnc" id="L567" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L568">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L570">    return arg.substring(index + 1);</span>
+  }
+
+  private static void handleCommandLineArgs(final String[] args) {
+<span class="nc" id="L574">    final String[] properties = getProperties();</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">    if (args.length == 1) {</span>
+      String value;
+<span class="nc bnc" id="L577" title="All 2 branches missed.">      if (args[0].startsWith(TRIPLEA_UNIT_ZOOM)) {</span>
+<span class="nc" id="L578">        value = getValue(args[0]);</span>
+<span class="nc" id="L579">      } else {</span>
+<span class="nc" id="L580">        value = args[0];</span>
+      }
+      try {
+<span class="nc" id="L583">        Double.parseDouble(value);</span>
+<span class="nc" id="L584">        System.setProperty(TRIPLEA_UNIT_ZOOM, value);</span>
+<span class="nc" id="L585">      } catch (final Exception ex) {</span>
+      }
+<span class="nc bnc" id="L587" title="All 2 branches missed.">    } else if (args.length == 2) {</span>
+      String value0;
+<span class="nc bnc" id="L589" title="All 2 branches missed.">      if (args[0].startsWith(TRIPLEA_UNIT_WIDTH)) {</span>
+<span class="nc" id="L590">        value0 = getValue(args[0]);</span>
+<span class="nc" id="L591">      } else {</span>
+<span class="nc" id="L592">        value0 = args[0];</span>
+      }
+      try {
+<span class="nc" id="L595">        Integer.parseInt(value0);</span>
+<span class="nc" id="L596">        System.setProperty(TRIPLEA_UNIT_WIDTH, value0);</span>
+<span class="nc" id="L597">      } catch (final Exception ex) {</span>
+      }
+      String value1;
+<span class="nc bnc" id="L600" title="All 2 branches missed.">      if (args[0].startsWith(TRIPLEA_UNIT_HEIGHT)) {</span>
+<span class="nc" id="L601">        value1 = getValue(args[1]);</span>
+<span class="nc" id="L602">      } else {</span>
+<span class="nc" id="L603">        value1 = args[1];</span>
+      }
+      try {
+<span class="nc" id="L606">        Integer.parseInt(value1);</span>
+<span class="nc" id="L607">        System.setProperty(TRIPLEA_UNIT_HEIGHT, value1);</span>
+<span class="nc" id="L608">      } catch (final Exception ex) {</span>
+      }
+    }
+<span class="nc" id="L611">    boolean usagePrinted = false;</span>
+<span class="nc bnc" id="L612" title="All 2 branches missed.">    for (final String arg2 : args) {</span>
+<span class="nc" id="L613">      boolean found = false;</span>
+<span class="nc" id="L614">      String arg = arg2;</span>
+<span class="nc" id="L615">      final int indexOf = arg.indexOf('=');</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">      if (indexOf &gt; 0) {</span>
+<span class="nc" id="L617">        arg = arg.substring(0, indexOf);</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">        for (final String propertie : properties) {</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">          if (arg.equals(propertie)) {</span>
+<span class="nc" id="L620">            final String value = getValue(arg2);</span>
+<span class="nc" id="L621">            System.getProperties().setProperty(propertie, value);</span>
+<span class="nc" id="L622">            System.out.println(propertie + &quot;:&quot; + value);</span>
+<span class="nc" id="L623">            found = true;</span>
+<span class="nc" id="L624">            break;</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L628" title="All 2 branches missed.">      if (!found) {</span>
+<span class="nc" id="L629">        System.out.println(&quot;Unrecogized:&quot; + arg2);</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">        if (!usagePrinted) {</span>
+<span class="nc" id="L631">          usagePrinted = true;</span>
+<span class="nc" id="L632">          System.out.println(&quot;Arguments\r\n&quot; + &quot;   &quot; + TRIPLEA_MAP_FOLDER + &quot;=&lt;FILE_PATH&gt;\r\n&quot; + &quot;   &quot;</span>
+              + TRIPLEA_UNIT_ZOOM + &quot;=&lt;UNIT_ZOOM_LEVEL&gt;\r\n&quot; + &quot;   &quot; + TRIPLEA_UNIT_WIDTH + &quot;=&lt;UNIT_WIDTH&gt;\r\n&quot; + &quot;   &quot;
+              + TRIPLEA_UNIT_HEIGHT + &quot;=&lt;UNIT_HEIGHT&gt;\r\n&quot;);
+        }
+      }
+    }
+<span class="nc" id="L638">    final String folderString = System.getProperty(TRIPLEA_MAP_FOLDER);</span>
+<span class="nc bnc" id="L639" title="All 4 branches missed.">    if (folderString != null &amp;&amp; folderString.length() &gt; 0) {</span>
+<span class="nc" id="L640">      final File mapFolder = new File(folderString);</span>
+<span class="nc bnc" id="L641" title="All 2 branches missed.">      if (mapFolder.exists()) {</span>
+<span class="nc" id="L642">        s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L643">      } else {</span>
+<span class="nc" id="L644">        System.out.println(&quot;Could not find directory: &quot; + folderString);</span>
+      }
+    }
+<span class="nc" id="L647">    final String zoomString = System.getProperty(TRIPLEA_UNIT_ZOOM);</span>
+<span class="nc bnc" id="L648" title="All 4 branches missed.">    if (zoomString != null &amp;&amp; zoomString.length() &gt; 0) {</span>
+      try {
+<span class="nc" id="L650">        unit_zoom_percent = Double.parseDouble(zoomString);</span>
+<span class="nc" id="L651">        System.out.println(&quot;Unit Zoom Percent to use: &quot; + unit_zoom_percent);</span>
+<span class="nc" id="L652">        placeDimensionsSet = true;</span>
+<span class="nc" id="L653">      } catch (final Exception ex) {</span>
+<span class="nc" id="L654">        System.err.println(&quot;Not a decimal percentage: &quot; + zoomString);</span>
+      }
+    }
+<span class="nc" id="L657">    final String widthString = System.getProperty(TRIPLEA_UNIT_WIDTH);</span>
+<span class="nc bnc" id="L658" title="All 4 branches missed.">    if (widthString != null &amp;&amp; widthString.length() &gt; 0) {</span>
+      try {
+<span class="nc" id="L660">        unit_width = Integer.parseInt(widthString);</span>
+<span class="nc" id="L661">        System.out.println(&quot;Unit Width to use: &quot; + unit_width);</span>
+<span class="nc" id="L662">        placeDimensionsSet = true;</span>
+<span class="nc" id="L663">      } catch (final Exception ex) {</span>
+<span class="nc" id="L664">        System.err.println(&quot;Not an integer: &quot; + widthString);</span>
+      }
+    }
+<span class="nc" id="L667">    final String heightString = System.getProperty(TRIPLEA_UNIT_HEIGHT);</span>
+<span class="nc bnc" id="L668" title="All 4 branches missed.">    if (heightString != null &amp;&amp; heightString.length() &gt; 0) {</span>
+      try {
+<span class="nc" id="L670">        unit_height = Integer.parseInt(heightString);</span>
+<span class="nc" id="L671">        System.out.println(&quot;Unit Height to use: &quot; + unit_height);</span>
+<span class="nc" id="L672">        placeDimensionsSet = true;</span>
+<span class="nc" id="L673">      } catch (final Exception ex) {</span>
+<span class="nc" id="L674">        System.err.println(&quot;Not an integer: &quot; + heightString);</span>
+      }
+    }
+<span class="nc bnc" id="L677" title="All 2 branches missed.">    if (placeDimensionsSet) {</span>
+<span class="nc" id="L678">      PLACEWIDTH = (int) (unit_zoom_percent * unit_width);</span>
+<span class="nc" id="L679">      PLACEHEIGHT = (int) (unit_zoom_percent * unit_height);</span>
+<span class="nc" id="L680">      System.out.println(&quot;Place Dimensions to use: &quot; + PLACEWIDTH + &quot;x&quot; + PLACEHEIGHT);</span>
+    }
+<span class="nc" id="L682">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

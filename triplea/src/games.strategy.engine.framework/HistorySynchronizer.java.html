@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>HistorySynchronizer.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework</a> &gt; <span class="el_source">HistorySynchronizer.java</span></div><h1>HistorySynchronizer.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework;</span>
+
+import javax.swing.SwingUtilities;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.history.EventChild;
+
+/**
+ * Synchronizes a GameData by listening on the history channel for messages.
+ * All modifications to the History are done in the SwingEventThread, so
+ * this class can be used to display a history tree to the user.
+ */
+public class HistorySynchronizer {
+  // Note the GameData here and the game are not the same
+  // we are keeping m_data in synch with the history of the game by listening
+  // for changes
+  // we do this because our data can change depending where in the history we
+  // are
+  // we want to be able to do this without changing the data for the game
+  private final GameData m_data;
+  private int m_currentRound;
+  private final IGame m_game;
+
+<span class="nc" id="L26">  public HistorySynchronizer(final GameData data, final IGame game) {</span>
+    // this is not the way to use this.
+<span class="nc bnc" id="L28" title="All 2 branches missed.">    if (game.getData() == data) {</span>
+<span class="nc" id="L29">      throw new IllegalStateException(</span>
+<span class="nc" id="L30">          &quot;You dont need a history synchronizer to synchronize game data that is managed by an IGame&quot;);</span>
+    }
+<span class="nc" id="L32">    m_data = data;</span>
+<span class="nc" id="L33">    m_data.forceChangesOnlyInSwingEventThread();</span>
+<span class="nc" id="L34">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L36">      m_currentRound = data.getSequence().getRound();</span>
+<span class="nc" id="L37">    } finally {</span>
+<span class="nc" id="L38">      data.releaseReadLock();</span>
+<span class="nc" id="L39">    }</span>
+<span class="nc" id="L40">    m_game = game;</span>
+<span class="nc" id="L41">    m_game.getChannelMessenger().registerChannelSubscriber(m_gameModifiedChannelListener,</span>
+<span class="nc" id="L42">        IGame.GAME_MODIFICATION_CHANNEL);</span>
+<span class="nc" id="L43">  }</span>
+
+<span class="nc" id="L45">  private final IGameModifiedChannel m_gameModifiedChannelListener = new IGameModifiedChannel() {</span>
+    @Override
+    public void gameDataChanged(final Change aChange) {
+<span class="nc" id="L48">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L49">        final Change localizedChange = (Change) translateIntoMyData(aChange);</span>
+<span class="nc" id="L50">        m_data.getHistory().getHistoryWriter().addChange(localizedChange);</span>
+<span class="nc" id="L51">      });</span>
+<span class="nc" id="L52">    }</span>
+
+    @Override
+    public void startHistoryEvent(final String event, final Object renderingData) {
+<span class="nc" id="L56">      startHistoryEvent(event);</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">      if (renderingData != null) {</span>
+<span class="nc" id="L58">        setRenderingData(renderingData);</span>
+      }
+<span class="nc" id="L60">    }</span>
+
+    @Override
+    public void startHistoryEvent(final String event) {
+<span class="nc" id="L64">      SwingUtilities.invokeLater(() -&gt; m_data.getHistory().getHistoryWriter().startEvent(event));</span>
+<span class="nc" id="L65">    }</span>
+
+    @Override
+    public void addChildToEvent(final String text, final Object renderingData) {
+<span class="nc" id="L69">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L70">        final Object translatedRenderingData = translateIntoMyData(renderingData);</span>
+<span class="nc" id="L71">        m_data.getHistory().getHistoryWriter().addChildToEvent(new EventChild(text, translatedRenderingData));</span>
+<span class="nc" id="L72">      });</span>
+<span class="nc" id="L73">    }</span>
+
+    protected void setRenderingData(final Object renderingData) {
+<span class="nc" id="L76">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L77">        final Object translatedRenderingData = translateIntoMyData(renderingData);</span>
+<span class="nc" id="L78">        m_data.getHistory().getHistoryWriter().setRenderingData(translatedRenderingData);</span>
+<span class="nc" id="L79">      });</span>
+<span class="nc" id="L80">    }</span>
+
+    @Override
+    public void stepChanged(final String stepName, final String delegateName, final PlayerID player, final int round,
+        final String displayName, final boolean loadedFromSavedGame) {
+      // we dont need to advance the game step in this case
+<span class="nc bnc" id="L86" title="All 2 branches missed.">      if (loadedFromSavedGame) {</span>
+<span class="nc" id="L87">        return;</span>
+      }
+<span class="nc" id="L89">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (m_currentRound != round) {</span>
+<span class="nc" id="L91">          m_currentRound = round;</span>
+<span class="nc" id="L92">          m_data.getHistory().getHistoryWriter().startNextRound(m_currentRound);</span>
+        }
+<span class="nc" id="L94">        m_data.getHistory().getHistoryWriter().startNextStep(stepName, delegateName, player, displayName);</span>
+<span class="nc" id="L95">      });</span>
+<span class="nc" id="L96">    }</span>
+
+    @Override
+<span class="nc" id="L99">    public void shutDown() {}</span>
+  };
+
+  public void deactivate() {
+<span class="nc" id="L103">    m_game.getChannelMessenger().unregisterChannelSubscriber(m_gameModifiedChannelListener,</span>
+<span class="nc" id="L104">        IGame.GAME_MODIFICATION_CHANNEL);</span>
+<span class="nc" id="L105">  }</span>
+
+  /**
+   * Serializes the object and then deserializes it, resolving object
+   * references into m_data. Note the the history we are synching may refer to
+   * a different game data than the GaneData held by the IGame. A clone is
+   * made so that we can walk up and down the history without changing the
+   * game.
+   */
+  private Object translateIntoMyData(final Object msg) {
+<span class="nc" id="L115">    return GameDataUtils.translateIntoOtherGameData(msg, m_data);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

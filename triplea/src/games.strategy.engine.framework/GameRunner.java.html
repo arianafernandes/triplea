@@ -1,0 +1,779 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>GameRunner.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework</a> &gt; <span class="el_source">GameRunner.java</span></div><h1>GameRunner.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework;</span>
+
+import java.awt.AWTEvent;
+import java.awt.Container;
+import java.awt.EventQueue;
+import java.awt.Image;
+import java.awt.MediaTracker;
+import java.awt.Toolkit;
+import java.awt.Window;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Properties;
+import java.util.Map.Entry;
+import java.util.logging.Level;
+import java.util.logging.LogManager;
+import java.util.logging.Logger;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
+
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.debug.ErrorConsole;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.framework.lookandfeel.LookAndFeel;
+import games.strategy.engine.framework.map.download.MapDownloadController;
+import games.strategy.engine.framework.startup.ui.MainFrame;
+import games.strategy.engine.framework.system.HttpProxy;
+import games.strategy.engine.framework.system.Memory;
+import games.strategy.engine.lobby.server.GameDescription;
+import games.strategy.engine.lobby.server.LobbyServer;
+import games.strategy.net.Messengers;
+import games.strategy.triplea.settings.SystemPreferenceKey;
+import games.strategy.triplea.settings.SystemPreferences;
+import games.strategy.triplea.util.LoggingPrintStream;
+import games.strategy.util.CountDownLatchHandler;
+import games.strategy.util.EventThreadJOptionPane;
+import games.strategy.util.Util;
+import games.strategy.util.Version;
+
+/**
+ * GameRunner - The entrance class with the main method.
+ * In this class commonly used constants are getting defined and the Game is being launched
+ */
+<span class="nc" id="L53">public class GameRunner {</span>
+
+<span class="nc" id="L55">  public enum GameMode { SWING_CLIENT, HEADLESS_BOT }</span>
+
+  public static final String TRIPLEA_HEADLESS = &quot;triplea.headless&quot;;
+  public static final String TRIPLEA_GAME_HOST_CONSOLE_PROPERTY = &quot;triplea.game.host.console&quot;;
+  public static final int LOBBY_RECONNECTION_REFRESH_SECONDS_MINIMUM = 21600;
+  public static final int LOBBY_RECONNECTION_REFRESH_SECONDS_DEFAULT = 2 * LOBBY_RECONNECTION_REFRESH_SECONDS_MINIMUM;
+  public static final String NO_REMOTE_REQUESTS_ALLOWED = &quot;noRemoteRequestsAllowed&quot;;
+
+  // not arguments:
+  public static final int PORT = 3300;
+  private static final String DELAYED_PARSING = &quot;DelayedParsing&quot;;
+  private static final String CASUALTY_SELECTION_SLOW = &quot;CasualtySelectionSlow&quot;;
+  // do not include this in the getProperties list. they are only for loading an old savegame.
+  public static final String OLD_EXTENSION = &quot;.old&quot;;
+  // argument options below:
+  public static final String TRIPLEA_GAME_PROPERTY = &quot;triplea.game&quot;;
+  public static final String TRIPLEA_SERVER_PROPERTY = &quot;triplea.server&quot;;
+  public static final String TRIPLEA_CLIENT_PROPERTY = &quot;triplea.client&quot;;
+  public static final String TRIPLEA_HOST_PROPERTY = &quot;triplea.host&quot;;
+  public static final String TRIPLEA_PORT_PROPERTY = &quot;triplea.port&quot;;
+  public static final String TRIPLEA_NAME_PROPERTY = &quot;triplea.name&quot;;
+  public static final String TRIPLEA_SERVER_PASSWORD_PROPERTY = &quot;triplea.server.password&quot;;
+  public static final String TRIPLEA_STARTED = &quot;triplea.started&quot;;
+  public static final String LOBBY_HOST = &quot;triplea.lobby.host&quot;;
+  public static final String LOBBY_GAME_COMMENTS = &quot;triplea.lobby.game.comments&quot;;
+  public static final String LOBBY_GAME_HOSTED_BY = &quot;triplea.lobby.game.hostedBy&quot;;
+  public static final String LOBBY_GAME_SUPPORT_EMAIL = &quot;triplea.lobby.game.supportEmail&quot;;
+  public static final String LOBBY_GAME_SUPPORT_PASSWORD = &quot;triplea.lobby.game.supportPassword&quot;;
+  public static final String LOBBY_GAME_RECONNECTION = &quot;triplea.lobby.game.reconnection&quot;;
+  public static final String TRIPLEA_ENGINE_VERSION_BIN = &quot;triplea.engine.version.bin&quot;;
+  private static final String TRIPLEA_DO_NOT_CHECK_FOR_UPDATES = &quot;triplea.doNotCheckForUpdates&quot;;
+
+  public static final String TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME = &quot;triplea.server.startGameSyncWaitTime&quot;;
+  public static final String TRIPLEA_SERVER_OBSERVER_JOIN_WAIT_TIME = &quot;triplea.server.observerJoinWaitTime&quot;;
+  // non-commandline-argument-properties (for preferences)
+  // first time we've run this version of triplea?
+  private static final String SYSTEM_INI = &quot;system.ini&quot;;
+  public static final int MINIMUM_CLIENT_GAMEDATA_LOAD_GRACE_TIME = 20;
+<span class="fc" id="L93">  private static final int DEFAULT_CLIENT_GAMEDATA_LOAD_GRACE_TIME =</span>
+<span class="fc" id="L94">      Math.max(MINIMUM_CLIENT_GAMEDATA_LOAD_GRACE_TIME, 25);</span>
+  // need time for network transmission of a large game data
+  public static final int MINIMUM_SERVER_OBSERVER_JOIN_WAIT_TIME = MINIMUM_CLIENT_GAMEDATA_LOAD_GRACE_TIME + 10;
+<span class="fc" id="L97">  private static final int DEFAULT_SERVER_OBSERVER_JOIN_WAIT_TIME =</span>
+<span class="fc" id="L98">      Math.max(DEFAULT_CLIENT_GAMEDATA_LOAD_GRACE_TIME + 10, 35);</span>
+  public static final int ADDITIONAL_SERVER_ERROR_DISCONNECTION_WAIT_TIME = 10;
+  public static final int MINIMUM_SERVER_START_GAME_SYNC_WAIT_TIME =
+      MINIMUM_SERVER_OBSERVER_JOIN_WAIT_TIME + ADDITIONAL_SERVER_ERROR_DISCONNECTION_WAIT_TIME + 110;
+<span class="fc" id="L102">  private static final int DEFAULT_SERVER_START_GAME_SYNC_WAIT_TIME =</span>
+<span class="fc" id="L103">      Math.max(Math.max(MINIMUM_SERVER_START_GAME_SYNC_WAIT_TIME, 900),</span>
+<span class="fc" id="L104">          DEFAULT_SERVER_OBSERVER_JOIN_WAIT_TIME + ADDITIONAL_SERVER_ERROR_DISCONNECTION_WAIT_TIME + 110);</span>
+
+  public static final String MAP_FOLDER = &quot;mapFolder&quot;;
+
+<span class="fc" id="L108">  private static String[] COMMAND_LINE_ARGS =</span>
+<span class="fc" id="L109">      {TRIPLEA_GAME_PROPERTY, TRIPLEA_SERVER_PROPERTY, TRIPLEA_CLIENT_PROPERTY, TRIPLEA_HOST_PROPERTY,</span>
+<span class="fc" id="L110">          TRIPLEA_PORT_PROPERTY, TRIPLEA_NAME_PROPERTY, TRIPLEA_SERVER_PASSWORD_PROPERTY, TRIPLEA_STARTED,</span>
+<span class="fc" id="L111">          LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY,</span>
+<span class="fc" id="L112">          LOBBY_HOST, LOBBY_GAME_COMMENTS, LOBBY_GAME_HOSTED_BY, TRIPLEA_ENGINE_VERSION_BIN, HttpProxy.PROXY_HOST,</span>
+<span class="fc" id="L113">          HttpProxy.PROXY_PORT, TRIPLEA_DO_NOT_CHECK_FOR_UPDATES, Memory.TRIPLEA_MEMORY_SET, MAP_FOLDER};</span>
+
+
+  private static void usage(GameMode gameMode) {
+<span class="nc bnc" id="L117" title="All 2 branches missed.">    if(gameMode == GameMode.HEADLESS_BOT) {</span>
+<span class="nc" id="L118">      System.out.println(&quot;\nUsage and Valid Arguments:\n&quot;</span>
+          + &quot;   &quot; + TRIPLEA_GAME_PROPERTY + &quot;=&lt;FILE_NAME&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_GAME_HOST_CONSOLE_PROPERTY + &quot;=&lt;true/false&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_SERVER_PROPERTY + &quot;=true\n&quot;
+          + &quot;   &quot; + TRIPLEA_PORT_PROPERTY + &quot;=&lt;PORT&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_NAME_PROPERTY + &quot;=&lt;PLAYER_NAME&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_HOST + &quot;=&lt;LOBBY_HOST&gt;\n&quot;
+          + &quot;   &quot; + LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY + &quot;=&lt;LOBBY_PORT&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_COMMENTS + &quot;=&lt;LOBBY_GAME_COMMENTS&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_HOSTED_BY + &quot;=&lt;LOBBY_GAME_HOSTED_BY&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_SUPPORT_EMAIL + &quot;=&lt;youremail@emailprovider.com&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_SUPPORT_PASSWORD + &quot;=&lt;password for remote actions, such as remote stop game&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_RECONNECTION + &quot;=&lt;seconds between refreshing lobby connection [min &quot; + LOBBY_RECONNECTION_REFRESH_SECONDS_MINIMUM + &quot;]&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME + &quot;=&lt;seconds to wait for all clients to start the game&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_SERVER_OBSERVER_JOIN_WAIT_TIME + &quot;=&lt;seconds to wait for an observer joining the game&gt;\n&quot;
+          + &quot;   &quot; + MAP_FOLDER + &quot;=mapFolder&quot;
+          + &quot;\n&quot;
+          + &quot;   You must start the Name and HostedBy with \&quot;Bot\&quot;.\n&quot;
+          + &quot;   Game Comments must have this string in it: \&quot;automated_host\&quot;.\n&quot;
+          + &quot;   You must include a support email for your host, so that you can be alerted by lobby admins when your host has an error.&quot;
+          + &quot; (For example they may email you when your host is down and needs to be restarted.)\n&quot;
+          + &quot;   Support password is a remote access password that will allow lobby admins to remotely take the following actions: ban player, stop game, shutdown server.&quot;
+          + &quot; (Please email this password to one of the lobby moderators, or private message an admin on the TripleaWarClub.org website forum.)\n&quot;);
+
+<span class="nc" id="L142">    } else {</span>
+<span class="nc" id="L143">      System.out.println(&quot;Arguments\n&quot;</span>
+          + &quot;   &quot; + TRIPLEA_GAME_PROPERTY + &quot;=&lt;FILE_NAME&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_SERVER_PROPERTY + &quot;=true\n&quot;
+          + &quot;   &quot; + TRIPLEA_CLIENT_PROPERTY + &quot;=true\n&quot;
+          + &quot;   &quot; + TRIPLEA_HOST_PROPERTY + &quot;=&lt;HOST_IP&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_PORT_PROPERTY + &quot;=&lt;PORT&gt;\n&quot;
+          + &quot;   &quot; + TRIPLEA_NAME_PROPERTY + &quot;=&lt;PLAYER_NAME&gt;\n&quot;
+          + &quot;   &quot; + LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY + &quot;=&lt;LOBBY_PORT&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_HOST + &quot;=&lt;LOBBY_HOST&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_COMMENTS + &quot;=&lt;LOBBY_GAME_COMMENTS&gt;\n&quot;
+          + &quot;   &quot; + LOBBY_GAME_HOSTED_BY + &quot;=&lt;LOBBY_GAME_HOSTED_BY&gt;\n&quot;
+          + &quot;   &quot; + HttpProxy.PROXY_HOST + &quot;=&lt;Proxy_Host&gt;\n&quot;
+          + &quot;   &quot; + HttpProxy.PROXY_PORT + &quot;=&lt;Proxy_Port&gt;\n&quot;
+          + &quot;   &quot; + Memory.TRIPLEA_MEMORY_SET + &quot;=true/false &lt;did you set the xmx manually?&gt;\n&quot;
+          + &quot;\n&quot;
+          + &quot;if there is only one argument, and it does not start with triplea.game, the argument will be \n&quot;
+          + &quot;taken as the name of the file to load.\n&quot; + &quot;\n&quot; + &quot;Example\n&quot;
+          + &quot;   to start a game using the given file:\n&quot;
+          + &quot;\n&quot; + &quot;   triplea /home/sgb/games/test.xml\n&quot; + &quot;\n&quot; + &quot;   or\n&quot; + &quot;\n&quot;
+          + &quot;   triplea triplea.game=/home/sgb/games/test.xml\n&quot; + &quot;\n&quot; + &quot;   to connect to a remote host:\n&quot; + &quot;\n&quot;
+          + &quot;   triplea triplea.client=true triplea.host=127.0.0.0 triplea.port=3300 triplea.name=Paul\n&quot; + &quot;\n&quot;
+          + &quot;   to start a server with the given game\n&quot; + &quot;\n&quot;
+          + &quot;   triplea triplea.game=/home/sgb/games/test.xml triplea.server=true triplea.port=3300 triplea.name=Allan&quot;
+          + &quot;\n&quot;
+          + &quot;   to start a server, you can optionally password protect the game using triplea.server.password=foo&quot;);
+    }
+<span class="nc" id="L169">  }</span>
+
+  public static void main(final String[] args) {
+<span class="nc" id="L172">    ErrorConsole.getConsole();</span>
+    // do after we handle command line args
+<span class="nc" id="L174">    Memory.checkForMemoryXMX();</span>
+
+<span class="nc" id="L176">    SwingUtilities.invokeLater(() -&gt; LookAndFeel.setupLookAndFeel());</span>
+<span class="nc" id="L177">    showMainFrame();</span>
+<span class="nc" id="L178">    new Thread(() -&gt; setupLogging(GameMode.SWING_CLIENT)).start();</span>
+<span class="nc" id="L179">    HttpProxy.setupProxies();</span>
+<span class="nc" id="L180">    new Thread(() -&gt; checkForUpdates()).start();</span>
+<span class="nc" id="L181">    handleCommandLineArgs(args, COMMAND_LINE_ARGS, GameMode.SWING_CLIENT);</span>
+<span class="nc" id="L182">  }</span>
+
+  private static void showMainFrame() {
+<span class="nc" id="L185">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L186">      final MainFrame frame = new MainFrame();</span>
+<span class="nc" id="L187">      frame.requestFocus();</span>
+<span class="nc" id="L188">      frame.toFront();</span>
+<span class="nc" id="L189">      frame.setVisible(true);</span>
+<span class="nc" id="L190">    });</span>
+<span class="nc" id="L191">  }</span>
+
+
+  /**
+   * Move command line arguments to System.properties
+   */
+  public static void handleCommandLineArgs(final String[] args, final String[] availableProperties, GameMode gameMode) {
+<span class="nc bnc" id="L198" title="All 4 branches missed.">    if (args.length == 1 &amp;&amp; !args[0].contains(&quot;=&quot;)) {</span>
+      // assume a default single arg, convert the format so we can process as normally.
+<span class="nc" id="L200">      args[0] = GameRunner.TRIPLEA_GAME_PROPERTY + &quot;=&quot; + args[0];</span>
+    }
+
+<span class="nc" id="L203">    boolean usagePrinted = false;</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">    for (final String arg1 : args) {</span>
+<span class="nc" id="L205">      boolean found = false;</span>
+<span class="nc" id="L206">      String arg = arg1;</span>
+<span class="nc" id="L207">      final int indexOf = arg.indexOf('=');</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      if (indexOf &gt; 0) {</span>
+<span class="nc" id="L209">        arg = arg.substring(0, indexOf);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        for (final String property : availableProperties) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">          if (arg.equals(property)) {</span>
+<span class="nc" id="L212">            final String value = getValue(arg1);</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">            if (property.equals(MAP_FOLDER)) {</span>
+<span class="nc" id="L214">              SystemPreferences.put(SystemPreferenceKey.MAP_FOLDER_OVERRIDE, value);</span>
+<span class="nc" id="L215">            } else {</span>
+<span class="nc" id="L216">              System.getProperties().setProperty(property, value);</span>
+            }
+<span class="nc" id="L218">            System.out.println(property + &quot;:&quot; + value);</span>
+<span class="nc" id="L219">            found = true;</span>
+<span class="nc" id="L220">            break;</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L224" title="All 2 branches missed.">      if (!found) {</span>
+<span class="nc" id="L225">        System.out.println(&quot;Unrecogized:&quot; + arg1);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">        if (!usagePrinted) {</span>
+<span class="nc" id="L227">          usagePrinted = true;</span>
+<span class="nc" id="L228">          usage(gameMode);</span>
+        }
+      }
+    }
+
+<span class="nc bnc" id="L233" title="All 2 branches missed.">    if (gameMode == GameMode.HEADLESS_BOT) {</span>
+<span class="nc" id="L234">      System.getProperties().setProperty(TRIPLEA_HEADLESS, &quot;true&quot;);</span>
+
+<span class="nc" id="L236">      boolean printUsage = false;</span>
+<span class="nc" id="L237">      final String playerName = System.getProperty(GameRunner.TRIPLEA_NAME_PROPERTY, &quot;&quot;);</span>
+<span class="nc" id="L238">      final String hostName = System.getProperty(GameRunner.LOBBY_GAME_HOSTED_BY, &quot;&quot;);</span>
+<span class="nc bnc" id="L239" title="All 6 branches missed.">      if (playerName.length() &lt; 7 || hostName.length() &lt; 7 || !hostName.equals(playerName)</span>
+<span class="nc bnc" id="L240" title="All 4 branches missed.">          || !playerName.startsWith(&quot;Bot&quot;) || !hostName.startsWith(&quot;Bot&quot;)) {</span>
+<span class="nc" id="L241">        System.out.println(</span>
+<span class="nc" id="L242">            &quot;Invalid argument: &quot; + GameRunner.TRIPLEA_NAME_PROPERTY + &quot; and &quot; + GameRunner.LOBBY_GAME_HOSTED_BY</span>
+                + &quot; must start with \&quot;Bot\&quot; and be at least 7 characters long and be the same.&quot;);
+<span class="nc" id="L244">        printUsage = true;</span>
+      }
+
+<span class="nc" id="L247">      final String comments = System.getProperty(GameRunner.LOBBY_GAME_COMMENTS, &quot;&quot;);</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">      if (!comments.contains(&quot;automated_host&quot;)) {</span>
+<span class="nc" id="L249">        System.out.println(</span>
+<span class="nc" id="L250">            &quot;Invalid argument: &quot; + GameRunner.LOBBY_GAME_COMMENTS + &quot; must contain the string \&quot;automated_host\&quot;.&quot;);</span>
+<span class="nc" id="L251">        printUsage = true;</span>
+      }
+
+<span class="nc" id="L254">      final String email = System.getProperty(GameRunner.LOBBY_GAME_SUPPORT_EMAIL, &quot;&quot;);</span>
+<span class="nc bnc" id="L255" title="All 4 branches missed.">      if (email.length() &lt; 3 || !Util.isMailValid(email)) {</span>
+<span class="nc" id="L256">        System.out.println(</span>
+<span class="nc" id="L257">            &quot;Invalid argument: &quot; + GameRunner.LOBBY_GAME_SUPPORT_EMAIL + &quot; must contain a valid email address.&quot;);</span>
+<span class="nc" id="L258">        printUsage = true;</span>
+      }
+
+<span class="nc" id="L261">      final String reconnection =</span>
+<span class="nc" id="L262">          System.getProperty(GameRunner.LOBBY_GAME_RECONNECTION, &quot;&quot; + LOBBY_RECONNECTION_REFRESH_SECONDS_DEFAULT);</span>
+      try {
+<span class="nc" id="L264">        final int reconnect = Integer.parseInt(reconnection);</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        if (reconnect &lt; LOBBY_RECONNECTION_REFRESH_SECONDS_MINIMUM) {</span>
+<span class="nc" id="L266">          System.out.println(&quot;Invalid argument: &quot; + GameRunner.LOBBY_GAME_RECONNECTION</span>
+              + &quot; must be an integer equal to or greater than &quot; + LOBBY_RECONNECTION_REFRESH_SECONDS_MINIMUM
+              + &quot; seconds, and should normally be either &quot; + LOBBY_RECONNECTION_REFRESH_SECONDS_DEFAULT + &quot; or &quot;
+              + (2 * LOBBY_RECONNECTION_REFRESH_SECONDS_DEFAULT) + &quot; seconds.&quot;);
+<span class="nc" id="L270">          printUsage = true;</span>
+        }
+<span class="nc" id="L272">      } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L273">        System.out.println(&quot;Invalid argument: &quot; + GameRunner.LOBBY_GAME_RECONNECTION</span>
+            + &quot; must be an integer equal to or greater than &quot; + LOBBY_RECONNECTION_REFRESH_SECONDS_MINIMUM
+            + &quot; seconds, and should normally be either &quot; + LOBBY_RECONNECTION_REFRESH_SECONDS_DEFAULT + &quot; or &quot;
+            + (2 * LOBBY_RECONNECTION_REFRESH_SECONDS_DEFAULT) + &quot; seconds.&quot;);
+<span class="nc" id="L277">        printUsage = true;</span>
+      }
+      // no passwords allowed for bots
+      // take any actions or commit to preferences
+<span class="nc" id="L281">      final String clientWait = System.getProperty(GameRunner.TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME, &quot;&quot;);</span>
+<span class="nc" id="L282">      final String observerWait = System.getProperty(GameRunner.TRIPLEA_SERVER_OBSERVER_JOIN_WAIT_TIME, &quot;&quot;);</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">      if (clientWait.length() &gt; 0) {</span>
+        try {
+<span class="nc" id="L285">          final int wait = Integer.parseInt(clientWait);</span>
+<span class="nc" id="L286">          GameRunner.setServerStartGameSyncWaitTime(wait);</span>
+<span class="nc" id="L287">        } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L288">          System.out.println(</span>
+<span class="nc" id="L289">              &quot;Invalid argument: &quot; + GameRunner.TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME + &quot; must be an integer.&quot;);</span>
+<span class="nc" id="L290">          printUsage = true;</span>
+        }
+      }
+<span class="nc bnc" id="L293" title="All 2 branches missed.">      if (observerWait.length() &gt; 0) {</span>
+        try {
+<span class="nc" id="L295">          final int wait = Integer.parseInt(observerWait);</span>
+<span class="nc" id="L296">          GameRunner.setServerObserverJoinWaitTime(wait);</span>
+<span class="nc" id="L297">        } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L298">          System.out.println(</span>
+<span class="nc" id="L299">              &quot;Invalid argument: &quot; + GameRunner.TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME + &quot; must be an integer.&quot;);</span>
+<span class="nc" id="L300">          printUsage = true;</span>
+        }
+      }
+
+<span class="nc bnc" id="L304" title="All 4 branches missed.">      if (printUsage || usagePrinted) {</span>
+<span class="nc" id="L305">        usage(gameMode);</span>
+<span class="nc" id="L306">        System.exit(-1);</span>
+      }
+
+<span class="nc" id="L309">    } else {</span>
+
+
+<span class="nc" id="L312">      final String version = System.getProperty(TRIPLEA_ENGINE_VERSION_BIN);</span>
+<span class="nc bnc" id="L313" title="All 4 branches missed.">      if (version != null &amp;&amp; version.length() &gt; 0) {</span>
+        final Version testVersion;
+        try {
+<span class="nc" id="L316">          testVersion = new Version(version);</span>
+          // if successful we don't do anything
+<span class="nc" id="L318">          System.out.println(TRIPLEA_ENGINE_VERSION_BIN + &quot;:&quot; + version);</span>
+<span class="nc bnc" id="L319" title="All 2 branches missed.">          if (!ClientContext.engineVersion().getVersion().equals(testVersion, false)) {</span>
+<span class="nc" id="L320">            System.out.println(&quot;Current Engine version in use: &quot; + ClientContext.engineVersion());</span>
+          }
+<span class="nc" id="L322">        } catch (final Exception e) {</span>
+<span class="nc" id="L323">          System.getProperties().setProperty(TRIPLEA_ENGINE_VERSION_BIN, ClientContext.engineVersion().toString());</span>
+<span class="nc" id="L324">          System.out.println(TRIPLEA_ENGINE_VERSION_BIN + &quot;:&quot; + ClientContext.engineVersion());</span>
+        }
+<span class="nc" id="L326">      } else {</span>
+<span class="nc" id="L327">        System.getProperties().setProperty(TRIPLEA_ENGINE_VERSION_BIN, ClientContext.engineVersion().toString());</span>
+<span class="nc" id="L328">        System.out.println(TRIPLEA_ENGINE_VERSION_BIN + &quot;:&quot; + ClientContext.engineVersion());</span>
+      }
+    }
+<span class="nc" id="L331">  }</span>
+
+  private static String getValue(final String arg) {
+<span class="nc" id="L334">    final int index = arg.indexOf('=');</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L336">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L338">    return arg.substring(index + 1);</span>
+  }
+
+  public static void setupLogging(GameMode gameMode) {
+<span class="nc bnc" id="L342" title="All 2 branches missed.">    if(gameMode == GameMode.SWING_CLIENT) {</span>
+      // setup logging to read our logging.properties
+      try {
+<span class="nc" id="L345">        LogManager.getLogManager().readConfiguration(ClassLoader.getSystemResourceAsStream(&quot;logging.properties&quot;));</span>
+<span class="nc" id="L346">      } catch (final Exception e) {</span>
+<span class="nc" id="L347">        ClientLogger.logQuietly(e);</span>
+      }
+<span class="nc" id="L349">      Toolkit.getDefaultToolkit().getSystemEventQueue().push(new EventQueue() {</span>
+        @Override
+        protected void dispatchEvent(AWTEvent newEvent) {
+          try {
+<span class="nc" id="L353">            super.dispatchEvent(newEvent);</span>
+            // This ensures, that all exceptions/errors inside any swing framework (like substance) are logged correctly
+<span class="nc" id="L355">          } catch (Throwable t) {</span>
+<span class="nc" id="L356">            ClientLogger.logError(t);</span>
+          }
+<span class="nc" id="L358">        }</span>
+      });
+<span class="nc" id="L360">    } else {</span>
+      // setup logging to read our logging.properties
+      try {
+<span class="nc" id="L363">        LogManager.getLogManager()</span>
+<span class="nc" id="L364">            .readConfiguration(ClassLoader.getSystemResourceAsStream(&quot;headless-game-server-logging.properties&quot;));</span>
+<span class="nc" id="L365">        Logger.getAnonymousLogger().info(&quot;Redirecting std out&quot;);</span>
+<span class="nc" id="L366">        System.setErr(new LoggingPrintStream(&quot;ERROR&quot;, Level.SEVERE));</span>
+<span class="nc" id="L367">        System.setOut(new LoggingPrintStream(&quot;OUT&quot;, Level.INFO));</span>
+<span class="nc" id="L368">      } catch (final Exception e) {</span>
+<span class="nc" id="L369">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc" id="L372">  }</span>
+
+
+  public static Properties getSystemIni() {
+<span class="nc" id="L376">    final Properties rVal = new Properties();</span>
+<span class="nc" id="L377">    final File systemIni = new File(ClientFileSystemHelper.getRootFolder(), SYSTEM_INI);</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">    if (systemIni.exists()) {</span>
+<span class="nc" id="L379">      try (FileInputStream fis = new FileInputStream(systemIni)) {</span>
+<span class="nc" id="L380">        rVal.load(fis);</span>
+<span class="nc bnc" id="L381" title="All 8 branches missed.">      } catch (final IOException e) {</span>
+<span class="nc" id="L382">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc" id="L385">    return rVal;</span>
+  }
+
+  public static void writeSystemIni(final Properties properties) {
+    final Properties toWrite;
+
+<span class="nc" id="L391">    toWrite = getSystemIni();</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">    for (final Entry&lt;Object, Object&gt; entry : properties.entrySet()) {</span>
+<span class="nc" id="L393">      toWrite.put(entry.getKey(), entry.getValue());</span>
+    }
+
+<span class="nc" id="L396">    final File systemIni = new File(ClientFileSystemHelper.getRootFolder(), SYSTEM_INI);</span>
+
+<span class="nc" id="L398">    try (FileOutputStream fos = new FileOutputStream(systemIni)) {</span>
+<span class="nc" id="L399">      toWrite.store(fos, SYSTEM_INI);</span>
+<span class="nc bnc" id="L400" title="All 8 branches missed.">    } catch (final IOException e) {</span>
+<span class="nc" id="L401">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L403">  }</span>
+
+
+  public static boolean getDelayedParsing() {
+<span class="fc" id="L407">    final Preferences pref = Preferences.userNodeForPackage(GameRunner.class);</span>
+<span class="fc" id="L408">    return pref.getBoolean(DELAYED_PARSING, true);</span>
+  }
+
+  public static void setDelayedParsing(final boolean delayedParsing) {
+<span class="nc" id="L412">    final Preferences pref = Preferences.userNodeForPackage(GameRunner.class);</span>
+<span class="nc" id="L413">    pref.putBoolean(DELAYED_PARSING, delayedParsing);</span>
+    try {
+<span class="nc" id="L415">      pref.sync();</span>
+<span class="nc" id="L416">    } catch (final BackingStoreException e) {</span>
+<span class="nc" id="L417">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L419">  }</span>
+
+  // TODO: delete all this when we figure out the new casualty selection algorithm
+  public static boolean getCasualtySelectionSlow() {
+<span class="fc bfc" id="L423" title="All 2 branches covered.">    if (s_checkedCasualtySelectionSlowPreference) {</span>
+<span class="fc" id="L424">      return s_casualtySelectionSlow;</span>
+    }
+<span class="fc" id="L426">    final Preferences pref = Preferences.userNodeForPackage(GameRunner.class);</span>
+<span class="fc" id="L427">    s_casualtySelectionSlow = pref.getBoolean(CASUALTY_SELECTION_SLOW, false);</span>
+<span class="fc" id="L428">    s_checkedCasualtySelectionSlowPreference = true;</span>
+<span class="fc" id="L429">    return s_casualtySelectionSlow;</span>
+  }
+
+<span class="fc" id="L432">  private static boolean s_casualtySelectionSlow = false;</span>
+<span class="fc" id="L433">  private static boolean s_checkedCasualtySelectionSlowPreference = false;</span>
+
+  public static void setCasualtySelectionSlow(final boolean casualtySelectionBeta) {
+<span class="nc" id="L436">    SystemPreferences.put(SystemPreferenceKey.CASUALTY_SELECTION_SLOW, casualtySelectionBeta);</span>
+<span class="nc" id="L437">  }</span>
+
+  public static int getServerStartGameSyncWaitTime() {
+<span class="nc" id="L440">    return Math.max(MINIMUM_SERVER_START_GAME_SYNC_WAIT_TIME, Preferences.userNodeForPackage(GameRunner.class)</span>
+<span class="nc" id="L441">        .getInt(TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME, DEFAULT_SERVER_START_GAME_SYNC_WAIT_TIME));</span>
+  }
+
+  public static void resetServerStartGameSyncWaitTime() {
+<span class="nc" id="L445">    setServerStartGameSyncWaitTime(DEFAULT_SERVER_START_GAME_SYNC_WAIT_TIME);</span>
+<span class="nc" id="L446">  }</span>
+
+  public static void setServerStartGameSyncWaitTime(final int seconds) {
+<span class="nc" id="L449">    final int wait = Math.max(MINIMUM_SERVER_START_GAME_SYNC_WAIT_TIME, seconds);</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">    if (wait == getServerStartGameSyncWaitTime()) {</span>
+<span class="nc" id="L451">      return;</span>
+    }
+<span class="nc" id="L453">    SystemPreferences.put(SystemPreferenceKey.TRIPLEA_SERVER_START_GAME_SYNC_WAIT_TIME, wait);</span>
+<span class="nc" id="L454">  }</span>
+
+  public static int getServerObserverJoinWaitTime() {
+<span class="nc" id="L457">    return Math.max(MINIMUM_SERVER_OBSERVER_JOIN_WAIT_TIME, Preferences.userNodeForPackage(GameRunner.class)</span>
+<span class="nc" id="L458">        .getInt(TRIPLEA_SERVER_OBSERVER_JOIN_WAIT_TIME, DEFAULT_SERVER_OBSERVER_JOIN_WAIT_TIME));</span>
+  }
+
+  public static void resetServerObserverJoinWaitTime() {
+<span class="nc" id="L462">    setServerObserverJoinWaitTime(DEFAULT_SERVER_OBSERVER_JOIN_WAIT_TIME);</span>
+<span class="nc" id="L463">  }</span>
+
+  public static void setServerObserverJoinWaitTime(final int seconds) {
+<span class="nc" id="L466">    final int wait = Math.max(MINIMUM_SERVER_OBSERVER_JOIN_WAIT_TIME, seconds);</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">    if (wait == getServerObserverJoinWaitTime()) {</span>
+<span class="nc" id="L468">      return;</span>
+    }
+<span class="nc" id="L470">    SystemPreferences.put(SystemPreferenceKey.TRIPLEA_SERVER_OBSERVER_JOIN_WAIT_TIME, wait);</span>
+<span class="nc" id="L471">  }</span>
+
+  private static void checkForUpdates() {
+<span class="nc" id="L474">    new Thread(() -&gt; {</span>
+      // do not check if we are the old extra jar. (a jar kept for backwards compatibility only)
+<span class="nc bnc" id="L476" title="All 2 branches missed.">      if (ClientFileSystemHelper.areWeOldExtraJar()) {</span>
+<span class="nc" id="L477">        return;</span>
+      }
+<span class="nc bnc" id="L479" title="All 2 branches missed.">      if (System.getProperty(TRIPLEA_SERVER_PROPERTY, &quot;false&quot;).equalsIgnoreCase(&quot;true&quot;)) {</span>
+<span class="nc" id="L480">        return;</span>
+      }
+<span class="nc bnc" id="L482" title="All 2 branches missed.">      if (System.getProperty(TRIPLEA_CLIENT_PROPERTY, &quot;false&quot;).equalsIgnoreCase(&quot;true&quot;)) {</span>
+<span class="nc" id="L483">        return;</span>
+      }
+<span class="nc bnc" id="L485" title="All 2 branches missed.">      if (System.getProperty(TRIPLEA_DO_NOT_CHECK_FOR_UPDATES, &quot;false&quot;).equalsIgnoreCase(&quot;true&quot;)) {</span>
+<span class="nc" id="L486">        return;</span>
+      }
+
+      // if we are joining a game online, or hosting, or loading straight into a savegame, do not check
+<span class="nc" id="L490">      final String fileName = System.getProperty(TRIPLEA_GAME_PROPERTY, &quot;&quot;);</span>
+<span class="nc bnc" id="L491" title="All 2 branches missed.">      if (fileName.trim().length() &gt; 0) {</span>
+<span class="nc" id="L492">        return;</span>
+      }
+
+<span class="nc" id="L495">      boolean busy = false;</span>
+<span class="nc" id="L496">      busy = checkForLatestEngineVersionOut();</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">      if (!busy) {</span>
+<span class="nc" id="L498">        busy = checkForUpdatedMaps();</span>
+      }
+<span class="nc" id="L500">    }, &quot;Checking Latest TripleA Engine Version&quot;).start();</span>
+<span class="nc" id="L501">  }</span>
+
+  /**
+   * @return true if we are out of date or this is the first time this triplea has ever been run
+   */
+  private static boolean checkForLatestEngineVersionOut() {
+    try {
+<span class="nc" id="L508">      final boolean firstTimeThisVersion = SystemPreferences.get(SystemPreferenceKey.TRIPLEA_FIRST_TIME_THIS_VERSION_PROPERTY, true);</span>
+      // check at most once per 2 days (but still allow a 'first run message' for a new version of triplea)
+<span class="nc" id="L510">      final Calendar calendar = Calendar.getInstance();</span>
+<span class="nc" id="L511">      final int year = calendar.get(Calendar.YEAR);</span>
+<span class="nc" id="L512">      final int day = calendar.get(Calendar.DAY_OF_YEAR);</span>
+      // format year:day
+<span class="nc" id="L514">      final String lastCheckTime = SystemPreferences.get(SystemPreferenceKey.TRIPLEA_LAST_CHECK_FOR_ENGINE_UPDATE, &quot;&quot;);</span>
+<span class="nc bnc" id="L515" title="All 6 branches missed.">      if (!firstTimeThisVersion &amp;&amp; lastCheckTime != null &amp;&amp; lastCheckTime.trim().length() &gt; 0) {</span>
+<span class="nc" id="L516">        final String[] yearDay = lastCheckTime.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L517" title="All 4 branches missed.">        if (Integer.parseInt(yearDay[0]) &gt;= year &amp;&amp; Integer.parseInt(yearDay[1]) + 1 &gt;= day) {</span>
+<span class="nc" id="L518">          return false;</span>
+        }
+      }
+
+<span class="nc" id="L522">      SystemPreferences.put(SystemPreferenceKey.TRIPLEA_LAST_CHECK_FOR_ENGINE_UPDATE, year + &quot;:&quot; + day);</span>
+
+<span class="nc" id="L524">      final EngineVersionProperties latestEngineOut = EngineVersionProperties.contactServerForEngineVersionProperties();</span>
+<span class="nc bnc" id="L525" title="All 2 branches missed.">      if (latestEngineOut == null) {</span>
+<span class="nc" id="L526">        return false;</span>
+      }
+<span class="nc bnc" id="L528" title="All 2 branches missed.">      if (ClientContext.engineVersion().getVersion().isLessThan(latestEngineOut.getLatestVersionOut())) {</span>
+        SwingUtilities
+<span class="nc" id="L530">            .invokeLater(() -&gt; EventThreadJOptionPane.showMessageDialog(null, latestEngineOut.getOutOfDateComponent(),</span>
+<span class="nc" id="L531">                &quot;Please Update TripleA&quot;, JOptionPane.INFORMATION_MESSAGE, false, new CountDownLatchHandler(true)));</span>
+<span class="nc" id="L532">        return true;</span>
+      }
+<span class="nc" id="L534">    } catch (final Exception e) {</span>
+<span class="nc" id="L535">      System.out.println(&quot;Error while checking for engine updates: &quot; + e.getMessage());</span>
+    }
+<span class="nc" id="L537">    return false;</span>
+  }
+
+  /**
+   * @return true if we have any out of date maps
+   */
+  private static boolean checkForUpdatedMaps() {
+<span class="nc" id="L544">    MapDownloadController downloadController = ClientContext.mapDownloadController();</span>
+<span class="nc" id="L545">    return downloadController.checkDownloadedMapsAreLatest();</span>
+  }
+
+
+  public static Image getGameIcon(final Window frame) {
+<span class="nc" id="L550">    Image img = null;</span>
+    try {
+<span class="nc" id="L552">      img = frame.getToolkit().getImage(GameRunner.class.getResource(&quot;ta_icon.png&quot;));</span>
+<span class="nc" id="L553">    } catch (final Exception ex) {</span>
+<span class="nc" id="L554">      ClientLogger.logError(&quot;ta_icon.png not loaded&quot;, ex);</span>
+    }
+<span class="nc" id="L556">    final MediaTracker tracker = new MediaTracker(frame);</span>
+<span class="nc" id="L557">    tracker.addImage(img, 0);</span>
+    try {
+<span class="nc" id="L559">      tracker.waitForAll();</span>
+<span class="nc" id="L560">    } catch (final InterruptedException ex) {</span>
+<span class="nc" id="L561">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L563">    return img;</span>
+  }
+
+  public static void startNewTripleA(final Long maxMemory) {
+<span class="nc" id="L567">    startGame(System.getProperty(GameRunner.TRIPLEA_GAME_PROPERTY), null, maxMemory);</span>
+<span class="nc" id="L568">  }</span>
+
+  public static void startGame(final String savegamePath, final String classpath, final Long maxMemory) {
+<span class="nc" id="L571">    final List&lt;String&gt; commands = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L572" title="All 4 branches missed.">    if (maxMemory != null &amp;&amp; maxMemory &gt; (32 * 1024 * 1024)) {</span>
+<span class="nc" id="L573">      ProcessRunnerUtil.populateBasicJavaArgs(commands, classpath, maxMemory);</span>
+<span class="nc" id="L574">    } else {</span>
+<span class="nc" id="L575">      ProcessRunnerUtil.populateBasicJavaArgs(commands, classpath);</span>
+    }
+<span class="nc bnc" id="L577" title="All 4 branches missed.">    if (savegamePath != null &amp;&amp; savegamePath.length() &gt; 0) {</span>
+<span class="nc" id="L578">      commands.add(&quot;-D&quot; + GameRunner.TRIPLEA_GAME_PROPERTY + &quot;=&quot; + savegamePath);</span>
+    }
+    // add in any existing command line items
+<span class="nc bnc" id="L581" title="All 2 branches missed.">    for (final String property : GameRunner.COMMAND_LINE_ARGS) {</span>
+      // we add game property above, and we add version bin in the populateBasicJavaArgs
+<span class="nc bnc" id="L583" title="All 2 branches missed.">      if (GameRunner.TRIPLEA_GAME_PROPERTY.equals(property)</span>
+<span class="nc bnc" id="L584" title="All 2 branches missed.">          || GameRunner.TRIPLEA_ENGINE_VERSION_BIN.equals(property)) {</span>
+<span class="nc" id="L585">        continue;</span>
+      }
+<span class="nc" id="L587">      final String value = System.getProperty(property);</span>
+<span class="nc bnc" id="L588" title="All 2 branches missed.">      if (value != null) {</span>
+<span class="nc" id="L589">        commands.add(&quot;-D&quot; + property + &quot;=&quot; + value);</span>
+<span class="nc bnc" id="L590" title="All 4 branches missed.">      } else if (GameRunner.LOBBY_HOST.equals(property) || LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY.equals(property)</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">          || GameRunner.LOBBY_GAME_HOSTED_BY.equals(property)) {</span>
+        // for these 3 properties, we clear them after hosting, but back them up.
+<span class="nc" id="L593">        final String oldValue = System.getProperty(property + GameRunner.OLD_EXTENSION);</span>
+<span class="nc bnc" id="L594" title="All 2 branches missed.">        if (oldValue != null) {</span>
+<span class="nc" id="L595">          commands.add(&quot;-D&quot; + property + &quot;=&quot; + oldValue);</span>
+        }
+      }
+    }
+    // classpath for main
+<span class="nc" id="L600">    commands.add(GameRunner.class.getName());</span>
+<span class="nc" id="L601">    ProcessRunnerUtil.exec(commands);</span>
+<span class="nc" id="L602">  }</span>
+
+  public static void hostGame(final int port, final String playerName, final String comments, final String password,
+      final Messengers messengers) {
+<span class="nc" id="L606">    final List&lt;String&gt; commands = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L607">    ProcessRunnerUtil.populateBasicJavaArgs(commands);</span>
+<span class="nc" id="L608">    commands.add(&quot;-D&quot; + TRIPLEA_SERVER_PROPERTY + &quot;=true&quot;);</span>
+<span class="nc" id="L609">    commands.add(&quot;-D&quot; + TRIPLEA_PORT_PROPERTY + &quot;=&quot; + port);</span>
+<span class="nc" id="L610">    commands.add(&quot;-D&quot; + TRIPLEA_NAME_PROPERTY + &quot;=&quot; + playerName);</span>
+<span class="nc" id="L611">    commands.add(&quot;-D&quot; + LOBBY_HOST + &quot;=&quot;</span>
+<span class="nc" id="L612">        + messengers.getMessenger().getRemoteServerSocketAddress().getAddress().getHostAddress());</span>
+<span class="nc" id="L613">    commands</span>
+<span class="nc" id="L614">        .add(&quot;-D&quot; + LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY + &quot;=&quot; + messengers.getMessenger().getRemoteServerSocketAddress().getPort());</span>
+<span class="nc" id="L615">    commands.add(&quot;-D&quot; + LOBBY_GAME_COMMENTS + &quot;=&quot; + comments);</span>
+<span class="nc" id="L616">    commands.add(&quot;-D&quot; + LOBBY_GAME_HOSTED_BY + &quot;=&quot; + messengers.getMessenger().getLocalNode().getName());</span>
+<span class="nc bnc" id="L617" title="All 4 branches missed.">    if (password != null &amp;&amp; password.length() &gt; 0) {</span>
+<span class="nc" id="L618">      commands.add(&quot;-D&quot; + TRIPLEA_SERVER_PASSWORD_PROPERTY + &quot;=&quot; + password);</span>
+    }
+<span class="nc" id="L620">    final String fileName = System.getProperty(TRIPLEA_GAME_PROPERTY, &quot;&quot;);</span>
+<span class="nc bnc" id="L621" title="All 2 branches missed.">    if (fileName.length() &gt; 0) {</span>
+<span class="nc" id="L622">      commands.add(&quot;-D&quot; + TRIPLEA_GAME_PROPERTY + &quot;=&quot; + fileName);</span>
+    }
+<span class="nc" id="L624">    final String javaClass = GameRunner.class.getName();</span>
+<span class="nc" id="L625">    commands.add(javaClass);</span>
+<span class="nc" id="L626">    ProcessRunnerUtil.exec(commands);</span>
+<span class="nc" id="L627">  }</span>
+
+  public static void joinGame(final GameDescription description, final Messengers messengers, final Container parent) {
+<span class="nc" id="L630">    final GameDescription.GameStatus status = description.getStatus();</span>
+<span class="nc bnc" id="L631" title="All 2 branches missed.">    if (GameDescription.GameStatus.LAUNCHING.equals(status)) {</span>
+<span class="nc" id="L632">      return;</span>
+    }
+<span class="nc" id="L634">    final Version engineVersionOfGameToJoin = new Version(description.getEngineVersion());</span>
+<span class="nc" id="L635">    String newClassPath = null;</span>
+<span class="nc bnc" id="L636" title="All 2 branches missed.">    if (!ClientContext.engineVersion().getVersion().equals(engineVersionOfGameToJoin)) {</span>
+      try {
+<span class="nc" id="L638">        newClassPath = findOldJar(engineVersionOfGameToJoin, false);</span>
+<span class="nc" id="L639">      } catch (final Exception e) {</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (ClientFileSystemHelper.areWeOldExtraJar()) {</span>
+<span class="nc" id="L641">          JOptionPane.showMessageDialog(parent,</span>
+<span class="nc" id="L642">              &quot;&lt;html&gt;Please run the default TripleA and try joining the online lobby for it instead. &quot;</span>
+                  + &quot;&lt;br&gt;This TripleA engine is old and kept only for backwards compatibility and can only play with people using the exact same version as this one. &quot;
+                  + &quot;&lt;br&gt;&lt;br&gt;Host is using a different engine than you, and cannot find correct engine: &quot;
+<span class="nc" id="L645">                  + engineVersionOfGameToJoin.toStringFull(&quot;_&quot;) + &quot;&lt;/html&gt;&quot;,</span>
+<span class="nc" id="L646">              &quot;Correct TripleA Engine Not Found&quot;, JOptionPane.WARNING_MESSAGE);</span>
+<span class="nc" id="L647">        } else {</span>
+<span class="nc" id="L648">          JOptionPane.showMessageDialog(parent,</span>
+<span class="nc" id="L649">              &quot;Host is using a different engine than you, and cannot find correct engine: &quot;</span>
+<span class="nc" id="L650">                  + engineVersionOfGameToJoin.toStringFull(&quot;_&quot;),</span>
+<span class="nc" id="L651">              &quot;Correct TripleA Engine Not Found&quot;, JOptionPane.WARNING_MESSAGE);</span>
+        }
+<span class="nc" id="L653">        return;</span>
+      }
+      // ask user if we really want to do this?
+<span class="nc" id="L656">      final String messageString = &quot;&lt;html&gt;This TripleA engine is version &quot; + ClientContext.engineVersion().getVersion()</span>
+<span class="nc" id="L657">          + &quot; and you are trying to join a game made with version &quot; + engineVersionOfGameToJoin.toString()</span>
+<span class="nc" id="L658">          + &quot;&lt;br&gt;However, this TripleA can only play with engines that are the exact same version as itself (x_x_x_x).&quot;</span>
+<span class="nc" id="L659">          + &quot;&lt;br&gt;&lt;br&gt;TripleA now comes with older engines included with it, and has found the engine used by the host. This is a new feature and is in 'beta' stage.&quot;</span>
+<span class="nc" id="L660">          + &quot;&lt;br&gt;It will attempt to run a new instance of TripleA using the older engine jar file, and this instance will join the host's game.&quot;</span>
+<span class="nc" id="L661">          + &quot;&lt;br&gt;Your current instance will not be closed. Please report any bugs or issues.&quot;</span>
+<span class="nc" id="L662">          + &quot;&lt;br&gt;&lt;br&gt;Do you wish to continue?&lt;/html&gt;&quot;;</span>
+<span class="nc" id="L663">      final int answer = JOptionPane.showConfirmDialog(null, messageString, &quot;Run old jar to join hosted game?&quot;,</span>
+<span class="nc" id="L664">          JOptionPane.YES_NO_OPTION);</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">      if (answer != JOptionPane.YES_OPTION) {</span>
+<span class="nc" id="L666">        return;</span>
+      }
+    }
+<span class="nc" id="L669">    joinGame(description.getPort(), description.getHostedBy().getAddress().getHostAddress(), newClassPath, messengers);</span>
+<span class="nc" id="L670">  }</span>
+
+  // newClassPath can be null
+  private static void joinGame(final int port, final String hostAddressIP, final String newClassPath,
+      final Messengers messengers) {
+<span class="nc" id="L675">    final List&lt;String&gt; commands = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L676">    ProcessRunnerUtil.populateBasicJavaArgs(commands, newClassPath);</span>
+<span class="nc" id="L677">    commands.add(&quot;-D&quot; + TRIPLEA_CLIENT_PROPERTY + &quot;=true&quot;);</span>
+<span class="nc" id="L678">    commands.add(&quot;-D&quot; + TRIPLEA_PORT_PROPERTY + &quot;=&quot; + port);</span>
+<span class="nc" id="L679">    commands.add(&quot;-D&quot; + TRIPLEA_HOST_PROPERTY + &quot;=&quot; + hostAddressIP);</span>
+<span class="nc" id="L680">    commands.add(&quot;-D&quot; + TRIPLEA_NAME_PROPERTY + &quot;=&quot; + messengers.getMessenger().getLocalNode().getName());</span>
+<span class="nc" id="L681">    final String javaClass = &quot;games.strategy.engine.framework.GameRunner&quot;;</span>
+<span class="nc" id="L682">    commands.add(javaClass);</span>
+<span class="nc" id="L683">    ProcessRunnerUtil.exec(commands);</span>
+<span class="nc" id="L684">  }</span>
+
+  public static String findOldJar(final Version oldVersionNeeded, final boolean ignoreMicro) throws IOException {
+<span class="nc bnc" id="L687" title="All 2 branches missed.">    if (ClientContext.engineVersion().getVersion().equals(oldVersionNeeded, ignoreMicro)) {</span>
+<span class="nc" id="L688">      return System.getProperty(&quot;java.class.path&quot;);</span>
+    }
+    // first, see if the default/main triplea can run it
+<span class="nc bnc" id="L691" title="All 2 branches missed.">    if (ClientFileSystemHelper.areWeOldExtraJar()) {</span>
+<span class="nc" id="L692">      final String version = System.getProperty(GameRunner.TRIPLEA_ENGINE_VERSION_BIN);</span>
+<span class="nc bnc" id="L693" title="All 4 branches missed.">      if (version != null &amp;&amp; version.length() &gt; 0) {</span>
+<span class="nc" id="L694">        Version defaultVersion = null;</span>
+        try {
+<span class="nc" id="L696">          defaultVersion = new Version(version);</span>
+<span class="nc" id="L697">        } catch (final Exception e) {</span>
+          // nothing, just continue
+        }
+<span class="nc bnc" id="L700" title="All 2 branches missed.">        if (defaultVersion != null) {</span>
+<span class="nc bnc" id="L701" title="All 2 branches missed.">          if (defaultVersion.equals(oldVersionNeeded, ignoreMicro)) {</span>
+<span class="nc" id="L702">            final String jarName = &quot;triplea.jar&quot;;</span>
+            // windows is in 'bin' folder, mac is in 'Java' folder.
+<span class="nc" id="L704">            File binFolder = new File(ClientFileSystemHelper.getRootFolder(), &quot;bin/&quot;);</span>
+<span class="nc bnc" id="L705" title="All 2 branches missed.">            if (!binFolder.exists()) {</span>
+<span class="nc" id="L706">              binFolder = new File(ClientFileSystemHelper.getRootFolder(), &quot;Java/&quot;);</span>
+            }
+<span class="nc bnc" id="L708" title="All 2 branches missed.">            if (binFolder.exists()) {</span>
+<span class="nc" id="L709">              final File[] files = binFolder.listFiles();</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">              if (files == null) {</span>
+<span class="nc" id="L711">                throw new IOException(&quot;Cannot find 'bin' engine jars folder&quot;);</span>
+              }
+<span class="nc" id="L713">              File ourBinJar = null;</span>
+<span class="nc bnc" id="L714" title="All 2 branches missed.">              for (final File f : Arrays.asList(files)) {</span>
+<span class="nc bnc" id="L715" title="All 2 branches missed.">                if (!f.exists()) {</span>
+<span class="nc" id="L716">                  continue;</span>
+                }
+<span class="nc" id="L718">                final String jarPath = f.getCanonicalPath();</span>
+<span class="nc bnc" id="L719" title="All 2 branches missed.">                if (jarPath.contains(jarName)) {</span>
+<span class="nc" id="L720">                  ourBinJar = f;</span>
+<span class="nc" id="L721">                  break;</span>
+                }
+              }
+<span class="nc bnc" id="L724" title="All 2 branches missed.">              if (ourBinJar == null) {</span>
+<span class="nc" id="L725">                throw new IOException(</span>
+<span class="nc" id="L726">                    &quot;Cannot find 'bin' engine jar for version: &quot; + oldVersionNeeded.toStringFull(&quot;_&quot;));</span>
+              }
+<span class="nc" id="L728">              final String newClassPath = ourBinJar.getCanonicalPath();</span>
+<span class="nc bnc" id="L729" title="All 2 branches missed.">              if (newClassPath.length() &lt;= 0) {</span>
+<span class="nc" id="L730">                throw new IOException(</span>
+<span class="nc" id="L731">                    &quot;Cannot find 'bin' engine jar for version: &quot; + oldVersionNeeded.toStringFull(&quot;_&quot;));</span>
+              }
+<span class="nc" id="L733">              return newClassPath;</span>
+            } else {
+<span class="nc" id="L735">              System.err.println(&quot;Cannot find 'bin' or 'Java' folder, where main triplea.jar should be.&quot;);</span>
+            }
+          }
+        }
+      }
+    }
+    // so, what we do here is try to see if our installed copy of triplea includes older jars with it that are the same
+    // engine as was used
+    // for this savegame, and if so try to run it
+    // System.out.println(&quot;System classpath: &quot; + System.getProperty(&quot;java.class.path&quot;));
+    // we don't care what the last (micro) number is of the version number. example: triplea 1.5.2.1 can open 1.5.2.0
+    // savegames.
+<span class="nc" id="L747">    final String jarName = &quot;triplea_&quot; + oldVersionNeeded.toStringFull(&quot;_&quot;, ignoreMicro);</span>
+<span class="nc" id="L748">    final File oldJarsFolder = new File(ClientFileSystemHelper.getRootFolder(), &quot;old/&quot;);</span>
+<span class="nc bnc" id="L749" title="All 2 branches missed.">    if (!oldJarsFolder.exists()) {</span>
+<span class="nc" id="L750">      throw new IOException(&quot;Cannot find 'old' engine jars folder&quot;);</span>
+    }
+<span class="nc" id="L752">    final File[] files = oldJarsFolder.listFiles();</span>
+<span class="nc bnc" id="L753" title="All 2 branches missed.">    if (files == null) {</span>
+<span class="nc" id="L754">      throw new IOException(&quot;Cannot find 'old' engine jars folder&quot;);</span>
+    }
+<span class="nc" id="L756">    File ourOldJar = null;</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">    for (final File f : Arrays.asList(files)) {</span>
+<span class="nc bnc" id="L758" title="All 2 branches missed.">      if (!f.exists()) {</span>
+<span class="nc" id="L759">        continue;</span>
+      }
+      // final String jarPath = f.getCanonicalPath();
+<span class="nc" id="L762">      final String name = f.getName();</span>
+<span class="nc bnc" id="L763" title="All 4 branches missed.">      if (name.contains(jarName) &amp;&amp; name.contains(&quot;.jar&quot;)) {</span>
+<span class="nc" id="L764">        ourOldJar = f;</span>
+<span class="nc" id="L765">        break;</span>
+      }
+    }
+<span class="nc bnc" id="L768" title="All 2 branches missed.">    if (ourOldJar == null) {</span>
+<span class="nc" id="L769">      throw new IOException(&quot;Cannot find 'old' engine jar for version: &quot; + oldVersionNeeded.toStringFull(&quot;_&quot;));</span>
+    }
+<span class="nc" id="L771">    final String newClassPath = ourOldJar.getCanonicalPath();</span>
+<span class="nc bnc" id="L772" title="All 2 branches missed.">    if (newClassPath.length() &lt;= 0) {</span>
+<span class="nc" id="L773">      throw new IOException(&quot;Cannot find 'old' engine jar for version: &quot; + oldVersionNeeded.toStringFull(&quot;_&quot;));</span>
+    }
+<span class="nc" id="L775">    return newClassPath;</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

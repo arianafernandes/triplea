@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DefaultDelegateBridge.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.delegate</a> &gt; <span class="el_source">DefaultDelegateBridge.java</span></div><h1>DefaultDelegateBridge.java</h1><pre class="source lang-java linenums">package games.strategy.engine.delegate;
+
+import java.util.Properties;
+
+import games.strategy.engine.GameOverException;
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.display.IDisplay;
+import games.strategy.engine.framework.AbstractGame;
+import games.strategy.engine.framework.IGame;
+import games.strategy.engine.framework.ServerGame;
+import games.strategy.engine.gamePlayer.IRemotePlayer;
+import games.strategy.engine.history.IDelegateHistoryWriter;
+import games.strategy.engine.message.MessengerException;
+import games.strategy.engine.random.IRandomSource;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.engine.random.RandomStats;
+import games.strategy.sound.ISound;
+
+/**
+ * Default implementation of DelegateBridge
+ */
+public class DefaultDelegateBridge implements IDelegateBridge {
+  private final GameData m_data;
+  private final IGame m_game;
+  private final IDelegateHistoryWriter m_historyWriter;
+  private final RandomStats m_randomStats;
+  private final DelegateExecutionManager m_delegateExecutionManager;
+  private IRandomSource m_randomSource;
+
+  /** Creates new DefaultDelegateBridge */
+<span class="nc" id="L34">  public DefaultDelegateBridge(final GameData data, final IGame game, final IDelegateHistoryWriter historyWriter,</span>
+      final RandomStats randomStats, final DelegateExecutionManager delegateExecutionManager) {
+<span class="nc" id="L36">    m_data = data;</span>
+<span class="nc" id="L37">    m_game = game;</span>
+<span class="nc" id="L38">    m_historyWriter = historyWriter;</span>
+<span class="nc" id="L39">    m_randomStats = randomStats;</span>
+<span class="nc" id="L40">    m_delegateExecutionManager = delegateExecutionManager;</span>
+<span class="nc" id="L41">  }</span>
+
+  @Override
+  public GameData getData() {
+<span class="nc" id="L45">    return m_data;</span>
+  }
+
+  @Override
+  public PlayerID getPlayerID() {
+<span class="nc" id="L50">    return m_data.getSequence().getStep().getPlayerID();</span>
+  }
+
+  public void setRandomSource(final IRandomSource randomSource) {
+<span class="nc" id="L54">    m_randomSource = randomSource;</span>
+<span class="nc" id="L55">  }</span>
+
+  /**
+   * All delegates should use random data that comes from both players so that
+   * neither player cheats.
+   */
+  @Override
+  public int getRandom(final int max, final PlayerID player, final DiceType diceType, final String annotation)
+      throws IllegalArgumentException, IllegalStateException {
+<span class="nc" id="L64">    final int random = m_randomSource.getRandom(max, annotation);</span>
+<span class="nc" id="L65">    m_randomStats.addRandom(random, player, diceType);</span>
+<span class="nc" id="L66">    return random;</span>
+  }
+
+  /**
+   * Delegates should not use random data that comes from any other source.
+   */
+  @Override
+  public int[] getRandom(final int max, final int count, final PlayerID player, final DiceType diceType,
+      final String annotation) throws IllegalArgumentException, IllegalStateException {
+<span class="nc" id="L75">    final int[] rVal = m_randomSource.getRandom(max, count, annotation);</span>
+<span class="nc" id="L76">    m_randomStats.addRandom(rVal, player, diceType);</span>
+<span class="nc" id="L77">    return rVal;</span>
+  }
+
+  @Override
+  public void addChange(final Change aChange) {
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    if (aChange instanceof CompositeChange) {</span>
+<span class="nc" id="L83">      final CompositeChange c = (CompositeChange) aChange;</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">      if (c.getChanges().size() == 1) {</span>
+<span class="nc" id="L85">        addChange(c.getChanges().get(0));</span>
+<span class="nc" id="L86">        return;</span>
+      }
+    }
+<span class="nc bnc" id="L89" title="All 2 branches missed.">    if (!aChange.isEmpty()) {</span>
+<span class="nc" id="L90">      m_game.addChange(aChange);</span>
+    }
+<span class="nc" id="L92">  }</span>
+
+  /**
+   * Returns the current step name
+   */
+  @Override
+  public String getStepName() {
+<span class="nc" id="L99">    return m_data.getSequence().getStep().getName();</span>
+  }
+
+  @Override
+  public IDelegateHistoryWriter getHistoryWriter() {
+<span class="nc" id="L104">    return m_historyWriter;</span>
+  }
+
+  private Object getOutbound(final Object o) {
+<span class="nc" id="L108">    final Class&lt;?&gt;[] interfaces = o.getClass().getInterfaces();</span>
+<span class="nc" id="L109">    return m_delegateExecutionManager.createOutboundImplementation(o, interfaces);</span>
+  }
+
+  @Override
+  public IRemotePlayer getRemotePlayer() {
+<span class="nc" id="L114">    return getRemotePlayer(getPlayerID());</span>
+  }
+
+  @Override
+  public IRemotePlayer getRemotePlayer(final PlayerID id) {
+    try {
+<span class="nc" id="L120">      final Object implementor = m_game.getRemoteMessenger().getRemote(ServerGame.getRemoteName(id, m_data));</span>
+<span class="nc" id="L121">      return (IRemotePlayer) getOutbound(implementor);</span>
+<span class="nc" id="L122">    } catch (final MessengerException me) {</span>
+<span class="nc" id="L123">      throw new GameOverException(&quot;Game Over!&quot;);</span>
+    }
+  }
+
+  @Override
+  public IDisplay getDisplayChannelBroadcaster() {
+<span class="nc" id="L129">    final Object implementor =</span>
+<span class="nc" id="L130">        m_game.getChannelMessenger().getChannelBroadcastor(AbstractGame.getDisplayChannel(m_data));</span>
+<span class="nc" id="L131">    return (IDisplay) getOutbound(implementor);</span>
+  }
+
+  @Override
+  public ISound getSoundChannelBroadcaster() {
+<span class="nc" id="L136">    final Object implementor = m_game.getChannelMessenger().getChannelBroadcastor(AbstractGame.getSoundChannel(m_data));</span>
+<span class="nc" id="L137">    return (ISound) getOutbound(implementor);</span>
+  }
+
+  @Override
+  public Properties getStepProperties() {
+<span class="nc" id="L142">    return m_data.getSequence().getStep().getProperties();</span>
+  }
+
+  @Override
+  public void leaveDelegateExecution() {
+<span class="nc" id="L147">    m_delegateExecutionManager.leaveDelegateExecution();</span>
+<span class="nc" id="L148">  }</span>
+
+  @Override
+  public void enterDelegateExecution() {
+<span class="nc" id="L152">    m_delegateExecutionManager.enterDelegateExecution();</span>
+<span class="nc" id="L153">  }</span>
+
+  @Override
+  public void stopGameSequence() {
+<span class="nc" id="L157">    ((ServerGame) m_game).stopGameSequence();</span>
+<span class="nc" id="L158">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

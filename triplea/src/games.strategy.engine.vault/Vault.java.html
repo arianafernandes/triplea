@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Vault.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.vault</a> &gt; <span class="el_source">Vault.java</span></div><h1>Vault.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.engine.vault;</span>
+
+import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.DESKeySpec;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.message.IChannelMessenger;
+import games.strategy.engine.message.IChannelSubscribor;
+import games.strategy.engine.message.RemoteName;
+
+/**
+ * A vault is a secure way for the client and server to share information without
+ * trusting each other.
+ * &lt;p&gt;
+ * Data can be locked in the vault by a node. This data then is not readable by other nodes until the data is unlocked.
+ * &lt;p&gt;
+ * When the data is unlocked by the original node, other nodes can read the data. When data is put in the vault, it cant
+ * be changed by the
+ * originating node.
+ * &lt;p&gt;
+ * NOTE: to allow the data locked in the vault to be gc'd, the &lt;code&gt;release(VaultID id)&lt;code&gt; method
+ * should be called when it is no longer needed.
+ */
+public class Vault {
+<span class="fc" id="L37">  private static final RemoteName VAULT_CHANNEL =</span>
+<span class="fc" id="L38">      new RemoteName(&quot;games.strategy.engine.vault.IServerVault.VAULT_CHANNEL&quot;, IRemoteVault.class);</span>
+  private static final String ALGORITHM = &quot;DES&quot;;
+  private SecretKeyFactory mSecretKeyFactory;
+  // 0xCAFEBABE
+  // we encrypt both this value and data when we encrypt data.
+  // when decrypting we ensure that KNOWN_VAL is correct
+  // and thus guarantee that we are being given the right key
+<span class="fc" id="L45">  private static final byte[] KNOWN_VAL = new byte[] {0xC, 0xA, 0xF, 0xE, 0xB, 0xA, 0xB, 0xE};</span>
+  private final KeyGenerator m_keyGen;
+  private final IChannelMessenger m_channelMessenger;
+  // Maps VaultID -&gt; SecretKey
+<span class="fc" id="L49">  private final ConcurrentMap&lt;VaultID, SecretKey&gt; m_secretKeys = new ConcurrentHashMap&lt;&gt;();</span>
+  // maps ValutID -&gt; encrypted byte[]
+<span class="fc" id="L51">  private final ConcurrentMap&lt;VaultID, byte[]&gt; m_unverifiedValues = new ConcurrentHashMap&lt;&gt;();</span>
+  // maps VaultID -&gt; byte[]
+<span class="fc" id="L53">  private final ConcurrentMap&lt;VaultID, byte[]&gt; m_verifiedValues = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="fc" id="L54">  private final Object m_waitForLock = new Object();</span>
+
+  /**
+   * @param channelMessenger
+   */
+<span class="fc" id="L59">  public Vault(final IChannelMessenger channelMessenger) {</span>
+<span class="fc" id="L60">    m_channelMessenger = channelMessenger;</span>
+<span class="fc" id="L61">    m_channelMessenger.registerChannelSubscriber(m_remoteVault, VAULT_CHANNEL);</span>
+    try {
+<span class="fc" id="L63">      mSecretKeyFactory = SecretKeyFactory.getInstance(ALGORITHM);</span>
+<span class="fc" id="L64">      m_keyGen = KeyGenerator.getInstance(ALGORITHM);</span>
+<span class="pc" id="L65">    } catch (final NoSuchAlgorithmException e) {</span>
+<span class="nc" id="L66">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L67">      throw new IllegalStateException(&quot;Nothing known about algorithm:&quot; + ALGORITHM);</span>
+    }
+<span class="fc" id="L69">  }</span>
+
+  public void shutDown() {
+<span class="nc" id="L72">    m_channelMessenger.unregisterChannelSubscriber(m_remoteVault, VAULT_CHANNEL);</span>
+<span class="nc" id="L73">  }</span>
+
+  // serialize secret key as byte array to
+  // preserve jdk 1.4 to 1.5 compatability
+  // they should be compatable, but we are
+  // getting errors with serializing secret keys
+  private SecretKey bytesToKey(final byte[] bytes) {
+    try {
+<span class="fc" id="L81">      final DESKeySpec spec = new DESKeySpec(bytes);</span>
+<span class="fc" id="L82">      return mSecretKeyFactory.generateSecret(spec);</span>
+<span class="nc" id="L83">    } catch (final GeneralSecurityException e) {</span>
+<span class="nc" id="L84">      throw new IllegalStateException(e.getMessage());</span>
+    }
+  }
+
+  private byte[] secretKeyToBytes(final SecretKey key) {
+    DESKeySpec ks;
+    try {
+<span class="fc" id="L91">      ks = (DESKeySpec) mSecretKeyFactory.getKeySpec(key, DESKeySpec.class);</span>
+<span class="fc" id="L92">      return ks.getKey();</span>
+<span class="nc" id="L93">    } catch (final GeneralSecurityException e) {</span>
+<span class="nc" id="L94">      throw new IllegalStateException(e.getMessage());</span>
+    }
+  }
+
+  private IRemoteVault getRemoteBroadcaster() {
+<span class="fc" id="L99">    return (IRemoteVault) m_channelMessenger.getChannelBroadcastor(VAULT_CHANNEL);</span>
+  }
+
+  /**
+   * place data in the vault. An encrypted form of the data is sent at this
+   * time to all nodes.
+   * &lt;p&gt;
+   * The same key used to encrypt the KNOWN_VALUE so that nodes can verify the key when it is used to decrypt the data.
+   *
+   * @param data
+   *        - the data to lock
+   * @return the VaultId of the data
+   */
+  public VaultID lock(final byte[] data) {
+<span class="fc" id="L113">    final VaultID id = new VaultID(m_channelMessenger.getLocalNode());</span>
+<span class="fc" id="L114">    final SecretKey key = m_keyGen.generateKey();</span>
+<span class="pc bpc" id="L115" title="1 of 2 branches missed.">    if (m_secretKeys.putIfAbsent(id, key) != null) {</span>
+<span class="nc" id="L116">      throw new IllegalStateException(&quot;dupliagte id:&quot; + id);</span>
+    }
+    // we already know it, so might as well keep it
+<span class="fc" id="L119">    m_verifiedValues.put(id, data);</span>
+    Cipher cipher;
+    try {
+<span class="fc" id="L122">      cipher = Cipher.getInstance(ALGORITHM);</span>
+<span class="fc" id="L123">      cipher.init(Cipher.ENCRYPT_MODE, key);</span>
+<span class="pc" id="L124">    } catch (final NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException e) {</span>
+<span class="nc" id="L125">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L126">      throw new IllegalStateException(e.getMessage());</span>
+    }
+    // join the data and known value into one array
+<span class="fc" id="L129">    final byte[] dataAndCheck = joinDataAndKnown(data);</span>
+    byte[] encrypted;
+    try {
+<span class="fc" id="L132">      encrypted = cipher.doFinal(dataAndCheck);</span>
+<span class="pc" id="L133">    } catch (final Exception e) {</span>
+<span class="nc" id="L134">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L135">      throw new IllegalStateException(e.getMessage());</span>
+    }
+    // tell the world
+<span class="fc" id="L138">    getRemoteBroadcaster().addLockedValue(id, encrypted);</span>
+<span class="fc" id="L139">    return id;</span>
+  }
+
+  /**
+   * Join known and data into one array.
+   * &lt;p&gt;
+   * package access so we can test.
+   */
+  static byte[] joinDataAndKnown(final byte[] data) {
+<span class="fc" id="L148">    final byte[] dataAndCheck = new byte[KNOWN_VAL.length + data.length];</span>
+<span class="fc" id="L149">    System.arraycopy(KNOWN_VAL, 0, dataAndCheck, 0, KNOWN_VAL.length);</span>
+<span class="fc" id="L150">    System.arraycopy(data, 0, dataAndCheck, KNOWN_VAL.length, data.length);</span>
+<span class="fc" id="L151">    return dataAndCheck;</span>
+  }
+
+  /**
+   * allow other nodes to see the data.
+   * &lt;p&gt;
+   * You can only unlock data that was locked by the same instance of the Vault
+   *
+   * @param id
+   *        - the vault id to unlock
+   */
+  public void unlock(final VaultID id) {
+<span class="pc bpc" id="L163" title="1 of 2 branches missed.">    if (!id.getGeneratedOn().equals(m_channelMessenger.getLocalNode())) {</span>
+<span class="nc" id="L164">      throw new IllegalArgumentException(&quot;Cant unlock data that wasnt locked on this node&quot;);</span>
+    }
+<span class="fc" id="L166">    final SecretKey key = m_secretKeys.remove(id);</span>
+    // let everyone unlock it
+<span class="fc" id="L168">    getRemoteBroadcaster().unlock(id, secretKeyToBytes(key));</span>
+<span class="fc" id="L169">  }</span>
+
+  /**
+   * Note - if an id has been released, then this will return false.
+   * If this instance of vault locked id, then this method will return true
+   * if the id has not been released.
+   *
+   * @return - has this id been unlocked
+   */
+  public boolean isUnlocked(final VaultID id) {
+<span class="fc" id="L179">    return m_verifiedValues.containsKey(id);</span>
+  }
+
+  /**
+   * Get the unlocked data.
+   */
+  public byte[] get(final VaultID id) throws NotUnlockedException {
+<span class="pc bpc" id="L186" title="1 of 2 branches missed.">    if (m_verifiedValues.containsKey(id)) {</span>
+<span class="fc" id="L187">      return m_verifiedValues.get(id);</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">    } else if (m_unverifiedValues.containsKey(id)) {</span>
+<span class="nc" id="L189">      throw new NotUnlockedException();</span>
+    } else {
+<span class="nc" id="L191">      throw new IllegalStateException(&quot;Nothing known about id:&quot; + id);</span>
+    }
+  }
+
+  /**
+   * Do we know about the given vault id.
+   */
+  public boolean knowsAbout(final VaultID id) {
+<span class="pc bpc" id="L199" title="1 of 4 branches missed.">    return m_verifiedValues.containsKey(id) || m_unverifiedValues.containsKey(id);</span>
+  }
+
+  public List&lt;VaultID&gt; knownIds() {
+<span class="nc" id="L203">    final ArrayList&lt;VaultID&gt; rVal = new ArrayList&lt;&gt;(m_verifiedValues.keySet());</span>
+<span class="nc" id="L204">    rVal.addAll(m_unverifiedValues.keySet());</span>
+<span class="nc" id="L205">    return rVal;</span>
+  }
+
+  /**
+   * Allow all data associated with the given vault id to be released and garbage collected
+   * &lt;p&gt;
+   * An id can be released by any node.
+   * &lt;p&gt;
+   * If the id has already been released, then nothing will happen.
+   */
+  public void release(final VaultID id) {
+<span class="fc" id="L216">    getRemoteBroadcaster().release(id);</span>
+<span class="fc" id="L217">  }</span>
+
+<span class="fc" id="L219">  private final IRemoteVault m_remoteVault = new IRemoteVault() {</span>
+    @Override
+    public void addLockedValue(final VaultID id, final byte[] data) {
+<span class="fc bfc" id="L222" title="All 2 branches covered.">      if (id.getGeneratedOn().equals(m_channelMessenger.getLocalNode())) {</span>
+<span class="fc" id="L223">        return;</span>
+      }
+<span class="pc bpc" id="L225" title="1 of 2 branches missed.">      if (m_unverifiedValues.putIfAbsent(id, data) != null) {</span>
+<span class="nc" id="L226">        throw new IllegalStateException(&quot;duplicate values for id:&quot; + id);</span>
+      }
+<span class="pc" id="L228">      synchronized (m_waitForLock) {</span>
+<span class="fc" id="L229">        m_waitForLock.notifyAll();</span>
+      }
+<span class="fc" id="L231">    }</span>
+
+    @Override
+    public void unlock(final VaultID id, final byte[] secretKeyBytes) {
+<span class="fc bfc" id="L235" title="All 2 branches covered.">      if (id.getGeneratedOn().equals(m_channelMessenger.getLocalNode())) {</span>
+<span class="fc" id="L236">        return;</span>
+      }
+<span class="fc" id="L238">      final SecretKey key = bytesToKey(secretKeyBytes);</span>
+      Cipher cipher;
+      try {
+<span class="fc" id="L241">        cipher = Cipher.getInstance(ALGORITHM);</span>
+<span class="fc" id="L242">        cipher.init(Cipher.DECRYPT_MODE, key);</span>
+<span class="pc" id="L243">      } catch (final NoSuchAlgorithmException | InvalidKeyException | NoSuchPaddingException e) {</span>
+<span class="nc" id="L244">        ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L245">        throw new IllegalStateException(e.getMessage());</span>
+      }
+<span class="fc" id="L247">      final byte[] encrypted = m_unverifiedValues.remove(id);</span>
+      byte[] decrypted;
+      try {
+<span class="fc" id="L250">        decrypted = cipher.doFinal(encrypted);</span>
+<span class="pc" id="L251">      } catch (final Exception e1) {</span>
+<span class="nc" id="L252">        e1.printStackTrace();</span>
+<span class="nc" id="L253">        throw new IllegalStateException(e1.getMessage());</span>
+      }
+<span class="pc bpc" id="L255" title="1 of 2 branches missed.">      if (decrypted.length &lt; KNOWN_VAL.length) {</span>
+<span class="nc" id="L256">        throw new IllegalStateException(&quot;decrypted is not long enough to have known value, cheating is suspected&quot;);</span>
+      }
+      // check that the known value is correct
+      // we use the known value to check that the key given to
+      // us was the key used to encrypt the value in the first place
+<span class="fc bfc" id="L261" title="All 2 branches covered.">      for (int i = 0; i &lt; KNOWN_VAL.length; i++) {</span>
+<span class="pc bpc" id="L262" title="1 of 2 branches missed.">        if (KNOWN_VAL[i] != decrypted[i]) {</span>
+<span class="nc" id="L263">          throw new IllegalStateException(&quot;Known value of cipher not correct, cheating is suspected&quot;);</span>
+        }
+      }
+<span class="fc" id="L266">      final byte[] data = new byte[decrypted.length - KNOWN_VAL.length];</span>
+<span class="fc" id="L267">      System.arraycopy(decrypted, KNOWN_VAL.length, data, 0, data.length);</span>
+<span class="pc bpc" id="L268" title="1 of 2 branches missed.">      if (m_verifiedValues.putIfAbsent(id, data) != null) {</span>
+<span class="nc" id="L269">        throw new IllegalStateException(&quot;duplicate values for id:&quot; + id);</span>
+      }
+<span class="pc" id="L271">      synchronized (m_waitForLock) {</span>
+<span class="fc" id="L272">        m_waitForLock.notifyAll();</span>
+      }
+<span class="fc" id="L274">    }</span>
+
+    @Override
+    public void release(final VaultID id) {
+<span class="fc" id="L278">      m_unverifiedValues.remove(id);</span>
+<span class="fc" id="L279">      m_verifiedValues.remove(id);</span>
+<span class="fc" id="L280">    }</span>
+  };
+
+  /**
+   * Waits until we know about a given vault id.
+   * waits for at most timeout milliseconds
+   */
+  public void waitForID(final VaultID id, final long timeoutMS) {
+<span class="pc bpc" id="L288" title="1 of 2 branches missed.">    if (timeoutMS &lt;= 0) {</span>
+<span class="nc" id="L289">      throw new IllegalArgumentException(&quot;Must suppply positive timeout argument&quot;);</span>
+    }
+<span class="fc" id="L291">    final long endTime = timeoutMS + System.currentTimeMillis();</span>
+<span class="pc bpc" id="L292" title="1 of 4 branches missed.">    while (System.currentTimeMillis() &lt; endTime &amp;&amp; !knowsAbout(id)) {</span>
+<span class="pc" id="L293">      synchronized (m_waitForLock) {</span>
+<span class="pc bpc" id="L294" title="1 of 2 branches missed.">        if (knowsAbout(id)) {</span>
+<span class="nc" id="L295">          return;</span>
+        }
+        try {
+<span class="fc" id="L298">          final long waitTime = endTime - System.currentTimeMillis();</span>
+<span class="pc bpc" id="L299" title="1 of 2 branches missed.">          if (waitTime &gt; 0) {</span>
+<span class="fc" id="L300">            m_waitForLock.wait(waitTime);</span>
+          }
+<span class="pc" id="L302">        } catch (final InterruptedException e) {</span>
+          // not a big deal
+        }
+      }
+    }
+<span class="fc" id="L307">  }</span>
+
+  /**
+   * Wait until the given id is unlocked
+   */
+  public void waitForIdToUnlock(final VaultID id, final long timeout) {
+<span class="pc bpc" id="L313" title="1 of 2 branches missed.">    if (timeout &lt;= 0) {</span>
+<span class="nc" id="L314">      throw new IllegalArgumentException(&quot;Must suppply positive timeout argument&quot;);</span>
+    }
+<span class="fc" id="L316">    final long startTime = System.currentTimeMillis();</span>
+<span class="fc" id="L317">    long leftToWait = timeout;</span>
+<span class="pc bpc" id="L318" title="1 of 4 branches missed.">    while (leftToWait &gt; 0 &amp;&amp; !isUnlocked(id)) {</span>
+<span class="pc" id="L319">      synchronized (m_waitForLock) {</span>
+<span class="pc bpc" id="L320" title="1 of 2 branches missed.">        if (isUnlocked(id)) {</span>
+<span class="nc" id="L321">          return;</span>
+        }
+        try {
+<span class="fc" id="L324">          m_waitForLock.wait(leftToWait);</span>
+<span class="pc" id="L325">        } catch (final InterruptedException e) {</span>
+          // not a big deal
+        }
+<span class="fc" id="L328">        leftToWait = startTime + timeout - System.currentTimeMillis();</span>
+      }
+    }
+<span class="fc" id="L331">  }</span>
+}
+
+
+interface IRemoteVault extends IChannelSubscribor {
+  void addLockedValue(VaultID id, byte[] data);
+
+  void unlock(VaultID id, byte[] secretKeyBytes);
+
+  void release(VaultID id);
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

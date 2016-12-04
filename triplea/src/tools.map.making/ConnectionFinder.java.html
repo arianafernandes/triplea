@@ -1,0 +1,442 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ConnectionFinder.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.map.making</a> &gt; <span class="el_source">ConnectionFinder.java</span></div><h1>ConnectionFinder.java</h1><pre class="source lang-java linenums">package tools.map.making;
+
+import java.awt.Dimension;
+import java.awt.Polygon;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Area;
+import java.awt.geom.PathIterator;
+import java.awt.geom.Point2D;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.ui.Util;
+import games.strategy.util.AlphanumComparator;
+import games.strategy.util.PointFileReaderWriter;
+import tools.image.FileOpen;
+import tools.image.FileSave;
+
+/**
+ * Utility to find connections between polygons
+ * Not pretty, meant only for one time use.
+ * Inputs - a polygons.txt file
+ * Outputs - a list of connections between the Polygons
+ */
+// TODO: get this moved to its own package tree
+<span class="nc" id="L42">public class ConnectionFinder {</span>
+<span class="nc" id="L43">  private static File s_mapFolderLocation = null;</span>
+  private static final String TRIPLEA_MAP_FOLDER = &quot;triplea.map.folder&quot;;
+  private static final String LINE_THICKNESS = &quot;triplea.map.lineThickness&quot;;
+  private static final String SCALE_PIXELS = &quot;triplea.map.scalePixels&quot;;
+  private static final String MIN_OVERLAP = &quot;triplea.map.minOverlap&quot;;
+<span class="nc" id="L48">  private static boolean dimensionsSet = false;</span>
+<span class="nc" id="L49">  private static StringBuffer territoryDefinitions = null;</span>
+  // how many pixels should each area become bigger in both x and y axis to see which area it overlaps?
+  // default 8, or if LINE_THICKNESS if given 4x linethickness
+<span class="nc" id="L52">  public static int scalePixels = 8;</span>
+  // how many pixels should the boundingbox of the overlapping area have for it to be considered a valid connection?
+  // default 32, or if LINE_THICKNESS is given 16 x linethickness
+<span class="nc" id="L55">  public static double minOverlap = 32.0;</span>
+
+  public static void main(final String[] args) {
+<span class="nc" id="L58">    handleCommandLineArgs(args);</span>
+<span class="nc" id="L59">    JOptionPane.showMessageDialog(null,</span>
+<span class="nc" id="L60">        new JLabel(&quot;&lt;html&gt;&quot; + &quot;This is the ConnectionFinder. &quot;</span>
+            + &quot;&lt;br&gt;It will create a file containing the connections between territories, and optionally the territory definitions as well. &quot;
+            + &quot;&lt;br&gt;Copy and paste everything from this file into your game xml file (the 'map' section). &quot;
+            + &quot;&lt;br&gt;The connections file can and Should Be Deleted when finished, because it is Not Needed and not read by the engine. &quot;
+            + &quot;&lt;/html&gt;&quot;));
+<span class="nc" id="L65">    System.out.println(&quot;Select polygons.txt&quot;);</span>
+<span class="nc" id="L66">    File polyFile = null;</span>
+<span class="nc bnc" id="L67" title="All 4 branches missed.">    if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+<span class="nc" id="L68">      polyFile = new File(s_mapFolderLocation, &quot;polygons.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L70" title="All 6 branches missed.">    if (polyFile != null &amp;&amp; polyFile.exists() &amp;&amp; JOptionPane.showConfirmDialog(null,</span>
+<span class="nc" id="L71">        &quot;A polygons.txt file was found in the map's folder, do you want to use it?&quot;, &quot;File Suggestion&quot;, 1) == 0) {</span>
+      // yay
+    } else {
+<span class="nc" id="L74">      polyFile = new FileOpen(&quot;Select The polygons.txt file&quot;, s_mapFolderLocation, &quot;.txt&quot;).getFile();</span>
+    }
+<span class="nc bnc" id="L76" title="All 4 branches missed.">    if (polyFile == null || !polyFile.exists()) {</span>
+<span class="nc" id="L77">      System.out.println(&quot;No polygons.txt Selected. Shutting down.&quot;);</span>
+<span class="nc" id="L78">      System.exit(0);</span>
+    }
+<span class="nc bnc" id="L80" title="All 4 branches missed.">    if (s_mapFolderLocation == null &amp;&amp; polyFile != null) {</span>
+<span class="nc" id="L81">      s_mapFolderLocation = polyFile.getParentFile();</span>
+    }
+<span class="nc" id="L83">    final Map&lt;String, List&lt;Area&gt;&gt; territoryAreas = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L84">    Map&lt;String, List&lt;Polygon&gt;&gt; mapOfPolygons = null;</span>
+    try {
+<span class="nc" id="L86">      final FileInputStream in = new FileInputStream(polyFile);</span>
+<span class="nc" id="L87">      mapOfPolygons = PointFileReaderWriter.readOneToManyPolygons(in);</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">      for (final String territoryName : mapOfPolygons.keySet()) {</span>
+<span class="nc" id="L89">        final List&lt;Polygon&gt; listOfPolygons = mapOfPolygons.get(territoryName);</span>
+<span class="nc" id="L90">        final List&lt;Area&gt; listOfAreas = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        for (final Polygon p : listOfPolygons) {</span>
+<span class="nc" id="L92">          listOfAreas.add(new Area(p));</span>
+        }
+<span class="nc" id="L94">        territoryAreas.put(territoryName, listOfAreas);</span>
+      }
+<span class="nc" id="L96">    } catch (final IOException ex) {</span>
+<span class="nc" id="L97">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    if (!dimensionsSet) {</span>
+<span class="nc" id="L100">      final String lineWidth = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L101">          &quot;Enter the width of territory border lines on your map? \r\n(eg: 1, or 2, etc.)&quot;);</span>
+      try {
+<span class="nc" id="L103">        final int lineThickness = Integer.parseInt(lineWidth);</span>
+<span class="nc" id="L104">        scalePixels = lineThickness * 4;</span>
+<span class="nc" id="L105">        minOverlap = scalePixels * 4;</span>
+<span class="nc" id="L106">        dimensionsSet = true;</span>
+<span class="nc" id="L107">      } catch (final NumberFormatException ex) {</span>
+      }
+    }
+<span class="nc bnc" id="L110" title="All 2 branches missed.">    if (JOptionPane.showConfirmDialog(null,</span>
+<span class="nc" id="L111">        &quot;Scale set to &quot; + scalePixels + &quot; pixels larger, and minimum overlap set to &quot; + minOverlap + &quot; pixels. \r\n&quot;</span>
+<span class="nc" id="L112">            + &quot;Do you wish to continue with this? \r\nSelect Yes to continue, Select No to override and change the size.&quot;,</span>
+<span class="nc" id="L113">        &quot;Scale and Overlap Size&quot;, JOptionPane.YES_NO_OPTION) == 1) {</span>
+<span class="nc" id="L114">      final String scale = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L115">          &quot;Enter the number of pixels larger each territory should become? \r\n(Normally 4x bigger than the border line width. eg: 4, or 8, etc)&quot;);</span>
+      try {
+<span class="nc" id="L117">        scalePixels = Integer.parseInt(scale);</span>
+<span class="nc" id="L118">      } catch (final NumberFormatException ex) {</span>
+      }
+<span class="nc" id="L120">      final String overlap = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L121">          &quot;Enter the minimum number of overlapping pixels for a connection? \r\n(Normally 16x bigger than the border line width. eg: 16, or 32, etc.)&quot;);</span>
+      try {
+<span class="nc" id="L123">        minOverlap = Integer.parseInt(overlap);</span>
+<span class="nc" id="L124">      } catch (final NumberFormatException ex) {</span>
+      }
+    }
+<span class="nc" id="L127">    final Map&lt;String, Collection&lt;String&gt;&gt; connections = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L128">    System.out.println(&quot;Now Scanning for Connections&quot;);</span>
+    // sort so that they are in alphabetic order (makes xml's prettier and easier to update in future)
+<span class="nc" id="L130">    final List&lt;String&gt; allTerritories =</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        mapOfPolygons == null ? new ArrayList&lt;&gt;() : new ArrayList&lt;&gt;(mapOfPolygons.keySet());</span>
+<span class="nc" id="L132">    Collections.sort(allTerritories, new AlphanumComparator());</span>
+<span class="nc" id="L133">    final List&lt;String&gt; allAreas = new ArrayList&lt;&gt;(territoryAreas.keySet());</span>
+<span class="nc" id="L134">    Collections.sort(allAreas, new AlphanumComparator());</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">    for (final String territory : allTerritories) {</span>
+<span class="nc" id="L136">      final Set&lt;String&gt; thisTerritoryConnections = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L137">      final List&lt;Polygon&gt; currentPolygons = mapOfPolygons.get(territory);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">      for (final Polygon currentPolygon : currentPolygons) {</span>
+<span class="nc" id="L139">        final Shape scaledShape = scale(currentPolygon, scalePixels);</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        for (final String otherTerritory : allAreas) {</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">          if (otherTerritory.equals(territory)) {</span>
+<span class="nc" id="L142">            continue;</span>
+          }
+<span class="nc bnc" id="L144" title="All 2 branches missed.">          if (thisTerritoryConnections.contains(otherTerritory)) {</span>
+<span class="nc" id="L145">            continue;</span>
+          }
+<span class="nc bnc" id="L147" title="All 4 branches missed.">          if (connections.get(otherTerritory) != null &amp;&amp; connections.get(otherTerritory).contains(territory)) {</span>
+<span class="nc" id="L148">            continue;</span>
+          }
+<span class="nc bnc" id="L150" title="All 2 branches missed.">          for (final Area otherArea : territoryAreas.get(otherTerritory)) {</span>
+<span class="nc" id="L151">            final Area testArea = new Area(scaledShape);</span>
+<span class="nc" id="L152">            testArea.intersect(otherArea);</span>
+<span class="nc bnc" id="L153" title="All 4 branches missed.">            if (!testArea.isEmpty() &amp;&amp; sizeOfArea(testArea) &gt; minOverlap) {</span>
+<span class="nc" id="L154">              thisTerritoryConnections.add(otherTerritory);</span>
+<span class="nc" id="L155">            } else if (!testArea.isEmpty()) {</span>
+            }
+          }
+        }
+<span class="nc" id="L159">        connections.put(territory, thisTerritoryConnections);</span>
+      }
+    }
+<span class="nc bnc" id="L162" title="All 2 branches missed.">    if (JOptionPane.showConfirmDialog(null, &quot;Do you also want to create the Territory Definitions?&quot;,</span>
+<span class="nc" id="L163">        &quot;Territory Definitions&quot;, 1) == 0) {</span>
+<span class="nc" id="L164">      final String waterString = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L165">          &quot;Enter a string or regex that determines if the territory is Water? \r\n(e.g.: &quot;</span>
+              + Util.TERRITORY_SEA_ZONE_INFIX + &quot;)&quot;,
+<span class="nc" id="L167">          Util.TERRITORY_SEA_ZONE_INFIX);</span>
+<span class="nc" id="L168">      territoryDefinitions = doTerritoryDefinitions(allTerritories, waterString);</span>
+    }
+    try {
+<span class="nc" id="L171">      final String fileName = new FileSave(&quot;Where To Save connections.txt ? (cancel to print to console)&quot;,</span>
+<span class="nc" id="L172">          &quot;connections.txt&quot;, s_mapFolderLocation).getPathString();</span>
+<span class="nc" id="L173">      final StringBuffer connectionsString = convertToXML(connections);</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">      if (fileName == null) {</span>
+<span class="nc" id="L175">        System.out.println();</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (territoryDefinitions != null) {</span>
+<span class="nc" id="L177">          System.out.println(territoryDefinitions.toString());</span>
+        }
+<span class="nc" id="L179">        System.out.println(connectionsString.toString());</span>
+<span class="nc" id="L180">      } else {</span>
+<span class="nc" id="L181">        final FileOutputStream out = new FileOutputStream(fileName);</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (territoryDefinitions != null) {</span>
+<span class="nc" id="L183">          out.write(String.valueOf(territoryDefinitions).getBytes());</span>
+        }
+<span class="nc" id="L185">        out.write(String.valueOf(connectionsString).getBytes());</span>
+<span class="nc" id="L186">        out.flush();</span>
+<span class="nc" id="L187">        out.close();</span>
+<span class="nc" id="L188">        System.out.println(&quot;Data written to :&quot; + new File(fileName).getCanonicalPath());</span>
+      }
+<span class="nc" id="L190">    } catch (final Exception ex) {</span>
+<span class="nc" id="L191">      ex.printStackTrace();</span>
+    }
+<span class="nc" id="L193">  }// end main</span>
+
+  /**
+   * Creates the xml territory definitions.
+   *
+   * @param allTerritoryNames
+   * @param waterString
+   *        a substring contained in a TerritoryName to define a Sea Zone or a regex expression that indicates that a
+   *        territory is water
+   * @return StringBuffer containing XML representing these connections
+   */
+  private static StringBuffer doTerritoryDefinitions(final List&lt;String&gt; allTerritoryNames, final String waterString) {
+    // sort for pretty xml's
+<span class="nc" id="L206">    Collections.sort(allTerritoryNames, new AlphanumComparator());</span>
+<span class="nc" id="L207">    final StringBuffer output = new StringBuffer();</span>
+<span class="nc" id="L208">    output.append(&quot;&lt;!-- Territory Definitions --&gt;\r\n&quot;);</span>
+<span class="nc" id="L209">    final Pattern waterPattern = Pattern.compile(waterString);</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">    for (final String t : allTerritoryNames) {</span>
+<span class="nc" id="L211">      final Matcher matcher = waterPattern.matcher(t);</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">      if (matcher.find()) {</span>
+        // &lt;territory name=&quot;sea zone 1&quot; water=&quot;true&quot;/&gt;
+<span class="nc" id="L214">        output.append(&quot;&lt;territory name=\&quot;&quot;).append(t).append(&quot;\&quot; water=\&quot;true\&quot;/&gt;\r\n&quot;);</span>
+<span class="nc" id="L215">      } else {</span>
+        // &lt;territory name=&quot;neutral territory 2&quot;/&gt;
+<span class="nc" id="L217">        output.append(&quot;&lt;territory name=\&quot;&quot;).append(t).append(&quot;\&quot;/&gt;\r\n&quot;);</span>
+      }
+    }
+<span class="nc" id="L220">    output.append(&quot;\r\n&quot;);</span>
+<span class="nc" id="L221">    return output;</span>
+  }
+
+  /**
+   * Converts a map of connections to XML formatted text with the connections
+   *
+   * @param connections
+   *        a map of connections between Territories
+   * @return a StringBuffer containing XML representing these connections
+   */
+  private static StringBuffer convertToXML(final Map&lt;String, Collection&lt;String&gt;&gt; connections) {
+<span class="nc" id="L232">    final StringBuffer output = new StringBuffer();</span>
+<span class="nc" id="L233">    output.append(&quot;&lt;!-- Territory Connections --&gt;\r\n&quot;);</span>
+    // sort for pretty xml's
+<span class="nc" id="L235">    final List&lt;String&gt; allTerritories = new ArrayList&lt;&gt;(connections.keySet());</span>
+<span class="nc" id="L236">    Collections.sort(allTerritories, new AlphanumComparator());</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">    for (final String t1 : allTerritories) {</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">      for (final String t2 : connections.get(t1)) {</span>
+<span class="nc" id="L239">        output.append(&quot;&lt;connection t1=\&quot;&quot;).append(t1).append(&quot;\&quot; t2=\&quot;&quot;).append(t2).append(&quot;\&quot;/&gt;\r\n&quot;);</span>
+      }
+    }
+<span class="nc" id="L242">    return output;</span>
+  }
+
+  /**
+   * Returns the size of the area of the boundingbox of the polygon
+   *
+   * @param area
+   *        the area of which the boundingbox size is measured
+   * @return the size of the area of the boundingbox of this area
+   */
+  public static double sizeOfArea(final Area area) {
+<span class="nc" id="L253">    final Dimension d = area.getBounds().getSize();</span>
+<span class="nc" id="L254">    return d.getHeight() * d.getWidth();</span>
+  }
+
+  /**
+   * from: eu.hansolo.steelseries.tools.Scaler.java
+   * Returns a double that represents the area of the given point array of a polygon
+   *
+   * @param pointArray
+   * @param N
+   * @return a double that represents the area of the given point array of a polygon
+   */
+  private static double calcSignedPolygonArea(final Point2D[] pointArray) {
+<span class="nc" id="L266">    final int N = pointArray.length;</span>
+    int i;
+    int j;
+<span class="nc" id="L269">    double area = 0;</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">    for (i = 0; i &lt; N; i++) {</span>
+<span class="nc" id="L271">      j = (i + 1) % N;</span>
+<span class="nc" id="L272">      area += pointArray[i].getX() * pointArray[j].getY();</span>
+<span class="nc" id="L273">      area -= pointArray[i].getY() * pointArray[j].getX();</span>
+    }
+<span class="nc" id="L275">    area /= 2.0;</span>
+<span class="nc" id="L276">    return (area);</span>
+  }
+
+  /**
+   * from: eu.hansolo.steelseries.tools.Scaler.java
+   * Returns a Point2D object that represents the center of mass of the given point array which represents a
+   * polygon.
+   *
+   * @param pointArray
+   * @return a Point2D object that represents the center of mass of the given point array
+   */
+  private static Point2D calcCenterOfMass(final Point2D[] pointArray) {
+<span class="nc" id="L288">    final int N = pointArray.length;</span>
+<span class="nc" id="L289">    double cx = 0;</span>
+<span class="nc" id="L290">    double cy = 0;</span>
+<span class="nc" id="L291">    double area = calcSignedPolygonArea(pointArray);</span>
+<span class="nc" id="L292">    final Point2D centroid = new Point2D.Double();</span>
+    int i;
+    int j;
+<span class="nc" id="L295">    double factor = 0;</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">    for (i = 0; i &lt; N; i++) {</span>
+<span class="nc" id="L297">      j = (i + 1) % N;</span>
+<span class="nc" id="L298">      factor = (pointArray[i].getX() * pointArray[j].getY() - pointArray[j].getX() * pointArray[i].getY());</span>
+<span class="nc" id="L299">      cx += (pointArray[i].getX() + pointArray[j].getX()) * factor;</span>
+<span class="nc" id="L300">      cy += (pointArray[i].getY() + pointArray[j].getY()) * factor;</span>
+    }
+<span class="nc" id="L302">    area *= 6.0f;</span>
+<span class="nc" id="L303">    factor = 1 / area;</span>
+<span class="nc" id="L304">    cx *= factor;</span>
+<span class="nc" id="L305">    cy *= factor;</span>
+<span class="nc" id="L306">    centroid.setLocation(cx, cy);</span>
+<span class="nc" id="L307">    return centroid;</span>
+  }
+
+  /**
+   * from: eu.hansolo.steelseries.tools.Scaler.java
+   * Returns a Point2D object that represents the center of mass of the given shape.
+   *
+   * @param currentShape
+   * @return a Point2D object that represents the center of mass of the given shape
+   */
+  private static Point2D getCentroid(final Shape currentShape) {
+<span class="nc" id="L318">    final ArrayList&lt;Point2D&gt; pointList = new ArrayList&lt;&gt;(32);</span>
+<span class="nc" id="L319">    final PathIterator pathIterator = currentShape.getPathIterator(null);</span>
+<span class="nc" id="L320">    int lastMoveToIndex = -1;</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">    while (!pathIterator.isDone()) {</span>
+<span class="nc" id="L322">      final double[] coordinates = new double[6];</span>
+<span class="nc bnc" id="L323" title="All 6 branches missed.">      switch (pathIterator.currentSegment(coordinates)) {</span>
+        case PathIterator.SEG_MOVETO:
+<span class="nc" id="L325">          pointList.add(new Point2D.Double(coordinates[0], coordinates[1]));</span>
+<span class="nc" id="L326">          lastMoveToIndex++;</span>
+<span class="nc" id="L327">          break;</span>
+        case PathIterator.SEG_LINETO:
+<span class="nc" id="L329">          pointList.add(new Point2D.Double(coordinates[0], coordinates[1]));</span>
+<span class="nc" id="L330">          break;</span>
+        case PathIterator.SEG_QUADTO:
+<span class="nc" id="L332">          pointList.add(new Point2D.Double(coordinates[0], coordinates[1]));</span>
+<span class="nc" id="L333">          pointList.add(new Point2D.Double(coordinates[2], coordinates[3]));</span>
+<span class="nc" id="L334">          break;</span>
+        case PathIterator.SEG_CUBICTO:
+<span class="nc" id="L336">          pointList.add(new Point2D.Double(coordinates[0], coordinates[1]));</span>
+<span class="nc" id="L337">          pointList.add(new Point2D.Double(coordinates[2], coordinates[3]));</span>
+<span class="nc" id="L338">          pointList.add(new Point2D.Double(coordinates[4], coordinates[5]));</span>
+<span class="nc" id="L339">          break;</span>
+        case PathIterator.SEG_CLOSE:
+<span class="nc bnc" id="L341" title="All 2 branches missed.">          if (lastMoveToIndex &gt;= 0) {</span>
+<span class="nc" id="L342">            pointList.add(pointList.get(lastMoveToIndex));</span>
+          }
+          break;
+      }
+<span class="nc" id="L346">      pathIterator.next();</span>
+    }
+<span class="nc" id="L348">    final Point2D[] pointArray = new Point2D[pointList.size()];</span>
+<span class="nc" id="L349">    pointList.toArray(pointArray);</span>
+<span class="nc" id="L350">    return (calcCenterOfMass(pointArray));</span>
+  }
+
+  public static Shape scale(final Shape currentShape, final int pixels) {
+<span class="nc" id="L354">    final Dimension d = currentShape.getBounds().getSize();</span>
+<span class="nc" id="L355">    final double scalefactorX = 1.0 + (1 / ((double) d.width)) * pixels;</span>
+<span class="nc" id="L356">    final double scalefactorY = 1.0 + (1 / ((double) d.height)) * pixels;</span>
+<span class="nc" id="L357">    return scale(currentShape, scalefactorX, scalefactorY);</span>
+  }
+
+  /**
+   * from: eu.hansolo.steelseries.tools.Scaler.java
+   * Returns a scaled version of the given shape, calculated by the given scale factor.
+   * The scaling will be calculated around the centroid of the shape.
+   *
+   * @param currentPolygon
+   * @param xScaleFactor
+   *        how much to scale on the x-axis
+   * @param yScaleFactor
+   *        how much to scale on the y-axis
+   *        * @return a scaled version of the given shape, calculated around the centroid by the given scale factors.
+   */
+  private static Shape scale(final Shape currentPolygon, final double xScaleFactor, final double yScaleFactor) {
+<span class="nc" id="L373">    final Point2D centroid = getCentroid(currentPolygon);</span>
+<span class="nc" id="L374">    final AffineTransform transform = AffineTransform.getTranslateInstance((1.0 - xScaleFactor) * centroid.getX(),</span>
+<span class="nc" id="L375">        (1.0 - yScaleFactor) * centroid.getY());</span>
+<span class="nc" id="L376">    transform.scale(xScaleFactor, yScaleFactor);</span>
+<span class="nc" id="L377">    final Shape shape = transform.createTransformedShape(currentPolygon);</span>
+<span class="nc" id="L378">    return shape;</span>
+  }
+
+  private static void handleCommandLineArgs(final String[] args) {
+<span class="nc bnc" id="L382" title="All 2 branches missed.">    for (final String arg : args) {</span>
+<span class="nc" id="L383">      final String value = getValue(arg);</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">      if (arg.startsWith(TRIPLEA_MAP_FOLDER)) {</span>
+<span class="nc" id="L385">        final File mapFolder = new File(value);</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">        if (mapFolder.exists()) {</span>
+<span class="nc" id="L387">          s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L388">        } else {</span>
+<span class="nc" id="L389">          System.out.println(&quot;Could not find directory: &quot; + value);</span>
+        }
+      }
+<span class="nc bnc" id="L392" title="All 2 branches missed.">      if (arg.startsWith(LINE_THICKNESS)) {</span>
+<span class="nc" id="L393">        final int lineThickness = Integer.parseInt(value);</span>
+<span class="nc" id="L394">        scalePixels = lineThickness * 4;</span>
+<span class="nc" id="L395">        minOverlap = scalePixels * 4;</span>
+<span class="nc" id="L396">        dimensionsSet = true;</span>
+      }
+<span class="nc bnc" id="L398" title="All 2 branches missed.">      if (arg.startsWith(MIN_OVERLAP)) {</span>
+<span class="nc" id="L399">        minOverlap = Integer.parseInt(value);</span>
+      }
+<span class="nc bnc" id="L401" title="All 2 branches missed.">      if (arg.startsWith(SCALE_PIXELS)) {</span>
+<span class="nc" id="L402">        scalePixels = Integer.parseInt(value);</span>
+      }
+    }
+    // might be set by -D
+<span class="nc bnc" id="L406" title="All 4 branches missed.">    if (s_mapFolderLocation == null || s_mapFolderLocation.length() &lt; 1) {</span>
+<span class="nc" id="L407">      final String value = System.getProperty(TRIPLEA_MAP_FOLDER);</span>
+<span class="nc bnc" id="L408" title="All 4 branches missed.">      if (value != null &amp;&amp; value.length() &gt; 0) {</span>
+<span class="nc" id="L409">        final File mapFolder = new File(value);</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">        if (mapFolder.exists()) {</span>
+<span class="nc" id="L411">          s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L412">        } else {</span>
+<span class="nc" id="L413">          System.out.println(&quot;Could not find directory: &quot; + value);</span>
+        }
+      }
+    }
+<span class="nc" id="L417">    String value = System.getProperty(LINE_THICKNESS);</span>
+<span class="nc bnc" id="L418" title="All 4 branches missed.">    if (value != null &amp;&amp; value.length() &gt; 0) {</span>
+<span class="nc" id="L419">      final int lineThickness = Integer.parseInt(value);</span>
+<span class="nc" id="L420">      scalePixels = lineThickness * 4;</span>
+<span class="nc" id="L421">      minOverlap = scalePixels * 4;</span>
+<span class="nc" id="L422">      dimensionsSet = true;</span>
+    }
+<span class="nc" id="L424">    value = System.getProperty(MIN_OVERLAP);</span>
+<span class="nc bnc" id="L425" title="All 4 branches missed.">    if (value != null &amp;&amp; value.length() &gt; 0) {</span>
+<span class="nc" id="L426">      minOverlap = Integer.parseInt(value);</span>
+    }
+<span class="nc" id="L428">    value = System.getProperty(SCALE_PIXELS);</span>
+<span class="nc bnc" id="L429" title="All 4 branches missed.">    if (value != null &amp;&amp; value.length() &gt; 0) {</span>
+<span class="nc" id="L430">      scalePixels = Integer.parseInt(value);</span>
+    }
+<span class="nc" id="L432">  }</span>
+
+  private static String getValue(final String arg) {
+<span class="nc" id="L435">    final int index = arg.indexOf('=');</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L437">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L439">    return arg.substring(index + 1);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

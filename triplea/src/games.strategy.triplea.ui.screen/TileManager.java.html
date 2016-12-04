@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TileManager.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui.screen</a> &gt; <span class="el_source">TileManager.java</span></div><h1>TileManager.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui.screen;
+
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.TerritoryEffectHelper;
+import games.strategy.triplea.ui.IUIContext;
+import games.strategy.triplea.ui.mapdata.MapData;
+import games.strategy.triplea.ui.screen.TerritoryOverLayDrawable.OP;
+import games.strategy.triplea.ui.screen.drawable.BaseMapDrawable;
+import games.strategy.triplea.ui.screen.drawable.BattleDrawable;
+import games.strategy.triplea.ui.screen.drawable.BlockadeZoneDrawable;
+import games.strategy.triplea.ui.screen.drawable.CapitolMarkerDrawable;
+import games.strategy.triplea.ui.screen.drawable.ConvoyZoneDrawable;
+import games.strategy.triplea.ui.screen.drawable.DecoratorDrawable;
+import games.strategy.triplea.ui.screen.drawable.DrawableComparator;
+import games.strategy.triplea.ui.screen.drawable.IDrawable;
+import games.strategy.triplea.ui.screen.drawable.IDrawable.OptionalExtraBorderLevel;
+import games.strategy.triplea.ui.screen.drawable.KamikazeZoneDrawable;
+import games.strategy.triplea.ui.screen.drawable.LandTerritoryDrawable;
+import games.strategy.triplea.ui.screen.drawable.MapTileDrawable;
+import games.strategy.triplea.ui.screen.drawable.OptionalExtraTerritoryBordersDrawable;
+import games.strategy.triplea.ui.screen.drawable.ReliefMapDrawable;
+import games.strategy.triplea.ui.screen.drawable.SeaZoneOutlineDrawable;
+import games.strategy.triplea.ui.screen.drawable.TerritoryEffectDrawable;
+import games.strategy.triplea.ui.screen.drawable.TerritoryNameDrawable;
+import games.strategy.triplea.ui.screen.drawable.VCDrawable;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.ui.Util;
+import games.strategy.util.Tuple;
+
+public class TileManager {
+<span class="nc" id="L61">  private static final Logger s_logger = Logger.getLogger(TileManager.class.getName());</span>
+<span class="nc" id="L62">  public final static int TILE_SIZE = 256;</span>
+<span class="nc" id="L63">  private List&lt;Tile&gt; m_tiles = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L64">  private final Lock m_lock = new ReentrantLock();</span>
+<span class="nc" id="L65">  private final Map&lt;String, IDrawable&gt; m_territoryOverlays = new HashMap&lt;&gt;();</span>
+  // maps territoryname - collection of drawables
+<span class="nc" id="L67">  private final Map&lt;String, Set&lt;IDrawable&gt;&gt; m_territoryDrawables = new HashMap&lt;&gt;();</span>
+  // maps territoryname - collection of tiles where the territory is drawn
+<span class="nc" id="L69">  private final Map&lt;String, Set&lt;Tile&gt;&gt; m_territoryTiles = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L70">  private final Collection&lt;UnitsDrawer&gt; m_allUnitDrawables = new ArrayList&lt;&gt;();</span>
+  private final IUIContext m_uiContext;
+
+<span class="nc" id="L73">  public TileManager(final IUIContext uiContext) {</span>
+<span class="nc" id="L74">    m_uiContext = uiContext;</span>
+<span class="nc" id="L75">  }</span>
+
+  /**
+   * Selects tiles which fall into rectangle bounds.
+   *
+   * @param bounds
+   *        rectangle for selection
+   * @return tiles which fall into the rectangle
+   */
+  public List&lt;Tile&gt; getTiles(final Rectangle2D bounds) {
+    // if the rectangle exceeds the map dimensions we to do shift the rectangle and check for each shifted rectangle as
+    // well as the original
+    // rectangle
+<span class="nc" id="L88">    final MapData mapData = m_uiContext.getMapData();</span>
+<span class="nc" id="L89">    final Dimension mapDimensions = mapData.getMapDimensions();</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    final boolean testXshift =</span>
+<span class="nc bnc" id="L91" title="All 4 branches missed.">        (mapData.scrollWrapX() &amp;&amp; (bounds.getMaxX() &gt; mapDimensions.width || bounds.getMinX() &lt; 0));</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    final boolean testYshift =</span>
+<span class="nc bnc" id="L93" title="All 4 branches missed.">        (mapData.scrollWrapY() &amp;&amp; (bounds.getMaxY() &gt; mapDimensions.height || bounds.getMinY() &lt; 0));</span>
+<span class="nc" id="L94">    Rectangle2D boundsXshift = null;</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    if (testXshift) {</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">      if (bounds.getMinX() &lt; 0) {</span>
+<span class="nc" id="L97">        boundsXshift = new Rectangle((int) bounds.getMinX() + mapDimensions.width, (int) bounds.getMinY(),</span>
+<span class="nc" id="L98">            (int) bounds.getWidth(), (int) bounds.getHeight());</span>
+<span class="nc" id="L99">      } else {</span>
+<span class="nc" id="L100">        boundsXshift = new Rectangle((int) bounds.getMinX() - mapDimensions.width, (int) bounds.getMinY(),</span>
+<span class="nc" id="L101">            (int) bounds.getWidth(), (int) bounds.getHeight());</span>
+      }
+    }
+<span class="nc" id="L104">    Rectangle2D boundsYshift = null;</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    if (testYshift) {</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">      if (bounds.getMinY() &lt; 0) {</span>
+<span class="nc" id="L107">        boundsYshift = new Rectangle((int) bounds.getMinX(), (int) bounds.getMinY() + mapDimensions.height,</span>
+<span class="nc" id="L108">            (int) bounds.getWidth(), (int) bounds.getHeight());</span>
+<span class="nc" id="L109">      } else {</span>
+<span class="nc" id="L110">        boundsYshift = new Rectangle((int) bounds.getMinX(), (int) bounds.getMinY() - mapDimensions.height,</span>
+<span class="nc" id="L111">            (int) bounds.getWidth(), (int) bounds.getHeight());</span>
+      }
+    }
+<span class="nc" id="L114">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+<span class="nc" id="L116">      final List&lt;Tile&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">      for (final Tile tile : m_tiles) {</span>
+<span class="nc" id="L118">        final Rectangle tileBounds = tile.getBounds();</span>
+<span class="nc bnc" id="L119" title="All 4 branches missed.">        if (bounds.contains(tileBounds) || tileBounds.intersects(bounds)) {</span>
+<span class="nc" id="L120">          rVal.add(tile);</span>
+        }
+      }
+<span class="nc bnc" id="L123" title="All 2 branches missed.">      if (boundsXshift != null) {</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        for (final Tile tile : m_tiles) {</span>
+<span class="nc" id="L125">          final Rectangle tileBounds = tile.getBounds();</span>
+<span class="nc bnc" id="L126" title="All 4 branches missed.">          if (boundsXshift.contains(tileBounds) || tileBounds.intersects(boundsXshift)) {</span>
+<span class="nc" id="L127">            rVal.add(tile);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L131" title="All 2 branches missed.">      if (boundsYshift != null) {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">        for (final Tile tile : m_tiles) {</span>
+<span class="nc" id="L133">          final Rectangle tileBounds = tile.getBounds();</span>
+<span class="nc bnc" id="L134" title="All 4 branches missed.">          if (boundsYshift.contains(tileBounds) || tileBounds.intersects(boundsYshift)) {</span>
+<span class="nc" id="L135">            rVal.add(tile);</span>
+          }
+        }
+      }
+<span class="nc" id="L139">      return rVal;</span>
+<span class="nc" id="L140">    } finally {</span>
+<span class="nc" id="L141">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L142">    }</span>
+  }
+
+  public Collection&lt;UnitsDrawer&gt; getUnitDrawables() {
+<span class="nc" id="L146">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+<span class="nc" id="L148">      return new ArrayList&lt;&gt;(m_allUnitDrawables);</span>
+<span class="nc" id="L149">    } finally {</span>
+<span class="nc" id="L150">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L151">    }</span>
+  }
+
+  public void createTiles(final Rectangle bounds, final GameData data, final MapData mapData) {
+<span class="nc" id="L155">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+      // create our tiles
+<span class="nc" id="L158">      m_tiles = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">      for (int x = 0; (x) * TILE_SIZE &lt; bounds.width; x++) {</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        for (int y = 0; (y) * TILE_SIZE &lt; bounds.height; y++) {</span>
+<span class="nc" id="L161">          m_tiles.add(new Tile(new Rectangle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE), x, y,</span>
+<span class="nc" id="L162">              m_uiContext.getScale()));</span>
+        }
+      }
+<span class="nc" id="L165">    } finally {</span>
+<span class="nc" id="L166">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L167">    }</span>
+<span class="nc" id="L168">  }</span>
+
+  public void resetTiles(final GameData data, final MapData mapData) {
+<span class="nc" id="L171">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L173">      Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+      try {
+<span class="nc" id="L175">        final Iterator&lt;Tile&gt; allTiles = m_tiles.iterator();</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        while (allTiles.hasNext()) {</span>
+<span class="nc" id="L177">          final Tile tile = allTiles.next();</span>
+<span class="nc" id="L178">          tile.clear();</span>
+<span class="nc" id="L179">          final int x = tile.getBounds().x / TILE_SIZE;</span>
+<span class="nc" id="L180">          final int y = tile.getBounds().y / TILE_SIZE;</span>
+<span class="nc" id="L181">          tile.addDrawable(new BaseMapDrawable(x, y, m_uiContext));</span>
+<span class="nc" id="L182">          tile.addDrawable(new ReliefMapDrawable(x, y, m_uiContext));</span>
+        }
+<span class="nc" id="L184">        final Iterator&lt;Territory&gt; territories = data.getMap().getTerritories().iterator();</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">        while (territories.hasNext()) {</span>
+<span class="nc" id="L186">          final Territory territory = territories.next();</span>
+<span class="nc" id="L187">          clearTerritory(territory);</span>
+<span class="nc" id="L188">          drawTerritory(territory, data, mapData);</span>
+        }
+        // add the decorations
+<span class="nc" id="L191">        final Map&lt;Image, List&lt;Point&gt;&gt; decorations = mapData.getDecorations();</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">        for (final Image img : decorations.keySet()) {</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">          for (final Point p : decorations.get(img)) {</span>
+<span class="nc" id="L194">            final DecoratorDrawable drawable = new DecoratorDrawable(p, img);</span>
+<span class="nc" id="L195">            final Rectangle bounds = new Rectangle(p.x, p.y, img.getWidth(null), img.getHeight(null));</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">            for (final Tile t : getTiles(bounds)) {</span>
+<span class="nc" id="L197">              t.addDrawable(drawable);</span>
+            }
+          }
+        }
+<span class="nc" id="L201">      } finally {</span>
+<span class="nc" id="L202">        Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L203">      }</span>
+<span class="nc" id="L204">    } finally {</span>
+<span class="nc" id="L205">      data.releaseReadLock();</span>
+<span class="nc" id="L206">    }</span>
+<span class="nc" id="L207">  }</span>
+
+  public void updateTerritories(final Collection&lt;Territory&gt; territories, final GameData data, final MapData mapData) {
+<span class="nc" id="L210">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L212">      Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+      try {
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (territories == null) {</span>
+<span class="nc" id="L215">          return;</span>
+        }
+<span class="nc" id="L217">        final Iterator&lt;Territory&gt; iter = territories.iterator();</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        while (iter.hasNext()) {</span>
+<span class="nc" id="L219">          final Territory territory = iter.next();</span>
+<span class="nc" id="L220">          updateTerritory(territory, data, mapData);</span>
+        }
+<span class="nc" id="L222">      } finally {</span>
+<span class="nc" id="L223">        Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L224">      }</span>
+<span class="nc" id="L225">    } finally {</span>
+<span class="nc" id="L226">      data.releaseReadLock();</span>
+<span class="nc" id="L227">    }</span>
+<span class="nc" id="L228">  }</span>
+
+  public void updateTerritory(final Territory territory, final GameData data, final MapData mapData) {
+<span class="nc" id="L231">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L233">      Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+      try {
+<span class="nc" id="L235">        s_logger.log(Level.FINER, &quot;Updating &quot; + territory.getName());</span>
+<span class="nc" id="L236">        clearTerritory(territory);</span>
+<span class="nc" id="L237">        drawTerritory(territory, data, mapData);</span>
+<span class="nc" id="L238">      } finally {</span>
+<span class="nc" id="L239">        Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L240">      }</span>
+<span class="nc" id="L241">    } finally {</span>
+<span class="nc" id="L242">      data.releaseReadLock();</span>
+<span class="nc" id="L243">    }</span>
+<span class="nc" id="L244">  }</span>
+
+  private void clearTerritory(final Territory territory) {
+<span class="nc bnc" id="L247" title="All 2 branches missed.">    if (m_territoryTiles.get(territory.getName()) == null) {</span>
+<span class="nc" id="L248">      return;</span>
+    }
+<span class="nc" id="L250">    final Collection&lt;IDrawable&gt; drawables = m_territoryDrawables.get(territory.getName());</span>
+<span class="nc bnc" id="L251" title="All 4 branches missed.">    if (drawables == null || drawables.isEmpty()) {</span>
+<span class="nc" id="L252">      return;</span>
+    }
+<span class="nc" id="L254">    final Iterator&lt;Tile&gt; tiles = m_territoryTiles.get(territory.getName()).iterator();</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">    while (tiles.hasNext()) {</span>
+<span class="nc" id="L256">      final Tile tile = tiles.next();</span>
+<span class="nc" id="L257">      tile.removeDrawables(drawables);</span>
+    }
+<span class="nc" id="L259">    m_allUnitDrawables.removeAll(drawables);</span>
+<span class="nc" id="L260">  }</span>
+
+  private void drawTerritory(final Territory territory, final GameData data, final MapData mapData) {
+<span class="nc" id="L263">    final Set&lt;Tile&gt; drawnOn = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L264">    final Set&lt;IDrawable&gt; drawing = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">    if (m_territoryOverlays.get(territory.getName()) != null) {</span>
+<span class="nc" id="L266">      drawing.add(m_territoryOverlays.get(territory.getName()));</span>
+    }
+<span class="nc bnc" id="L268" title="All 2 branches missed.">    if (m_uiContext.getShowTerritoryEffects()) {</span>
+<span class="nc" id="L269">      drawTerritoryEffects(territory, data, mapData, drawnOn, drawing);</span>
+    }
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    if (m_uiContext.getShowUnits()) {</span>
+<span class="nc" id="L272">      drawUnits(territory, mapData, drawnOn, drawing);</span>
+    }
+<span class="nc" id="L274">    drawing.add(new BattleDrawable(territory.getName()));</span>
+<span class="nc" id="L275">    final TerritoryAttachment ta = TerritoryAttachment.get(territory);</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">    if (!territory.isWater()) {</span>
+<span class="nc" id="L277">      drawing.add(new LandTerritoryDrawable(territory.getName()));</span>
+<span class="nc" id="L278">    } else {</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">      if (ta != null) {</span>
+        // Kamikaze Zones
+<span class="nc bnc" id="L281" title="All 2 branches missed.">        if (ta.getKamikazeZone()) {</span>
+<span class="nc" id="L282">          drawing.add(new KamikazeZoneDrawable(territory, m_uiContext));</span>
+        }
+        // Blockades
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        if (ta.getBlockadeZone()) {</span>
+<span class="nc" id="L286">          drawing.add(new BlockadeZoneDrawable(territory, m_uiContext));</span>
+        }
+        // Convoy Routes
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (ta.getConvoyRoute()) {</span>
+<span class="nc" id="L290">          drawing.add(new ConvoyZoneDrawable(territory.getOwner(), territory, m_uiContext));</span>
+        }
+        // Convoy Centers
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        if (ta.getProduction() &gt; 0) {</span>
+<span class="nc" id="L294">          drawing.add(new ConvoyZoneDrawable(territory.getOwner(), territory, m_uiContext));</span>
+        }
+      }
+<span class="nc" id="L297">      drawing.add(new SeaZoneOutlineDrawable(territory.getName()));</span>
+    }
+<span class="nc" id="L299">    final OptionalExtraBorderLevel optionalBorderLevel = m_uiContext.getDrawTerritoryBordersAgain();</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">    if (optionalBorderLevel != OptionalExtraBorderLevel.LOW) {</span>
+<span class="nc" id="L301">      drawing.add(new OptionalExtraTerritoryBordersDrawable(territory.getName(), optionalBorderLevel));</span>
+    }
+<span class="nc" id="L303">    drawing.add(new TerritoryNameDrawable(territory.getName(), m_uiContext));</span>
+<span class="nc bnc" id="L304" title="All 6 branches missed.">    if (ta != null &amp;&amp; ta.isCapital() &amp;&amp; mapData.drawCapitolMarkers()) {</span>
+<span class="nc" id="L305">      final PlayerID capitalOf = data.getPlayerList().getPlayerID(ta.getCapital());</span>
+<span class="nc" id="L306">      drawing.add(new CapitolMarkerDrawable(capitalOf, territory, m_uiContext));</span>
+    }
+<span class="nc bnc" id="L308" title="All 4 branches missed.">    if (ta != null &amp;&amp; (ta.getVictoryCity() != 0)) {</span>
+<span class="nc" id="L309">      drawing.add(new VCDrawable(territory));</span>
+    }
+    // add to the relevant tiles
+<span class="nc" id="L312">    final Iterator&lt;Tile&gt; tiles = getTiles(mapData.getBoundingRect(territory.getName())).iterator();</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">    while (tiles.hasNext()) {</span>
+<span class="nc" id="L314">      final Tile tile = tiles.next();</span>
+<span class="nc" id="L315">      drawnOn.add(tile);</span>
+<span class="nc" id="L316">      tile.addDrawables(drawing);</span>
+    }
+<span class="nc" id="L318">    m_territoryDrawables.put(territory.getName(), drawing);</span>
+<span class="nc" id="L319">    m_territoryTiles.put(territory.getName(), drawnOn);</span>
+<span class="nc" id="L320">  }</span>
+
+  private void drawTerritoryEffects(final Territory territory, final GameData data, final MapData mapData,
+      final Set&lt;Tile&gt; drawnOn, final Set&lt;IDrawable&gt; drawing) {
+<span class="nc" id="L324">    final Iterator&lt;Point&gt; effectPoints = mapData.getTerritoryEffectPoints(territory).iterator();</span>
+<span class="nc" id="L325">    Point drawingPoint = effectPoints.next();</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">    for (final TerritoryEffect te : TerritoryEffectHelper.getEffects(territory)) {</span>
+<span class="nc" id="L327">      drawing.add(new TerritoryEffectDrawable(te, drawingPoint));</span>
+<span class="nc bnc" id="L328" title="All 2 branches missed.">      drawingPoint = effectPoints.hasNext() ? effectPoints.next() : drawingPoint;</span>
+    }
+<span class="nc" id="L330">  }</span>
+
+  private void drawUnits(final Territory territory, final MapData mapData, final Set&lt;Tile&gt; drawnOn,
+      final Set&lt;IDrawable&gt; drawing) {
+<span class="nc" id="L334">    final Iterator&lt;Point&gt; placementPoints = mapData.getPlacementPoints(territory).iterator();</span>
+<span class="nc bnc" id="L335" title="All 4 branches missed.">    if (placementPoints == null || !placementPoints.hasNext()) {</span>
+<span class="nc" id="L336">      throw new IllegalStateException(&quot;No where to place units:&quot; + territory.getName());</span>
+    }
+<span class="nc" id="L338">    Point lastPlace = null;</span>
+<span class="nc" id="L339">    final Iterator&lt;UnitCategory&gt; unitCategoryIter =</span>
+<span class="nc" id="L340">        UnitSeperator.categorize(territory.getUnits().getUnits()).iterator();</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">    while (unitCategoryIter.hasNext()) {</span>
+<span class="nc" id="L342">      final UnitCategory category = unitCategoryIter.next();</span>
+      boolean overflow;
+<span class="nc bnc" id="L344" title="All 2 branches missed.">      if (placementPoints.hasNext()) {</span>
+<span class="nc" id="L345">        lastPlace = new Point(placementPoints.next());</span>
+<span class="nc" id="L346">        overflow = false;</span>
+<span class="nc" id="L347">      } else {</span>
+<span class="nc" id="L348">        lastPlace = new Point(lastPlace);</span>
+<span class="nc" id="L349">        lastPlace.x += m_uiContext.getUnitImageFactory().getUnitImageWidth();</span>
+<span class="nc" id="L350">        overflow = true;</span>
+      }
+<span class="nc" id="L352">      final UnitsDrawer drawable = new UnitsDrawer(category.getUnits().size(), category.getType().getName(),</span>
+<span class="nc" id="L353">          category.getOwner().getName(), lastPlace, category.getDamaged(), category.getBombingDamage(),</span>
+<span class="nc" id="L354">          category.getDisabled(), overflow, territory.getName(), m_uiContext);</span>
+<span class="nc" id="L355">      drawing.add(drawable);</span>
+<span class="nc" id="L356">      m_allUnitDrawables.add(drawable);</span>
+<span class="nc" id="L357">      final Iterator&lt;Tile&gt; tiles =</span>
+<span class="nc" id="L358">          getTiles(new Rectangle(lastPlace.x, lastPlace.y, m_uiContext.getUnitImageFactory().getUnitImageWidth(),</span>
+<span class="nc" id="L359">              m_uiContext.getUnitImageFactory().getUnitImageHeight())).iterator();</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">      while (tiles.hasNext()) {</span>
+<span class="nc" id="L361">        final Tile tile = tiles.next();</span>
+<span class="nc" id="L362">        tile.addDrawable(drawable);</span>
+<span class="nc" id="L363">        drawnOn.add(tile);</span>
+      }
+    }
+<span class="nc" id="L366">  }</span>
+
+  public Image createTerritoryImage(final Territory t, final GameData data, final MapData mapData) {
+<span class="nc" id="L369">    return createTerritoryImage(t, t, data, mapData, true);</span>
+  }
+
+  public Image createTerritoryImage(final Territory selected, final Territory focusOn, final GameData data,
+      final MapData mapData) {
+<span class="nc" id="L374">    return createTerritoryImage(selected, focusOn, data, mapData, false);</span>
+  }
+
+  private Image createTerritoryImage(final Territory selected, final Territory focusOn, final GameData data,
+      final MapData mapData, final boolean drawOutline) {
+<span class="nc" id="L379">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+      // make a square
+<span class="nc" id="L382">      final Rectangle bounds = mapData.getBoundingRect(focusOn);</span>
+<span class="nc" id="L383">      int square_length = Math.max(bounds.width, bounds.height);</span>
+<span class="nc" id="L384">      final int grow = square_length / 4;</span>
+<span class="nc" id="L385">      bounds.x -= grow;</span>
+<span class="nc" id="L386">      bounds.y -= grow;</span>
+<span class="nc" id="L387">      square_length += grow * 2;</span>
+      // make sure it is not bigger than the whole map
+<span class="nc" id="L389">      final int mapDataWidth = mapData.getMapDimensions().width;</span>
+<span class="nc" id="L390">      final int mapDataHeight = mapData.getMapDimensions().height;</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">      if (square_length &gt; mapDataWidth) {</span>
+<span class="nc" id="L392">        square_length = mapDataWidth;</span>
+      }
+<span class="nc bnc" id="L394" title="All 2 branches missed.">      if (square_length &gt; mapDataHeight) {</span>
+<span class="nc" id="L395">        square_length = mapDataHeight;</span>
+      }
+<span class="nc" id="L397">      bounds.width = square_length;</span>
+<span class="nc" id="L398">      bounds.height = square_length;</span>
+      // keep it in bounds
+<span class="nc bnc" id="L400" title="All 2 branches missed.">      if (!mapData.scrollWrapX()) {</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">        if (bounds.x &lt; 0) {</span>
+<span class="nc" id="L402">          bounds.x = 0;</span>
+        }
+<span class="nc bnc" id="L404" title="All 2 branches missed.">        if (bounds.width + bounds.x &gt; mapDataWidth) {</span>
+<span class="nc" id="L405">          bounds.x = mapDataWidth - bounds.width;</span>
+        }
+      }
+<span class="nc bnc" id="L408" title="All 2 branches missed.">      if (!mapData.scrollWrapY()) {</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">        if (bounds.y &lt; 0) {</span>
+<span class="nc" id="L410">          bounds.y = 0;</span>
+        }
+<span class="nc bnc" id="L412" title="All 2 branches missed.">        if (bounds.height + bounds.y &gt; mapDataHeight) {</span>
+<span class="nc" id="L413">          bounds.y = mapDataHeight - bounds.height;</span>
+        }
+      }
+<span class="nc" id="L416">      final Image rVal = Util.createImage(square_length, square_length, false);</span>
+<span class="nc" id="L417">      final Graphics2D graphics = (Graphics2D) rVal.getGraphics();</span>
+<span class="nc" id="L418">      graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);</span>
+<span class="nc" id="L419">      graphics.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION,</span>
+<span class="nc" id="L420">          RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);</span>
+<span class="nc" id="L421">      graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);</span>
+<span class="nc bnc" id="L422" title="All 2 branches missed.">      if (bounds.x &lt; 0) {</span>
+<span class="nc" id="L423">        bounds.x += mapDataWidth;</span>
+<span class="nc" id="L424">        drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">        if (bounds.y &lt; 0) {</span>
+<span class="nc" id="L426">          bounds.y += mapDataHeight;</span>
+<span class="nc" id="L427">          drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc" id="L428">          bounds.y -= mapDataHeight;</span>
+        }
+<span class="nc" id="L430">        bounds.x -= mapDataWidth;</span>
+      }
+<span class="nc bnc" id="L432" title="All 2 branches missed.">      if (bounds.y &lt; 0) {</span>
+<span class="nc" id="L433">        bounds.y += mapDataHeight;</span>
+<span class="nc" id="L434">        drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc" id="L435">        bounds.y -= mapDataHeight;</span>
+      }
+      // start as a set to prevent duplicates
+<span class="nc" id="L438">      drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc bnc" id="L439" title="All 2 branches missed.">      if (bounds.x + bounds.height &gt; mapDataWidth) {</span>
+<span class="nc" id="L440">        bounds.x -= mapDataWidth;</span>
+<span class="nc" id="L441">        drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        if (bounds.y + bounds.width &gt; mapDataHeight) {</span>
+<span class="nc" id="L443">          bounds.y -= mapDataHeight;</span>
+<span class="nc" id="L444">          drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc" id="L445">          bounds.y += mapDataHeight;</span>
+        }
+<span class="nc" id="L447">        bounds.x += mapDataWidth;</span>
+      }
+<span class="nc bnc" id="L449" title="All 2 branches missed.">      if (bounds.y + bounds.width &gt; mapDataHeight) {</span>
+<span class="nc" id="L450">        bounds.y -= mapDataHeight;</span>
+<span class="nc" id="L451">        drawForCreate(selected, data, mapData, bounds, graphics, drawOutline);</span>
+<span class="nc" id="L452">        bounds.y += mapDataHeight;</span>
+      }
+<span class="nc" id="L454">      graphics.dispose();</span>
+<span class="nc" id="L455">      return rVal;</span>
+<span class="nc" id="L456">    } finally {</span>
+<span class="nc" id="L457">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L458">    }</span>
+  }
+
+  private void drawForCreate(final Territory selected, final GameData data, final MapData mapData,
+      final Rectangle bounds, final Graphics2D graphics, final boolean drawOutline) {
+<span class="nc" id="L463">    final Set&lt;IDrawable&gt; drawablesSet = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L464">    final List&lt;Tile&gt; intersectingTiles = getTiles(bounds);</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">    for (final Tile tile : intersectingTiles) {</span>
+<span class="nc" id="L466">      drawablesSet.addAll(tile.getDrawables());</span>
+    }
+    // the base tiles are scaled to save memory
+    // but we want to draw them unscaled here
+    // so unscale them
+<span class="nc bnc" id="L471" title="All 2 branches missed.">    if (m_uiContext.getScale() != 1) {</span>
+<span class="nc" id="L472">      final List&lt;IDrawable&gt; toAdd = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L473">      final Iterator&lt;IDrawable&gt; iter = drawablesSet.iterator();</span>
+<span class="nc bnc" id="L474" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L475">        final IDrawable drawable = iter.next();</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">        if (drawable instanceof MapTileDrawable) {</span>
+<span class="nc" id="L477">          iter.remove();</span>
+<span class="nc" id="L478">          toAdd.add(((MapTileDrawable) drawable).getUnscaledCopy());</span>
+        }
+      }
+<span class="nc" id="L481">      drawablesSet.addAll(toAdd);</span>
+    }
+<span class="nc" id="L483">    final List&lt;IDrawable&gt; orderedDrawables = new ArrayList&lt;&gt;(drawablesSet);</span>
+<span class="nc" id="L484">    Collections.sort(orderedDrawables, new DrawableComparator());</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">    for (final IDrawable drawer : orderedDrawables) {</span>
+<span class="nc bnc" id="L486" title="All 2 branches missed.">      if (drawer.getLevel() &gt;= IDrawable.UNITS_LEVEL) {</span>
+<span class="nc" id="L487">        break;</span>
+      }
+<span class="nc bnc" id="L489" title="All 2 branches missed.">      if (drawer.getLevel() == IDrawable.TERRITORY_TEXT_LEVEL) {</span>
+<span class="nc" id="L490">        continue;</span>
+      }
+<span class="nc" id="L492">      drawer.draw(bounds, data, graphics, mapData, null, null);</span>
+    }
+<span class="nc bnc" id="L494" title="All 2 branches missed.">    if (!drawOutline) {</span>
+      Color c;
+<span class="nc bnc" id="L496" title="All 2 branches missed.">      if (selected.isWater()) {</span>
+<span class="nc" id="L497">        c = Color.RED;</span>
+<span class="nc" id="L498">      } else {</span>
+<span class="nc" id="L499">        c = new Color(0, 0, 0);</span>
+      }
+<span class="nc" id="L501">      final TerritoryOverLayDrawable told = new TerritoryOverLayDrawable(c, selected.getName(), 100, OP.FILL);</span>
+<span class="nc" id="L502">      told.draw(bounds, data, graphics, mapData, null, null);</span>
+    }
+<span class="nc" id="L504">    graphics.setStroke(new BasicStroke(10));</span>
+<span class="nc" id="L505">    graphics.setColor(Color.RED);</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">    for (Polygon poly : mapData.getPolygons(selected)) {</span>
+<span class="nc" id="L507">      poly = new Polygon(poly.xpoints, poly.ypoints, poly.npoints);</span>
+<span class="nc" id="L508">      poly.translate(-bounds.x, -bounds.y);</span>
+<span class="nc" id="L509">      graphics.drawPolygon(poly);</span>
+    }
+<span class="nc" id="L511">  }</span>
+
+  public Rectangle getUnitRect(final List&lt;Unit&gt; units, final GameData data) {
+<span class="nc bnc" id="L514" title="All 2 branches missed.">    if (units == null) {</span>
+<span class="nc" id="L515">      return null;</span>
+    }
+<span class="nc" id="L517">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L519">      Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+      try {
+<span class="nc bnc" id="L521" title="All 2 branches missed.">        for (final UnitsDrawer drawer : m_allUnitDrawables) {</span>
+<span class="nc" id="L522">          final List&lt;Unit&gt; drawerUnits = drawer.getUnits(data).getSecond();</span>
+<span class="nc bnc" id="L523" title="All 4 branches missed.">          if (!drawerUnits.isEmpty() &amp;&amp; units.containsAll(drawerUnits)) {</span>
+<span class="nc" id="L524">            final Point placementPoint = drawer.getPlacementPoint();</span>
+<span class="nc" id="L525">            return new Rectangle(placementPoint.x, placementPoint.y,</span>
+<span class="nc" id="L526">                m_uiContext.getUnitImageFactory().getUnitImageWidth(),</span>
+<span class="nc" id="L527">                m_uiContext.getUnitImageFactory().getUnitImageHeight());</span>
+          }
+        }
+<span class="nc" id="L530">        return null;</span>
+<span class="nc" id="L531">      } finally {</span>
+<span class="nc" id="L532">        Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L533">      }</span>
+<span class="nc" id="L534">    } finally {</span>
+<span class="nc" id="L535">      data.releaseReadLock();</span>
+<span class="nc" id="L536">    }</span>
+  }
+
+  public Tuple&lt;Territory, List&lt;Unit&gt;&gt; getUnitsAtPoint(final double x, final double y, final GameData gameData) {
+<span class="nc" id="L540">    gameData.acquireReadLock();</span>
+    try {
+<span class="nc" id="L542">      Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+      try {
+<span class="nc bnc" id="L544" title="All 2 branches missed.">        for (final UnitsDrawer drawer : m_allUnitDrawables) {</span>
+<span class="nc" id="L545">          final Point placementPoint = drawer.getPlacementPoint();</span>
+<span class="nc bnc" id="L546" title="All 4 branches missed.">          if (x &gt; placementPoint.x &amp;&amp; x &lt; placementPoint.x + m_uiContext.getUnitImageFactory().getUnitImageWidth()) {</span>
+<span class="nc bnc" id="L547" title="All 4 branches missed.">            if (y &gt; placementPoint.y &amp;&amp; y &lt; placementPoint.y + m_uiContext.getUnitImageFactory().getUnitImageHeight()) {</span>
+<span class="nc" id="L548">              return drawer.getUnits(gameData);</span>
+            }
+          }
+        }
+<span class="nc" id="L552">        return null;</span>
+<span class="nc" id="L553">      } finally {</span>
+<span class="nc" id="L554">        Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L555">      }</span>
+<span class="nc" id="L556">    } finally {</span>
+<span class="nc" id="L557">      gameData.releaseReadLock();</span>
+<span class="nc" id="L558">    }</span>
+  }
+
+  public void setTerritoryOverlay(final Territory territory, final Color color, final int alpha, final GameData data,
+      final MapData mapData) {
+<span class="nc" id="L563">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+<span class="nc" id="L565">      final IDrawable drawable = new TerritoryOverLayDrawable(color, territory.getName(), alpha, OP.DRAW);</span>
+<span class="nc" id="L566">      m_territoryOverlays.put(territory.getName(), drawable);</span>
+<span class="nc" id="L567">    } finally {</span>
+<span class="nc" id="L568">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L569">    }</span>
+<span class="nc" id="L570">    updateTerritory(territory, data, mapData);</span>
+<span class="nc" id="L571">  }</span>
+
+  public void setTerritoryOverlayForBorder(final Territory territory, final Color color, final GameData data,
+      final MapData mapData) {
+<span class="nc" id="L575">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+<span class="nc" id="L577">      final IDrawable drawable = new TerritoryOverLayDrawable(color, territory.getName(), OP.DRAW);</span>
+<span class="nc" id="L578">      m_territoryOverlays.put(territory.getName(), drawable);</span>
+<span class="nc" id="L579">    } finally {</span>
+<span class="nc" id="L580">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L581">    }</span>
+<span class="nc" id="L582">    updateTerritory(territory, data, mapData);</span>
+<span class="nc" id="L583">  }</span>
+
+  public void clearTerritoryOverlay(final Territory territory, final GameData data, final MapData mapData) {
+<span class="nc" id="L586">    Tile.S_TILE_LOCKUTIL.acquireLock(m_lock);</span>
+    try {
+<span class="nc" id="L588">      m_territoryOverlays.remove(territory.getName());</span>
+<span class="nc" id="L589">    } finally {</span>
+<span class="nc" id="L590">      Tile.S_TILE_LOCKUTIL.releaseLock(m_lock);</span>
+<span class="nc" id="L591">    }</span>
+<span class="nc" id="L592">    updateTerritory(territory, data, mapData);</span>
+<span class="nc" id="L593">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,588 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractEndTurnDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">AbstractEndTurnDelegate.java</span></div><h1>AbstractEndTurnDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameMap;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipTracker.Relationship;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.message.IRemote;
+import games.strategy.engine.pbem.PBEMMessagePoster;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.RelationshipTypeAttachment;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.remote.IAbstractForumPosterDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.ThreadUtil;
+import games.strategy.util.Tuple;
+
+/**
+ * At the end of the turn collect income.
+ */
+<span class="fc" id="L45">public abstract class AbstractEndTurnDelegate extends BaseTripleADelegate implements IAbstractForumPosterDelegate {</span>
+  public static final String END_TURN_REPORT_STRING = &quot;End of Turn Report for &quot;;
+  private static final int CONVOY_BLOCKADE_DICE_SIDES = 6;
+<span class="fc" id="L48">  private boolean m_needToInitialize = true;</span>
+<span class="fc" id="L49">  private boolean m_hasPostedTurnSummary = false;</span>
+
+  private boolean isGiveUnitsByTerritory() {
+<span class="nc" id="L52">    return games.strategy.triplea.Properties.getGiveUnitsByTerritory(getData());</span>
+  }
+
+  public boolean canPlayerCollectIncome(final PlayerID player, final GameData data) {
+<span class="nc" id="L56">    return TerritoryAttachment.doWeHaveEnoughCapitalsToProduce(m_player, getData());</span>
+  }
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+    // figure out our current PUs before we do anything else, including super methods
+<span class="nc" id="L65">    final GameData data = m_bridge.getData();</span>
+<span class="nc" id="L66">    final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L67">    final int leftOverPUs = m_bridge.getPlayerID().getResources().getQuantity(PUs);</span>
+<span class="nc" id="L68">    super.start();</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">    if (!m_needToInitialize) {</span>
+<span class="nc" id="L70">      return;</span>
+    }
+<span class="nc" id="L72">    final StringBuilder endTurnReport = new StringBuilder();</span>
+<span class="nc" id="L73">    m_hasPostedTurnSummary = false;</span>
+<span class="nc" id="L74">    final PlayerAttachment pa = PlayerAttachment.get(m_player);</span>
+    // can't collect unless you own your own capital
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (!canPlayerCollectIncome(m_player, data)) {</span>
+<span class="nc" id="L77">      endTurnReport.append(rollWarBondsForFriends(m_bridge, m_player, data));</span>
+      // we do not collect any income this turn
+<span class="nc" id="L79">    } else {</span>
+      // just collect resources
+<span class="nc" id="L81">      final Collection&lt;Territory&gt; territories = data.getMap().getTerritoriesOwnedBy(m_player);</span>
+<span class="nc" id="L82">      int toAdd = getProduction(territories);</span>
+<span class="nc" id="L83">      final int blockadeLoss = getBlockadeProductionLoss(m_player, data, m_bridge, endTurnReport);</span>
+<span class="nc" id="L84">      toAdd -= blockadeLoss;</span>
+<span class="nc" id="L85">      toAdd *= Properties.getPU_Multiplier(data);</span>
+<span class="nc" id="L86">      int total = m_player.getResources().getQuantity(PUs) + toAdd;</span>
+      final String transcriptText;
+<span class="nc bnc" id="L88" title="All 2 branches missed.">      if (blockadeLoss == 0) {</span>
+<span class="nc" id="L89">        transcriptText = m_player.getName() + &quot; collect &quot; + toAdd + MyFormatter.pluralize(&quot; PU&quot;, toAdd) + &quot;; end with &quot;</span>
+<span class="nc" id="L90">            + total + MyFormatter.pluralize(&quot; PU&quot;, total) + &quot; total&quot;;</span>
+<span class="nc" id="L91">      } else {</span>
+<span class="nc" id="L92">        transcriptText =</span>
+<span class="nc" id="L93">            m_player.getName() + &quot; collect &quot; + toAdd + MyFormatter.pluralize(&quot; PU&quot;, toAdd) + &quot; (&quot; + blockadeLoss</span>
+<span class="nc" id="L94">                + &quot; lost to blockades)&quot; + &quot;; end with &quot; + total + MyFormatter.pluralize(&quot; PU&quot;, total) + &quot; total&quot;;</span>
+      }
+<span class="nc" id="L96">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L97">      endTurnReport.append(transcriptText).append(&quot;&lt;br /&gt;&quot;);</span>
+      // do war bonds
+<span class="nc" id="L99">      final int bonds = rollWarBonds(m_bridge, m_player, data);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">      if (bonds &gt; 0) {</span>
+<span class="nc" id="L101">        total += bonds;</span>
+<span class="nc" id="L102">        toAdd += bonds;</span>
+<span class="nc" id="L103">        final String bondText = m_player.getName() + &quot; collect &quot; + bonds + MyFormatter.pluralize(&quot; PU&quot;, bonds)</span>
+<span class="nc" id="L104">            + &quot; from War Bonds; end with &quot; + total + MyFormatter.pluralize(&quot; PU&quot;, total) + &quot; total&quot;;</span>
+<span class="nc" id="L105">        m_bridge.getHistoryWriter().startEvent(bondText);</span>
+<span class="nc" id="L106">        endTurnReport.append(&quot;&lt;br /&gt;&quot;).append(bondText).append(&quot;&lt;br /&gt;&quot;);</span>
+      }
+<span class="nc bnc" id="L108" title="All 2 branches missed.">      if (total &lt; 0) {</span>
+<span class="nc" id="L109">        toAdd -= total;</span>
+<span class="nc" id="L110">        total = 0;</span>
+      }
+<span class="nc" id="L112">      final Change change = ChangeFactory.changeResourcesChange(m_player, PUs, toAdd);</span>
+<span class="nc" id="L113">      m_bridge.addChange(change);</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">      if (data.getProperties().get(Constants.PACIFIC_THEATER, false) &amp;&amp; pa != null) {</span>
+<span class="nc" id="L115">        final Change changeVP = (ChangeFactory.attachmentPropertyChange(pa,</span>
+<span class="nc" id="L116">            (pa.getVps() + (toAdd / 10) + (pa.getCaptureVps() / 10)), &quot;vps&quot;));</span>
+<span class="nc" id="L117">        final Change changeCapVP = ChangeFactory.attachmentPropertyChange(pa, &quot;0&quot;, &quot;captureVps&quot;);</span>
+<span class="nc" id="L118">        final CompositeChange ccVP = new CompositeChange(changeVP, changeCapVP);</span>
+<span class="nc" id="L119">        m_bridge.addChange(ccVP);</span>
+      }
+<span class="nc" id="L121">      endTurnReport.append(&quot;&lt;br /&gt;&quot;).append(addOtherResources(m_bridge));</span>
+<span class="nc" id="L122">      endTurnReport.append(&quot;&lt;br /&gt;&quot;).append(doNationalObjectivesAndOtherEndTurnEffects(m_bridge));</span>
+      // now we do upkeep costs, including upkeep cost as a percentage of our entire income for this turn (including
+      // NOs)
+<span class="nc" id="L125">      final int currentPUs = m_player.getResources().getQuantity(PUs);</span>
+<span class="nc" id="L126">      final float gainedPUS = Math.max(0, currentPUs - leftOverPUs);</span>
+<span class="nc" id="L127">      int relationshipUpkeepCostFlat = 0;</span>
+<span class="nc" id="L128">      int relationshipUpkeepCostPercentage = 0;</span>
+<span class="nc" id="L129">      int relationshipUpkeepTotalCost = 0;</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">      for (final Relationship r : data.getRelationshipTracker().getRelationships(m_player)) {</span>
+<span class="nc" id="L131">        final String[] upkeep = r.getRelationshipType().getRelationshipTypeAttachment().getUpkeepCost().split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L132" title="All 4 branches missed.">        if (upkeep.length == 1 || upkeep[1].equals(RelationshipTypeAttachment.UPKEEP_FLAT)) {</span>
+<span class="nc" id="L133">          relationshipUpkeepCostFlat += Integer.parseInt(upkeep[0]);</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        } else if (upkeep[1].equals(RelationshipTypeAttachment.UPKEEP_PERCENTAGE)) {</span>
+<span class="nc" id="L135">          relationshipUpkeepCostPercentage += Integer.parseInt(upkeep[0]);</span>
+        }
+      }
+<span class="nc" id="L138">      relationshipUpkeepCostPercentage = Math.min(100, relationshipUpkeepCostPercentage);</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">      if (relationshipUpkeepCostPercentage != 0) {</span>
+<span class="nc" id="L140">        relationshipUpkeepTotalCost += Math.round(gainedPUS * (relationshipUpkeepCostPercentage) / 100f);</span>
+      }
+<span class="nc bnc" id="L142" title="All 2 branches missed.">      if (relationshipUpkeepCostFlat != 0) {</span>
+<span class="nc" id="L143">        relationshipUpkeepTotalCost += relationshipUpkeepCostFlat;</span>
+      }
+      // we can't remove more than we have, and we also must flip the sign
+<span class="nc" id="L146">      relationshipUpkeepTotalCost = Math.min(currentPUs, relationshipUpkeepTotalCost);</span>
+<span class="nc" id="L147">      relationshipUpkeepTotalCost = -1 * relationshipUpkeepTotalCost;</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (relationshipUpkeepTotalCost != 0) {</span>
+<span class="nc" id="L149">        final int newTotal = currentPUs + relationshipUpkeepTotalCost;</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">        final String transcriptText2 = m_player.getName() + (relationshipUpkeepTotalCost &lt; 0 ? &quot; pays &quot; : &quot; taxes &quot;)</span>
+<span class="nc" id="L151">            + (-1 * relationshipUpkeepTotalCost) + MyFormatter.pluralize(&quot; PU&quot;, relationshipUpkeepTotalCost)</span>
+<span class="nc" id="L152">            + &quot; in order to maintain current relationships with other players, and ends the turn with &quot; + newTotal</span>
+<span class="nc" id="L153">            + MyFormatter.pluralize(&quot; PU&quot;, newTotal);</span>
+<span class="nc" id="L154">        m_bridge.getHistoryWriter().startEvent(transcriptText2);</span>
+<span class="nc" id="L155">        endTurnReport.append(&quot;&lt;br /&gt;&quot;).append(transcriptText2).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L156">        final Change upkeep = ChangeFactory.changeResourcesChange(m_player, PUs, relationshipUpkeepTotalCost);</span>
+<span class="nc" id="L157">        m_bridge.addChange(upkeep);</span>
+      }
+    }
+<span class="nc bnc" id="L160" title="All 2 branches missed.">    if (GameStepPropertiesHelper.isRepairUnits(data)) {</span>
+<span class="nc" id="L161">      MoveDelegate.repairMultipleHitPointUnits(m_bridge, m_bridge.getPlayerID());</span>
+    }
+<span class="nc bnc" id="L163" title="All 6 branches missed.">    if (isGiveUnitsByTerritory() &amp;&amp; pa != null &amp;&amp; pa.getGiveUnitControl() != null</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        &amp;&amp; !pa.getGiveUnitControl().isEmpty()) {</span>
+<span class="nc" id="L165">      changeUnitOwnership(m_bridge);</span>
+    }
+<span class="nc" id="L167">    m_needToInitialize = false;</span>
+<span class="nc" id="L168">    showEndTurnReport(endTurnReport.toString());</span>
+<span class="nc" id="L169">  }</span>
+
+  protected void showEndTurnReport(final String endTurnReport) {
+<span class="nc bnc" id="L172" title="All 6 branches missed.">    if (endTurnReport != null &amp;&amp; endTurnReport.trim().length() &gt; 6 &amp;&amp; !m_player.isAI()) {</span>
+<span class="nc" id="L173">      final ITripleAPlayer currentPlayer = getRemotePlayer(m_player);</span>
+<span class="nc" id="L174">      final String player = m_player.getName();</span>
+<span class="nc" id="L175">      currentPlayer.reportMessage(&quot;&lt;html&gt;&lt;b style=\&quot;font-size:120%\&quot; &gt;&quot; + END_TURN_REPORT_STRING + player</span>
+<span class="nc" id="L176">          + &quot;&lt;/b&gt;&lt;br /&gt;&lt;br /&gt;&quot; + endTurnReport + &quot;&lt;/html&gt;&quot;, END_TURN_REPORT_STRING + player);</span>
+    }
+<span class="nc" id="L178">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   */
+  @Override
+  public void end() {
+<span class="nc" id="L185">    super.end();</span>
+<span class="nc" id="L186">    m_needToInitialize = true;</span>
+<span class="nc" id="L187">    DelegateFinder.battleDelegate(getData()).getBattleTracker().clear();</span>
+<span class="nc" id="L188">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L192">    final EndTurnExtendedDelegateState state = new EndTurnExtendedDelegateState();</span>
+<span class="nc" id="L193">    state.superState = super.saveState();</span>
+    // add other variables to state here:
+<span class="nc" id="L195">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L196">    state.m_hasPostedTurnSummary = m_hasPostedTurnSummary;</span>
+<span class="nc" id="L197">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L202">    final EndTurnExtendedDelegateState s = (EndTurnExtendedDelegateState) state;</span>
+<span class="nc" id="L203">    super.loadState(s.superState);</span>
+<span class="nc" id="L204">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L205">    m_hasPostedTurnSummary = s.m_hasPostedTurnSummary;</span>
+<span class="nc" id="L206">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+    // currently we need to call this regardless, because it resets player sounds for the turn.
+<span class="nc" id="L211">    return true;</span>
+  }
+
+  private int rollWarBonds(final IDelegateBridge aBridge, final PlayerID player, final GameData data) {
+<span class="nc" id="L215">    final int count = TechAbilityAttachment.getWarBondDiceNumber(player, data);</span>
+<span class="nc" id="L216">    final int sides = TechAbilityAttachment.getWarBondDiceSides(player, data);</span>
+<span class="nc bnc" id="L217" title="All 4 branches missed.">    if (sides &lt;= 0 || count &lt;= 0) {</span>
+<span class="nc" id="L218">      return 0;</span>
+    }
+<span class="nc" id="L220">    final String annotation = player.getName() + &quot; rolling to resolve War Bonds: &quot;;</span>
+    DiceRoll dice;
+<span class="nc" id="L222">    dice = DiceRoll.rollNDice(aBridge, count, sides, player, DiceType.NONCOMBAT, annotation);</span>
+<span class="nc" id="L223">    int total = 0;</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">    for (int i = 0; i &lt; dice.size(); i++) {</span>
+<span class="nc" id="L225">      total += dice.getDie(i).getValue() + 1;</span>
+    }
+<span class="nc" id="L227">    getRemotePlayer(player).reportMessage(annotation + MyFormatter.asDice(dice), annotation + MyFormatter.asDice(dice));</span>
+<span class="nc" id="L228">    return total;</span>
+  }
+
+  private String rollWarBondsForFriends(final IDelegateBridge aBridge, final PlayerID player, final GameData data) {
+<span class="nc" id="L232">    final int count = TechAbilityAttachment.getWarBondDiceNumber(player, data);</span>
+<span class="nc" id="L233">    final int sides = TechAbilityAttachment.getWarBondDiceSides(player, data);</span>
+<span class="nc bnc" id="L234" title="All 4 branches missed.">    if (sides &lt;= 0 || count &lt;= 0) {</span>
+<span class="nc" id="L235">      return &quot;&quot;;</span>
+    }
+    // basically, if we are sharing our technology with someone, and we have warbonds but they do not, then we roll our
+    // warbonds and give
+    // them the proceeds (Global 1940)
+<span class="nc" id="L240">    final PlayerAttachment playerattachment = PlayerAttachment.get(player);</span>
+<span class="nc bnc" id="L241" title="All 2 branches missed.">    if (playerattachment == null) {</span>
+<span class="nc" id="L242">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L244">    final Collection&lt;PlayerID&gt; shareWith = playerattachment.getShareTechnology();</span>
+<span class="nc bnc" id="L245" title="All 4 branches missed.">    if (shareWith == null || shareWith.isEmpty()) {</span>
+<span class="nc" id="L246">      return &quot;&quot;;</span>
+    }
+    // take first one
+<span class="nc" id="L249">    PlayerID giveWarBondsTo = null;</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">    for (final PlayerID p : shareWith) {</span>
+<span class="nc" id="L251">      final int pCount = TechAbilityAttachment.getWarBondDiceNumber(p, data);</span>
+<span class="nc" id="L252">      final int pSides = TechAbilityAttachment.getWarBondDiceSides(p, data);</span>
+<span class="nc bnc" id="L253" title="All 4 branches missed.">      if (pSides &lt;= 0 &amp;&amp; pCount &lt;= 0) {</span>
+        // if both are zero, then it must mean we did not share our war bonds tech with them, even though we are sharing
+        // all tech (because
+        // they cannot have this tech)
+<span class="nc bnc" id="L257" title="All 2 branches missed.">        if (canPlayerCollectIncome(p, data)) {</span>
+<span class="nc" id="L258">          giveWarBondsTo = p;</span>
+<span class="nc" id="L259">          break;</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L263" title="All 2 branches missed.">    if (giveWarBondsTo == null) {</span>
+<span class="nc" id="L264">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L266">    final String annotation =</span>
+<span class="nc" id="L267">        player.getName() + &quot; rolling to resolve War Bonds, and giving results to &quot; + giveWarBondsTo.getName() + &quot;: &quot;;</span>
+<span class="nc" id="L268">    final DiceRoll dice = DiceRoll.rollNDice(aBridge, count, sides, player, DiceType.NONCOMBAT, annotation);</span>
+<span class="nc" id="L269">    int totalWarBonds = 0;</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">    for (int i = 0; i &lt; dice.size(); i++) {</span>
+<span class="nc" id="L271">      totalWarBonds += dice.getDie(i).getValue() + 1;</span>
+    }
+<span class="nc" id="L273">    final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L274">    final int currentPUs = giveWarBondsTo.getResources().getQuantity(PUs);</span>
+<span class="nc" id="L275">    final String transcriptText =</span>
+<span class="nc" id="L276">        player.getName() + &quot; rolls &quot; + totalWarBonds + MyFormatter.pluralize(&quot; PU&quot;, totalWarBonds)</span>
+<span class="nc" id="L277">            + &quot; from War Bonds, giving the total to &quot; + giveWarBondsTo.getName() + &quot;, who ends with &quot;</span>
+<span class="nc" id="L278">            + (currentPUs + totalWarBonds) + MyFormatter.pluralize(&quot; PU&quot;, (currentPUs + totalWarBonds)) + &quot; total&quot;;</span>
+<span class="nc" id="L279">    aBridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L280">    final Change change = ChangeFactory.changeResourcesChange(giveWarBondsTo, PUs, totalWarBonds);</span>
+<span class="nc" id="L281">    aBridge.addChange(change);</span>
+<span class="nc" id="L282">    getRemotePlayer(player).reportMessage(annotation + MyFormatter.asDice(dice), annotation + MyFormatter.asDice(dice));</span>
+<span class="nc" id="L283">    return transcriptText + &quot;&lt;br /&gt;&quot;;</span>
+  }
+
+  private static void changeUnitOwnership(final IDelegateBridge aBridge) {
+<span class="nc" id="L287">    final PlayerID Player = aBridge.getPlayerID();</span>
+<span class="nc" id="L288">    final PlayerAttachment pa = PlayerAttachment.get(Player);</span>
+<span class="nc" id="L289">    final Collection&lt;PlayerID&gt; PossibleNewOwners = pa.getGiveUnitControl();</span>
+<span class="nc" id="L290">    final Collection&lt;Territory&gt; territories = aBridge.getData().getMap().getTerritories();</span>
+<span class="nc" id="L291">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L292">    final Collection&lt;Tuple&lt;Territory, Collection&lt;Unit&gt;&gt;&gt; changeList =</span>
+<span class="nc" id="L293">        new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">    for (final Territory currTerritory : territories) {</span>
+<span class="nc" id="L295">      final TerritoryAttachment ta = TerritoryAttachment.get(currTerritory, true);</span>
+      // if ownership should change in this territory
+<span class="nc bnc" id="L297" title="All 6 branches missed.">      if (ta != null &amp;&amp; ta.getChangeUnitOwners() != null &amp;&amp; !ta.getChangeUnitOwners().isEmpty()) {</span>
+<span class="nc" id="L298">        final Collection&lt;PlayerID&gt; terrNewOwners = ta.getChangeUnitOwners();</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        for (final PlayerID terrNewOwner : terrNewOwners) {</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">          if (PossibleNewOwners.contains(terrNewOwner)) {</span>
+            // PlayerOwnerChange
+<span class="nc" id="L302">            final Collection&lt;Unit&gt; units =</span>
+<span class="nc" id="L303">                currTerritory.getUnits().getMatches(new CompositeMatchAnd&lt;&gt;(Matches.unitOwnedBy(Player),</span>
+<span class="nc" id="L304">                    Matches.UnitCanBeGivenByTerritoryTo(terrNewOwner)));</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">            if (!units.isEmpty()) {</span>
+<span class="nc" id="L306">              change.add(ChangeFactory.changeOwner(units, terrNewOwner, currTerritory));</span>
+<span class="nc" id="L307">              changeList.add(Tuple.of(currTerritory, units));</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L313" title="All 4 branches missed.">    if (!change.isEmpty() &amp;&amp; !changeList.isEmpty()) {</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">      if (changeList.size() == 1) {</span>
+<span class="nc" id="L315">        final Tuple&lt;Territory, Collection&lt;Unit&gt;&gt; tuple = changeList.iterator().next();</span>
+<span class="nc" id="L316">        aBridge.getHistoryWriter().startEvent(&quot;Some Units in &quot; + tuple.getFirst().getName() + &quot; change ownership: &quot;</span>
+<span class="nc" id="L317">            + MyFormatter.unitsToTextNoOwner(tuple.getSecond()), tuple.getSecond());</span>
+<span class="nc" id="L318">      } else {</span>
+<span class="nc" id="L319">        aBridge.getHistoryWriter().startEvent(&quot;Units Change Ownership&quot;);</span>
+<span class="nc bnc" id="L320" title="All 2 branches missed.">        for (final Tuple&lt;Territory, Collection&lt;Unit&gt;&gt; tuple : changeList) {</span>
+<span class="nc" id="L321">          aBridge.getHistoryWriter().addChildToEvent(&quot;Some Units in &quot; + tuple.getFirst().getName()</span>
+<span class="nc" id="L322">              + &quot; change ownership: &quot; + MyFormatter.unitsToTextNoOwner(tuple.getSecond()), tuple.getSecond());</span>
+        }
+      }
+<span class="nc" id="L325">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L327">  }</span>
+
+  protected abstract String addOtherResources(IDelegateBridge bridge);
+
+  protected abstract String doNationalObjectivesAndOtherEndTurnEffects(IDelegateBridge bridge);
+
+  protected int getProduction(final Collection&lt;Territory&gt; territories) {
+<span class="nc" id="L334">    return getProduction(territories, getData());</span>
+  }
+
+  public static int getProduction(final Collection&lt;Territory&gt; territories, final GameData data) {
+<span class="nc" id="L338">    int value = 0;</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">    for (final Territory current : territories) {</span>
+<span class="nc" id="L340">      final TerritoryAttachment attachment = TerritoryAttachment.get(current);</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">      if (attachment == null) {</span>
+<span class="nc" id="L342">        throw new IllegalStateException(&quot;No attachment for owned territory:&quot; + current.getName());</span>
+      }
+      // Match will Check if territory is originally owned convoy center, or if it is contested
+<span class="nc bnc" id="L345" title="All 2 branches missed.">      if (Matches.territoryCanCollectIncomeFrom(current.getOwner(), data).match(current)) {</span>
+<span class="nc" id="L346">        value += attachment.getProduction();</span>
+      }
+    }
+<span class="nc" id="L349">    return value;</span>
+  }
+
+  // finds losses due to blockades, positive value returned.
+  protected int getBlockadeProductionLoss(final PlayerID player, final GameData data, final IDelegateBridge aBridge,
+      final StringBuilder endTurnReport) {
+<span class="nc" id="L355">    final PlayerAttachment playerRules = PlayerAttachment.get(player);</span>
+<span class="nc bnc" id="L356" title="All 4 branches missed.">    if (playerRules != null &amp;&amp; playerRules.getImmuneToBlockade()) {</span>
+<span class="nc" id="L357">      return 0;</span>
+    }
+<span class="nc" id="L359">    final GameMap map = data.getMap();</span>
+<span class="nc" id="L360">    final Collection&lt;Territory&gt; blockable = Match.getMatches(map.getTerritories(), Matches.territoryIsBlockadeZone);</span>
+<span class="nc bnc" id="L361" title="All 2 branches missed.">    if (blockable.isEmpty()) {</span>
+<span class="nc" id="L362">      return 0;</span>
+    }
+<span class="nc" id="L364">    final Match&lt;Unit&gt; enemyUnits = new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(player, data));</span>
+<span class="nc" id="L365">    int totalLoss = 0;</span>
+<span class="nc" id="L366">    final boolean rollDiceForBlockadeDamage = games.strategy.triplea.Properties.getConvoyBlockadesRollDiceForCost(data);</span>
+<span class="nc" id="L367">    final Collection&lt;String&gt; transcripts = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L368">    final HashMap&lt;Territory, Tuple&lt;Integer, List&lt;Territory&gt;&gt;&gt; damagePerBlockadeZone =</span>
+<span class="nc" id="L369">        new HashMap&lt;&gt;();</span>
+<span class="nc" id="L370">    boolean rolledDice = false;</span>
+<span class="nc bnc" id="L371" title="All 2 branches missed.">    for (final Territory b : blockable) {</span>
+      // match will check for land, convoy zones, and also contested territories
+<span class="nc" id="L373">      final List&lt;Territory&gt; viableNeighbors =</span>
+<span class="nc" id="L374">          Match.getMatches(map.getNeighbors(b), new CompositeMatchAnd&lt;&gt;(Matches.isTerritoryOwnedBy(player),</span>
+<span class="nc" id="L375">              Matches.territoryCanCollectIncomeFrom(player, data)));</span>
+<span class="nc" id="L376">      final int maxLoss = getProduction(viableNeighbors);</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">      if (maxLoss &lt;= 0) {</span>
+<span class="nc" id="L378">        continue;</span>
+      }
+<span class="nc" id="L380">      int loss = 0;</span>
+<span class="nc" id="L381">      final Collection&lt;Unit&gt; enemies = Match.getMatches(b.getUnits().getUnits(), enemyUnits);</span>
+<span class="nc bnc" id="L382" title="All 2 branches missed.">      if (enemies.isEmpty()) {</span>
+<span class="nc" id="L383">        continue;</span>
+      }
+<span class="nc bnc" id="L385" title="All 2 branches missed.">      if (rollDiceForBlockadeDamage) {</span>
+<span class="nc" id="L386">        int numberOfDice = 0;</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">        for (final Unit u : enemies) {</span>
+<span class="nc" id="L388">          numberOfDice += UnitAttachment.get(u.getType()).getBlockade();</span>
+        }
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        if (numberOfDice &gt; 0) {</span>
+          // there is an issue with maps that have lots of rolls without any pause between them: they are causing the
+          // cypted random source
+          // (ie: live and pbem games) to lock up or error out
+          // so we need to slow them down a bit, until we come up with a better solution (like aggregating all the
+          // chances together, then
+          // getting a ton of random numbers at once instead of one at a time)
+<span class="nc" id="L397">          ThreadUtil.sleep(100);</span>
+<span class="nc" id="L398">          final String transcript = &quot;Rolling for Convoy Blockade Damage in &quot; + b.getName();</span>
+<span class="nc" id="L399">          final int[] dice = aBridge.getRandom(CONVOY_BLOCKADE_DICE_SIDES, numberOfDice,</span>
+<span class="nc" id="L400">              enemies.iterator().next().getOwner(), DiceType.BOMBING, transcript);</span>
+<span class="nc" id="L401">          transcripts.add(transcript + &quot;. Rolls: &quot; + MyFormatter.asDice(dice));</span>
+<span class="nc" id="L402">          rolledDice = true;</span>
+<span class="nc bnc" id="L403" title="All 2 branches missed.">          for (final int d : dice) {</span>
+            // we are zero based
+<span class="nc" id="L405">            final int roll = d + 1;</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">            loss += (roll &lt;= 3 ? roll : 0);</span>
+          }
+        }
+<span class="nc" id="L409">      } else {</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">        for (final Unit u : enemies) {</span>
+<span class="nc" id="L411">          loss += UnitAttachment.get(u.getType()).getBlockade();</span>
+        }
+      }
+<span class="nc bnc" id="L414" title="All 2 branches missed.">      if (loss &lt;= 0) {</span>
+<span class="nc" id="L415">        continue;</span>
+      }
+<span class="nc" id="L417">      final int lossForBlockade = Math.min(maxLoss, loss);</span>
+<span class="nc" id="L418">      damagePerBlockadeZone.put(b, Tuple.of(lossForBlockade, viableNeighbors));</span>
+<span class="nc" id="L419">      totalLoss += lossForBlockade;</span>
+    }
+<span class="nc bnc" id="L421" title="All 4 branches missed.">    if (totalLoss &lt;= 0 &amp;&amp; !rolledDice) {</span>
+<span class="nc" id="L422">      return 0;</span>
+    }
+    // now we need to make sure that we didn't deal more damage than the territories are worth, in the case of having
+    // multiple sea zones
+    // touching the same land zone.
+<span class="nc" id="L427">    final List&lt;Territory&gt; blockadeZonesSorted = new ArrayList&lt;&gt;(damagePerBlockadeZone.keySet());</span>
+<span class="nc" id="L428">    Collections.sort(blockadeZonesSorted, getSingleBlockadeThenHighestToLowestBlockadeDamage(damagePerBlockadeZone));</span>
+    // we want to match highest damage to largest producer first, that is why we sort twice
+<span class="nc" id="L430">    final IntegerMap&lt;Territory&gt; totalDamageTracker = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">    for (final Territory b : blockadeZonesSorted) {</span>
+<span class="nc" id="L432">      final Tuple&lt;Integer, List&lt;Territory&gt;&gt; tuple = damagePerBlockadeZone.get(b);</span>
+<span class="nc" id="L433">      int damageForZone = tuple.getFirst();</span>
+<span class="nc" id="L434">      final List&lt;Territory&gt; terrsLosingIncome = new ArrayList&lt;&gt;(tuple.getSecond());</span>
+<span class="nc" id="L435">      Collections.sort(terrsLosingIncome,</span>
+<span class="nc" id="L436">          getSingleNeighborBlockadesThenHighestToLowestProduction(blockadeZonesSorted, map));</span>
+<span class="nc" id="L437">      final Iterator&lt;Territory&gt; iter = terrsLosingIncome.iterator();</span>
+<span class="nc bnc" id="L438" title="All 4 branches missed.">      while (damageForZone &gt; 0 &amp;&amp; iter.hasNext()) {</span>
+<span class="nc" id="L439">        final Territory t = iter.next();</span>
+<span class="nc" id="L440">        final int maxProductionLessPreviousDamage = TerritoryAttachment.getProduction(t) - totalDamageTracker.getInt(t);</span>
+<span class="nc" id="L441">        final int damageToTerr = Math.min(damageForZone, maxProductionLessPreviousDamage);</span>
+<span class="nc" id="L442">        damageForZone -= damageToTerr;</span>
+<span class="nc" id="L443">        totalDamageTracker.put(t, damageToTerr + totalDamageTracker.getInt(t));</span>
+      }
+    }
+<span class="nc" id="L446">    final int realTotalLoss = Math.max(0, totalDamageTracker.totalValues());</span>
+<span class="nc bnc" id="L447" title="All 8 branches missed.">    if (rollDiceForBlockadeDamage &amp;&amp; (realTotalLoss &gt; 0 || (rolledDice &amp;&amp; !transcripts.isEmpty()))) {</span>
+<span class="nc" id="L448">      final String mainline = &quot;Total Cost from Convoy Blockades: &quot; + realTotalLoss;</span>
+<span class="nc" id="L449">      aBridge.getHistoryWriter().startEvent(mainline);</span>
+<span class="nc" id="L450">      endTurnReport.append(mainline).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">      for (final String t : transcripts) {</span>
+<span class="nc" id="L452">        aBridge.getHistoryWriter().addChildToEvent(t);</span>
+<span class="nc" id="L453">        endTurnReport.append(&quot;* &quot;).append(t).append(&quot;&lt;br /&gt;&quot;);</span>
+      }
+<span class="nc" id="L455">      endTurnReport.append(&quot;&lt;br /&gt;&quot;);</span>
+    }
+<span class="nc" id="L457">    return realTotalLoss;</span>
+  }
+
+  @Override
+  public void setHasPostedTurnSummary(final boolean hasPostedTurnSummary) {
+<span class="nc" id="L462">    m_hasPostedTurnSummary = hasPostedTurnSummary;</span>
+<span class="nc" id="L463">  }</span>
+
+  @Override
+  public boolean getHasPostedTurnSummary() {
+<span class="nc" id="L467">    return m_hasPostedTurnSummary;</span>
+  }
+
+  @Override
+  public boolean postTurnSummary(final PBEMMessagePoster poster, final String title, final boolean includeSaveGame) {
+<span class="nc" id="L472">    m_hasPostedTurnSummary = poster.post(m_bridge.getHistoryWriter(), title, includeSaveGame);</span>
+<span class="nc" id="L473">    return m_hasPostedTurnSummary;</span>
+  }
+
+  @Override
+  public String getName() {
+<span class="fc" id="L478">    return m_name;</span>
+  }
+
+  @Override
+  public String getDisplayName() {
+<span class="nc" id="L483">    return m_displayName;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L488">    return IAbstractForumPosterDelegate.class;</span>
+  }
+
+  private static Comparator&lt;Territory&gt; getSingleNeighborBlockadesThenHighestToLowestProduction(
+      final Collection&lt;Territory&gt; blockadeZones, final GameMap map) {
+<span class="nc" id="L493">    return (t1, t2) -&gt; {</span>
+<span class="nc bnc" id="L494" title="All 6 branches missed.">      if (t1 == t2 || (t1 == null &amp;&amp; t2 == null)) {</span>
+<span class="nc" id="L495">        return 0;</span>
+      }
+<span class="nc bnc" id="L497" title="All 2 branches missed.">      if (t1 == null) {</span>
+<span class="nc" id="L498">        return 1;</span>
+      }
+<span class="nc bnc" id="L500" title="All 2 branches missed.">      if (t2 == null) {</span>
+<span class="nc" id="L501">        return -1;</span>
+      }
+<span class="nc bnc" id="L503" title="All 2 branches missed.">      if (t1.equals(t2)) {</span>
+<span class="nc" id="L504">        return 0;</span>
+      }
+      // if a territory is only touching 1 blockadeZone, we must take it first
+<span class="nc" id="L507">      final Collection&lt;Territory&gt; neighborBlockades1 = new ArrayList&lt;&gt;(map.getNeighbors(t1));</span>
+<span class="nc" id="L508">      neighborBlockades1.retainAll(blockadeZones);</span>
+<span class="nc" id="L509">      final int n1 = neighborBlockades1.size();</span>
+<span class="nc" id="L510">      final Collection&lt;Territory&gt; neighborBlockades2 = new ArrayList&lt;&gt;(map.getNeighbors(t2));</span>
+<span class="nc" id="L511">      neighborBlockades2.retainAll(blockadeZones);</span>
+<span class="nc" id="L512">      final int n2 = neighborBlockades2.size();</span>
+<span class="nc bnc" id="L513" title="All 4 branches missed.">      if (n1 == 1 &amp;&amp; n2 != 1) {</span>
+<span class="nc" id="L514">        return -1;</span>
+      }
+<span class="nc bnc" id="L516" title="All 4 branches missed.">      if (n2 == 1 &amp;&amp; n1 != 1) {</span>
+<span class="nc" id="L517">        return 1;</span>
+      }
+<span class="nc" id="L519">      final TerritoryAttachment ta1 = TerritoryAttachment.get(t1);</span>
+<span class="nc" id="L520">      final TerritoryAttachment ta2 = TerritoryAttachment.get(t2);</span>
+<span class="nc bnc" id="L521" title="All 4 branches missed.">      if (ta1 == null &amp;&amp; ta2 == null) {</span>
+<span class="nc" id="L522">        return 0;</span>
+      }
+<span class="nc bnc" id="L524" title="All 2 branches missed.">      if (ta1 == null) {</span>
+<span class="nc" id="L525">        return 1;</span>
+      }
+<span class="nc bnc" id="L527" title="All 2 branches missed.">      if (ta2 == null) {</span>
+<span class="nc" id="L528">        return -1;</span>
+      }
+<span class="nc" id="L530">      final int p1 = ta1.getProduction();</span>
+<span class="nc" id="L531">      final int p2 = ta2.getProduction();</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">      if (p1 == p2) {</span>
+<span class="nc" id="L533">        return 0;</span>
+      }
+<span class="nc bnc" id="L535" title="All 2 branches missed.">      if (p1 &gt; p2) {</span>
+<span class="nc" id="L536">        return -1;</span>
+      }
+<span class="nc" id="L538">      return 1;</span>
+    };
+  }
+
+  private static Comparator&lt;Territory&gt; getSingleBlockadeThenHighestToLowestBlockadeDamage(
+      final HashMap&lt;Territory, Tuple&lt;Integer, List&lt;Territory&gt;&gt;&gt; damagePerBlockadeZone) {
+<span class="nc" id="L544">    return (t1, t2) -&gt; {</span>
+<span class="nc bnc" id="L545" title="All 6 branches missed.">      if (t1 == t2 || (t1 == null &amp;&amp; t2 == null)) {</span>
+<span class="nc" id="L546">        return 0;</span>
+      }
+<span class="nc bnc" id="L548" title="All 2 branches missed.">      if (t1 == null) {</span>
+<span class="nc" id="L549">        return 1;</span>
+      }
+<span class="nc bnc" id="L551" title="All 2 branches missed.">      if (t2 == null) {</span>
+<span class="nc" id="L552">        return -1;</span>
+      }
+<span class="nc bnc" id="L554" title="All 2 branches missed.">      if (t1.equals(t2)) {</span>
+<span class="nc" id="L555">        return 0;</span>
+      }
+<span class="nc" id="L557">      final Tuple&lt;Integer, List&lt;Territory&gt;&gt; tuple1 = damagePerBlockadeZone.get(t1);</span>
+<span class="nc" id="L558">      final Tuple&lt;Integer, List&lt;Territory&gt;&gt; tuple2 = damagePerBlockadeZone.get(t2);</span>
+<span class="nc" id="L559">      final int num1 = tuple1.getSecond().size();</span>
+<span class="nc" id="L560">      final int num2 = tuple2.getSecond().size();</span>
+<span class="nc bnc" id="L561" title="All 4 branches missed.">      if (num1 == 1 &amp;&amp; num2 != 1) {</span>
+<span class="nc" id="L562">        return -1;</span>
+      }
+<span class="nc bnc" id="L564" title="All 4 branches missed.">      if (num2 == 1 &amp;&amp; num1 != 1) {</span>
+<span class="nc" id="L565">        return 1;</span>
+      }
+<span class="nc" id="L567">      final int d1 = tuple1.getFirst();</span>
+<span class="nc" id="L568">      final int d2 = tuple2.getFirst();</span>
+<span class="nc bnc" id="L569" title="All 2 branches missed.">      if (d1 == d2) {</span>
+<span class="nc" id="L570">        return 0;</span>
+      }
+<span class="nc bnc" id="L572" title="All 2 branches missed.">      if (d1 &gt; d2) {</span>
+<span class="nc" id="L573">        return -1;</span>
+      }
+<span class="nc" id="L575">      return 1;</span>
+    };
+  }
+}
+
+
+<span class="nc" id="L581">class EndTurnExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = -3939461840835898284L;
+  Serializable superState;
+  // add other variables here:
+  public boolean m_needToInitialize;
+  public boolean m_hasPostedTurnSummary;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

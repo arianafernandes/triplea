@@ -1,0 +1,442 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractUIContext.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">AbstractUIContext.java</span></div><h1>AbstractUIContext.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui;
+
+import java.awt.BorderLayout;
+import java.awt.Window;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.logging.Logger;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
+
+import javax.swing.JComponent;
+import javax.swing.JFrame;
+import javax.swing.JMenuBar;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.framework.LocalPlayers;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.ResourceLoader;
+import games.strategy.util.CountDownLatchHandler;
+
+
+<span class="nc" id="L32">public abstract class AbstractUIContext implements IUIContext {</span>
+
+  protected static final String UNIT_SCALE_PREF = &quot;UnitScale&quot;;
+  protected static final String MAP_SKIN_PREF = &quot;MapSkin&quot;;
+  protected static final String MAP_SCALE_PREF = &quot;MapScale&quot;;
+<span class="nc" id="L37">  protected static final Logger s_logger = Logger.getLogger(AbstractUIContext.class.getName());</span>
+  protected static String m_mapDir;
+  protected static final String LOCK_MAP = &quot;LockMap&quot;;
+  protected static final String SHOW_END_OF_TURN_REPORT = &quot;ShowEndOfTurnReport&quot;;
+  protected static final String SHOW_TRIGGERED_NOTIFICATIONS = &quot;ShowTriggeredNotifications&quot;;
+  protected static final String SHOW_TRIGGERED_CHANCE_SUCCESSFUL = &quot;ShowTriggeredChanceSuccessful&quot;;
+  protected static final String SHOW_TRIGGERED_CHANCE_FAILURE = &quot;ShowTriggeredChanceFailure&quot;;
+  protected static final String SHOW_BATTLES_BETWEEN_AIS = &quot;ShowBattlesBetweenAIs&quot;;
+<span class="nc" id="L45">  protected static ResourceLoader m_resourceLoader;</span>
+  // instance
+<span class="nc" id="L47">  protected boolean m_isShutDown = false;</span>
+<span class="nc" id="L48">  protected final List&lt;Window&gt; m_windowsToCloseOnShutdown = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L49">  protected final List&lt;Active&gt; m_activeToDeactivate = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L50">  protected final CountDownLatchHandler m_latchesToCloseOnShutdown = new CountDownLatchHandler(false);</span>
+  protected LocalPlayers m_localPlayers;
+<span class="nc" id="L52">  protected double m_scale = 1;</span>
+
+  public static ResourceLoader getResourceLoader() {
+<span class="nc" id="L55">    return m_resourceLoader;</span>
+  }
+
+  public static int getAIPauseDuration() {
+<span class="nc" id="L59">    return ClientContext.aiSettings().getAiPauseDuration();</span>
+  }
+
+  public static void setAIPauseDuration(final int value) {
+<span class="nc" id="L63">    ClientContext.aiSettings().setAiPauseDuration(String.valueOf(value));</span>
+<span class="nc" id="L64">  }</span>
+
+  @Override
+  public double getScale() {
+<span class="nc" id="L68">    return m_scale;</span>
+  }
+
+  @Override
+  public void setScale(final double scale) {
+<span class="nc" id="L73">    m_scale = scale;</span>
+<span class="nc" id="L74">    final Preferences prefs = getPreferencesMapOrSkin(getMapDir());</span>
+<span class="nc" id="L75">    prefs.putDouble(MAP_SCALE_PREF, scale);</span>
+    try {
+<span class="nc" id="L77">      prefs.flush();</span>
+<span class="nc" id="L78">    } catch (final BackingStoreException e) {</span>
+<span class="nc" id="L79">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L81">  }</span>
+
+  /**
+   * Get the preferences for the map.
+   */
+  protected static Preferences getPreferencesForMap(final String mapName) {
+<span class="nc" id="L87">    return Preferences.userNodeForPackage(AbstractUIContext.class).node(mapName);</span>
+  }
+
+  /**
+   * Get the preferences for the map or map skin
+   */
+  protected static Preferences getPreferencesMapOrSkin(final String mapDir) {
+<span class="nc" id="L94">    return Preferences.userNodeForPackage(AbstractUIContext.class).node(mapDir);</span>
+  }
+
+  protected static String getDefaultMapDir(final GameData data) {
+<span class="nc" id="L98">    final String mapName = (String) data.getProperties().get(Constants.MAP_NAME);</span>
+<span class="nc bnc" id="L99" title="All 4 branches missed.">    if (mapName == null || mapName.trim().length() == 0) {</span>
+<span class="nc" id="L100">      throw new IllegalStateException(&quot;Map name property not set on game&quot;);</span>
+    }
+<span class="nc" id="L102">    final Preferences prefs = getPreferencesForMap(mapName);</span>
+<span class="nc" id="L103">    final String mapDir = prefs.get(MAP_SKIN_PREF, mapName);</span>
+    // check for existence
+    try {
+<span class="nc" id="L106">      ResourceLoader.getMapResourceLoader(mapDir).close();</span>
+<span class="nc" id="L107">    } catch (final RuntimeException re) {</span>
+      // an error, clear the skin
+<span class="nc" id="L109">      prefs.remove(MAP_SKIN_PREF);</span>
+      // return the default
+<span class="nc" id="L111">      return mapName;</span>
+    }
+<span class="nc" id="L113">    return mapDir;</span>
+  }
+
+  @Override
+  public void setDefaultMapDir(final GameData data) {
+<span class="nc" id="L118">    internalSetMapDir(getDefaultMapDir(data), data);</span>
+<span class="nc" id="L119">  }</span>
+
+  @Override
+  public void setMapDir(final GameData data, final String mapDir) {
+<span class="nc" id="L123">    internalSetMapDir(mapDir, data);</span>
+<span class="nc" id="L124">    this.getMapData().verify(data);</span>
+    // set the default after internal succeeds, if an error is thrown
+    // we don't want to persist it
+<span class="nc" id="L127">    final String mapName = (String) data.getProperties().get(Constants.MAP_NAME);</span>
+<span class="nc" id="L128">    final Preferences prefs = getPreferencesForMap(mapName);</span>
+<span class="nc" id="L129">    prefs.put(MAP_SKIN_PREF, mapDir);</span>
+    try {
+<span class="nc" id="L131">      prefs.flush();</span>
+<span class="nc" id="L132">    } catch (final BackingStoreException e) {</span>
+<span class="nc" id="L133">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L135">  }</span>
+
+  protected abstract void internalSetMapDir(final String dir, final GameData data);
+
+  public static String getMapDir() {
+<span class="nc" id="L140">    return m_mapDir;</span>
+  }
+
+  @Override
+  public void removeActive(final Active actor) {
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    if (m_isShutDown) {</span>
+<span class="nc" id="L146">      return;</span>
+    }
+<span class="nc" id="L148">    synchronized (this) {</span>
+<span class="nc" id="L149">      m_activeToDeactivate.remove(actor);</span>
+    }
+<span class="nc" id="L151">  }</span>
+
+  /**
+   * Add a latch that will be released when the game shuts down.
+   */
+  @Override
+  public void addActive(final Active actor) {
+<span class="nc bnc" id="L158" title="All 2 branches missed.">    if (m_isShutDown) {</span>
+<span class="nc" id="L159">      closeActor(actor);</span>
+<span class="nc" id="L160">      return;</span>
+    }
+<span class="nc" id="L162">    synchronized (this) {</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">      if (m_isShutDown) {</span>
+<span class="nc" id="L164">        closeActor(actor);</span>
+<span class="nc" id="L165">        return;</span>
+      }
+<span class="nc" id="L167">      m_activeToDeactivate.add(actor);</span>
+    }
+<span class="nc" id="L169">  }</span>
+
+  /**
+   * Add a latch that will be released when the game shuts down.
+   */
+  @Override
+  public void addShutdownLatch(final CountDownLatch latch) {
+<span class="nc" id="L176">    m_latchesToCloseOnShutdown.addShutdownLatch(latch);</span>
+<span class="nc" id="L177">  }</span>
+
+  @Override
+  public void removeShutdownLatch(final CountDownLatch latch) {
+<span class="nc" id="L181">    m_latchesToCloseOnShutdown.removeShutdownLatch(latch);</span>
+<span class="nc" id="L182">  }</span>
+
+  @Override
+  public CountDownLatchHandler getCountDownLatchHandler() {
+<span class="nc" id="L186">    return m_latchesToCloseOnShutdown;</span>
+  }
+
+  /**
+   * Add a latch that will be released when the game shuts down.
+   */
+  @Override
+  public void addShutdownWindow(final Window window) {
+<span class="nc bnc" id="L194" title="All 2 branches missed.">    if (m_isShutDown) {</span>
+<span class="nc" id="L195">      closeWindow(window);</span>
+<span class="nc" id="L196">      return;</span>
+    }
+<span class="nc" id="L198">    synchronized (this) {</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">      if (m_isShutDown) {</span>
+<span class="nc" id="L200">        closeWindow(window);</span>
+<span class="nc" id="L201">        return;</span>
+      }
+<span class="nc" id="L203">      m_windowsToCloseOnShutdown.add(window);</span>
+    }
+<span class="nc" id="L205">  }</span>
+
+  protected static void closeWindow(final Window window) {
+<span class="nc" id="L208">    window.setVisible(false);</span>
+<span class="nc" id="L209">    SwingUtilities.invokeLater(() -&gt; {</span>
+      // Having dispose run on anything but the Swing Event Dispatch Thread is very dangerous.
+      // This is because dispose will call invokeAndWait if it is not on this thread already.
+      // If you are calling this method while holding a lock on an object, while the EDT is separately
+      // waiting for that lock, then you have a deadlock.
+      // A real life example: player disconnects while you have the battle calc open.
+      // Non-EDT thread does shutdown on IGame and UIContext, causing btl calc to shutdown, which calls the
+      // window closed event on the EDT, and waits for the lock on UIContext to removeShutdownWindow, meanwhile
+      // our non-EDT tries to dispose the battle panel, which requires the EDT with a invokeAndWait, resulting in a
+      // deadlock.
+<span class="nc" id="L219">      window.dispose();</span>
+      // there is a bug in java (1.50._06 for linux at least)
+      // where frames are not garbage collected.
+      // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6364875
+      // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6368950
+      // so remove all references to everything
+      // to minimize the damage
+<span class="nc bnc" id="L226" title="All 2 branches missed.">      if (window instanceof JFrame) {</span>
+<span class="nc" id="L227">        final JFrame frame = ((JFrame) window);</span>
+<span class="nc" id="L228">        final JMenuBar menu = frame.getJMenuBar();</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (menu != null) {</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">          while (menu.getMenuCount() &gt; 0) {</span>
+<span class="nc" id="L231">            menu.remove(0);</span>
+          }
+        }
+<span class="nc" id="L234">        frame.setMenuBar(null);</span>
+<span class="nc" id="L235">        frame.setJMenuBar(null);</span>
+<span class="nc" id="L236">        frame.getRootPane().removeAll();</span>
+<span class="nc" id="L237">        frame.getRootPane().setJMenuBar(null);</span>
+<span class="nc" id="L238">        frame.getContentPane().removeAll();</span>
+<span class="nc" id="L239">        frame.getContentPane().setLayout(new BorderLayout());</span>
+<span class="nc" id="L240">        frame.setContentPane(new JPanel());</span>
+<span class="nc" id="L241">        frame.setIconImage(null);</span>
+<span class="nc" id="L242">        clearInputMap(frame.getRootPane());</span>
+      }
+<span class="nc" id="L244">    });</span>
+<span class="nc" id="L245">  }</span>
+
+  protected static void clearInputMap(final JComponent c) {
+<span class="nc" id="L248">    c.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).clear();</span>
+<span class="nc" id="L249">    c.getInputMap(JComponent.WHEN_FOCUSED).clear();</span>
+<span class="nc" id="L250">    c.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).clear();</span>
+<span class="nc" id="L251">    c.getActionMap().clear();</span>
+<span class="nc" id="L252">  }</span>
+
+  @Override
+  public void removeShutdownWindow(final Window window) {
+<span class="nc bnc" id="L256" title="All 2 branches missed.">    if (m_isShutDown) {</span>
+<span class="nc" id="L257">      return;</span>
+    }
+<span class="nc" id="L259">    synchronized (this) {</span>
+<span class="nc" id="L260">      m_windowsToCloseOnShutdown.remove(window);</span>
+    }
+<span class="nc" id="L262">  }</span>
+
+  @Override
+  public boolean isShutDown() {
+<span class="nc" id="L266">    return m_isShutDown;</span>
+  }
+
+  @Override
+  public void shutDown() {
+<span class="nc" id="L271">    synchronized (this) {</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">      if (m_isShutDown) {</span>
+<span class="nc" id="L273">        return;</span>
+      }
+<span class="nc" id="L275">      m_isShutDown = true;</span>
+<span class="nc" id="L276">      m_latchesToCloseOnShutdown.shutDown();</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">      for (final Window window : m_windowsToCloseOnShutdown) {</span>
+<span class="nc" id="L278">        closeWindow(window);</span>
+      }
+<span class="nc bnc" id="L280" title="All 2 branches missed.">      for (final Active actor : m_activeToDeactivate) {</span>
+<span class="nc" id="L281">        closeActor(actor);</span>
+      }
+<span class="nc" id="L283">      m_activeToDeactivate.clear();</span>
+<span class="nc" id="L284">      m_windowsToCloseOnShutdown.clear();</span>
+    }
+<span class="nc" id="L286">  }</span>
+
+  /**
+   * returns the map skins for the game data.
+   * returns is a map of display-name -&gt; map directory
+   */
+  public static Map&lt;String, String&gt; getSkins(final GameData data) {
+<span class="nc" id="L293">    final String mapName = data.getProperties().get(Constants.MAP_NAME).toString();</span>
+<span class="nc" id="L294">    final Map&lt;String, String&gt; rVal = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L295">    rVal.put(&quot;Original&quot;, mapName);</span>
+<span class="nc" id="L296">    rVal.putAll(getSkins(mapName));</span>
+<span class="nc" id="L297">    return rVal;</span>
+  }
+
+  private static Map&lt;String,String&gt; getSkins(final String mapName) {
+<span class="nc" id="L301">    final Map&lt;String, String&gt; rVal = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L302">    final File[] files = ClientFileSystemHelper.getUserMapsFolder().listFiles();</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">    if (files == null) {</span>
+<span class="nc" id="L304">      return rVal;</span>
+    }
+
+<span class="nc bnc" id="L307" title="All 2 branches missed.">    for (final File f : files) {</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">      if (!f.isDirectory()) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        if (mapSkinNameMatchesMapName(f.getName(), mapName)) {</span>
+<span class="nc" id="L310">          final String skinName = f.getName().substring(0, f.getName().indexOf('-'));</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">          if (f.getName().endsWith(&quot;.zip&quot;)) {</span>
+<span class="nc" id="L312">            rVal.put(skinName, f.getName());</span>
+<span class="nc" id="L313">          } else {</span>
+<span class="nc" id="L314">            rVal.put(f.getName().substring(f.getName().indexOf('-') + 1), f.getName());</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L319">    return rVal;</span>
+  }
+
+  private static boolean mapSkinNameMatchesMapName(String mapSkin, String mapName) {
+<span class="nc bnc" id="L323" title="All 2 branches missed.">    return mapSkin.startsWith(mapName) &amp;&amp;</span>
+<span class="nc bnc" id="L324" title="All 2 branches missed.">        mapSkin.toLowerCase().contains(&quot;skin&quot;) &amp;&amp;</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">        mapSkin.contains(&quot;-&quot;) &amp;&amp;</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">        !mapSkin.endsWith(&quot;properties&quot;);</span>
+  }
+
+  private static void closeActor(final Active actor) {
+    try {
+<span class="nc" id="L331">      actor.deactivate();</span>
+<span class="nc" id="L332">    } catch (final RuntimeException e) {</span>
+<span class="nc" id="L333">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L335">  }</span>
+
+  @Override
+  public boolean getLockMap() {
+<span class="nc" id="L339">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L340">    return prefs.getBoolean(LOCK_MAP, false);</span>
+  }
+
+  @Override
+  public void setLockMap(final boolean aBool) {
+<span class="nc" id="L345">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L346">    prefs.putBoolean(LOCK_MAP, aBool);</span>
+    try {
+<span class="nc" id="L348">      prefs.flush();</span>
+<span class="nc" id="L349">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L350">      ex.printStackTrace();</span>
+    }
+<span class="nc" id="L352">  }</span>
+
+  @Override
+  public boolean getShowEndOfTurnReport() {
+<span class="nc" id="L356">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L357">    return prefs.getBoolean(SHOW_END_OF_TURN_REPORT, true);</span>
+  }
+
+  @Override
+  public void setShowEndOfTurnReport(final boolean value) {
+<span class="nc" id="L362">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L363">    prefs.putBoolean(SHOW_END_OF_TURN_REPORT, value);</span>
+    try {
+<span class="nc" id="L365">      prefs.flush();</span>
+<span class="nc" id="L366">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L367">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L369">  }</span>
+
+  @Override
+  public boolean getShowTriggeredNotifications() {
+<span class="nc" id="L373">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L374">    return prefs.getBoolean(SHOW_TRIGGERED_NOTIFICATIONS, true);</span>
+  }
+
+  @Override
+  public void setShowTriggeredNotifications(final boolean value) {
+<span class="nc" id="L379">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L380">    prefs.putBoolean(SHOW_TRIGGERED_NOTIFICATIONS, value);</span>
+    try {
+<span class="nc" id="L382">      prefs.flush();</span>
+<span class="nc" id="L383">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L384">      ex.printStackTrace();</span>
+    }
+<span class="nc" id="L386">  }</span>
+
+  @Override
+  public boolean getShowTriggerChanceSuccessful() {
+<span class="nc" id="L390">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L391">    return prefs.getBoolean(SHOW_TRIGGERED_CHANCE_SUCCESSFUL, true);</span>
+  }
+
+  @Override
+  public void setShowTriggerChanceSuccessful(final boolean value) {
+<span class="nc" id="L396">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L397">    prefs.putBoolean(SHOW_TRIGGERED_CHANCE_SUCCESSFUL, value);</span>
+    try {
+<span class="nc" id="L399">      prefs.flush();</span>
+<span class="nc" id="L400">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L401">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L403">  }</span>
+
+  @Override
+  public boolean getShowTriggerChanceFailure() {
+<span class="nc" id="L407">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L408">    return prefs.getBoolean(SHOW_TRIGGERED_CHANCE_FAILURE, true);</span>
+  }
+
+  @Override
+  public void setShowTriggerChanceFailure(final boolean value) {
+<span class="nc" id="L413">    final Preferences prefs = Preferences.userNodeForPackage(AbstractUIContext.class);</span>
+<span class="nc" id="L414">    prefs.putBoolean(SHOW_TRIGGERED_CHANCE_FAILURE, value);</span>
+    try {
+<span class="nc" id="L416">      prefs.flush();</span>
+<span class="nc" id="L417">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L418">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L420">  }</span>
+
+  @Override
+  public boolean getShowBattlesBetweenAIs() {
+<span class="nc" id="L424">    return ClientContext.aiSettings().showBattlesBetweenAi();</span>
+  }
+
+  @Override
+  public void setShowBattlesBetweenAIs(final boolean aBool) {
+<span class="nc" id="L429">    ClientContext.aiSettings().setShowBattlesBetweenAi(aBool);</span>
+<span class="nc" id="L430">  }</span>
+
+  @Override
+  public LocalPlayers getLocalPlayers() {
+<span class="nc" id="L434">    return m_localPlayers;</span>
+  }
+
+  @Override
+  public void setLocalPlayers(final LocalPlayers players) {
+<span class="nc" id="L439">    m_localPlayers = players;</span>
+<span class="nc" id="L440">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

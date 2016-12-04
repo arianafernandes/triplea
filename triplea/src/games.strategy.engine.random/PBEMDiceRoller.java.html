@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PBEMDiceRoller.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.random</a> &gt; <span class="el_source">PBEMDiceRoller.java</span></div><h1>PBEMDiceRoller.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.random;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Frame;
+import java.awt.Window;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.lang.reflect.InvocationTargetException;
+import java.net.SocketException;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.ui.SwingAction;
+
+/**
+ * Its a bit messy, but the threads are a pain to deal with We want to be able
+ * to call this from any thread, and have a dialog that doesnt close until the
+ * dice roll finishes. If there is an error we wait until we get a good roll
+ * before returning.
+ */
+public class PBEMDiceRoller implements IRandomSource {
+  private final String m_gameUUID;
+  private final IRemoteDiceServer m_remoteDiceServer;
+  private static Frame s_focusWindow;
+
+  /**
+   * If the game has multiple frames, allows the ui to
+   * set what frame should be the parent of the dice rolling window
+   * if set to null, or not set, we try to guess by finding the currently
+   * focused window (or a visble window if none are focused).
+   */
+  public static void setFocusWindow(final Frame w) {
+<span class="nc" id="L42">    s_focusWindow = w;</span>
+<span class="nc" id="L43">  }</span>
+
+<span class="nc" id="L45">  public PBEMDiceRoller(final IRemoteDiceServer diceServer, final String gameUUID) {</span>
+<span class="nc" id="L46">    m_remoteDiceServer = diceServer;</span>
+<span class="nc" id="L47">    m_gameUUID = gameUUID;</span>
+<span class="nc" id="L48">  }</span>
+
+  /**
+   * Do a test roll, leaving the dialog open after the roll is done.
+   */
+  public void test() {
+    // TODO: do a test based on data.getDiceSides()
+<span class="nc" id="L55">    final HttpDiceRollerDialog dialog =</span>
+<span class="nc" id="L56">        new HttpDiceRollerDialog(getFocusedFrame(), 6, 1, &quot;Test&quot;, m_remoteDiceServer, &quot;test-roll&quot;);</span>
+<span class="nc" id="L57">    dialog.setTest();</span>
+<span class="nc" id="L58">    dialog.roll();</span>
+<span class="nc" id="L59">  }</span>
+
+
+  @Override
+  public int[] getRandom(final int max, final int count, final String annotation) throws IllegalStateException {
+<span class="nc bnc" id="L64" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L65">      final AtomicReference&lt;int[]&gt; result = new AtomicReference&lt;&gt;();</span>
+<span class="nc" id="L66">      SwingAction.invokeAndWait(() -&gt; result.set(getRandom(max, count, annotation)));</span>
+<span class="nc" id="L67">      return result.get();</span>
+    }
+<span class="nc" id="L69">    final HttpDiceRollerDialog dialog =</span>
+<span class="nc" id="L70">        new HttpDiceRollerDialog(getFocusedFrame(), max, count, annotation, m_remoteDiceServer, m_gameUUID);</span>
+<span class="nc" id="L71">    dialog.roll();</span>
+<span class="nc" id="L72">    return dialog.getDiceRoll();</span>
+  }
+
+  private static Frame getFocusedFrame() {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (s_focusWindow != null) {</span>
+<span class="nc" id="L77">      return s_focusWindow;</span>
+    }
+<span class="nc" id="L79">    final Frame[] frames = Frame.getFrames();</span>
+<span class="nc" id="L80">    Frame rVal = null;</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    for (final Frame frame : frames) {</span>
+      // find the window with focus, failing that, get something that is
+      // visible
+<span class="nc bnc" id="L84" title="All 2 branches missed.">      if (frame.isFocused()) {</span>
+<span class="nc" id="L85">        rVal = frame;</span>
+<span class="nc bnc" id="L86" title="All 4 branches missed.">      } else if (rVal == null &amp;&amp; frame.isVisible()) {</span>
+<span class="nc" id="L87">        rVal = frame;</span>
+      }
+    }
+<span class="nc" id="L90">    return rVal;</span>
+  }
+
+  @Override
+  public int getRandom(final int max, final String annotation) throws IllegalStateException {
+<span class="nc" id="L95">    return getRandom(max, 1, annotation)[0];</span>
+  }
+}
+
+
+/**
+ * The dialog that will show while the dice are rolling
+ */
+class HttpDiceRollerDialog extends JDialog {
+  private static final long serialVersionUID = -4802403913826489223L;
+<span class="nc" id="L105">  private final JButton m_exitButton = new JButton(&quot;Exit&quot;);</span>
+<span class="nc" id="L106">  private final JButton m_reRollButton = new JButton(&quot;Roll Again&quot;);</span>
+<span class="nc" id="L107">  private final JButton m_okButton = new JButton(&quot;OK&quot;);</span>
+<span class="nc" id="L108">  private final JTextArea m_text = new JTextArea();</span>
+  private int[] m_diceRoll;
+  private final int m_count;
+  private final int m_sides;
+  private final String m_subjectMessage;
+  private final String m_gameID;
+  private final IRemoteDiceServer m_diceServer;
+  private final String m_gameUUID;
+<span class="nc" id="L116">  private final Object m_lock = new Object();</span>
+<span class="nc" id="L117">  public boolean m_test = false;</span>
+<span class="nc" id="L118">  private final JPanel m_buttons = new JPanel();</span>
+  private Window m_owner;
+
+  /**
+   * @param owner
+   *        owner frame
+   * @param sides
+   *        the number of sides on the dice
+   * @param count
+   *        the number of dice rolled
+   * @param subjectMessage
+   *        the subject for the email the dice roller will send (if it sends emails)
+   * @param diceServer
+   *        the dice server implementation
+   * @param gameUUID
+   *        the TripleA game UUID or null
+   */
+  public HttpDiceRollerDialog(final Frame owner, final int sides, final int count, final String subjectMessage,
+      final IRemoteDiceServer diceServer, final String gameUUID) {
+<span class="nc" id="L137">    super(owner, &quot;Dice roller&quot;, true);</span>
+<span class="nc" id="L138">    m_owner = owner;</span>
+<span class="nc" id="L139">    m_sides = sides;</span>
+<span class="nc" id="L140">    m_count = count;</span>
+<span class="nc" id="L141">    m_subjectMessage = subjectMessage;</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">    m_gameID = diceServer.getGameId() == null ? &quot;&quot; : diceServer.getGameId();</span>
+<span class="nc" id="L143">    m_diceServer = diceServer;</span>
+<span class="nc" id="L144">    m_gameUUID = gameUUID;</span>
+<span class="nc" id="L145">    setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);</span>
+<span class="nc" id="L146">    m_exitButton.addActionListener(e -&gt; System.exit(-1));</span>
+<span class="nc" id="L147">    m_exitButton.setEnabled(false);</span>
+<span class="nc" id="L148">    m_reRollButton.addActionListener(e -&gt; rollInternal());</span>
+<span class="nc" id="L149">    m_okButton.addActionListener(e -&gt; closeAndReturn());</span>
+<span class="nc" id="L150">    m_reRollButton.setEnabled(false);</span>
+<span class="nc" id="L151">    getContentPane().setLayout(new BorderLayout());</span>
+<span class="nc" id="L152">    m_buttons.add(m_exitButton);</span>
+<span class="nc" id="L153">    m_buttons.add(m_reRollButton);</span>
+<span class="nc" id="L154">    getContentPane().add(m_buttons, BorderLayout.SOUTH);</span>
+<span class="nc" id="L155">    getContentPane().add(new JScrollPane(m_text));</span>
+<span class="nc" id="L156">    m_text.setEditable(false);</span>
+<span class="nc" id="L157">    setSize(400, 300);</span>
+    // games.strategy.ui.Util
+<span class="nc" id="L159">    games.strategy.ui.Util.center(this);</span>
+<span class="nc" id="L160">  }</span>
+
+  /**
+   * There are three differences when we are testing, 1 dont close the window
+   * when we are done 2 remove the exit button 3 add a close button
+   */
+  public void setTest() {
+<span class="nc" id="L167">    m_test = true;</span>
+<span class="nc" id="L168">    m_buttons.removeAll();</span>
+<span class="nc" id="L169">    m_buttons.add(m_okButton);</span>
+<span class="nc" id="L170">    m_buttons.add(m_reRollButton);</span>
+<span class="nc" id="L171">  }</span>
+
+  public void appendText(final String aString) {
+<span class="nc" id="L174">    m_text.setText(m_text.getText() + aString);</span>
+<span class="nc" id="L175">  }</span>
+
+  public void notifyError() {
+<span class="nc" id="L178">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L179">      m_exitButton.setEnabled(true);</span>
+<span class="nc" id="L180">      m_reRollButton.setEnabled(true);</span>
+<span class="nc" id="L181">    });</span>
+<span class="nc" id="L182">  }</span>
+
+  public int[] getDiceRoll() {
+<span class="nc" id="L185">    return m_diceRoll;</span>
+  }
+
+  // should only be called if we are not visible
+  // can be called from any thread
+  // wont return until the roll is done.
+  public void roll() throws IllegalStateException {
+    // if we are not the event thread, then start again in the event thread
+    // pausing this thread until we are done
+<span class="nc bnc" id="L194" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L195">      synchronized (m_lock) {</span>
+<span class="nc" id="L196">        SwingUtilities.invokeLater(() -&gt; roll());</span>
+        try {
+<span class="nc" id="L198">          m_lock.wait();</span>
+<span class="nc" id="L199">        } catch (final InterruptedException e) {</span>
+<span class="nc" id="L200">          ClientLogger.logQuietly(e);</span>
+        }
+      }
+<span class="nc" id="L203">      return;</span>
+    }
+<span class="nc" id="L205">    rollInternal();</span>
+<span class="nc" id="L206">    setVisible(true);</span>
+<span class="nc" id="L207">  }</span>
+
+  // should be called from the event thread
+  private void rollInternal() throws IllegalStateException {
+<span class="nc bnc" id="L211" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L212">      throw new IllegalStateException(&quot;Wrong thread&quot;);</span>
+    }
+<span class="nc" id="L214">    m_reRollButton.setEnabled(false);</span>
+<span class="nc" id="L215">    m_exitButton.setEnabled(false);</span>
+<span class="nc" id="L216">    final Thread t = new Thread(&quot;Triplea, roll in seperate thread&quot;) {</span>
+      @Override
+      public void run() {
+<span class="nc" id="L219">        rollInSeperateThread();</span>
+<span class="nc" id="L220">      }</span>
+    };
+<span class="nc" id="L222">    t.start();</span>
+<span class="nc" id="L223">  }</span>
+
+  private void closeAndReturn() {
+    // releast any threads waiting on the lock
+<span class="nc bnc" id="L227" title="All 2 branches missed.">    if (m_lock != null) {</span>
+<span class="nc" id="L228">      synchronized (m_lock) {</span>
+<span class="nc" id="L229">        m_lock.notifyAll();</span>
+      }
+    }
+<span class="nc" id="L232">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L233">      setVisible(false);</span>
+<span class="nc" id="L234">      m_owner.toFront();</span>
+<span class="nc" id="L235">      m_owner = null;</span>
+<span class="nc" id="L236">      dispose();</span>
+<span class="nc" id="L237">    });</span>
+<span class="nc" id="L238">  }</span>
+
+  /**
+   * should be called from a thread other than the event thread after we are
+   * open (or at least in the process of opening) will close the window and
+   * notify any waiting threads when completed successfully.
+   * Before contacting Irony Dice Server, check if email has a reasonable
+   * valid syntax.
+   */
+  private void rollInSeperateThread() throws IllegalStateException {
+<span class="nc bnc" id="L248" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L249">      throw new IllegalStateException(&quot;Wrong thread&quot;);</span>
+    }
+<span class="nc bnc" id="L251" title="All 2 branches missed.">    while (!isVisible()) {</span>
+<span class="nc" id="L252">      Thread.yield();</span>
+    }
+<span class="nc" id="L254">    appendText(m_subjectMessage + &quot;\n&quot;);</span>
+<span class="nc" id="L255">    appendText(&quot;Contacting  &quot; + m_diceServer.getDisplayName() + &quot;\n&quot;);</span>
+<span class="nc" id="L256">    String text = null;</span>
+    try {
+<span class="nc" id="L258">      text = m_diceServer.postRequest(m_sides, m_count, m_subjectMessage, m_gameID, m_gameUUID);</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">      if (text.length() == 0) {</span>
+<span class="nc" id="L260">        appendText(&quot;Nothing could be read from dice server\n&quot;);</span>
+<span class="nc" id="L261">        appendText(&quot;Please check your firewall settings&quot;);</span>
+<span class="nc" id="L262">        notifyError();</span>
+      }
+<span class="nc bnc" id="L264" title="All 2 branches missed.">      if (!m_test) {</span>
+<span class="nc" id="L265">        appendText(&quot;Contacted :&quot; + text + &quot;\n&quot;);</span>
+      }
+<span class="nc" id="L267">      m_diceRoll = m_diceServer.getDice(text, m_count);</span>
+<span class="nc" id="L268">      appendText(&quot;Success!&quot;);</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">      if (!m_test) {</span>
+<span class="nc" id="L270">        closeAndReturn();</span>
+      }
+<span class="nc" id="L272">    }</span>
+    // an error in networking
+<span class="nc" id="L274">    catch (final SocketException ex) {</span>
+<span class="nc" id="L275">      appendText(&quot;Connection failure:&quot; + ex.getMessage() + &quot;\n&quot;</span>
+<span class="nc" id="L276">          + &quot;Please ensure your Internet connection is working, and try again.&quot;);</span>
+<span class="nc" id="L277">      notifyError();</span>
+<span class="nc" id="L278">    } catch (final InvocationTargetException e) {</span>
+<span class="nc" id="L279">      appendText(&quot;\nError:&quot; + e.getMessage() + &quot;\n\n&quot;);</span>
+<span class="nc" id="L280">      appendText(&quot;Text from dice server:\n&quot; + text + &quot;\n&quot;);</span>
+<span class="nc" id="L281">      notifyError();</span>
+<span class="nc" id="L282">    } catch (final IOException ex) {</span>
+      try {
+<span class="nc" id="L284">        appendText(&quot;An error has occured!\n&quot;);</span>
+<span class="nc" id="L285">        appendText(&quot;Possible reasons the error could have happened:\n&quot;);</span>
+<span class="nc" id="L286">        appendText(&quot;  1: An invalid e-mail address\n&quot;);</span>
+<span class="nc" id="L287">        appendText(&quot;  2: Firewall could be blocking TripleA from connecting to the Dice Server\n&quot;);</span>
+<span class="nc" id="L288">        appendText(&quot;  3: The e-mail address does not exist\n&quot;);</span>
+<span class="nc" id="L289">        appendText(&quot;  4: An unknown error, please see the error console and consult the forums for help\n&quot;);</span>
+<span class="nc" id="L290">        appendText(&quot;     Visit http://tripleadev.org  for extra help\n&quot;);</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">        if (text != null) {</span>
+<span class="nc" id="L292">          appendText(&quot;Text from dice server:\n&quot; + text + &quot;\n&quot;);</span>
+        }
+<span class="nc" id="L294">        final StringWriter writer = new StringWriter();</span>
+<span class="nc" id="L295">        ex.printStackTrace(new PrintWriter(writer));</span>
+<span class="nc" id="L296">        writer.close();</span>
+<span class="nc" id="L297">        appendText(writer.toString());</span>
+<span class="nc" id="L298">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L299">        ex1.printStackTrace();</span>
+      }
+<span class="nc" id="L301">      notifyError();</span>
+    }
+<span class="nc" id="L303">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

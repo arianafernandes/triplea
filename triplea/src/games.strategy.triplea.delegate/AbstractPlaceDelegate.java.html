@@ -1,0 +1,1710 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractPlaceDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">AbstractPlaceDelegate.java</span></div><h1>AbstractPlaceDelegate.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.message.IRemote;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.RulesAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.dataObjects.PlaceableUnits;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Logic for placing units.
+ * &lt;p&gt;
+ * Known limitations.
+ * Doesn't take into account limits on number of factories that can be produced.
+ * Solved (by frigoref):
+ * The situation where one has two non original factories a,b each with
+ * production 2. If sea zone e neighbors a,b and sea zone f neighbors b. Then
+ * producing 2 in e was making it such that you cannot produce in f. The reason
+ * was that the production in e could be assigned to the factory in b, leaving no
+ * capacity to produce in f.
+ * A workaround was that if anyone ever accidently run into this situation
+ * then they could undo the production, produce in f first, and then produce in e.
+ */
+<span class="fc" id="L54">public abstract class AbstractPlaceDelegate extends BaseTripleADelegate implements IAbstractPlaceDelegate {</span>
+  // maps Territory-&gt; Collection of units
+<span class="fc" id="L56">  protected Map&lt;Territory, Collection&lt;Unit&gt;&gt; m_produced = new HashMap&lt;&gt;();</span>
+  // a list of CompositeChanges
+<span class="fc" id="L58">  protected List&lt;UndoablePlacement&gt; m_placements = new ArrayList&lt;&gt;();</span>
+
+  public void initialize(final String name) {
+<span class="fc" id="L61">    initialize(name, name);</span>
+<span class="fc" id="L62">  }</span>
+
+  @Override
+  public void start() {
+<span class="fc" id="L66">    super.start();</span>
+<span class="fc" id="L67">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   */
+  @Override
+  public void end() {
+<span class="fc" id="L74">    super.end();</span>
+<span class="fc" id="L75">    doAfterEnd();</span>
+<span class="fc" id="L76">  }</span>
+
+  protected void doAfterEnd() {
+<span class="fc" id="L79">    final PlayerID player = m_bridge.getPlayerID();</span>
+    // clear all units not placed
+<span class="fc" id="L81">    final Collection&lt;Unit&gt; units = player.getUnits().getUnits();</span>
+<span class="fc" id="L82">    final GameData data = getData();</span>
+<span class="pc bpc" id="L83" title="1 of 4 branches missed.">    if (!Properties.getUnplacedUnitsLive(data) &amp;&amp; !units.isEmpty()) {</span>
+<span class="fc" id="L84">      m_bridge.getHistoryWriter()</span>
+<span class="fc" id="L85">          .startEvent(MyFormatter.unitsToTextNoOwner(units) + &quot; were produced but were not placed&quot;, units);</span>
+<span class="fc" id="L86">      final Change change = ChangeFactory.removeUnits(player, units);</span>
+<span class="fc" id="L87">      m_bridge.addChange(change);</span>
+    }
+    // reset ourselves for next turn
+<span class="fc" id="L90">    m_produced = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L91">    m_placements.clear();</span>
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">    if (GameStepPropertiesHelper.isRemoveAirThatCanNotLand(data)) {</span>
+<span class="nc" id="L93">      removeAirThatCantLand();</span>
+    }
+<span class="fc" id="L95">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+    // nothing to place
+<span class="nc bnc" id="L100" title="All 6 branches missed.">    return !(m_player == null || (m_player.getUnits().size() == 0 &amp;&amp; getPlacementsMade() == 0));</span>
+  }
+
+  protected void removeAirThatCantLand() {
+    // for LHTR type games
+<span class="nc" id="L105">    final GameData data = getData();</span>
+<span class="nc" id="L106">    final AirThatCantLandUtil util = new AirThatCantLandUtil(m_bridge);</span>
+<span class="nc" id="L107">    util.removeAirThatCantLand(m_player, false);</span>
+    // if edit mode has been on, we need to clean up after all players
+<span class="nc bnc" id="L109" title="All 2 branches missed.">    for (final PlayerID player : data.getPlayerList()) {</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">      if (!player.equals(m_player)) {</span>
+<span class="nc" id="L111">        util.removeAirThatCantLand(player, false);</span>
+      }
+    }
+<span class="nc" id="L114">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L118">    final PlaceExtendedDelegateState state = new PlaceExtendedDelegateState();</span>
+<span class="nc" id="L119">    state.superState = super.saveState();</span>
+<span class="nc" id="L120">    state.m_produced = m_produced;</span>
+<span class="nc" id="L121">    state.m_placements = m_placements;</span>
+<span class="nc" id="L122">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L127">    final PlaceExtendedDelegateState s = (PlaceExtendedDelegateState) state;</span>
+<span class="nc" id="L128">    super.loadState(s.superState);</span>
+<span class="nc" id="L129">    m_produced = s.m_produced;</span>
+<span class="nc" id="L130">    m_placements = s.m_placements;</span>
+<span class="nc" id="L131">  }</span>
+
+  /**
+   * @param t territory of interest
+   * @return a COPY of the collection of units that are produced at territory t
+   */
+  protected Collection&lt;Unit&gt; getAlreadyProduced(final Territory t) {
+    // this list might be modified later
+<span class="fc" id="L139">    final Collection&lt;Unit&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">    if (m_produced.containsKey(t)) {</span>
+<span class="fc" id="L141">      rVal.addAll(m_produced.get(t));</span>
+    }
+<span class="fc" id="L143">    return rVal;</span>
+  }
+
+  @Override
+  public int getPlacementsMade() {
+<span class="nc" id="L148">    return m_placements.size();</span>
+  }
+
+  void setProduced(final Map&lt;Territory, Collection&lt;Unit&gt;&gt; produced) {
+<span class="fc" id="L152">    m_produced = produced;</span>
+<span class="fc" id="L153">  }</span>
+
+  /**
+   * @return the actual m_produced variable, allowing direct editing of the variable.
+   */
+  protected final Map&lt;Territory, Collection&lt;Unit&gt;&gt; getProduced() {
+<span class="nc" id="L159">    return m_produced;</span>
+  }
+
+  @Override
+  public List&lt;UndoablePlacement&gt; getMovesMade() {
+<span class="nc" id="L164">    return m_placements;</span>
+  }
+
+  @Override
+  public String undoMove(final int moveIndex) {
+<span class="nc bnc" id="L169" title="All 4 branches missed.">    if (moveIndex &lt; m_placements.size() &amp;&amp; moveIndex &gt;= 0) {</span>
+<span class="nc" id="L170">      final UndoablePlacement undoPlace = m_placements.get(moveIndex);</span>
+<span class="nc" id="L171">      undoPlace.undo(m_bridge);</span>
+<span class="nc" id="L172">      m_placements.remove(moveIndex);</span>
+<span class="nc" id="L173">      updateUndoablePlacementIndexes();</span>
+    }
+<span class="nc" id="L175">    return null;</span>
+  }
+
+  protected void updateUndoablePlacementIndexes() {
+<span class="fc bfc" id="L179" title="All 2 branches covered.">    for (int i = 0; i &lt; m_placements.size(); i++) {</span>
+<span class="fc" id="L180">      m_placements.get(i).setIndex(i);</span>
+    }
+<span class="fc" id="L182">  }</span>
+
+  @Override
+  public PlaceableUnits getPlaceableUnits(final Collection&lt;Unit&gt; units, final Territory to) {
+<span class="fc" id="L186">    final String error = canProduce(to, units, m_player);</span>
+<span class="pc bpc" id="L187" title="1 of 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L188">      return new PlaceableUnits(error);</span>
+    }
+<span class="fc" id="L190">    final Collection&lt;Unit&gt; placeableUnits = getUnitsToBePlaced(to, units, m_player);</span>
+<span class="fc" id="L191">    final int maxUnits = getMaxUnitsToBePlaced(placeableUnits, to, m_player, true);</span>
+<span class="fc" id="L192">    return new PlaceableUnits(placeableUnits, maxUnits);</span>
+  }
+
+  @Override
+  public String placeUnits(final Collection&lt;Unit&gt; units, final Territory at) {
+<span class="pc bpc" id="L197" title="1 of 4 branches missed.">    if (units == null || units.isEmpty()) {</span>
+<span class="fc" id="L198">      return null;</span>
+    }
+<span class="fc" id="L200">    final String error = isValidPlacement(units, at, m_player);</span>
+<span class="fc bfc" id="L201" title="All 2 branches covered.">    if (error != null) {</span>
+<span class="fc" id="L202">      return error;</span>
+    }
+<span class="fc" id="L204">    performPlace(new ArrayList&lt;&gt;(units), at, m_player);</span>
+<span class="fc" id="L205">    return null;</span>
+  }
+
+  protected void performPlace(final Collection&lt;Unit&gt; units, final Territory at, final PlayerID player) {
+    // System.out.println(&quot;Placing &quot; + MyFormatter.unitsToTextNoOwner(units) + &quot; at &quot; + at.getName() + &quot; by &quot; +
+    // player.getName());
+<span class="fc" id="L211">    final List&lt;Territory&gt; producers = getAllProducers(at, player, units);</span>
+<span class="fc" id="L212">    Collections.sort(producers, getBestProducerComparator(at, units, player));</span>
+    // System.out.println(&quot;Producers: &quot; + producers);
+<span class="fc" id="L214">    final IntegerMap&lt;Territory&gt; maxPlaceableMap = getMaxUnitsToBePlacedMap(units, at, player, true);</span>
+    // System.out.println(&quot;Max Place Map: &quot; + maxPlaceableMap);
+<span class="fc" id="L216">    final List&lt;Unit&gt; unitsLeftToPlace = new ArrayList&lt;&gt;(units);</span>
+<span class="fc" id="L217">    Collections.sort(unitsLeftToPlace, getUnitConstructionComparator());</span>
+    // sort both producers and units so that the &quot;to/at&quot; territory comes first, and so that all constructions come first
+    // this is because the PRODUCER for ALL CONSTRUCTIONS must be the SAME as the TERRITORY they are going into
+<span class="fc bfc" id="L220" title="All 2 branches covered.">    for (final Territory producer : producers) {</span>
+<span class="pc bpc" id="L221" title="1 of 2 branches missed.">      if (unitsLeftToPlace.isEmpty()) {</span>
+<span class="nc" id="L222">        break;</span>
+      }
+      // units may have special restrictions like RequiresUnits
+<span class="pc bpc" id="L225" title="1 of 2 branches missed.">      final List&lt;Unit&gt; unitsCanBePlacedByThisProducer = (isUnitPlacementRestrictions()</span>
+<span class="nc" id="L226">          ? Match.getMatches(unitsLeftToPlace, unitWhichRequiresUnitsHasRequiredUnits(producer, true))</span>
+<span class="fc" id="L227">          : new ArrayList&lt;&gt;(unitsLeftToPlace));</span>
+<span class="fc" id="L228">      Collections.sort(unitsCanBePlacedByThisProducer, getHardestToPlaceWithRequiresUnitsRestrictions(true));</span>
+<span class="fc" id="L229">      final int maxPlaceable = maxPlaceableMap.getInt(producer);</span>
+      // System.out.println(&quot;Max Placeable: &quot; + maxPlaceable + &quot; for this producer: &quot; + producer);
+<span class="pc bpc" id="L231" title="1 of 2 branches missed.">      if (maxPlaceable == 0) {</span>
+<span class="nc" id="L232">        continue;</span>
+      }
+<span class="fc" id="L234">      final int maxForThisProducer = getMaxUnitsToBePlacedFrom(producer, unitsCanBePlacedByThisProducer, at, player);</span>
+      // System.out.println(&quot;Max Units to be placed from this producer: &quot; + maxForThisProducer);
+      // don't forget that -1 == infinite
+<span class="pc bpc" id="L237" title="1 of 4 branches missed.">      if (maxForThisProducer == -1 || maxForThisProducer &gt;= unitsCanBePlacedByThisProducer.size()) {</span>
+<span class="fc" id="L238">        performPlaceFrom(producer, unitsCanBePlacedByThisProducer, at, player);</span>
+<span class="fc" id="L239">        unitsLeftToPlace.removeAll(unitsCanBePlacedByThisProducer);</span>
+<span class="fc" id="L240">        continue;</span>
+      }
+<span class="nc" id="L242">      final int neededExtra = unitsCanBePlacedByThisProducer.size() - maxForThisProducer;</span>
+      // System.out.println(&quot;Needs Extra: &quot; + neededExtra);
+<span class="nc bnc" id="L244" title="All 2 branches missed.">      if (maxPlaceable &gt; maxForThisProducer) {</span>
+<span class="nc" id="L245">        freePlacementCapacity(producer, neededExtra, unitsCanBePlacedByThisProducer, at, player);</span>
+<span class="nc" id="L246">        final int newMaxForThisProducer =</span>
+<span class="nc" id="L247">            getMaxUnitsToBePlacedFrom(producer, unitsCanBePlacedByThisProducer, at, player);</span>
+<span class="nc bnc" id="L248" title="All 4 branches missed.">        if (newMaxForThisProducer != maxPlaceable &amp;&amp; neededExtra &gt; newMaxForThisProducer) {</span>
+<span class="nc" id="L249">          throw new IllegalStateException(&quot;getMaxUnitsToBePlaced originally returned: &quot; + maxPlaceable</span>
+<span class="nc" id="L250">              + &quot;, \r\nWhich is not the same as it is returning after using freePlacementCapacity: &quot;</span>
+<span class="nc" id="L251">              + newMaxForThisProducer + &quot;, \r\nFor territory: &quot; + at.getName() + &quot;, Current Producer: &quot;</span>
+<span class="nc" id="L252">              + producer.getName() + &quot;, All Producers: &quot; + producers + &quot;, \r\nUnits Total: &quot;</span>
+<span class="nc" id="L253">              + MyFormatter.unitsToTextNoOwner(units) + &quot;, Units Left To Place By This Producer: &quot;</span>
+<span class="nc" id="L254">              + MyFormatter.unitsToTextNoOwner(unitsCanBePlacedByThisProducer));</span>
+        }
+      }
+<span class="nc" id="L257">      final Collection&lt;Unit&gt; placedUnits =</span>
+<span class="nc" id="L258">          Match.getNMatches(unitsCanBePlacedByThisProducer, maxPlaceable, Match.getAlwaysMatch());</span>
+<span class="nc" id="L259">      performPlaceFrom(producer, placedUnits, at, player);</span>
+<span class="nc" id="L260">      unitsLeftToPlace.removeAll(placedUnits);</span>
+    }
+<span class="pc bpc" id="L262" title="1 of 2 branches missed.">    if (!unitsLeftToPlace.isEmpty()) {</span>
+<span class="nc" id="L263">      throw new IllegalStateException(&quot;Not all units placed in: &quot; + at.getName() + &quot; units: &quot; + unitsLeftToPlace);</span>
+    }
+    // play a sound
+<span class="fc bfc" id="L266" title="All 2 branches covered.">    if (Match.someMatch(units, Matches.UnitIsInfrastructure)) {</span>
+<span class="fc" id="L267">      m_bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_PLACED_INFRASTRUCTURE, m_player);</span>
+<span class="fc bfc" id="L268" title="All 2 branches covered.">    } else if (Match.someMatch(units, Matches.UnitIsSea)) {</span>
+<span class="fc" id="L269">      m_bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_PLACED_SEA, m_player);</span>
+<span class="pc bpc" id="L270" title="1 of 2 branches missed.">    } else if (Match.someMatch(units, Matches.UnitIsAir)) {</span>
+<span class="nc" id="L271">      m_bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_PLACED_AIR, m_player);</span>
+<span class="nc" id="L272">    } else {</span>
+<span class="fc" id="L273">      m_bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_PLACED_LAND, m_player);</span>
+      // System.out.println(&quot;&quot;);
+    }
+<span class="fc" id="L276">  }</span>
+
+  /**
+   * @param producer
+   *        territory that produces the new units
+   * @param placeableUnits
+   *        the new units
+   * @param at
+   *        territory where the new units get placed
+   */
+  protected void performPlaceFrom(final Territory producer, final Collection&lt;Unit&gt; placeableUnits, final Territory at,
+      final PlayerID player) {
+<span class="fc" id="L288">    final CompositeChange change = new CompositeChange();</span>
+    // make sure we can place consuming units
+<span class="fc" id="L290">    final boolean didIt = canWeConsumeUnits(placeableUnits, at, true, change);</span>
+<span class="pc bpc" id="L291" title="1 of 2 branches missed.">    if (!didIt) {</span>
+<span class="nc" id="L292">      throw new IllegalStateException(&quot;Something wrong with consuming/upgrading units&quot;);</span>
+    }
+<span class="fc" id="L294">    final Collection&lt;Unit&gt; factoryAndInfrastructure = Match.getMatches(placeableUnits, Matches.UnitIsInfrastructure);</span>
+<span class="fc bfc" id="L295" title="All 2 branches covered.">    if (!factoryAndInfrastructure.isEmpty()) {</span>
+<span class="fc" id="L296">      change.add(OriginalOwnerTracker.addOriginalOwnerChange(factoryAndInfrastructure, player));</span>
+    }
+    // can we move planes to land there
+<span class="fc" id="L299">    final String movedAirTranscriptTextForHistory =</span>
+<span class="fc" id="L300">        moveAirOntoNewCarriers(at, producer, placeableUnits, player, change);</span>
+<span class="fc" id="L301">    final Change remove = ChangeFactory.removeUnits(player, placeableUnits);</span>
+<span class="fc" id="L302">    final Change place = ChangeFactory.addUnits(at, placeableUnits);</span>
+<span class="fc" id="L303">    change.add(remove);</span>
+<span class="fc" id="L304">    change.add(place);</span>
+<span class="fc" id="L305">    final UndoablePlacement current_placement = new UndoablePlacement(m_player, change, producer, at, placeableUnits);</span>
+<span class="fc" id="L306">    m_placements.add(current_placement);</span>
+<span class="fc" id="L307">    updateUndoablePlacementIndexes();</span>
+<span class="fc" id="L308">    final String transcriptText = MyFormatter.unitsToTextNoOwner(placeableUnits) + &quot; placed in &quot; + at.getName();</span>
+<span class="fc" id="L309">    m_bridge.getHistoryWriter().startEvent(transcriptText, current_placement.getDescriptionObject());</span>
+<span class="pc bpc" id="L310" title="1 of 2 branches missed.">    if (movedAirTranscriptTextForHistory != null) {</span>
+<span class="nc" id="L311">      m_bridge.getHistoryWriter().addChildToEvent(movedAirTranscriptTextForHistory);</span>
+    }
+<span class="fc" id="L313">    m_bridge.addChange(change);</span>
+<span class="fc" id="L314">    updateProducedMap(producer, placeableUnits);</span>
+<span class="fc" id="L315">  }</span>
+
+  protected void updateProducedMap(final Territory producer, final Collection&lt;Unit&gt; additionallyProducedUnits) {
+<span class="fc" id="L318">    final Collection&lt;Unit&gt; newProducedUnits = getAlreadyProduced(producer);</span>
+<span class="fc" id="L319">    newProducedUnits.addAll(additionallyProducedUnits);</span>
+<span class="fc" id="L320">    m_produced.put(producer, newProducedUnits);</span>
+<span class="fc" id="L321">  }</span>
+
+  protected void removeFromProducedMap(final Territory producer, final Collection&lt;Unit&gt; unitsToRemove) {
+<span class="nc" id="L324">    final Collection&lt;Unit&gt; newProducedUnits = getAlreadyProduced(producer);</span>
+<span class="nc" id="L325">    newProducedUnits.removeAll(unitsToRemove);</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">    if (newProducedUnits.isEmpty()) {</span>
+<span class="nc" id="L327">      m_produced.remove(producer);</span>
+<span class="nc" id="L328">    } else {</span>
+<span class="nc" id="L329">      m_produced.put(producer, newProducedUnits);</span>
+    }
+<span class="nc" id="L331">  }</span>
+
+  /**
+   * frees the requested amount of capacity for the given producer by trying to hand over already made placements to
+   * other territories.
+   * This only works if one of the placements is done for another territory, more specific for a sea zone.
+   * If such placements exists it will be tried to let them be done by other adjacent territories.
+   *
+   * @param producer
+   *        territory that needs more placement capacity
+   * @param freeSize
+   *        amount of capacity that is requested
+   */
+  protected void freePlacementCapacity(final Territory producer, final int freeSize,
+      final Collection&lt;Unit&gt; unitsLeftToPlace, final Territory at, final PlayerID player) {
+<span class="nc" id="L346">    int foundSpaceTotal = 0;</span>
+    // placements of the producer that could be redone by other territories
+<span class="nc" id="L348">    final List&lt;UndoablePlacement&gt; redoPlacements = new ArrayList&lt;&gt;();</span>
+    // territories the producer produced for (but not itself) and the amount of units it produced
+<span class="nc" id="L350">    final HashMap&lt;Territory, Integer&gt; redoPlacementsCount = new HashMap&lt;&gt;();</span>
+    // find map place territory -&gt; possible free space for producer
+<span class="nc bnc" id="L352" title="All 2 branches missed.">    for (final UndoablePlacement placement : m_placements) {</span>
+      // find placement move of producer that can be taken over
+<span class="nc bnc" id="L354" title="All 2 branches missed.">      if (placement.getProducerTerritory().equals(producer)) {</span>
+<span class="nc" id="L355">        final Territory placeTerritory = placement.getPlaceTerritory();</span>
+        // units with requiresUnits are too difficult to mess with logically, so do not move them around at all
+<span class="nc bnc" id="L357" title="All 6 branches missed.">        if (placeTerritory.isWater() &amp;&amp; !placeTerritory.equals(producer) &amp;&amp; (!isUnitPlacementRestrictions()</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">            || !Match.someMatch(placement.getUnits(), Matches.UnitRequiresUnitsOnCreation))) {</span>
+          // found placement move of producer that can be taken over
+          // remember move and amount of placements in that territory
+<span class="nc" id="L361">          redoPlacements.add(placement);</span>
+<span class="nc" id="L362">          final Integer integer = redoPlacementsCount.get(placeTerritory);</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">          if (integer == null) {</span>
+<span class="nc" id="L364">            redoPlacementsCount.put(placeTerritory, placement.getUnits().size());</span>
+<span class="nc" id="L365">          } else {</span>
+<span class="nc" id="L366">            redoPlacementsCount.put(placeTerritory, integer + placement.getUnits().size());</span>
+          }
+        }
+      }
+    }
+    // let other producers take over placements of producer
+    // remember placement move and new territory if a placement has to be split up
+<span class="nc" id="L373">    final Collection&lt;Tuple&lt;UndoablePlacement, Territory&gt;&gt; splitPlacements =</span>
+<span class="nc" id="L374">        new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">    for (final Entry&lt;Territory, Integer&gt; entry : redoPlacementsCount.entrySet()) {</span>
+<span class="nc" id="L376">      final Territory placeTerritory = entry.getKey();</span>
+<span class="nc" id="L377">      final int maxProductionThatCanBeTakenOverFromThisPlacement = entry.getValue();</span>
+      // find other producers that could produce for the placeTerritory
+<span class="nc" id="L379">      final List&lt;Territory&gt; potentialNewProducers = getAllProducers(placeTerritory, player, unitsLeftToPlace);</span>
+<span class="nc" id="L380">      potentialNewProducers.remove(producer);</span>
+<span class="nc" id="L381">      Collections.sort(potentialNewProducers, getBestProducerComparator(placeTerritory, unitsLeftToPlace, player));</span>
+      // we can just free a certain amount or still need a certain amount of space
+<span class="nc" id="L383">      final int maxSpaceToBeFree =</span>
+<span class="nc" id="L384">          Math.min(maxProductionThatCanBeTakenOverFromThisPlacement, freeSize - foundSpaceTotal);</span>
+      // space that got free this on this placeTerritory
+<span class="nc" id="L386">      int spaceAlreadyFree = 0;</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">      for (final Territory potentialNewProducerTerritory : potentialNewProducers) {</span>
+<span class="nc" id="L388">        int leftToPlace = getMaxUnitsToBePlacedFrom(potentialNewProducerTerritory,</span>
+<span class="nc" id="L389">            unitsPlacedInTerritorySoFar(placeTerritory), placeTerritory, player);</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        if (leftToPlace == -1) {</span>
+<span class="nc" id="L391">          leftToPlace = maxProductionThatCanBeTakenOverFromThisPlacement;</span>
+        }
+        // TODO: should we continue if leftToPlace is zero or less, now?
+        // find placements of the producer the potentialNewProducerTerritory can take over
+<span class="nc bnc" id="L395" title="All 2 branches missed.">        for (final UndoablePlacement placement : redoPlacements) {</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">          if (!placement.getPlaceTerritory().equals(placeTerritory)) {</span>
+<span class="nc" id="L397">            continue;</span>
+          }
+<span class="nc" id="L399">          final Collection&lt;Unit&gt; placedUnits = placement.getUnits();</span>
+<span class="nc" id="L400">          final int placementSize = placedUnits.size();</span>
+          // System.out.println(&quot;UndoPlacement: &quot; + placement.getMoveLabel());
+<span class="nc bnc" id="L402" title="All 2 branches missed.">          if (placementSize &lt;= leftToPlace) {</span>
+            // potentialNewProducerTerritory can take over complete production
+<span class="nc" id="L404">            placement.setProducerTerritory(potentialNewProducerTerritory);</span>
+<span class="nc" id="L405">            removeFromProducedMap(producer, placedUnits);</span>
+<span class="nc" id="L406">            updateProducedMap(potentialNewProducerTerritory, placedUnits);</span>
+<span class="nc" id="L407">            spaceAlreadyFree += placementSize;</span>
+<span class="nc" id="L408">          } else {</span>
+            // potentialNewProducerTerritory can take over ONLY parts of the production
+            // remember placement and potentialNewProducerTerritory but try to avoid splitting a placement
+<span class="nc" id="L411">            splitPlacements.add(Tuple.of(placement, potentialNewProducerTerritory));</span>
+          }
+<span class="nc bnc" id="L413" title="All 2 branches missed.">          if (spaceAlreadyFree &gt;= maxSpaceToBeFree) {</span>
+<span class="nc" id="L414">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L417" title="All 2 branches missed.">        if (spaceAlreadyFree &gt;= maxSpaceToBeFree) {</span>
+<span class="nc" id="L418">          break;</span>
+        }
+      }
+<span class="nc" id="L421">      foundSpaceTotal += spaceAlreadyFree;</span>
+<span class="nc bnc" id="L422" title="All 2 branches missed.">      if (foundSpaceTotal &gt;= freeSize) {</span>
+<span class="nc" id="L423">        break;</span>
+      }
+    }
+    // we had a bug where we tried to split the same undoable placement twice (it can only be undone once!)
+<span class="nc" id="L427">    boolean unusedSplitPlacments = false;</span>
+<span class="nc" id="L428">    final Collection&lt;UndoablePlacement&gt; usedUnoablePlacements = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">    if (foundSpaceTotal &lt; freeSize) {</span>
+      // we need to split some placement moves
+<span class="nc bnc" id="L431" title="All 2 branches missed.">      for (final Tuple&lt;UndoablePlacement, Territory&gt; tuple : splitPlacements) {</span>
+<span class="nc" id="L432">        final UndoablePlacement placement = tuple.getFirst();</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">        if (usedUnoablePlacements.contains(placement)) {</span>
+<span class="nc" id="L434">          unusedSplitPlacments = true;</span>
+<span class="nc" id="L435">          continue;</span>
+        }
+<span class="nc" id="L437">        final Territory newProducer = tuple.getSecond();</span>
+<span class="nc" id="L438">        int leftToPlace = getMaxUnitsToBePlacedFrom(newProducer, unitsLeftToPlace, at, player);</span>
+<span class="nc" id="L439">        foundSpaceTotal += leftToPlace;</span>
+        // divide set of units that get placed
+<span class="nc" id="L441">        final Collection&lt;Unit&gt; unitsForOldProducer = new ArrayList&lt;&gt;(placement.getUnits());</span>
+<span class="nc" id="L442">        final Collection&lt;Unit&gt; unitsForNewProducer = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L443" title="All 2 branches missed.">        for (final Unit unit : unitsForOldProducer) {</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">          if (leftToPlace == 0) {</span>
+<span class="nc" id="L445">            break;</span>
+          }
+<span class="nc" id="L447">          unitsForNewProducer.add(unit);</span>
+<span class="nc" id="L448">          --leftToPlace;</span>
+        }
+<span class="nc" id="L450">        unitsForOldProducer.removeAll(unitsForNewProducer);</span>
+        // split move, by undo and creating two new ones
+<span class="nc bnc" id="L452" title="All 2 branches missed.">        if (!unitsForNewProducer.isEmpty()) {</span>
+          // there is a chance we have 2 or more splitPlacements that are using the same placement (trying to split the
+          // same placement).
+          // So we must make sure that after we undo it the first time, it can never be undone again.
+<span class="nc" id="L456">          usedUnoablePlacements.add(placement);</span>
+<span class="nc" id="L457">          undoMove(placement.getIndex());</span>
+<span class="nc" id="L458">          performPlaceFrom(newProducer, unitsForNewProducer, placement.getPlaceTerritory(), player);</span>
+<span class="nc" id="L459">          performPlaceFrom(producer, unitsForOldProducer, placement.getPlaceTerritory(), player);</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L463" title="All 4 branches missed.">    if (foundSpaceTotal &lt; freeSize &amp;&amp; unusedSplitPlacments) {</span>
+<span class="nc" id="L464">      freePlacementCapacity(producer, (freeSize - foundSpaceTotal), unitsLeftToPlace, at, player);</span>
+    }
+<span class="nc" id="L466">  }</span>
+
+  // TODO Here's the spot for special air placement rules
+  protected String moveAirOntoNewCarriers(final Territory at, final Territory producer, final Collection&lt;Unit&gt; units,
+      final PlayerID player, final CompositeChange placeChange) {
+<span class="fc bfc" id="L471" title="All 2 branches covered.">    if (!at.isWater()) {</span>
+<span class="fc" id="L472">      return null;</span>
+    }
+<span class="pc bpc" id="L474" title="3 of 4 branches missed.">    if (!canMoveExistingFightersToNewCarriers() || AirThatCantLandUtil.isLHTRCarrierProduction(getData())) {</span>
+<span class="fc" id="L475">      return null;</span>
+    }
+<span class="nc bnc" id="L477" title="All 2 branches missed.">    if (Match.noneMatch(units, Matches.UnitIsCarrier)) {</span>
+<span class="nc" id="L478">      return null;</span>
+    }
+    // do we have any spare carrier capacity
+<span class="nc" id="L481">    int capacity = AirMovementValidator.carrierCapacity(units, at);</span>
+    // subtract fighters that have already been produced with this carrier
+    // this turn.
+<span class="nc" id="L484">    capacity -= AirMovementValidator.carrierCost(units);</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">    if (capacity &lt;= 0) {</span>
+<span class="nc" id="L486">      return null;</span>
+    }
+<span class="nc bnc" id="L488" title="All 2 branches missed.">    if (!Matches.TerritoryIsLand.match(producer)) {</span>
+<span class="nc" id="L489">      return null;</span>
+    }
+<span class="nc bnc" id="L491" title="All 2 branches missed.">    if (!producer.getUnits().someMatch(Matches.UnitCanProduceUnits)) {</span>
+<span class="nc" id="L492">      return null;</span>
+    }
+<span class="nc" id="L494">    final CompositeMatch&lt;Unit&gt; ownedFighters =</span>
+<span class="nc" id="L495">        new CompositeMatchAnd&lt;&gt;(Matches.UnitCanLandOnCarrier, Matches.unitIsOwnedBy(player));</span>
+<span class="nc bnc" id="L496" title="All 2 branches missed.">    if (!producer.getUnits().someMatch(ownedFighters)) {</span>
+<span class="nc" id="L497">      return null;</span>
+    }
+<span class="nc bnc" id="L499" title="All 2 branches missed.">    if (wasConquered(producer)) {</span>
+<span class="nc" id="L500">      return null;</span>
+    }
+<span class="nc bnc" id="L502" title="All 2 branches missed.">    if (Match.someMatch(getAlreadyProduced(producer), Matches.UnitCanProduceUnits)) {</span>
+<span class="nc" id="L503">      return null;</span>
+    }
+<span class="nc" id="L505">    final List&lt;Unit&gt; fighters = producer.getUnits().getMatches(ownedFighters);</span>
+<span class="nc bnc" id="L506" title="All 4 branches missed.">    while (fighters.size() &gt; 0 &amp;&amp; AirMovementValidator.carrierCost(fighters) &gt; capacity) {</span>
+<span class="nc" id="L507">      fighters.remove(0);</span>
+    }
+<span class="nc bnc" id="L509" title="All 2 branches missed.">    if (fighters.size() == 0) {</span>
+<span class="nc" id="L510">      return null;</span>
+    }
+<span class="nc" id="L512">    final Collection&lt;Unit&gt; movedFighters = getRemotePlayer().getNumberOfFightersToMoveToNewCarrier(fighters, producer);</span>
+<span class="nc bnc" id="L513" title="All 4 branches missed.">    if (movedFighters == null || movedFighters.isEmpty()) {</span>
+<span class="nc" id="L514">      return null;</span>
+    }
+<span class="nc" id="L516">    final Change change = ChangeFactory.moveUnits(producer, at, movedFighters);</span>
+<span class="nc" id="L517">    placeChange.add(change);</span>
+<span class="nc" id="L518">    final String transcriptText =</span>
+<span class="nc" id="L519">        MyFormatter.unitsToTextNoOwner(movedFighters) + &quot; moved from &quot; + producer.getName() + &quot; to &quot; + at.getName();</span>
+<span class="nc" id="L520">    return transcriptText;</span>
+  }
+
+  /**
+   * Subclasses can over ride this to change the way placements are made.
+   *
+   * @return null if placement is valid
+   */
+  protected String isValidPlacement(final Collection&lt;Unit&gt; units, final Territory at, final PlayerID player) {
+    // do we hold enough units
+<span class="fc" id="L530">    String error = playerHasEnoughUnits(units, at, player);</span>
+<span class="fc bfc" id="L531" title="All 2 branches covered.">    if (error != null) {</span>
+<span class="fc" id="L532">      return error;</span>
+    }
+    // can we produce that much
+<span class="fc" id="L535">    error = canProduce(at, units, player);</span>
+<span class="pc bpc" id="L536" title="1 of 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L537">      return error;</span>
+    }
+    // can we produce that much
+<span class="fc" id="L540">    error = checkProduction(at, units, player);</span>
+<span class="fc bfc" id="L541" title="All 2 branches covered.">    if (error != null) {</span>
+<span class="fc" id="L542">      return error;</span>
+    }
+    // can we place it
+<span class="fc" id="L545">    error = canUnitsBePlaced(at, units, player);</span>
+<span class="pc bpc" id="L546" title="1 of 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L547">      return error;</span>
+    }
+<span class="fc" id="L549">    return null;</span>
+  }
+
+  /**
+   * Make sure the player has enough in hand to place the units.
+   */
+  String playerHasEnoughUnits(final Collection&lt;Unit&gt; units, final Territory at, final PlayerID player) {
+    // make sure the player has enough units in hand to place
+<span class="fc bfc" id="L557" title="All 2 branches covered.">    if (!player.getUnits().getUnits().containsAll(units)) {</span>
+<span class="fc" id="L558">      return &quot;Not enough units&quot;;</span>
+    }
+<span class="fc" id="L560">    return null;</span>
+  }
+
+  /**
+   * Test whether or not the territory has the factory resources to support
+   * the placement. AlreadyProduced maps territory-&gt;units already produced
+   * this turn by that territory.
+   */
+  protected String canProduce(final Territory to, final Collection&lt;Unit&gt; units, final PlayerID player) {
+<span class="fc" id="L569">    final Collection&lt;Territory&gt; producers = getAllProducers(to, player, units, true);</span>
+    // the only reason it could be empty is if its water and no
+    // territories adjacent have factories
+<span class="pc bpc" id="L572" title="1 of 2 branches missed.">    if (producers.isEmpty()) {</span>
+<span class="nc" id="L573">      return &quot;No factory in or adjacent to &quot; + to.getName();</span>
+    }
+<span class="fc bfc" id="L575" title="All 2 branches covered.">    if (producers.size() == 1) {</span>
+<span class="fc" id="L576">      return canProduce(producers.iterator().next(), to, units, player);</span>
+    }
+<span class="fc" id="L578">    final Collection&lt;Territory&gt; failingProducers = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L579">    String error = &quot;&quot;;</span>
+<span class="fc bfc" id="L580" title="All 2 branches covered.">    for (final Territory producer : producers) {</span>
+<span class="fc" id="L581">      final String errorP = canProduce(producer, to, units, player);</span>
+<span class="fc bfc" id="L582" title="All 2 branches covered.">      if (errorP != null) {</span>
+<span class="fc" id="L583">        failingProducers.add(producer);</span>
+        // do not include the error for same territory, if water, because users do not want to see this error report for
+        // 99.9% of games
+<span class="pc bpc" id="L586" title="3 of 4 branches missed.">        if (!(producer.equals(to) &amp;&amp; producer.isWater())) {</span>
+<span class="fc" id="L587">          error += &quot;, &quot; + errorP;</span>
+        }
+      }
+    }
+<span class="pc bpc" id="L591" title="1 of 2 branches missed.">    if (producers.size() == failingProducers.size()) {</span>
+<span class="nc" id="L592">      return &quot;Adjacent territories to &quot; + to.getName() + &quot; cannot produce, due to: \n &quot; + error.replaceFirst(&quot;, &quot;, &quot;&quot;);</span>
+    }
+<span class="fc" id="L594">    return null;</span>
+  }
+
+  protected String canProduce(final Territory producer, final Territory to, final Collection&lt;Unit&gt; units,
+      final PlayerID player) {
+<span class="fc" id="L599">    return canProduce(producer, to, units, player, false);</span>
+  }
+
+  /**
+   * Tests if this territory can produce units. (Does not check if it has space left to do so)
+   *
+   * @param producer
+   *        - Territory doing the producing.
+   * @param to
+   *        - Territory to be placed in.
+   * @param units
+   *        - Units to be placed.
+   * @param player
+   *        - Player doing the placing.
+   * @param simpleCheck
+   *        - If true you return true even if a factory is not present. Used when you do not want an infinite loop
+   *        (getAllProducers -&gt;
+   *        canProduce -&gt; howManyOfEachConstructionCanPlace -&gt; getAllProducers -&gt; etc)
+   * @return - null if allowed to produce, otherwise an error String.
+   */
+  protected String canProduce(final Territory producer, final Territory to, final Collection&lt;Unit&gt; units,
+      final PlayerID player, final boolean simpleCheck) {
+    // units can be null if we are just testing the territory itself...
+<span class="fc bfc" id="L622" title="All 2 branches covered.">    final Collection&lt;Unit&gt; testUnits = (units == null ? new ArrayList&lt;&gt;() : units);</span>
+<span class="fc" id="L623">    final boolean canProduceInConquered = isPlacementAllowedInCapturedTerritory(player);</span>
+<span class="fc bfc" id="L624" title="All 2 branches covered.">    if (!producer.getOwner().equals(player)) {</span>
+      // sea constructions require either owning the sea zone or owning a surrounding land territory
+<span class="fc bfc" id="L626" title="All 2 branches covered.">      if (producer.isWater()</span>
+<span class="pc bpc" id="L627" title="1 of 2 branches missed.">          &amp;&amp; Match.someMatch(testUnits, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsSea, Matches.UnitIsConstruction))) {</span>
+<span class="nc" id="L628">        boolean ownedNeighbor = false;</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">        for (final Territory current : getData().getMap().getNeighbors(to, Matches.TerritoryIsLand)) {</span>
+<span class="nc bnc" id="L630" title="All 6 branches missed.">          if (current.getOwner().equals(player) &amp;&amp; (canProduceInConquered || !wasConquered(current))) {</span>
+<span class="nc" id="L631">            ownedNeighbor = true;</span>
+<span class="nc" id="L632">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L635" title="All 2 branches missed.">        if (!ownedNeighbor) {</span>
+<span class="nc" id="L636">          return producer.getName() + &quot; is not owned by you, and you have no owned neighbors which can produce&quot;;</span>
+        }
+      } else {
+<span class="fc" id="L639">        return producer.getName() + &quot; is not owned by you&quot;;</span>
+      }
+    }
+    // make sure the territory wasnt conquered this turn
+<span class="pc bpc" id="L643" title="1 of 4 branches missed.">    if (!canProduceInConquered &amp;&amp; wasConquered(producer)) {</span>
+<span class="nc" id="L644">      return producer.getName() + &quot; was conquered this turn and cannot produce till next turn&quot;;</span>
+    }
+<span class="pc bpc" id="L646" title="1 of 4 branches missed.">    if (isPlayerAllowedToPlacementAnyTerritoryOwnedLand(player) &amp;&amp; Matches.TerritoryIsLand.match(to)</span>
+<span class="pc bpc" id="L647" title="1 of 2 branches missed.">        &amp;&amp; Matches.isTerritoryOwnedBy(player).match(to)) {</span>
+<span class="fc" id="L648">      return null;</span>
+    }
+<span class="pc bpc" id="L650" title="3 of 4 branches missed.">    if (isPlayerAllowedToPlacementAnySeaZoneByOwnedLand(player) &amp;&amp; Matches.TerritoryIsWater.match(to)</span>
+<span class="nc bnc" id="L651" title="All 2 branches missed.">        &amp;&amp; Matches.isTerritoryOwnedBy(player).match(producer)) {</span>
+<span class="nc" id="L652">      return null;</span>
+    }
+<span class="fc bfc" id="L654" title="All 2 branches covered.">    if (simpleCheck) {</span>
+<span class="fc" id="L655">      return null;</span>
+    }
+    // make sure some unit has fullfilled requiresUnits requirements
+<span class="pc bpc" id="L658" title="3 of 4 branches missed.">    if (isUnitPlacementRestrictions() &amp;&amp; !testUnits.isEmpty()</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">        &amp;&amp; !Match.someMatch(testUnits, unitWhichRequiresUnitsHasRequiredUnits(producer, true))) {</span>
+<span class="nc" id="L660">      return &quot;You do not have the required units to build in &quot; + producer.getName();</span>
+    }
+<span class="pc bpc" id="L662" title="1 of 6 branches missed.">    if (to.isWater() &amp;&amp; (!isWW2V2() &amp;&amp; !isUnitPlacementInEnemySeas())</span>
+<span class="pc bpc" id="L663" title="1 of 2 branches missed.">        &amp;&amp; to.getUnits().someMatch(Matches.enemyUnit(player, getData()))) {</span>
+<span class="nc" id="L664">      return &quot;Cannot place sea units with enemy naval units&quot;;</span>
+    }
+    // make sure there is a factory
+<span class="fc bfc" id="L667" title="All 2 branches covered.">    if (wasOwnedUnitThatCanProduceUnitsOrIsFactoryInTerritoryAtStartOfStep(producer, player)) {</span>
+<span class="fc" id="L668">      return null;</span>
+    }
+    // check to see if we are producing a factory or construction
+<span class="fc bfc" id="L671" title="All 2 branches covered.">    if (Match.someMatch(testUnits, Matches.UnitIsConstruction)) {</span>
+<span class="pc bpc" id="L672" title="1 of 2 branches missed.">      if (howManyOfEachConstructionCanPlace(to, producer, testUnits, player).totalValues() &gt; 0) {</span>
+<span class="fc" id="L673">        return null;</span>
+      }
+<span class="nc" id="L675">      return &quot;No more Constructions Allowed in &quot; + producer.getName();</span>
+    }
+    // check we havent just put a factory there (should we be checking producer?)
+<span class="pc bpc" id="L678" title="1 of 2 branches missed.">    if (Match.someMatch(getAlreadyProduced(producer), Matches.UnitCanProduceUnits)</span>
+<span class="pc bpc" id="L679" title="1 of 2 branches missed.">        || Match.someMatch(getAlreadyProduced(to), Matches.UnitCanProduceUnits)) {</span>
+<span class="nc" id="L680">      return &quot;Factory in &quot; + producer.getName() + &quot; cant produce until 1 turn after it is created&quot;;</span>
+    }
+<span class="fc" id="L682">    return &quot;No Factory in &quot; + producer.getName();</span>
+  }
+
+  /**
+   * Returns the territories that would do the producing if units are to be placed in a given territory. Returns an
+   * empty list if no
+   * suitable territory could be found.
+   *
+   * @param to
+   *        - Territory to place in.
+   * @param player
+   *        - player that is placing.
+   * @param unitsToPlace
+   *        - Can be null, otherwise is the units that will be produced.
+   * @param simpleCheck
+   *        - If true you return true even if a factory is not present. Used when you do not want an infinite loop
+   *        (getAllProducers -&gt;
+   *        canProduce -&gt; howManyOfEachConstructionCanPlace -&gt; getAllProducers -&gt; etc)
+   * @return - List of territories that can produce here.
+   */
+  protected List&lt;Territory&gt; getAllProducers(final Territory to, final PlayerID player,
+      final Collection&lt;Unit&gt; unitsToPlace, final boolean simpleCheck) {
+<span class="fc" id="L704">    final List&lt;Territory&gt; producers = new ArrayList&lt;&gt;();</span>
+    // if not water then must produce in that territory
+<span class="fc bfc" id="L706" title="All 2 branches covered.">    if (!to.isWater()) {</span>
+<span class="pc bpc" id="L707" title="1 of 4 branches missed.">      if (simpleCheck || canProduce(to, to, unitsToPlace, player, simpleCheck) == null) {</span>
+<span class="fc" id="L708">        producers.add(to);</span>
+      }
+<span class="fc" id="L710">      return producers;</span>
+    }
+<span class="pc bpc" id="L712" title="1 of 2 branches missed.">    if (canProduce(to, to, unitsToPlace, player, simpleCheck) == null) {</span>
+<span class="nc" id="L713">      producers.add(to);</span>
+    }
+<span class="fc bfc" id="L715" title="All 2 branches covered.">    for (final Territory current : getData().getMap().getNeighbors(to, Matches.TerritoryIsLand)) {</span>
+<span class="fc bfc" id="L716" title="All 2 branches covered.">      if (canProduce(current, to, unitsToPlace, player, simpleCheck) == null) {</span>
+<span class="fc" id="L717">        producers.add(current);</span>
+      }
+    }
+<span class="fc" id="L720">    return producers;</span>
+  }
+
+  /**
+   * Test whether or not the territory has the factory resources to support
+   * the placement. AlreadyProduced maps territory-&gt;units already produced
+   * this turn by that territory.
+   */
+  protected String checkProduction(final Territory to, final Collection&lt;Unit&gt; units, final PlayerID player) {
+<span class="fc" id="L729">    final List&lt;Territory&gt; producers = getAllProducers(to, player, units);</span>
+<span class="pc bpc" id="L730" title="1 of 2 branches missed.">    if (producers.isEmpty()) {</span>
+<span class="nc" id="L731">      return &quot;No factory in or adjacent to &quot; + to.getName();</span>
+    }
+    // if its an original factory then unlimited production
+<span class="fc" id="L734">    Collections.sort(producers, getBestProducerComparator(to, units, player));</span>
+<span class="pc bpc" id="L735" title="1 of 2 branches missed.">    if (!getCanAllUnitsWithRequiresUnitsBePlacedCorrectly(units, to)) {</span>
+<span class="nc" id="L736">      return &quot;Cannot place more units which require units, than production capacity of territories with the required units&quot;;</span>
+    }
+<span class="fc" id="L738">    final int maxUnitsToBePlaced = getMaxUnitsToBePlaced(units, to, player, true);</span>
+<span class="fc bfc" id="L739" title="All 4 branches covered.">    if ((maxUnitsToBePlaced != -1) &amp;&amp; (maxUnitsToBePlaced &lt; units.size())) {</span>
+<span class="fc" id="L740">      return &quot;Cannot place &quot; + units.size() + &quot; more units in &quot; + to.getName();</span>
+    }
+<span class="fc" id="L742">    return null;</span>
+  }
+
+  public String canUnitsBePlaced(final Territory to, final Collection&lt;Unit&gt; units, final PlayerID player) {
+<span class="fc" id="L746">    final Collection&lt;Unit&gt; allowedUnits = getUnitsToBePlaced(to, units, player);</span>
+<span class="fc bfc" id="L747" title="All 4 branches covered.">    if (allowedUnits == null || !allowedUnits.containsAll(units)) {</span>
+<span class="fc" id="L748">      return &quot;Cannot place these units in &quot; + to.getName();</span>
+    }
+<span class="fc" id="L750">    final IntegerMap&lt;String&gt; constructionMap = howManyOfEachConstructionCanPlace(to, to, units, player);</span>
+<span class="fc bfc" id="L751" title="All 2 branches covered.">    for (final Unit currentUnit : Match.getMatches(units, Matches.UnitIsConstruction)) {</span>
+<span class="fc" id="L752">      final UnitAttachment ua = UnitAttachment.get(currentUnit.getUnitType());</span>
+      /*
+       * if (ua.getIsFactory() &amp;&amp; !ua.getIsConstruction())
+       * constructionMap.add(&quot;factory&quot;, -1);
+       * else
+       */
+<span class="fc" id="L758">      constructionMap.add(ua.getConstructionType(), -1);</span>
+    }
+<span class="pc bpc" id="L760" title="1 of 2 branches missed.">    if (!constructionMap.isPositive()) {</span>
+<span class="nc" id="L761">      return &quot;Too many constructions in &quot; + to.getName();</span>
+    }
+<span class="fc" id="L763">    final List&lt;Territory&gt; capitalsListOwned =</span>
+<span class="fc" id="L764">        new ArrayList&lt;&gt;(TerritoryAttachment.getAllCurrentlyOwnedCapitals(player, getData()));</span>
+<span class="pc bpc" id="L765" title="1 of 4 branches missed.">    if (!capitalsListOwned.contains(to) &amp;&amp; isPlacementInCapitalRestricted(player)) {</span>
+<span class="nc" id="L766">      return &quot;Cannot place these units outside of the capital&quot;;</span>
+    }
+<span class="fc bfc" id="L768" title="All 2 branches covered.">    if (to.isWater()) {</span>
+<span class="fc" id="L769">      final String canLand = validateNewAirCanLandOnCarriers(to, units);</span>
+<span class="pc bpc" id="L770" title="1 of 2 branches missed.">      if (canLand != null) {</span>
+<span class="nc" id="L771">        return canLand;</span>
+      }
+    } else {
+      // make sure we own the territory
+<span class="pc bpc" id="L775" title="1 of 2 branches missed.">      if (!to.getOwner().equals(player)) {</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">        if (GameStepPropertiesHelper.isBid(getData())) {</span>
+<span class="nc" id="L777">          final PlayerAttachment pa = PlayerAttachment.get(to.getOwner());</span>
+<span class="nc bnc" id="L778" title="All 6 branches missed.">          if ((pa == null || pa.getGiveUnitControl() == null || !pa.getGiveUnitControl().contains(player))</span>
+<span class="nc bnc" id="L779" title="All 2 branches missed.">              &amp;&amp; !to.getUnits().someMatch(Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc" id="L780">            return &quot;You don't own &quot; + to.getName();</span>
+          }
+        } else {
+<span class="nc" id="L783">          return &quot;You don't own &quot; + to.getName();</span>
+        }
+      }
+      // make sure all units are land
+<span class="pc bpc" id="L787" title="1 of 2 branches missed.">      if (!Match.allMatch(units, Matches.UnitIsNotSea)) {</span>
+<span class="nc" id="L788">        return &quot;Cant place sea units on land&quot;;</span>
+      }
+    }
+    // make sure we can place consuming units
+<span class="pc bpc" id="L792" title="1 of 2 branches missed.">    if (!canWeConsumeUnits(units, to, false, null)) {</span>
+<span class="nc" id="L793">      return &quot;Not Enough Units To Upgrade or Be Consumed&quot;;</span>
+    }
+    // now check for stacking limits
+<span class="fc" id="L796">    final Collection&lt;UnitType&gt; typesAlreadyChecked = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L797" title="All 2 branches covered.">    for (final Unit currentUnit : units) {</span>
+<span class="fc" id="L798">      final UnitType ut = currentUnit.getType();</span>
+<span class="fc bfc" id="L799" title="All 2 branches covered.">      if (typesAlreadyChecked.contains(ut)) {</span>
+<span class="fc" id="L800">        continue;</span>
+      }
+<span class="fc" id="L802">      typesAlreadyChecked.add(ut);</span>
+<span class="fc" id="L803">      final int maxForThisType = UnitAttachment.getMaximumNumberOfThisUnitTypeToReachStackingLimit(&quot;placementLimit&quot;, ut,</span>
+<span class="fc" id="L804">          to, player, getData());</span>
+<span class="pc bpc" id="L805" title="1 of 2 branches missed.">      if (Match.countMatches(units, Matches.unitIsOfType(ut)) &gt; maxForThisType) {</span>
+<span class="nc" id="L806">        return &quot;UnitType &quot; + ut.getName() + &quot; is over stacking limit of &quot; + maxForThisType;</span>
+      }
+    }
+<span class="fc" id="L809">    if (!PlayerAttachment.getCanTheseUnitsMoveWithoutViolatingStackingLimit(&quot;placementLimit&quot;, units, to, player,</span>
+<span class="pc bpc" id="L810" title="1 of 2 branches missed.">        getData())) {</span>
+<span class="nc" id="L811">      return &quot;Units Cannot Go Over Stacking Limit&quot;;</span>
+    }
+    // now return null (valid placement) if we have placement restrictions disabled in game options
+<span class="pc bpc" id="L814" title="1 of 2 branches missed.">    if (!isUnitPlacementRestrictions()) {</span>
+<span class="fc" id="L815">      return null;</span>
+    }
+    // account for any unit placement restrictions by territory
+<span class="nc bnc" id="L818" title="All 2 branches missed.">    for (final Unit currentUnit : units) {</span>
+<span class="nc" id="L819">      final UnitAttachment ua = UnitAttachment.get(currentUnit.getUnitType());</span>
+      // Can be null!
+<span class="nc" id="L821">      final TerritoryAttachment ta = TerritoryAttachment.get(to);</span>
+<span class="nc bnc" id="L822" title="All 2 branches missed.">      if (ua.getCanOnlyBePlacedInTerritoryValuedAtX() != -1</span>
+<span class="nc bnc" id="L823" title="All 4 branches missed.">          &amp;&amp; ua.getCanOnlyBePlacedInTerritoryValuedAtX() &gt; (ta == null ? 0 : ta.getProduction())) {</span>
+<span class="nc" id="L824">        return &quot;Cannot place these units in &quot; + to.getName() + &quot; due to Unit Placement Restrictions on Territory Value&quot;;</span>
+      }
+<span class="nc" id="L826">      final String[] terrs = ua.getUnitPlacementRestrictions();</span>
+<span class="nc" id="L827">      final Collection&lt;Territory&gt; listedTerrs = getListedTerritories(terrs);</span>
+<span class="nc bnc" id="L828" title="All 2 branches missed.">      if (listedTerrs.contains(to)) {</span>
+<span class="nc" id="L829">        return &quot;Cannot place these units in &quot; + to.getName() + &quot; due to Unit Placement Restrictions&quot;;</span>
+      }
+<span class="nc bnc" id="L831" title="All 2 branches missed.">      if (unitWhichRequiresUnitsHasRequiredUnits(to, false).invert().match(currentUnit)) {</span>
+<span class="nc" id="L832">        return &quot;Cannot place these units in &quot; + to.getName()</span>
+<span class="nc" id="L833">            + &quot; as territory does not contain required units at start of turn&quot;;</span>
+      }
+<span class="nc bnc" id="L835" title="All 2 branches missed.">      if (Matches.UnitCanOnlyPlaceInOriginalTerritories.match(currentUnit)</span>
+<span class="nc bnc" id="L836" title="All 2 branches missed.">          &amp;&amp; !Matches.TerritoryIsOriginallyOwnedBy(player).match(to)) {</span>
+<span class="nc" id="L837">        return &quot;Cannot place these units in &quot; + to.getName() + &quot; as territory is not originally owned&quot;;</span>
+      }
+    }
+<span class="nc" id="L840">    return null;</span>
+  }
+
+  // Separate it out so we can Override it in sub classes.
+  protected Collection&lt;Unit&gt; getUnitsToBePlaced(final Territory to, final Collection&lt;Unit&gt; units,
+      final PlayerID player) {
+<span class="fc bfc" id="L846" title="All 2 branches covered.">    if (to.isWater()) {</span>
+<span class="fc" id="L847">      return getUnitsToBePlacedSea(to, units, player);</span>
+    }
+    // if land
+<span class="fc" id="L850">    return getUnitsToBePlacedLand(to, units, player);</span>
+  }
+
+  protected Collection&lt;Unit&gt; getUnitsToBePlacedSea(final Territory to, final Collection&lt;Unit&gt; units,
+      final PlayerID player) {
+<span class="fc" id="L855">    return getUnitsToBePlacedAllDefault(to, units, player);</span>
+  }
+
+  protected Collection&lt;Unit&gt; getUnitsToBePlacedLand(final Territory to, final Collection&lt;Unit&gt; units,
+      final PlayerID player) {
+<span class="fc" id="L860">    return getUnitsToBePlacedAllDefault(to, units, player);</span>
+  }
+
+  protected Collection&lt;Unit&gt; getUnitsToBePlacedAllDefault(final Territory to, final Collection&lt;Unit&gt; allUnits,
+      final PlayerID player) {
+<span class="fc" id="L865">    final boolean water = to.isWater();</span>
+<span class="pc bpc" id="L866" title="1 of 6 branches missed.">    if (water &amp;&amp; (!isWW2V2() &amp;&amp; !isUnitPlacementInEnemySeas())</span>
+<span class="fc bfc" id="L867" title="All 2 branches covered.">        &amp;&amp; to.getUnits().someMatch(Matches.enemyUnit(player, getData()))) {</span>
+<span class="fc" id="L868">      return null;</span>
+    }
+<span class="fc" id="L870">    final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;(allUnits);</span>
+    // if water, remove land. if land, remove water.
+<span class="fc bfc" id="L872" title="All 2 branches covered.">    units.removeAll(Match.getMatches(units, water ? Matches.UnitIsLand : Matches.UnitIsSea));</span>
+<span class="fc" id="L873">    final Collection&lt;Unit&gt; placeableUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L874">    final Collection&lt;Unit&gt; unitsAtStartOfTurnInTO = unitsAtStartOfStepInTerritory(to);</span>
+<span class="fc" id="L875">    final Collection&lt;Unit&gt; allProducedUnits = unitsPlacedInTerritorySoFar(to);</span>
+<span class="fc" id="L876">    final boolean isBid = GameStepPropertiesHelper.isBid(getData());</span>
+<span class="fc" id="L877">    final boolean wasFactoryThereAtStart =</span>
+<span class="fc" id="L878">        wasOwnedUnitThatCanProduceUnitsOrIsFactoryInTerritoryAtStartOfStep(to, player);</span>
+
+    // we add factories and constructions later
+<span class="pc bpc" id="L881" title="1 of 8 branches missed.">    if (water || wasFactoryThereAtStart || (!water &amp;&amp; isPlayerAllowedToPlacementAnyTerritoryOwnedLand(player))) {</span>
+<span class="fc bfc" id="L882" title="All 2 branches covered.">      final Match&lt;Unit&gt; seaOrLandMatch = water ? Matches.UnitIsSea : Matches.UnitIsLand;</span>
+<span class="fc" id="L883">      placeableUnits</span>
+<span class="fc" id="L884">          .addAll(Match.getMatches(units, new CompositeMatchAnd&lt;&gt;(seaOrLandMatch, Matches.UnitIsNotConstruction)));</span>
+<span class="fc bfc" id="L885" title="All 2 branches covered.">      if (!water) {</span>
+<span class="fc" id="L886">        placeableUnits.addAll(</span>
+<span class="fc" id="L887">            Match.getMatches(units, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.UnitIsNotConstruction)));</span>
+<span class="pc bpc" id="L888" title="2 of 6 branches missed.">      } else if (((isBid || canProduceFightersOnCarriers() || AirThatCantLandUtil.isLHTRCarrierProduction(getData()))</span>
+<span class="pc bpc" id="L889" title="1 of 2 branches missed.">          &amp;&amp; Match.someMatch(allProducedUnits, Matches.UnitIsCarrier))</span>
+<span class="pc bpc" id="L890" title="2 of 6 branches missed.">          || ((isBid || canProduceNewFightersOnOldCarriers() || AirThatCantLandUtil.isLHTRCarrierProduction(getData()))</span>
+<span class="pc bpc" id="L891" title="1 of 2 branches missed.">              &amp;&amp; Match.someMatch(to.getUnits().getUnits(), Matches.UnitIsCarrier))) {</span>
+<span class="nc" id="L892">        placeableUnits.addAll(</span>
+<span class="nc" id="L893">            Match.getMatches(units, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.UnitCanLandOnCarrier)));</span>
+      }
+    }
+<span class="fc bfc" id="L896" title="All 2 branches covered.">    if (Match.someMatch(units, Matches.UnitIsConstruction)) {</span>
+<span class="fc" id="L897">      final IntegerMap&lt;String&gt; constructionsMap = howManyOfEachConstructionCanPlace(to, to, units, player);</span>
+<span class="fc" id="L898">      final Collection&lt;Unit&gt; skipUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L899" title="All 2 branches covered.">      for (final Unit currentUnit : Match.getMatches(units, Matches.UnitIsConstruction)) {</span>
+<span class="fc" id="L900">        final int maxUnits = howManyOfConstructionUnit(currentUnit, constructionsMap);</span>
+<span class="fc bfc" id="L901" title="All 2 branches covered.">        if (maxUnits &gt; 0) {</span>
+          // we are doing this because we could have multiple unitTypes with the same constructionType, so we have to be
+          // able to place the
+          // max placement by constructionType of each unitType
+<span class="fc bfc" id="L905" title="All 2 branches covered.">          if (skipUnits.contains(currentUnit)) {</span>
+<span class="fc" id="L906">            continue;</span>
+          }
+<span class="fc" id="L908">          placeableUnits.addAll(Match.getNMatches(units, maxUnits, Matches.unitIsOfType(currentUnit.getType())));</span>
+<span class="fc" id="L909">          skipUnits.addAll(Match.getMatches(units, Matches.unitIsOfType(currentUnit.getType())));</span>
+        }
+      }
+    }
+    // remove any units that require other units to be consumed on creation, if we don't have enough to consume (veqryn)
+<span class="pc bpc" id="L914" title="1 of 2 branches missed.">    if (Match.someMatch(placeableUnits, Matches.UnitConsumesUnitsOnCreation)) {</span>
+<span class="nc" id="L915">      final Collection&lt;Unit&gt; unitsWhichConsume = Match.getMatches(placeableUnits, Matches.UnitConsumesUnitsOnCreation);</span>
+<span class="nc bnc" id="L916" title="All 2 branches missed.">      for (final Unit unit : unitsWhichConsume) {</span>
+<span class="nc bnc" id="L917" title="All 2 branches missed.">        if (Matches.UnitWhichConsumesUnitsHasRequiredUnits(unitsAtStartOfTurnInTO, to).invert().match(unit)) {</span>
+<span class="nc" id="L918">          placeableUnits.remove(unit);</span>
+        }
+      }
+    }
+    // now check stacking limits
+<span class="fc" id="L923">    final Collection&lt;Unit&gt; placeableUnits2 = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L924">    final Collection&lt;UnitType&gt; typesAlreadyChecked = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L925" title="All 2 branches covered.">    for (final Unit currentUnit : placeableUnits) {</span>
+<span class="fc" id="L926">      final UnitType ut = currentUnit.getType();</span>
+<span class="fc bfc" id="L927" title="All 2 branches covered.">      if (typesAlreadyChecked.contains(ut)) {</span>
+<span class="fc" id="L928">        continue;</span>
+      }
+<span class="fc" id="L930">      typesAlreadyChecked.add(ut);</span>
+<span class="fc" id="L931">      placeableUnits2</span>
+<span class="fc" id="L932">          .addAll(Match.getNMatches(placeableUnits, UnitAttachment.getMaximumNumberOfThisUnitTypeToReachStackingLimit(</span>
+<span class="fc" id="L933">              &quot;placementLimit&quot;, ut, to, player, getData()), Matches.unitIsOfType(ut)));</span>
+    }
+<span class="pc bpc" id="L935" title="1 of 2 branches missed.">    if (!isUnitPlacementRestrictions()) {</span>
+<span class="fc" id="L936">      return placeableUnits2;</span>
+    }
+<span class="nc" id="L938">    final Collection&lt;Unit&gt; placeableUnits3 = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L939" title="All 2 branches missed.">    for (final Unit currentUnit : placeableUnits2) {</span>
+<span class="nc" id="L940">      final UnitAttachment ua = UnitAttachment.get(currentUnit.getUnitType());</span>
+      // Can be null!
+<span class="nc" id="L942">      final TerritoryAttachment ta = TerritoryAttachment.get(to);</span>
+<span class="nc bnc" id="L943" title="All 2 branches missed.">      if (ua.getCanOnlyBePlacedInTerritoryValuedAtX() != -1</span>
+<span class="nc bnc" id="L944" title="All 4 branches missed.">          &amp;&amp; ua.getCanOnlyBePlacedInTerritoryValuedAtX() &gt; (ta == null ? 0 : ta.getProduction())) {</span>
+<span class="nc" id="L945">        continue;</span>
+      }
+<span class="nc bnc" id="L947" title="All 2 branches missed.">      if (unitWhichRequiresUnitsHasRequiredUnits(to, false).invert().match(currentUnit)) {</span>
+<span class="nc" id="L948">        continue;</span>
+      }
+<span class="nc bnc" id="L950" title="All 2 branches missed.">      if (Matches.UnitCanOnlyPlaceInOriginalTerritories.match(currentUnit)</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">          &amp;&amp; !Matches.TerritoryIsOriginallyOwnedBy(player).match(to)) {</span>
+<span class="nc" id="L952">        continue;</span>
+      }
+      // account for any unit placement restrictions by territory
+<span class="nc" id="L955">      final String[] terrs = ua.getUnitPlacementRestrictions();</span>
+<span class="nc" id="L956">      final Collection&lt;Territory&gt; listedTerrs = getListedTerritories(terrs);</span>
+<span class="nc bnc" id="L957" title="All 2 branches missed.">      if (!listedTerrs.contains(to)) {</span>
+<span class="nc" id="L958">        placeableUnits3.add(currentUnit);</span>
+      }
+    }
+<span class="nc" id="L961">    return placeableUnits3;</span>
+  }
+
+  protected boolean canWeConsumeUnits(final Collection&lt;Unit&gt; units, final Territory to, final boolean actuallyDoIt,
+      final CompositeChange change) {
+<span class="fc" id="L966">    boolean weCanConsume = true;</span>
+<span class="fc" id="L967">    final Collection&lt;Unit&gt; unitsAtStartOfTurnInTO = unitsAtStartOfStepInTerritory(to);</span>
+<span class="fc" id="L968">    final Collection&lt;Unit&gt; removedUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L969">    final Collection&lt;Unit&gt; unitsWhichConsume = Match.getMatches(units, Matches.UnitConsumesUnitsOnCreation);</span>
+<span class="pc bpc" id="L970" title="1 of 2 branches missed.">    for (final Unit unit : unitsWhichConsume) {</span>
+<span class="nc bnc" id="L971" title="All 2 branches missed.">      if (Matches.UnitWhichConsumesUnitsHasRequiredUnits(unitsAtStartOfTurnInTO, to).invert().match(unit)) {</span>
+<span class="nc" id="L972">        weCanConsume = false;</span>
+      }
+<span class="nc bnc" id="L974" title="All 2 branches missed.">      if (!weCanConsume) {</span>
+<span class="nc" id="L975">        break;</span>
+      }
+      // remove units which are now consumed, then test the rest of the consuming units on the diminishing pile of units
+      // which were in the
+      // territory at start of turn
+<span class="nc" id="L980">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc" id="L981">      final IntegerMap&lt;UnitType&gt; requiredUnitsMap = ua.getConsumesUnits();</span>
+<span class="nc" id="L982">      final Collection&lt;UnitType&gt; requiredUnits = requiredUnitsMap.keySet();</span>
+<span class="nc bnc" id="L983" title="All 2 branches missed.">      for (final UnitType ut : requiredUnits) {</span>
+<span class="nc" id="L984">        final int requiredNumber = requiredUnitsMap.getInt(ut);</span>
+<span class="nc" id="L985">        final Match&lt;Unit&gt; unitIsOwnedByAndOfTypeAndNotDamaged = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L986">            Matches.unitIsOwnedBy(unit.getOwner()), Matches.unitIsOfType(ut),</span>
+<span class="nc" id="L987">            Matches.UnitHasNotTakenAnyBombingUnitDamage, Matches.UnitHasNotTakenAnyDamage, Matches.UnitIsNotDisabled);</span>
+<span class="nc" id="L988">        final Collection&lt;Unit&gt; unitsBeingRemoved =</span>
+<span class="nc" id="L989">            Match.getNMatches(unitsAtStartOfTurnInTO, requiredNumber, unitIsOwnedByAndOfTypeAndNotDamaged);</span>
+<span class="nc" id="L990">        unitsAtStartOfTurnInTO.removeAll(unitsBeingRemoved);</span>
+        // if we should actually do it, not just test, then add to bridge
+<span class="nc bnc" id="L992" title="All 4 branches missed.">        if (actuallyDoIt &amp;&amp; change != null) {</span>
+<span class="nc" id="L993">          final Change remove = ChangeFactory.removeUnits(to, unitsBeingRemoved);</span>
+<span class="nc" id="L994">          change.add(remove);</span>
+<span class="nc" id="L995">          removedUnits.addAll(unitsBeingRemoved);</span>
+        }
+      }
+    }
+<span class="pc bpc" id="L999" title="3 of 8 branches missed.">    if (weCanConsume &amp;&amp; actuallyDoIt &amp;&amp; change != null &amp;&amp; !change.isEmpty()) {</span>
+<span class="nc" id="L1000">      m_bridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L1001">          &quot;Units in &quot; + to.getName() + &quot; being upgraded or consumed: &quot; + MyFormatter.unitsToTextNoOwner(removedUnits),</span>
+<span class="nc" id="L1002">          removedUnits);</span>
+    }
+<span class="fc" id="L1004">    return weCanConsume;</span>
+  }
+
+  /**
+   * Returns -1 if can place unlimited units
+   */
+  protected int getMaxUnitsToBePlaced(final Collection&lt;Unit&gt; units, final Territory to, final PlayerID player,
+      final boolean countSwitchedProductionToNeighbors) {
+<span class="fc" id="L1012">    final IntegerMap&lt;Territory&gt; map = getMaxUnitsToBePlacedMap(units, to, player, countSwitchedProductionToNeighbors);</span>
+<span class="fc" id="L1013">    int production = 0;</span>
+<span class="fc bfc" id="L1014" title="All 2 branches covered.">    for (final Entry&lt;Territory, Integer&gt; entry : map.entrySet()) {</span>
+<span class="fc" id="L1015">      final int prodT = entry.getValue();</span>
+<span class="fc bfc" id="L1016" title="All 2 branches covered.">      if (prodT == -1) {</span>
+<span class="fc" id="L1017">        return -1;</span>
+      }
+<span class="fc" id="L1019">      production += prodT;</span>
+    }
+<span class="fc" id="L1021">    return production;</span>
+  }
+
+  /**
+   * Returns -1 somewhere in the map if can place unlimited units
+   */
+  protected IntegerMap&lt;Territory&gt; getMaxUnitsToBePlacedMap(final Collection&lt;Unit&gt; units, final Territory to,
+      final PlayerID player, final boolean countSwitchedProductionToNeighbors) {
+<span class="fc" id="L1029">    final IntegerMap&lt;Territory&gt; rVal = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1030">    final List&lt;Territory&gt; producers = getAllProducers(to, player, units);</span>
+<span class="pc bpc" id="L1031" title="1 of 2 branches missed.">    if (producers.isEmpty()) {</span>
+<span class="nc" id="L1032">      return rVal;</span>
+    }
+<span class="fc" id="L1034">    Collections.sort(producers, getBestProducerComparator(to, units, player));</span>
+<span class="fc" id="L1035">    final Collection&lt;Territory&gt; notUsableAsOtherProducers = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1036">    notUsableAsOtherProducers.addAll(producers);</span>
+<span class="fc" id="L1037">    final Map&lt;Territory, Integer&gt; currentAvailablePlacementForOtherProducers = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L1038" title="All 2 branches covered.">    for (final Territory producerTerritory : producers) {</span>
+<span class="pc bpc" id="L1039" title="1 of 2 branches missed.">      final Collection&lt;Unit&gt; unitsCanBePlacedByThisProducer = (isUnitPlacementRestrictions()</span>
+<span class="nc" id="L1040">          ? Match.getMatches(units, unitWhichRequiresUnitsHasRequiredUnits(producerTerritory, true))</span>
+<span class="fc" id="L1041">          : new ArrayList&lt;&gt;(units));</span>
+<span class="fc" id="L1042">      final int prodT = getMaxUnitsToBePlacedFrom(producerTerritory, unitsCanBePlacedByThisProducer, to, player,</span>
+<span class="fc" id="L1043">          countSwitchedProductionToNeighbors, notUsableAsOtherProducers, currentAvailablePlacementForOtherProducers);</span>
+<span class="fc" id="L1044">      rVal.put(producerTerritory, prodT);</span>
+    }
+<span class="fc" id="L1046">    return rVal;</span>
+  }
+
+  /**
+   * Returns -1 if can place unlimited units
+   */
+  protected int getMaxUnitsToBePlacedFrom(final Territory producer, final Collection&lt;Unit&gt; units, final Territory to,
+      final PlayerID player) {
+<span class="fc" id="L1054">    return getMaxUnitsToBePlacedFrom(producer, units, to, player, false, null, null);</span>
+  }
+
+  /**
+   * Returns -1 if can place unlimited units
+   */
+  protected int getMaxUnitsToBePlacedFrom(final Territory producer, final Collection&lt;Unit&gt; units, final Territory to,
+      final PlayerID player, final boolean countSwitchedProductionToNeighbors,
+      final Collection&lt;Territory&gt; notUsableAsOtherProducers,
+      final Map&lt;Territory, Integer&gt; currentAvailablePlacementForOtherProducers) {
+    // we may have special units with requiresUnits restrictions
+<span class="pc bpc" id="L1065" title="1 of 2 branches missed.">    final Collection&lt;Unit&gt; unitsCanBePlacedByThisProducer = (isUnitPlacementRestrictions()</span>
+<span class="pc" id="L1066">        ? Match.getMatches(units, unitWhichRequiresUnitsHasRequiredUnits(producer, true)) : new ArrayList&lt;&gt;(units));</span>
+<span class="pc bpc" id="L1067" title="1 of 2 branches missed.">    if (unitsCanBePlacedByThisProducer.size() &lt;= 0) {</span>
+<span class="nc" id="L1068">      return 0;</span>
+    }
+    // if its an original factory then unlimited production
+    // Can be null!
+<span class="fc" id="L1072">    final TerritoryAttachment ta = TerritoryAttachment.get(producer);</span>
+<span class="fc" id="L1073">    final CompositeMatchAnd&lt;Unit&gt; factoryMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L1074">        Matches.UnitIsOwnedAndIsFactoryOrCanProduceUnits(player), Matches.unitIsBeingTransported().invert());</span>
+<span class="pc bpc" id="L1075" title="1 of 2 branches missed.">    if (producer.isWater()) {</span>
+<span class="nc" id="L1076">      factoryMatch.add(Matches.UnitIsLand.invert());</span>
+<span class="nc" id="L1077">    } else {</span>
+<span class="fc" id="L1078">      factoryMatch.add(Matches.UnitIsSea.invert());</span>
+    }
+<span class="fc" id="L1080">    final Collection&lt;Unit&gt; factoryUnits = producer.getUnits().getMatches(factoryMatch);</span>
+    // boolean placementRestrictedByFactory = isPlacementRestrictedByFactory();
+<span class="fc" id="L1082">    final boolean unitPlacementPerTerritoryRestricted = isUnitPlacementPerTerritoryRestricted();</span>
+<span class="pc bpc" id="L1083" title="1 of 4 branches missed.">    final boolean originalFactory = (ta != null &amp;&amp; ta.getOriginalFactory());</span>
+<span class="pc" id="L1084">    final boolean playerIsOriginalOwner =</span>
+<span class="pc bpc" id="L1085" title="1 of 4 branches missed.">        factoryUnits.size() &gt; 0 &amp;&amp; m_player.equals(getOriginalFactoryOwner(producer));</span>
+<span class="fc" id="L1086">    final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="fc" id="L1087">    final Collection&lt;Unit&gt; alreadProducedUnits = getAlreadyProduced(producer);</span>
+<span class="fc" id="L1088">    final int unitCountAlreadyProduced = alreadProducedUnits.size();</span>
+<span class="pc bpc" id="L1089" title="1 of 4 branches missed.">    if (originalFactory &amp;&amp; playerIsOriginalOwner) // &amp;&amp; !placementRestrictedByFactory &amp;&amp;</span>
+                                                  // !unitPlacementPerTerritoryRestricted
+    {
+<span class="nc bnc" id="L1092" title="All 4 branches missed.">      if (ra != null &amp;&amp; ra.getMaxPlacePerTerritory() != -1) {</span>
+<span class="nc" id="L1093">        return Math.max(0, ra.getMaxPlacePerTerritory() - unitCountAlreadyProduced);</span>
+      }
+<span class="nc" id="L1095">      return -1;</span>
+    }
+    // Restricts based on the STARTING number of units in a territory (otherwise it is infinite placement)
+<span class="pc bpc" id="L1098" title="1 of 2 branches missed.">    if (unitPlacementPerTerritoryRestricted) {</span>
+<span class="pc bpc" id="L1099" title="1 of 4 branches missed.">      if (ra != null &amp;&amp; ra.getPlacementPerTerritory() &gt; 0) {</span>
+<span class="fc" id="L1100">        final int allowedPlacement = ra.getPlacementPerTerritory();</span>
+<span class="fc" id="L1101">        final int ownedUnitsInTerritory = Match.countMatches(to.getUnits().getUnits(), Matches.unitIsOwnedBy(player));</span>
+<span class="fc bfc" id="L1102" title="All 2 branches covered.">        if (ownedUnitsInTerritory &gt;= allowedPlacement) {</span>
+<span class="fc" id="L1103">          return 0;</span>
+        }
+<span class="pc bpc" id="L1105" title="1 of 2 branches missed.">        if (ra.getMaxPlacePerTerritory() == -1) {</span>
+<span class="fc" id="L1106">          return -1;</span>
+        }
+<span class="nc" id="L1108">        return Math.max(0, ra.getMaxPlacePerTerritory() - unitCountAlreadyProduced);</span>
+      }
+    }
+    // a factory can produce the same number of units as the number of PUs the territory generates each turn (or not, if
+    // it has
+    // canProduceXUnits)
+<span class="fc" id="L1114">    int production = 0;</span>
+    // int territoryValue = getProduction(producer);
+<span class="fc" id="L1116">    final int maxConstructions =</span>
+<span class="fc" id="L1117">        howManyOfEachConstructionCanPlace(to, producer, unitsCanBePlacedByThisProducer, player).totalValues();</span>
+<span class="fc" id="L1118">    final boolean wasFactoryThereAtStart =</span>
+<span class="fc" id="L1119">        wasOwnedUnitThatCanProduceUnitsOrIsFactoryInTerritoryAtStartOfStep(producer, player);</span>
+    // If there's NO factory, allow placement of the factory
+<span class="fc bfc" id="L1121" title="All 2 branches covered.">    if (!wasFactoryThereAtStart) {</span>
+<span class="pc bpc" id="L1122" title="3 of 4 branches missed.">      if (ra != null &amp;&amp; ra.getMaxPlacePerTerritory() &gt; 0) {</span>
+<span class="nc" id="L1123">        return Math.max(0, Math.min(maxConstructions, ra.getMaxPlacePerTerritory() - unitCountAlreadyProduced));</span>
+      }
+<span class="fc" id="L1125">      return Math.max(0, maxConstructions);</span>
+    }
+    // getHowMuchCanUnitProduce accounts for IncreasedFactoryProduction, but does not account for maxConstructions
+<span class="fc" id="L1128">    production = TripleAUnit.getProductionPotentialOfTerritory(unitsAtStartOfStepInTerritory(producer), producer,</span>
+<span class="fc" id="L1129">        player, getData(), true, true);</span>
+    // increase the production by the number of constructions allowed
+<span class="pc bpc" id="L1131" title="1 of 2 branches missed.">    if (maxConstructions &gt; 0) {</span>
+<span class="nc" id="L1132">      production += maxConstructions;</span>
+    }
+    // return 0 if less than 0
+<span class="pc bpc" id="L1135" title="1 of 2 branches missed.">    if (production &lt; 0) {</span>
+<span class="nc" id="L1136">      return 0;</span>
+    }
+<span class="fc" id="L1138">    production += Match.countMatches(alreadProducedUnits, Matches.UnitIsConstruction);</span>
+    // Now we check if units we have already produced here could be produced by a different producer
+<span class="fc" id="L1140">    int unitCountHaveToAndHaveBeenBeProducedHere = unitCountAlreadyProduced;</span>
+<span class="fc bfc" id="L1141" title="All 4 branches covered.">    if (countSwitchedProductionToNeighbors &amp;&amp; unitCountAlreadyProduced &gt; 0) {</span>
+<span class="pc bpc" id="L1142" title="1 of 2 branches missed.">      if (notUsableAsOtherProducers == null) {</span>
+<span class="nc" id="L1143">        throw new IllegalStateException(</span>
+<span class="nc" id="L1144">            &quot;notUsableAsOtherProducers cannot be null if countSwitchedProductionToNeighbors is true&quot;);</span>
+      }
+<span class="pc bpc" id="L1146" title="1 of 2 branches missed.">      if (currentAvailablePlacementForOtherProducers == null) {</span>
+<span class="nc" id="L1147">        throw new IllegalStateException(</span>
+<span class="nc" id="L1148">            &quot;currentAvailablePlacementForOtherProducers cannot be null if countSwitchedProductionToNeighbors is true&quot;);</span>
+      }
+<span class="fc" id="L1150">      int productionCanNotBeMoved = 0;</span>
+<span class="fc" id="L1151">      int productionThatCanBeTakenOver = 0;</span>
+      // try to find a placement move (to an adjacent sea zone) that can be taken over by some other territory factory
+<span class="pc bpc" id="L1153" title="1 of 2 branches missed.">      for (final UndoablePlacement placementMove : m_placements) {</span>
+<span class="nc bnc" id="L1154" title="All 2 branches missed.">        if (placementMove.getProducerTerritory().equals(producer)) {</span>
+<span class="nc" id="L1155">          final Territory placeTerritory = placementMove.getPlaceTerritory();</span>
+<span class="nc" id="L1156">          final Collection&lt;Unit&gt; unitsPlacedByCurrentPlacementMove = placementMove.getUnits();</span>
+          // TODO: Units which have the unit attachment property, requiresUnits, are too difficult to mess with
+          // logically, so we ignore them
+          // for our special 'move shit around' methods.
+<span class="nc bnc" id="L1160" title="All 4 branches missed.">          if (!placeTerritory.isWater() || (isUnitPlacementRestrictions()</span>
+<span class="nc bnc" id="L1161" title="All 2 branches missed.">              &amp;&amp; Match.someMatch(unitsPlacedByCurrentPlacementMove, Matches.UnitRequiresUnitsOnCreation))) {</span>
+<span class="nc" id="L1162">            productionCanNotBeMoved += unitsPlacedByCurrentPlacementMove.size();</span>
+<span class="nc" id="L1163">          } else {</span>
+<span class="nc" id="L1164">            final int maxProductionThatCanBeTakenOverFromThisPlacement = unitsPlacedByCurrentPlacementMove.size();</span>
+<span class="nc" id="L1165">            int productionThatCanBeTakenOverFromThisPlacement = 0;</span>
+            // find other producers for this placement move to the same water territory
+<span class="nc" id="L1167">            final List&lt;Territory&gt; newPotentialOtherProducers =</span>
+<span class="nc" id="L1168">                getAllProducers(placeTerritory, player, unitsCanBePlacedByThisProducer);</span>
+<span class="nc" id="L1169">            newPotentialOtherProducers.removeAll(notUsableAsOtherProducers);</span>
+<span class="nc" id="L1170">            Collections.sort(newPotentialOtherProducers,</span>
+<span class="nc" id="L1171">                getBestProducerComparator(placeTerritory, unitsCanBePlacedByThisProducer, player));</span>
+<span class="nc bnc" id="L1172" title="All 2 branches missed.">            for (final Territory potentialOtherProducer : newPotentialOtherProducers) {</span>
+<span class="nc" id="L1173">              Integer potential = currentAvailablePlacementForOtherProducers.get(potentialOtherProducer);</span>
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">              if (potential == null) {</span>
+<span class="nc" id="L1175">                potential = getMaxUnitsToBePlacedFrom(potentialOtherProducer,</span>
+<span class="nc" id="L1176">                    unitsPlacedInTerritorySoFar(placeTerritory), placeTerritory, player);</span>
+              }
+<span class="nc bnc" id="L1178" title="All 2 branches missed.">              if (potential == -1) {</span>
+<span class="nc" id="L1179">                currentAvailablePlacementForOtherProducers.put(potentialOtherProducer, potential);</span>
+<span class="nc" id="L1180">                productionThatCanBeTakenOverFromThisPlacement = maxProductionThatCanBeTakenOverFromThisPlacement;</span>
+<span class="nc" id="L1181">                break;</span>
+              } else {
+<span class="nc" id="L1183">                final int needed =</span>
+<span class="nc" id="L1184">                    maxProductionThatCanBeTakenOverFromThisPlacement - productionThatCanBeTakenOverFromThisPlacement;</span>
+<span class="nc" id="L1185">                final int surplus = potential - needed;</span>
+<span class="nc bnc" id="L1186" title="All 2 branches missed.">                if (surplus &gt; 0) {</span>
+<span class="nc" id="L1187">                  currentAvailablePlacementForOtherProducers.put(potentialOtherProducer, surplus);</span>
+<span class="nc" id="L1188">                  productionThatCanBeTakenOverFromThisPlacement += needed;</span>
+<span class="nc" id="L1189">                } else {</span>
+<span class="nc" id="L1190">                  currentAvailablePlacementForOtherProducers.put(potentialOtherProducer, 0);</span>
+<span class="nc" id="L1191">                  productionThatCanBeTakenOverFromThisPlacement += potential;</span>
+<span class="nc" id="L1192">                  notUsableAsOtherProducers.add(potentialOtherProducer);</span>
+                }
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">                if (surplus &gt;= 0) {</span>
+<span class="nc" id="L1195">                  break;</span>
+                }
+              }
+            }
+<span class="nc bnc" id="L1199" title="All 2 branches missed.">            if (productionThatCanBeTakenOverFromThisPlacement &gt; maxProductionThatCanBeTakenOverFromThisPlacement) {</span>
+<span class="nc" id="L1200">              throw new IllegalStateException(</span>
+<span class="nc" id="L1201">                  &quot;productionThatCanBeTakenOverFromThisPlacement should never be larger than maxProductionThatCanBeTakenOverFromThisPlacement&quot;);</span>
+            }
+<span class="nc" id="L1203">            productionThatCanBeTakenOver += productionThatCanBeTakenOverFromThisPlacement;</span>
+          }
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">          if (productionThatCanBeTakenOver &gt;= unitCountAlreadyProduced - productionCanNotBeMoved) {</span>
+<span class="nc" id="L1206">            break;</span>
+          }
+        }
+      }
+<span class="fc" id="L1210">      unitCountHaveToAndHaveBeenBeProducedHere = Math.max(0, unitCountAlreadyProduced - productionThatCanBeTakenOver);</span>
+    }
+<span class="pc bpc" id="L1212" title="3 of 4 branches missed.">    if (ra != null &amp;&amp; ra.getMaxPlacePerTerritory() &gt; 0) {</span>
+<span class="nc" id="L1213">      return Math.max(0, Math.min(production - unitCountHaveToAndHaveBeenBeProducedHere,</span>
+<span class="nc" id="L1214">          ra.getMaxPlacePerTerritory() - unitCountHaveToAndHaveBeenBeProducedHere));</span>
+    }
+<span class="fc" id="L1216">    return Math.max(0, production - unitCountHaveToAndHaveBeenBeProducedHere);</span>
+  }
+
+  /**
+   * @return gets the production of the territory
+   */
+  protected int getProduction(final Territory territory) {
+    // Can be null!
+<span class="nc" id="L1224">    final TerritoryAttachment ta = TerritoryAttachment.get(territory);</span>
+<span class="nc bnc" id="L1225" title="All 2 branches missed.">    if (ta != null) {</span>
+<span class="nc" id="L1226">      return ta.getProduction();</span>
+    }
+<span class="nc" id="L1228">    return 0;</span>
+  }
+
+  /**
+   * @param to
+   *        referring territory
+   * @param units
+   *        units to place
+   * @param player
+   *        PlayerID
+   * @return an empty IntegerMap if you can't produce any constructions (will never return null)
+   */
+  public IntegerMap&lt;String&gt; howManyOfEachConstructionCanPlace(final Territory to, final Territory producer,
+      final Collection&lt;Unit&gt; units, final PlayerID player) {
+    // constructions can ONLY be produced BY the same territory that they are going into!
+<span class="pc bpc" id="L1243" title="2 of 6 branches missed.">    if (!to.equals(producer) || units == null || units.isEmpty()</span>
+<span class="fc bfc" id="L1244" title="All 2 branches covered.">        || !Match.someMatch(units, Matches.UnitIsConstruction)) {</span>
+<span class="fc" id="L1245">      return new IntegerMap&lt;&gt;();</span>
+    }
+<span class="fc" id="L1247">    final Collection&lt;Unit&gt; unitsAtStartOfTurnInTO = unitsAtStartOfStepInTerritory(to);</span>
+<span class="fc" id="L1248">    final Collection&lt;Unit&gt; unitsInTO = to.getUnits().getUnits();</span>
+<span class="fc" id="L1249">    final Collection&lt;Unit&gt; unitsPlacedAlready = getAlreadyProduced(to);</span>
+    // build an integer map of each unit we have in our list of held units, as well as integer maps for maximum units
+    // and units per turn
+<span class="fc" id="L1252">    final IntegerMap&lt;String&gt; unitMapHeld = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1253">    final IntegerMap&lt;String&gt; unitMapMaxType = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1254">    final IntegerMap&lt;String&gt; unitMapTypePerTurn = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1255">    final int maxFactory = games.strategy.triplea.Properties.getFactoriesPerCountry(getData());</span>
+<span class="fc" id="L1256">    final Iterator&lt;Unit&gt; unitHeldIter = Match.getMatches(units, Matches.UnitIsConstruction).iterator();</span>
+    // Can be null!
+<span class="fc" id="L1258">    final TerritoryAttachment terrAttachment = TerritoryAttachment.get(to);</span>
+<span class="fc" id="L1259">    int toProduction = 0;</span>
+<span class="pc bpc" id="L1260" title="1 of 2 branches missed.">    if (terrAttachment != null) {</span>
+<span class="fc" id="L1261">      toProduction = terrAttachment.getProduction();</span>
+    }
+<span class="fc bfc" id="L1263" title="All 2 branches covered.">    while (unitHeldIter.hasNext()) {</span>
+<span class="fc" id="L1264">      final Unit currentUnit = unitHeldIter.next();</span>
+<span class="fc" id="L1265">      final UnitAttachment ua = UnitAttachment.get(currentUnit.getUnitType());</span>
+      // account for any unit placement restrictions by territory
+<span class="pc bpc" id="L1267" title="1 of 2 branches missed.">      if (isUnitPlacementRestrictions()) {</span>
+<span class="nc" id="L1268">        final String[] terrs = ua.getUnitPlacementRestrictions();</span>
+<span class="nc" id="L1269">        final Collection&lt;Territory&gt; listedTerrs = getListedTerritories(terrs);</span>
+<span class="nc bnc" id="L1270" title="All 2 branches missed.">        if (listedTerrs.contains(to)) {</span>
+<span class="nc" id="L1271">          continue;</span>
+        }
+<span class="nc bnc" id="L1273" title="All 2 branches missed.">        if (ua.getCanOnlyBePlacedInTerritoryValuedAtX() != -1</span>
+<span class="nc bnc" id="L1274" title="All 2 branches missed.">            &amp;&amp; ua.getCanOnlyBePlacedInTerritoryValuedAtX() &gt; toProduction) {</span>
+<span class="nc" id="L1275">          continue;</span>
+        }
+<span class="nc bnc" id="L1277" title="All 2 branches missed.">        if (unitWhichRequiresUnitsHasRequiredUnits(to, false).invert().match(currentUnit)) {</span>
+<span class="nc" id="L1278">          continue;</span>
+        }
+      }
+      // remove any units that require other units to be consumed on creation (veqryn)
+<span class="pc bpc" id="L1282" title="1 of 2 branches missed.">      if (Matches.UnitConsumesUnitsOnCreation.match(currentUnit)</span>
+<span class="nc bnc" id="L1283" title="All 2 branches missed.">          &amp;&amp; Matches.UnitWhichConsumesUnitsHasRequiredUnits(unitsAtStartOfTurnInTO, to).invert().match(currentUnit)) {</span>
+<span class="nc" id="L1284">        continue;</span>
+      }
+<span class="fc" id="L1286">      unitMapHeld.add(ua.getConstructionType(), 1);</span>
+<span class="fc" id="L1287">      unitMapTypePerTurn.put(ua.getConstructionType(), ua.getConstructionsPerTerrPerTypePerTurn());</span>
+<span class="pc bpc" id="L1288" title="1 of 2 branches missed.">      if (ua.getConstructionType().equals(Constants.CONSTRUCTION_TYPE_FACTORY)) {</span>
+<span class="fc" id="L1289">        unitMapMaxType.put(ua.getConstructionType(), maxFactory);</span>
+<span class="fc" id="L1290">      } else {</span>
+<span class="nc" id="L1291">        unitMapMaxType.put(ua.getConstructionType(), ua.getMaxConstructionsPerTypePerTerr());</span>
+      }
+    }
+<span class="fc" id="L1294">    final boolean moreWithoutFactory = games.strategy.triplea.Properties.getMoreConstructionsWithoutFactory(getData());</span>
+<span class="fc" id="L1295">    final boolean moreWithFactory = games.strategy.triplea.Properties.getMoreConstructionsWithFactory(getData());</span>
+<span class="fc" id="L1296">    final boolean unlimitedConstructions = games.strategy.triplea.Properties.getUnlimitedConstructions(getData());</span>
+<span class="fc" id="L1297">    final boolean wasFactoryThereAtStart =</span>
+<span class="fc" id="L1298">        wasOwnedUnitThatCanProduceUnitsOrIsFactoryInTerritoryAtStartOfStep(to, player);</span>
+    // build an integer map of each construction unit in the territory
+<span class="fc" id="L1300">    final IntegerMap&lt;String&gt; unitMapTO = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L1301" title="All 2 branches covered.">    if (Match.someMatch(unitsInTO, Matches.UnitIsConstruction)) {</span>
+<span class="fc bfc" id="L1302" title="All 2 branches covered.">      for (final Unit currentUnit : Match.getMatches(unitsInTO, Matches.UnitIsConstruction)) {</span>
+<span class="fc" id="L1303">        final UnitAttachment ua = UnitAttachment.get(currentUnit.getUnitType());</span>
+        /*
+         * if (Matches.UnitIsFactory.match(currentUnit) &amp;&amp; !ua.getIsConstruction())
+         * unitMapTO.add(&quot;factory&quot;, 1);
+         * else
+         */
+<span class="fc" id="L1309">        unitMapTO.add(ua.getConstructionType(), 1);</span>
+      }
+      // account for units already in the territory, based on max
+<span class="fc" id="L1312">      final Iterator&lt;String&gt; mapString = unitMapHeld.keySet().iterator();</span>
+<span class="fc bfc" id="L1313" title="All 2 branches covered.">      while (mapString.hasNext()) {</span>
+<span class="fc" id="L1314">        final String constructionType = mapString.next();</span>
+<span class="fc" id="L1315">        int unitMax = unitMapMaxType.getInt(constructionType);</span>
+<span class="pc bpc" id="L1316" title="2 of 4 branches missed.">        if (wasFactoryThereAtStart &amp;&amp; !constructionType.equals(Constants.CONSTRUCTION_TYPE_FACTORY)</span>
+<span class="nc bnc" id="L1317" title="All 2 branches missed.">            &amp;&amp; !constructionType.endsWith(&quot;structure&quot;)) {</span>
+<span class="nc" id="L1318">          unitMax =</span>
+<span class="nc bnc" id="L1319" title="All 4 branches missed.">              Math.max(Math.max(unitMax, (moreWithFactory ? toProduction : 0)), (unlimitedConstructions ? 10000 : 0));</span>
+        }
+<span class="pc bpc" id="L1321" title="3 of 4 branches missed.">        if (!wasFactoryThereAtStart &amp;&amp; !constructionType.equals(Constants.CONSTRUCTION_TYPE_FACTORY)</span>
+<span class="nc bnc" id="L1322" title="All 2 branches missed.">            &amp;&amp; !constructionType.endsWith(&quot;structure&quot;)) {</span>
+<span class="nc bnc" id="L1323" title="All 2 branches missed.">          unitMax = Math.max(Math.max(unitMax, (moreWithoutFactory ? toProduction : 0)),</span>
+<span class="nc bnc" id="L1324" title="All 2 branches missed.">              (unlimitedConstructions ? 10000 : 0));</span>
+        }
+<span class="fc" id="L1326">        unitMapHeld.put(constructionType,</span>
+<span class="fc" id="L1327">            Math.max(0, Math.min(unitMax - unitMapTO.getInt(constructionType), unitMapHeld.getInt(constructionType))));</span>
+      }
+    }
+    // deal with already placed units
+<span class="fc" id="L1331">    final Iterator&lt;Unit&gt; unitAlready = Match.getMatches(unitsPlacedAlready, Matches.UnitIsConstruction).iterator();</span>
+<span class="pc bpc" id="L1332" title="1 of 2 branches missed.">    while (unitAlready.hasNext()) {</span>
+<span class="nc" id="L1333">      final Unit currentUnit = unitAlready.next();</span>
+<span class="nc" id="L1334">      final UnitAttachment ua = UnitAttachment.get(currentUnit.getUnitType());</span>
+<span class="nc" id="L1335">      unitMapTypePerTurn.add(ua.getConstructionType(), -1);</span>
+    }
+    // modify this list based on how many we can place per turn
+<span class="fc" id="L1338">    final IntegerMap&lt;String&gt; unitsAllowed = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L1339">    final Iterator&lt;String&gt; mapString2 = unitMapHeld.keySet().iterator();</span>
+<span class="fc bfc" id="L1340" title="All 2 branches covered.">    while (mapString2.hasNext()) {</span>
+<span class="fc" id="L1341">      final String constructionType = mapString2.next();</span>
+<span class="fc" id="L1342">      final int unitAllowed =</span>
+<span class="fc" id="L1343">          Math.max(0, Math.min(unitMapTypePerTurn.getInt(constructionType), unitMapHeld.getInt(constructionType)));</span>
+<span class="fc bfc" id="L1344" title="All 2 branches covered.">      if (unitAllowed &gt; 0) {</span>
+<span class="fc" id="L1345">        unitsAllowed.put(constructionType, unitAllowed);</span>
+      }
+    }
+    // return our integer map
+<span class="fc" id="L1349">    return unitsAllowed;</span>
+  }
+
+  public int howManyOfConstructionUnit(final Unit unit, final IntegerMap&lt;String&gt; constructionsMap) {
+<span class="fc" id="L1353">    final UnitAttachment ua = UnitAttachment.get(unit.getUnitType());</span>
+<span class="pc bpc" id="L1354" title="2 of 4 branches missed.">    if (/* !ua.getIsFactory() &amp;&amp; */(!ua.getIsConstruction() || ua.getConstructionsPerTerrPerTypePerTurn() &lt; 1</span>
+<span class="pc bpc" id="L1355" title="1 of 2 branches missed.">        || ua.getMaxConstructionsPerTypePerTerr() &lt; 1)) {</span>
+<span class="nc" id="L1356">      return 0;</span>
+    }
+<span class="fc" id="L1358">    return Math.max(0, constructionsMap.getInt(ua.getConstructionType()));</span>
+  }
+
+  /**
+   * @param to
+   *        - Territory we are testing for required units
+   * @param doNotCountNeighbors
+   *        - If false, and 'to' is water, then we will test neighboring land territories to see if they have any of the
+   *        required units as
+   *        well.
+   * @return - Whether the territory contains one of the required combos of units
+   *         (and if 'doNotCountNeighbors' is false, and unit is Sea unit, will return true if an adjacent land
+   *         territory has one of the
+   *         required combos as well).
+   */
+  public Match&lt;Unit&gt; unitWhichRequiresUnitsHasRequiredUnits(final Territory to, final boolean doNotCountNeighbors) {
+<span class="nc" id="L1374">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unitWhichRequiresUnits) {
+<span class="nc bnc" id="L1377" title="All 2 branches missed.">        if (!Matches.UnitRequiresUnitsOnCreation.match(unitWhichRequiresUnits)) {</span>
+<span class="nc" id="L1378">          return true;</span>
+        }
+<span class="nc" id="L1380">        final Collection&lt;Unit&gt; unitsAtStartOfTurnInProducer = unitsAtStartOfStepInTerritory(to);</span>
+        // do not need to remove unowned here, as this match will remove unowned units from consideration.
+<span class="nc" id="L1382">        if (Matches.UnitWhichRequiresUnitsHasRequiredUnitsInList(unitsAtStartOfTurnInProducer)</span>
+<span class="nc bnc" id="L1383" title="All 2 branches missed.">            .match(unitWhichRequiresUnits)) {</span>
+<span class="nc" id="L1384">          return true;</span>
+        }
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">        if (!doNotCountNeighbors) {</span>
+<span class="nc bnc" id="L1387" title="All 2 branches missed.">          if (Matches.UnitIsSea.match(unitWhichRequiresUnits)) {</span>
+<span class="nc bnc" id="L1388" title="All 2 branches missed.">            for (final Territory current : getAllProducers(to, m_player,</span>
+<span class="nc" id="L1389">                Collections.singletonList(unitWhichRequiresUnits), true)) {</span>
+<span class="nc" id="L1390">              final Collection&lt;Unit&gt; unitsAtStartOfTurnInCurrent = unitsAtStartOfStepInTerritory(current);</span>
+<span class="nc" id="L1391">              if (Matches.UnitWhichRequiresUnitsHasRequiredUnitsInList(unitsAtStartOfTurnInCurrent)</span>
+<span class="nc bnc" id="L1392" title="All 2 branches missed.">                  .match(unitWhichRequiresUnits)) {</span>
+<span class="nc" id="L1393">                return true;</span>
+              }
+            }
+          }
+        }
+<span class="nc" id="L1398">        return false;</span>
+      }
+    };
+  }
+
+  public boolean getCanAllUnitsWithRequiresUnitsBePlacedCorrectly(final Collection&lt;Unit&gt; units, final Territory to) {
+<span class="pc bpc" id="L1404" title="3 of 4 branches missed.">    if (!isUnitPlacementRestrictions() || !Match.someMatch(units, Matches.UnitRequiresUnitsOnCreation)) {</span>
+<span class="fc" id="L1405">      return true;</span>
+    }
+<span class="nc" id="L1407">    final IntegerMap&lt;Territory&gt; producersMap = getMaxUnitsToBePlacedMap(units, to, m_player, true);</span>
+<span class="nc" id="L1408">    final List&lt;Territory&gt; producers = getAllProducers(to, m_player, units);</span>
+<span class="nc bnc" id="L1409" title="All 2 branches missed.">    if (producers.isEmpty()) {</span>
+<span class="nc" id="L1410">      return false;</span>
+    }
+<span class="nc" id="L1412">    Collections.sort(producers, getBestProducerComparator(to, units, m_player));</span>
+<span class="nc" id="L1413">    final Collection&lt;Unit&gt; unitsLeftToPlace = new ArrayList&lt;&gt;(units);</span>
+<span class="nc bnc" id="L1414" title="All 2 branches missed.">    for (final Territory t : producers) {</span>
+<span class="nc bnc" id="L1415" title="All 2 branches missed.">      if (unitsLeftToPlace.isEmpty()) {</span>
+<span class="nc" id="L1416">        return true;</span>
+      }
+<span class="nc" id="L1418">      final int productionHere = producersMap.getInt(t);</span>
+<span class="nc" id="L1419">      final List&lt;Unit&gt; canBePlacedHere =</span>
+<span class="nc" id="L1420">          Match.getMatches(unitsLeftToPlace, unitWhichRequiresUnitsHasRequiredUnits(t, true));</span>
+<span class="nc bnc" id="L1421" title="All 4 branches missed.">      if (productionHere == -1 || productionHere &gt;= canBePlacedHere.size()) {</span>
+<span class="nc" id="L1422">        unitsLeftToPlace.removeAll(canBePlacedHere);</span>
+<span class="nc" id="L1423">        continue;</span>
+      }
+<span class="nc" id="L1425">      Collections.sort(canBePlacedHere, getHardestToPlaceWithRequiresUnitsRestrictions(true));</span>
+<span class="nc" id="L1426">      final Collection&lt;Unit&gt; placedHere = Match.getNMatches(canBePlacedHere, productionHere, Match.getAlwaysMatch());</span>
+<span class="nc" id="L1427">      unitsLeftToPlace.removeAll(placedHere);</span>
+    }
+<span class="nc" id="L1429">    return unitsLeftToPlace.isEmpty();</span>
+  }
+
+  protected Comparator&lt;Territory&gt; getBestProducerComparator(final Territory to, final Collection&lt;Unit&gt; units,
+      final PlayerID player) {
+<span class="fc" id="L1434">    return (t1, t2) -&gt; {</span>
+<span class="nc bnc" id="L1435" title="All 4 branches missed.">      if (t1 == t2 || t1.equals(t2)) {</span>
+<span class="nc" id="L1436">        return 0;</span>
+      }
+      // producing to territory comes first
+<span class="nc bnc" id="L1439" title="All 4 branches missed.">      if (to == t1 || to.equals(t1)) {</span>
+<span class="nc" id="L1440">        return -1;</span>
+<span class="nc bnc" id="L1441" title="All 4 branches missed.">      } else if (to == t2 || to.equals(t2)) {</span>
+<span class="nc" id="L1442">        return 1;</span>
+      }
+<span class="nc" id="L1444">      final int left1 = getMaxUnitsToBePlacedFrom(t1, units, to, player);</span>
+<span class="nc" id="L1445">      final int left2 = getMaxUnitsToBePlacedFrom(t2, units, to, player);</span>
+<span class="nc bnc" id="L1446" title="All 2 branches missed.">      if (left1 == left2) {</span>
+<span class="nc" id="L1447">        return 0;</span>
+      }
+      // production of -1 == infinite
+<span class="nc bnc" id="L1450" title="All 2 branches missed.">      if (left1 == -1) {</span>
+<span class="nc" id="L1451">        return -1;</span>
+      }
+<span class="nc bnc" id="L1453" title="All 2 branches missed.">      if (left2 == -1) {</span>
+<span class="nc" id="L1454">        return 1;</span>
+      }
+<span class="nc bnc" id="L1456" title="All 2 branches missed.">      if (left1 &gt; left2) {</span>
+<span class="nc" id="L1457">        return -1;</span>
+      }
+<span class="nc" id="L1459">      return 1;</span>
+    };
+  }
+
+  protected Comparator&lt;Unit&gt; getUnitConstructionComparator() {
+<span class="fc" id="L1464">    return (u1, u2) -&gt; {</span>
+<span class="fc" id="L1465">      final boolean construction1 = Matches.UnitIsConstruction.match(u1);</span>
+<span class="fc" id="L1466">      final boolean construction2 = Matches.UnitIsConstruction.match(u2);</span>
+<span class="pc bpc" id="L1467" title="1 of 2 branches missed.">      if (construction1 == construction2) {</span>
+<span class="fc" id="L1468">        return 0;</span>
+<span class="nc bnc" id="L1469" title="All 2 branches missed.">      } else if (construction1) {</span>
+<span class="nc" id="L1470">        return -1;</span>
+      } else {
+<span class="nc" id="L1472">        return 1;</span>
+      }
+    };
+  }
+
+  protected Comparator&lt;Unit&gt; getHardestToPlaceWithRequiresUnitsRestrictions(final boolean sortConstructionsToFront) {
+<span class="fc" id="L1478">    return (u1, u2) -&gt; {</span>
+<span class="pc bpc" id="L1479" title="2 of 4 branches missed.">      if (u1 == u2 || u1.equals(u2)) {</span>
+<span class="nc" id="L1480">        return 0;</span>
+      }
+<span class="fc" id="L1482">      final UnitAttachment ua1 = UnitAttachment.get(u1.getType());</span>
+<span class="fc" id="L1483">      final UnitAttachment ua2 = UnitAttachment.get(u2.getType());</span>
+<span class="pc bpc" id="L1484" title="3 of 4 branches missed.">      if (ua1 == null &amp;&amp; ua2 == null) {</span>
+<span class="nc" id="L1485">        return 0;</span>
+      }
+<span class="pc bpc" id="L1487" title="2 of 4 branches missed.">      if (ua1 != null &amp;&amp; ua2 == null) {</span>
+<span class="nc" id="L1488">        return -1;</span>
+      }
+<span class="pc bpc" id="L1490" title="3 of 4 branches missed.">      if (ua1 == null &amp;&amp; ua2 != null) {</span>
+<span class="nc" id="L1491">        return 1;</span>
+      }
+      // constructions go ahead first
+<span class="pc bpc" id="L1494" title="1 of 2 branches missed.">      if (sortConstructionsToFront) {</span>
+<span class="fc" id="L1495">        final int constructionSort = getUnitConstructionComparator().compare(u1, u2);</span>
+<span class="pc bpc" id="L1496" title="1 of 2 branches missed.">        if (constructionSort != 0) {</span>
+<span class="nc" id="L1497">          return constructionSort;</span>
+        }
+      }
+<span class="fc" id="L1500">      final ArrayList&lt;String[]&gt; ru1 = ua1.getRequiresUnits();</span>
+<span class="fc" id="L1501">      final ArrayList&lt;String[]&gt; ru2 = ua2.getRequiresUnits();</span>
+<span class="pc bpc" id="L1502" title="2 of 4 branches missed.">      final int rus1 = (ru1 == null ? Integer.MAX_VALUE : (ru1.isEmpty() ? Integer.MAX_VALUE : ru1.size()));</span>
+<span class="pc bpc" id="L1503" title="2 of 4 branches missed.">      final int rus2 = (ru2 == null ? Integer.MAX_VALUE : (ru2.isEmpty() ? Integer.MAX_VALUE : ru2.size()));</span>
+<span class="pc bpc" id="L1504" title="1 of 2 branches missed.">      if (rus1 == rus2) {</span>
+<span class="fc" id="L1505">        return 0;</span>
+      }
+      // fewer means more difficult, and more difficult goes to front of list.
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">      if (rus1 &lt; rus2) {</span>
+<span class="nc" id="L1509">        return -1;</span>
+      }
+<span class="nc" id="L1511">      return 1;</span>
+    };
+  }
+
+  /**
+   * @param to
+   *        referring territory
+   * @return collection of units that were there at start of turn
+   */
+  public Collection&lt;Unit&gt; unitsAtStartOfStepInTerritory(final Territory to) {
+<span class="pc bpc" id="L1521" title="1 of 2 branches missed.">    if (to == null) {</span>
+<span class="nc" id="L1522">      return new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L1524">    final Collection&lt;Unit&gt; unitsInTO = to.getUnits().getUnits();</span>
+<span class="fc" id="L1525">    final Collection&lt;Unit&gt; unitsPlacedAlready = getAlreadyProduced(to);</span>
+<span class="fc bfc" id="L1526" title="All 2 branches covered.">    if (Matches.TerritoryIsWater.match(to)) {</span>
+<span class="fc bfc" id="L1527" title="All 2 branches covered.">      for (final Territory current : getAllProducers(to, m_player, null, true)) {</span>
+<span class="fc" id="L1528">        unitsPlacedAlready.addAll(getAlreadyProduced(current));</span>
+      }
+    }
+<span class="fc" id="L1531">    final Collection&lt;Unit&gt; unitsAtStartOfTurnInTO = new ArrayList&lt;&gt;(unitsInTO);</span>
+<span class="fc" id="L1532">    unitsAtStartOfTurnInTO.removeAll(unitsPlacedAlready);</span>
+<span class="fc" id="L1533">    return unitsAtStartOfTurnInTO;</span>
+  }
+
+  public Collection&lt;Unit&gt; unitsPlacedInTerritorySoFar(final Territory to) {
+<span class="pc bpc" id="L1537" title="1 of 2 branches missed.">    if (to == null) {</span>
+<span class="nc" id="L1538">      return new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L1540">    final Collection&lt;Unit&gt; unitsInTO = to.getUnits().getUnits();</span>
+<span class="fc" id="L1541">    final Collection&lt;Unit&gt; unitsAtStartOfStep = unitsAtStartOfStepInTerritory(to);</span>
+<span class="fc" id="L1542">    unitsInTO.removeAll(unitsAtStartOfStep);</span>
+<span class="fc" id="L1543">    return unitsInTO;</span>
+  }
+
+  /**
+   * @param to
+   *        referring territory
+   * @param player
+   *        PlayerID
+   * @return whether there was an owned unit capable of producing, in this territory at the start of this phase/step
+   */
+  public boolean wasOwnedUnitThatCanProduceUnitsOrIsFactoryInTerritoryAtStartOfStep(final Territory to,
+      final PlayerID player) {
+<span class="fc" id="L1555">    final Collection&lt;Unit&gt; unitsAtStartOfTurnInTO = unitsAtStartOfStepInTerritory(to);</span>
+<span class="fc" id="L1556">    final CompositeMatchAnd&lt;Unit&gt; factoryMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L1557">        Matches.UnitIsOwnedAndIsFactoryOrCanProduceUnits(player), Matches.unitIsBeingTransported().invert());</span>
+    // land factories in water can't produce, and sea factories in land can't produce. air can produce like land if in
+    // land, and like sea if
+    // in water.
+<span class="fc bfc" id="L1561" title="All 2 branches covered.">    if (to.isWater()) {</span>
+<span class="fc" id="L1562">      factoryMatch.add(Matches.UnitIsLand.invert());</span>
+<span class="fc" id="L1563">    } else {</span>
+<span class="fc" id="L1564">      factoryMatch.add(Matches.UnitIsSea.invert());</span>
+    }
+<span class="fc bfc" id="L1566" title="All 2 branches covered.">    return Match.countMatches(unitsAtStartOfTurnInTO, factoryMatch) &gt; 0;</span>
+  }
+
+  /**
+   * There must be a factory in the territory or an illegal state exception
+   * will be thrown. return value may be null.
+   */
+  protected PlayerID getOriginalFactoryOwner(final Territory territory) {
+<span class="fc" id="L1574">    final Collection&lt;Unit&gt; factoryUnits = territory.getUnits().getMatches(Matches.UnitCanProduceUnits);</span>
+<span class="pc bpc" id="L1575" title="1 of 2 branches missed.">    if (factoryUnits.size() == 0) {</span>
+<span class="nc" id="L1576">      throw new IllegalStateException(&quot;No factory in territory:&quot; + territory);</span>
+    }
+<span class="fc" id="L1578">    final Iterator&lt;Unit&gt; iter = factoryUnits.iterator();</span>
+    // final GameData data = getData();
+<span class="fc bfc" id="L1580" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L1581">      final Unit factory2 = iter.next();</span>
+<span class="pc bpc" id="L1582" title="1 of 2 branches missed.">      if (m_player.equals(OriginalOwnerTracker.getOriginalOwner(factory2))) {</span>
+<span class="nc" id="L1583">        return OriginalOwnerTracker.getOriginalOwner(factory2);</span>
+      }
+    }
+<span class="fc" id="L1586">    final Unit factory = factoryUnits.iterator().next();</span>
+    // return DelegateFinder.battleDelegate(data).getOriginalOwnerTracker().getOriginalOwner(factory);
+<span class="fc" id="L1588">    return OriginalOwnerTracker.getOriginalOwner(factory);</span>
+  }
+
+  /**
+   * The rule is that new fighters can be produced on new carriers. This does
+   * not allow for fighters to be produced on old carriers.
+   */
+  protected String validateNewAirCanLandOnCarriers(final Territory to, final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L1596">    final int cost = AirMovementValidator.carrierCost(units);</span>
+<span class="fc" id="L1597">    int capacity = AirMovementValidator.carrierCapacity(units, to);</span>
+<span class="fc" id="L1598">    capacity += AirMovementValidator.carrierCapacity(to.getUnits().getUnits(), to);</span>
+<span class="pc bpc" id="L1599" title="1 of 2 branches missed.">    if (cost &gt; capacity) {</span>
+<span class="nc" id="L1600">      return &quot;Not enough new carriers to land all the fighters&quot;;</span>
+    }
+<span class="fc" id="L1602">    return null;</span>
+  }
+
+  /**
+   * Get what air units must move before the end of the players turn
+   *
+   * @return a list of Territories with air units that must move
+   */
+  @Override
+  public Collection&lt;Territory&gt; getTerritoriesWhereAirCantLand() {
+<span class="nc" id="L1612">    return new AirThatCantLandUtil(m_bridge).getTerritoriesWhereAirCantLand(m_player);</span>
+  }
+
+  protected boolean canProduceFightersOnCarriers() {
+<span class="fc" id="L1616">    return games.strategy.triplea.Properties.getProduceFightersOnCarriers(getData());</span>
+  }
+
+  protected boolean canProduceNewFightersOnOldCarriers() {
+<span class="fc" id="L1620">    return games.strategy.triplea.Properties.getProduceNewFightersOnOldCarriers(getData());</span>
+  }
+
+  protected boolean canMoveExistingFightersToNewCarriers() {
+<span class="fc" id="L1624">    return games.strategy.triplea.Properties.getMoveExistingFightersToNewCarriers(getData());</span>
+  }
+
+  protected boolean isWW2V2() {
+<span class="fc" id="L1628">    return games.strategy.triplea.Properties.getWW2V2(getData());</span>
+  }
+
+  protected boolean isUnitPlacementInEnemySeas() {
+<span class="fc" id="L1632">    return games.strategy.triplea.Properties.getUnitPlacementInEnemySeas(getData());</span>
+  }
+
+  protected boolean wasConquered(final Territory t) {
+<span class="fc" id="L1636">    final BattleTracker tracker = DelegateFinder.battleDelegate(getData()).getBattleTracker();</span>
+<span class="fc" id="L1637">    return tracker.wasConquered(t);</span>
+  }
+
+  protected boolean isPlaceInAnyTerritory() {
+<span class="fc" id="L1641">    return games.strategy.triplea.Properties.getPlaceInAnyTerritory(getData());</span>
+  }
+
+  protected boolean isUnitPlacementPerTerritoryRestricted() {
+<span class="fc" id="L1645">    return games.strategy.triplea.Properties.getUnitPlacementPerTerritoryRestricted(getData());</span>
+  }
+
+  protected boolean isUnitPlacementRestrictions() {
+<span class="fc" id="L1649">    return games.strategy.triplea.Properties.getUnitPlacementRestrictions(getData());</span>
+  }
+
+  protected List&lt;Territory&gt; getAllProducers(final Territory to, final PlayerID player,
+      final Collection&lt;Unit&gt; unitsToPlace) {
+<span class="fc" id="L1654">    return getAllProducers(to, player, unitsToPlace, false);</span>
+  }
+
+  protected boolean isPlayerAllowedToPlacementAnyTerritoryOwnedLand(final PlayerID player) {
+<span class="pc bpc" id="L1658" title="1 of 2 branches missed.">    if (isPlaceInAnyTerritory()) {</span>
+<span class="fc" id="L1659">      final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="pc bpc" id="L1660" title="1 of 4 branches missed.">      if (ra != null &amp;&amp; ra.getPlacementAnyTerritory()) {</span>
+<span class="fc" id="L1661">        return true;</span>
+      }
+    }
+<span class="fc" id="L1664">    return false;</span>
+  }
+
+  protected boolean isPlayerAllowedToPlacementAnySeaZoneByOwnedLand(final PlayerID player) {
+<span class="pc bpc" id="L1668" title="1 of 2 branches missed.">    if (isPlaceInAnyTerritory()) {</span>
+<span class="fc" id="L1669">      final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="pc bpc" id="L1670" title="3 of 4 branches missed.">      if (ra != null &amp;&amp; ra.getPlacementAnySeaZone()) {</span>
+<span class="nc" id="L1671">        return true;</span>
+      }
+    }
+<span class="fc" id="L1674">    return false;</span>
+  }
+
+  protected boolean isPlacementAllowedInCapturedTerritory(final PlayerID player) {
+<span class="fc" id="L1678">    final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="pc bpc" id="L1679" title="1 of 4 branches missed.">    return ra != null &amp;&amp; ra.getPlacementCapturedTerritory();</span>
+  }
+
+  protected boolean isPlacementInCapitalRestricted(final PlayerID player) {
+<span class="fc" id="L1683">    final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="pc bpc" id="L1684" title="1 of 4 branches missed.">    return ra != null &amp;&amp; ra.getPlacementInCapitalRestricted();</span>
+  }
+
+  protected Collection&lt;Territory&gt; getListedTerritories(final String[] list) {
+<span class="nc" id="L1688">    final List&lt;Territory&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1689" title="All 2 branches missed.">    if (list == null) {</span>
+<span class="nc" id="L1690">      return rVal;</span>
+    }
+<span class="nc bnc" id="L1692" title="All 2 branches missed.">    for (final String name : list) {</span>
+      // Validate all territories exist
+<span class="nc" id="L1694">      final Territory territory = getData().getMap().getTerritory(name);</span>
+<span class="nc bnc" id="L1695" title="All 2 branches missed.">      if (territory == null) {</span>
+<span class="nc" id="L1696">        throw new IllegalStateException(&quot;Rules &amp; Conditions: No territory called:&quot; + name);</span>
+      }
+<span class="nc" id="L1698">      rVal.add(territory);</span>
+    }
+<span class="nc" id="L1700">    return rVal;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L1705">    return IAbstractPlaceDelegate.class;</span>
+  }
+}
+
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

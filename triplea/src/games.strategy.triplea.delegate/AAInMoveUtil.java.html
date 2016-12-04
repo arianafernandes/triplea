@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AAInMoveUtil.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">AAInMoveUtil.java</span></div><h1>AAInMoveUtil.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+
+/**
+ * Code to fire AA guns while in combat and non combat move.
+ */
+class AAInMoveUtil implements Serializable {
+  private static final long serialVersionUID = 1787497998642717678L;
+  private transient IDelegateBridge m_bridge;
+  private transient PlayerID m_player;
+<span class="fc" id="L38">  private Collection&lt;Unit&gt; m_casualties = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L39">  private final ExecutionStack m_executionStack = new ExecutionStack();</span>
+
+<span class="fc" id="L41">  AAInMoveUtil() {}</span>
+
+  public AAInMoveUtil initialize(final IDelegateBridge bridge) {
+<span class="fc" id="L44">    m_bridge = bridge;</span>
+<span class="fc" id="L45">    m_player = bridge.getPlayerID();</span>
+<span class="fc" id="L46">    return this;</span>
+  }
+
+  private GameData getData() {
+<span class="fc" id="L50">    return m_bridge.getData();</span>
+  }
+
+  private boolean isAlwaysONAAEnabled() {
+<span class="fc" id="L54">    return games.strategy.triplea.Properties.getAlwaysOnAA(getData());</span>
+  }
+
+  private boolean isAATerritoryRestricted() {
+<span class="fc" id="L58">    return games.strategy.triplea.Properties.getAATerritoryRestricted(getData());</span>
+  }
+
+  private ITripleAPlayer getRemotePlayer(final PlayerID id) {
+<span class="fc" id="L62">    return (ITripleAPlayer) m_bridge.getRemotePlayer(id);</span>
+  }
+
+  private ITripleAPlayer getRemotePlayer() {
+<span class="fc" id="L66">    return getRemotePlayer(m_player);</span>
+  }
+
+  /**
+   * Fire aa guns. Returns units to remove.
+   */
+  Collection&lt;Unit&gt; fireAA(final Route route, final Collection&lt;Unit&gt; units, final Comparator&lt;Unit&gt; decreasingMovement,
+      final UndoableMove currentMove) {
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">    if (m_executionStack.isEmpty()) {</span>
+<span class="fc" id="L75">      populateExecutionStack(route, units, decreasingMovement, currentMove);</span>
+    }
+<span class="fc" id="L77">    m_executionStack.execute(m_bridge);</span>
+<span class="fc" id="L78">    return m_casualties;</span>
+  }
+
+  private void populateExecutionStack(final Route route, final Collection&lt;Unit&gt; units,
+      final Comparator&lt;Unit&gt; decreasingMovement, final UndoableMove currentMove) {
+<span class="fc" id="L83">    final List&lt;Unit&gt; targets = new ArrayList&lt;&gt;(units);</span>
+    // select units with lowest movement first
+<span class="fc" id="L85">    Collections.sort(targets, decreasingMovement);</span>
+<span class="fc" id="L86">    final List&lt;IExecutable&gt; executables = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L87">    final Iterator&lt;Territory&gt; iter = getTerritoriesWhereAAWillFire(route, units).iterator();</span>
+<span class="fc bfc" id="L88" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L89">      final Territory location = iter.next();</span>
+<span class="fc" id="L90">      executables.add(new IExecutable() {</span>
+        private static final long serialVersionUID = -1545771595683434276L;
+
+        @Override
+        public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L95">          fireAA(location, targets, currentMove);</span>
+<span class="fc" id="L96">        }</span>
+      });
+    }
+<span class="fc" id="L99">    Collections.reverse(executables);</span>
+<span class="fc" id="L100">    m_executionStack.push(executables);</span>
+<span class="fc" id="L101">  }</span>
+
+  Collection&lt;Territory&gt; getTerritoriesWhereAAWillFire(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L104">    final boolean alwaysOnAA = isAlwaysONAAEnabled();</span>
+    // Just the attacked territory will have AA firing
+<span class="fc bfc" id="L106" title="All 4 branches covered.">    if (!alwaysOnAA &amp;&amp; isAATerritoryRestricted()) {</span>
+<span class="fc" id="L107">      return Collections.emptyList();</span>
+    }
+<span class="fc" id="L109">    final GameData data = getData();</span>
+    // No AA in nonCombat unless 'Always on AA'
+<span class="fc bfc" id="L111" title="All 4 branches covered.">    if (GameStepPropertiesHelper.isNonCombatMove(data, false) &amp;&amp; !alwaysOnAA) {</span>
+<span class="fc" id="L112">      return Collections.emptyList();</span>
+    }
+    // can't rely on m_player being the unit owner in Edit Mode
+    // look at the units being moved to determine allies and enemies
+<span class="fc" id="L116">    final PlayerID movingPlayer = movingPlayer(units);</span>
+<span class="fc" id="L117">    final HashMap&lt;String, HashSet&lt;UnitType&gt;&gt; airborneTechTargetsAllowed =</span>
+<span class="fc" id="L118">        TechAbilityAttachment.getAirborneTargettedByAA(movingPlayer, data);</span>
+    // don't iterate over the end
+    // that will be a battle
+    // and handled else where in this tangled mess
+<span class="fc" id="L122">    final Match&lt;Unit&gt; hasAA = Matches.UnitIsAAthatCanFire(units, airborneTechTargetsAllowed, movingPlayer,</span>
+<span class="fc" id="L123">        Matches.UnitIsAAforFlyOverOnly, 1, true, data);</span>
+    // AA guns in transports shouldn't be able to fire
+<span class="fc" id="L125">    final List&lt;Territory&gt; territoriesWhereAAWillFire = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L126" title="All 2 branches covered.">    for (final Territory current : route.getMiddleSteps()) {</span>
+<span class="fc bfc" id="L127" title="All 2 branches covered.">      if (current.getUnits().someMatch(hasAA)) {</span>
+<span class="fc" id="L128">        territoriesWhereAAWillFire.add(current);</span>
+      }
+    }
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">    if (games.strategy.triplea.Properties.getForceAAattacksForLastStepOfFlyOver(data)) {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">      if (route.getEnd().getUnits().someMatch(hasAA)) {</span>
+<span class="nc" id="L133">        territoriesWhereAAWillFire.add(route.getEnd());</span>
+      }
+<span class="nc" id="L135">    } else {</span>
+      // Since we are not firing on the last step, check the start as well, to prevent the user from moving to and from
+      // AA sites one at a
+      // time
+      // if there was a battle fought there then don't fire, this covers the case where we fight, and &quot;Always On AA&quot;
+      // wants to fire after the
+      // battle.
+      // TODO: there is a bug in which if you move an air unit to a battle site in the middle of non combat, it wont
+      // fire
+<span class="pc bpc" id="L144" title="3 of 4 branches missed.">      if (route.getStart().getUnits().someMatch(hasAA) &amp;&amp; !getBattleTracker().wasBattleFought(route.getStart())) {</span>
+<span class="nc" id="L145">        territoriesWhereAAWillFire.add(route.getStart());</span>
+      }
+    }
+<span class="fc" id="L148">    return territoriesWhereAAWillFire;</span>
+  }
+
+  private BattleTracker getBattleTracker() {
+<span class="nc" id="L152">    return DelegateFinder.battleDelegate(getData()).getBattleTracker();</span>
+  }
+
+  private PlayerID movingPlayer(final Collection&lt;Unit&gt; units) {
+<span class="pc bpc" id="L156" title="1 of 2 branches missed.">    if (Match.someMatch(units, Matches.unitIsOwnedBy(m_player))) {</span>
+<span class="fc" id="L157">      return m_player;</span>
+    }
+<span class="nc bnc" id="L159" title="All 2 branches missed.">    if (units != null) {</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">      for (final Unit u : units) {</span>
+<span class="nc bnc" id="L161" title="All 4 branches missed.">        if (u != null &amp;&amp; u.getOwner() != null) {</span>
+<span class="nc" id="L162">          return u.getOwner();</span>
+        }
+      }
+    }
+<span class="nc" id="L166">    return PlayerID.NULL_PLAYERID;</span>
+  }
+
+  /**
+   * Fire the aa units in the given territory, hits are removed from units
+   */
+  private void fireAA(final Territory territory, final Collection&lt;Unit&gt; units, final UndoableMove currentMove) {
+<span class="pc bpc" id="L173" title="1 of 2 branches missed.">    if (units.isEmpty()) {</span>
+<span class="nc" id="L174">      return;</span>
+    }
+<span class="fc" id="L176">    final PlayerID movingPlayer = movingPlayer(units);</span>
+<span class="fc" id="L177">    final HashMap&lt;String, HashSet&lt;UnitType&gt;&gt; airborneTechTargetsAllowed =</span>
+<span class="fc" id="L178">        TechAbilityAttachment.getAirborneTargettedByAA(movingPlayer, getData());</span>
+<span class="fc" id="L179">    final List&lt;Unit&gt; defendingAA = territory.getUnits().getMatches(Matches.UnitIsAAthatCanFire(units,</span>
+<span class="fc" id="L180">        airborneTechTargetsAllowed, movingPlayer, Matches.UnitIsAAforFlyOverOnly, 1, true, getData()));</span>
+    // comes ordered alphabetically already
+<span class="fc" id="L182">    final List&lt;String&gt; AAtypes = UnitAttachment.getAllOfTypeAAs(defendingAA);</span>
+    // stacks are backwards
+<span class="fc" id="L184">    Collections.reverse(AAtypes);</span>
+<span class="fc bfc" id="L185" title="All 2 branches covered.">    for (final String currentTypeAA : AAtypes) {</span>
+<span class="fc" id="L186">      final Collection&lt;Unit&gt; currentPossibleAA = Match.getMatches(defendingAA, Matches.UnitIsAAofTypeAA(currentTypeAA));</span>
+<span class="fc" id="L187">      final Set&lt;UnitType&gt; targetUnitTypesForThisTypeAA =</span>
+<span class="fc" id="L188">          UnitAttachment.get(currentPossibleAA.iterator().next().getType()).getTargetsAA(getData());</span>
+<span class="fc" id="L189">      final Set&lt;UnitType&gt; airborneTypesTargettedToo = airborneTechTargetsAllowed.get(currentTypeAA);</span>
+<span class="fc" id="L190">      final Collection&lt;Unit&gt; validTargetedUnitsForThisRoll =</span>
+<span class="fc" id="L191">          Match.getMatches(units, new CompositeMatchOr&lt;&gt;(Matches.unitIsOfTypes(targetUnitTypesForThisTypeAA),</span>
+<span class="fc" id="L192">              new CompositeMatchAnd&lt;Unit&gt;(Matches.UnitIsAirborne, Matches.unitIsOfTypes(airborneTypesTargettedToo))));</span>
+      // once we fire the AA guns, we can't undo
+      // otherwise you could keep undoing and redoing
+      // until you got the roll you wanted
+<span class="fc" id="L196">      currentMove.setCantUndo(&quot;Move cannot be undone after &quot; + currentTypeAA + &quot; has fired.&quot;);</span>
+<span class="fc" id="L197">      final DiceRoll[] dice = new DiceRoll[1];</span>
+<span class="fc" id="L198">      final IExecutable rollDice = new IExecutable() {</span>
+        private static final long serialVersionUID = 4714364489659654758L;
+
+        @Override
+        public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+          // get rid of units already killed, so we don't target them twice
+<span class="fc" id="L204">          validTargetedUnitsForThisRoll.removeAll(m_casualties);</span>
+<span class="pc bpc" id="L205" title="1 of 2 branches missed.">          if (!validTargetedUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L206">            dice[0] = DiceRoll.rollAA(validTargetedUnitsForThisRoll, currentPossibleAA, m_bridge, territory, true);</span>
+          }
+<span class="fc" id="L208">        }</span>
+      };
+<span class="fc" id="L210">      final IExecutable selectCasualties = new IExecutable() {</span>
+        private static final long serialVersionUID = -8633263235214834617L;
+
+        @Override
+        public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">          if (!validTargetedUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L216">            final int hitCount = dice[0].getHits();</span>
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">            if (hitCount == 0) {</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">              if (currentTypeAA.equals(&quot;AA&quot;)) {</span>
+<span class="nc" id="L219">                m_bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BATTLE_AA_MISS,</span>
+<span class="nc" id="L220">                    findDefender(currentPossibleAA, territory));</span>
+<span class="nc" id="L221">              } else {</span>
+<span class="nc" id="L222">                m_bridge.getSoundChannelBroadcaster().playSoundForAll(</span>
+<span class="nc" id="L223">                    SoundPath.CLIP_BATTLE_X_PREFIX + currentTypeAA.toLowerCase() + SoundPath.CLIP_BATTLE_X_MISS,</span>
+<span class="nc" id="L224">                    findDefender(currentPossibleAA, territory));</span>
+              }
+<span class="nc" id="L226">              getRemotePlayer().reportMessage(&quot;No &quot; + currentTypeAA + &quot; hits in &quot; + territory.getName(),</span>
+<span class="nc" id="L227">                  &quot;No &quot; + currentTypeAA + &quot; hits in &quot; + territory.getName());</span>
+<span class="nc" id="L228">            } else {</span>
+<span class="pc bpc" id="L229" title="1 of 2 branches missed.">              if (currentTypeAA.equals(&quot;AA&quot;)) {</span>
+<span class="fc" id="L230">                m_bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BATTLE_AA_HIT,</span>
+<span class="fc" id="L231">                    findDefender(currentPossibleAA, territory));</span>
+<span class="fc" id="L232">              } else {</span>
+<span class="nc" id="L233">                m_bridge.getSoundChannelBroadcaster().playSoundForAll(</span>
+<span class="nc" id="L234">                    SoundPath.CLIP_BATTLE_X_PREFIX + currentTypeAA.toLowerCase() + SoundPath.CLIP_BATTLE_X_HIT,</span>
+<span class="nc" id="L235">                    findDefender(currentPossibleAA, territory));</span>
+              }
+<span class="fc" id="L237">              selectCasualties(dice[0], units, validTargetedUnitsForThisRoll, currentPossibleAA, defendingAA, territory,</span>
+<span class="fc" id="L238">                  currentTypeAA);</span>
+            }
+          }
+<span class="fc" id="L241">        }</span>
+      };
+      // push in reverse order of execution
+<span class="fc" id="L244">      m_executionStack.push(selectCasualties);</span>
+<span class="fc" id="L245">      m_executionStack.push(rollDice);</span>
+    }
+<span class="fc" id="L247">  }</span>
+
+  private PlayerID findDefender(final Collection&lt;Unit&gt; defendingUnits, final Territory territory) {
+<span class="pc bpc" id="L250" title="2 of 4 branches missed.">    if (defendingUnits == null || defendingUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L251" title="All 6 branches missed.">      if (territory != null &amp;&amp; territory.getOwner() != null &amp;&amp; !territory.getOwner().isNull()) {</span>
+<span class="nc" id="L252">        return territory.getOwner();</span>
+      }
+<span class="nc" id="L254">      return PlayerID.NULL_PLAYERID;</span>
+<span class="pc bpc" id="L255" title="3 of 6 branches missed.">    } else if (territory != null &amp;&amp; territory.getOwner() != null &amp;&amp; !territory.getOwner().isNull()</span>
+<span class="pc bpc" id="L256" title="1 of 2 branches missed.">        &amp;&amp; Match.someMatch(defendingUnits, Matches.unitIsOwnedBy(territory.getOwner()))) {</span>
+<span class="fc" id="L257">      return territory.getOwner();</span>
+    }
+<span class="nc bnc" id="L259" title="All 2 branches missed.">    for (final Unit u : defendingUnits) {</span>
+<span class="nc bnc" id="L260" title="All 4 branches missed.">      if (u != null &amp;&amp; u.getOwner() != null) {</span>
+<span class="nc" id="L261">        return u.getOwner();</span>
+      }
+    }
+<span class="nc" id="L264">    return PlayerID.NULL_PLAYERID;</span>
+  }
+
+  /**
+   * hits are removed from units. Note that units are removed in the order
+   * that the iterator will move through them.
+   */
+  private void selectCasualties(final DiceRoll dice, final Collection&lt;Unit&gt; allFriendlyUnits,
+      final Collection&lt;Unit&gt; validTargetedUnitsForThisRoll, final Collection&lt;Unit&gt; defendingAA,
+      final Collection&lt;Unit&gt; allEnemyUnits, final Territory territory, final String currentTypeAA) {
+<span class="fc" id="L274">    final CasualtyDetails casualties = BattleCalculator.getAACasualties(false, validTargetedUnitsForThisRoll,</span>
+<span class="fc" id="L275">        allFriendlyUnits, defendingAA, allEnemyUnits, dice, m_bridge, territory.getOwner(), m_player, null, territory,</span>
+<span class="fc" id="L276">        TerritoryEffectHelper.getEffects(territory), false, new ArrayList&lt;&gt;());</span>
+<span class="fc" id="L277">    getRemotePlayer().reportMessage(casualties.size() + &quot; &quot; + currentTypeAA + &quot; hits in &quot; + territory.getName(),</span>
+<span class="fc" id="L278">        casualties.size() + &quot; &quot; + currentTypeAA + &quot; hits in &quot; + territory.getName());</span>
+<span class="fc" id="L279">    BattleDelegate.markDamaged(new ArrayList&lt;&gt;(casualties.getDamaged()), m_bridge, true);</span>
+<span class="fc" id="L280">    m_bridge.getHistoryWriter().addChildToEvent(</span>
+<span class="fc" id="L281">        MyFormatter.unitsToTextNoOwner(casualties.getKilled()) + &quot; lost in &quot; + territory.getName(),</span>
+<span class="fc" id="L282">        new ArrayList&lt;&gt;(casualties.getKilled()));</span>
+<span class="fc" id="L283">    allFriendlyUnits.removeAll(casualties.getKilled());</span>
+<span class="pc bpc" id="L284" title="1 of 2 branches missed.">    if (m_casualties == null) {</span>
+<span class="nc" id="L285">      m_casualties = new ArrayList&lt;&gt;(casualties.getKilled());</span>
+<span class="nc" id="L286">    } else {</span>
+<span class="fc" id="L287">      m_casualties.addAll(casualties.getKilled());</span>
+    }
+<span class="fc" id="L289">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TransportUtils.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.util</a> &gt; <span class="el_source">TransportUtils.java</span></div><h1>TransportUtils.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.util;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+
+<span class="nc" id="L26">public class TransportUtils {</span>
+
+  /**
+   * Returns a map of unit -&gt; transport.
+   */
+  public static Map&lt;Unit, Unit&gt; mapTransports(final Route route, final Collection&lt;Unit&gt; units,
+      final Collection&lt;Unit&gt; transportsToLoad) {
+<span class="fc bfc" id="L33" title="All 2 branches covered.">    if (route.isLoad()) {</span>
+<span class="fc" id="L34">      return mapTransportsToLoad(units, transportsToLoad);</span>
+    }
+<span class="fc bfc" id="L36" title="All 2 branches covered.">    if (route.isUnload()) {</span>
+<span class="fc" id="L37">      return mapTransportsAlreadyLoaded(units, route.getStart().getUnits().getUnits());</span>
+    }
+<span class="fc" id="L39">    return mapTransportsAlreadyLoaded(units, units);</span>
+  }
+
+  /**
+   * Returns a map of unit -&gt; transport. Tries to load units evenly across all transports.
+   */
+  public static Map&lt;Unit, Unit&gt; mapTransportsToLoad(final Collection&lt;Unit&gt; units,
+      final Collection&lt;Unit&gt; transports) {
+
+<span class="fc" id="L48">    final List&lt;Unit&gt; canBeTransported = sortByTransportCostDescending(units);</span>
+<span class="fc" id="L49">    final List&lt;Unit&gt; canTransport = sortByTransportCapacityDescendingThenMovesDescending(transports);</span>
+
+    // Add units to transports evenly
+<span class="fc" id="L52">    final Map&lt;Unit, Unit&gt; mapping = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L53">    final IntegerMap&lt;Unit&gt; addedLoad = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">    for (final Unit unit : canBeTransported) {</span>
+<span class="fc" id="L55">      final Optional&lt;Unit&gt; transport = loadUnitIntoFirstAvailableTransport(unit, canTransport, mapping, addedLoad);</span>
+
+      // Move loaded transport to end of list
+<span class="fc bfc" id="L58" title="All 2 branches covered.">      if (transport.isPresent()) {</span>
+<span class="fc" id="L59">        canTransport.remove(transport.get());</span>
+<span class="fc" id="L60">        canTransport.add(transport.get());</span>
+      }
+    }
+<span class="fc" id="L63">    return mapping;</span>
+  }
+
+  /**
+   * Returns a map of unit -&gt; transport. Tries load max units into each transport before moving to next.
+   */
+  public static Map&lt;Unit, Unit&gt; mapTransportsToLoadUsingMinTransports(final Collection&lt;Unit&gt; units,
+      final Collection&lt;Unit&gt; transports) {
+
+<span class="nc" id="L72">    final List&lt;Unit&gt; canBeTransported = sortByTransportCostDescending(units);</span>
+<span class="nc" id="L73">    final List&lt;Unit&gt; canTransport = sortByTransportCapacityDescendingThenMovesDescending(transports);</span>
+
+<span class="nc" id="L75">    final Map&lt;Unit, Unit&gt; mapping = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L76">    Optional&lt;Unit&gt; finalTransport = Optional.empty();</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">    for (final Unit currentTransport : canTransport) {</span>
+
+      // Check if remaining units can all be loaded into 1 transport
+<span class="nc" id="L80">      final int capacity = TransportTracker.getAvailableCapacity(currentTransport);</span>
+<span class="nc" id="L81">      final int remainingCost = getTransportCost(canBeTransported);</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      if (remainingCost &lt;= capacity) {</span>
+<span class="nc bnc" id="L83" title="All 4 branches missed.">        if (!finalTransport.isPresent() || capacity &lt; TransportTracker.getAvailableCapacity(finalTransport.get())) {</span>
+<span class="nc" id="L84">          finalTransport = Optional.of(currentTransport);</span>
+        }
+<span class="nc" id="L86">        continue; // Check all transports to find the one with the least remaining capacity that can fit all units</span>
+      }
+
+      // Check if we've found the final transport to load remaining units
+<span class="nc bnc" id="L90" title="All 2 branches missed.">      if (finalTransport.isPresent()) {</span>
+<span class="nc" id="L91">        break;</span>
+      }
+
+<span class="nc" id="L94">      loadMaxUnits(currentTransport, canBeTransported, mapping);</span>
+    }
+
+    // Load remaining units in final transport
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    if (finalTransport.isPresent()) {</span>
+<span class="nc" id="L99">      loadMaxUnits(finalTransport.get(), canBeTransported, mapping);</span>
+    }
+
+<span class="nc" id="L102">    return mapping;</span>
+  }
+
+  /**
+   * Returns a map of unit -&gt; transport. Unit must already be loaded in the transport.
+   */
+  public static Map&lt;Unit, Unit&gt; mapTransportsAlreadyLoaded(final Collection&lt;Unit&gt; units,
+      final Collection&lt;Unit&gt; transports) {
+
+<span class="fc" id="L111">    final Collection&lt;Unit&gt; canBeTransported = Match.getMatches(units, Matches.UnitCanBeTransported);</span>
+<span class="fc" id="L112">    final Collection&lt;Unit&gt; canTransport = Match.getMatches(transports, Matches.UnitCanTransport);</span>
+
+<span class="fc" id="L114">    final Map&lt;Unit, Unit&gt; mapping = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L115" title="All 2 branches covered.">    for (final Unit currentTransported : canBeTransported) {</span>
+<span class="fc" id="L116">      final Unit transport = TransportTracker.transportedBy(currentTransported);</span>
+
+      // Already being transported, make sure it is in transports
+<span class="pc bpc" id="L119" title="1 of 4 branches missed.">      if (transport == null || !canTransport.contains(transport)) {</span>
+<span class="nc" id="L120">        continue;</span>
+      }
+
+<span class="fc" id="L123">      mapping.put(currentTransported, transport);</span>
+    }
+<span class="fc" id="L125">    return mapping;</span>
+  }
+
+  /**
+   * Returns list of transports. Transports must contain all units. Can swap units with equivalent state in order to
+   * minimize transports used to unload.
+   */
+  public static Set&lt;Unit&gt; findMinTransportsToUnload(final Collection&lt;Unit&gt; units, final Collection&lt;Unit&gt; transports) {
+<span class="nc" id="L133">    final Set&lt;Unit&gt; result = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L134">    Map&lt;Unit, List&lt;Unit&gt;&gt; unitToPotentialTransports = findTransportsThatUnitsCouldUnloadFrom(units, transports);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">    while (!unitToPotentialTransports.isEmpty()) {</span>
+<span class="nc" id="L136">      unitToPotentialTransports = sortByTransportOptionsAscending(unitToPotentialTransports);</span>
+<span class="nc" id="L137">      final Unit currentUnit = unitToPotentialTransports.keySet().iterator().next();</span>
+<span class="nc" id="L138">      final Unit selectedTransport = findOptimalTransportToUnloadFrom(currentUnit, unitToPotentialTransports);</span>
+<span class="nc" id="L139">      unitToPotentialTransports = removeTransportAndLoadedUnits(selectedTransport, unitToPotentialTransports);</span>
+<span class="nc" id="L140">      result.add(selectedTransport);</span>
+    }
+<span class="nc" id="L142">    return result;</span>
+  }
+
+  public static List&lt;Unit&gt; findUnitsToLoadOnAirTransports(final Collection&lt;Unit&gt; units,
+      final Collection&lt;Unit&gt; transports) {
+
+<span class="fc" id="L148">    final Collection&lt;Unit&gt; airTransports = Match.getMatches(transports, Matches.UnitIsAirTransport);</span>
+<span class="fc" id="L149">    final List&lt;Unit&gt; canBeTransported = sortByTransportCostDescending(units);</span>
+
+    // Define the max of all units that could be loaded
+<span class="fc" id="L152">    final List&lt;Unit&gt; totalLoad = new ArrayList&lt;&gt;();</span>
+
+    // Get a list of the unit categories
+<span class="fc" id="L155">    final Collection&lt;UnitCategory&gt; unitTypes = UnitSeperator.categorize(canBeTransported, null, false, true);</span>
+<span class="fc" id="L156">    final Collection&lt;UnitCategory&gt; transportTypes = UnitSeperator.categorize(airTransports, null, false, false);</span>
+<span class="fc bfc" id="L157" title="All 2 branches covered.">    for (final UnitCategory unitType : unitTypes) {</span>
+<span class="fc" id="L158">      final int transportCost = unitType.getTransportCost();</span>
+<span class="fc bfc" id="L159" title="All 2 branches covered.">      for (final UnitCategory transportType : transportTypes) {</span>
+<span class="fc" id="L160">        final int transportCapacity = UnitAttachment.get(transportType.getType()).getTransportCapacity();</span>
+<span class="pc bpc" id="L161" title="2 of 4 branches missed.">        if (transportCost &gt; 0 &amp;&amp; transportCapacity &gt;= transportCost) {</span>
+<span class="fc" id="L162">          final int transportCount = Match.countMatches(airTransports, Matches.unitIsOfType(transportType.getType()));</span>
+<span class="fc" id="L163">          final int ttlTransportCapacity = transportCount * (int) Math.floor(transportCapacity / transportCost);</span>
+<span class="fc" id="L164">          totalLoad.addAll(Match.getNMatches(canBeTransported, ttlTransportCapacity,</span>
+<span class="fc" id="L165">              Matches.unitIsOfType(unitType.getType())));</span>
+        }
+      }
+    }
+<span class="fc" id="L169">    return totalLoad;</span>
+  }
+
+  public static int getTransportCost(final Collection&lt;Unit&gt; units) {
+<span class="pc bpc" id="L173" title="1 of 2 branches missed.">    if (units == null) {</span>
+<span class="nc" id="L174">      return 0;</span>
+    }
+<span class="fc" id="L176">    int cost = 0;</span>
+<span class="fc" id="L177">    final Iterator&lt;Unit&gt; iter = units.iterator();</span>
+<span class="fc bfc" id="L178" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L179">      final Unit item = iter.next();</span>
+<span class="fc" id="L180">      cost += UnitAttachment.get(item.getType()).getTransportCost();</span>
+    }
+<span class="fc" id="L182">    return cost;</span>
+  }
+
+  private static List&lt;Unit&gt; sortByTransportCapacityDescendingThenMovesDescending(final Collection&lt;Unit&gt; transports) {
+<span class="fc" id="L186">    final Comparator&lt;Unit&gt; transportCapacityComparator = (o1, o2) -&gt; {</span>
+<span class="fc" id="L187">      final int capacityLeft1 = TransportTracker.getAvailableCapacity(o1);</span>
+<span class="fc" id="L188">      final int capacityLeft2 = TransportTracker.getAvailableCapacity(o2);</span>
+<span class="fc bfc" id="L189" title="All 2 branches covered.">      if (capacityLeft1 != capacityLeft2) {</span>
+<span class="fc" id="L190">        return Integer.compare(capacityLeft2, capacityLeft1);</span>
+      }
+<span class="fc" id="L192">      final int movementLeft1 = TripleAUnit.get(o1).getMovementLeft();</span>
+<span class="fc" id="L193">      final int movementLeft2 = TripleAUnit.get(o2).getMovementLeft();</span>
+<span class="fc" id="L194">      return Integer.compare(movementLeft2, movementLeft1);</span>
+    };
+<span class="fc" id="L196">    final List&lt;Unit&gt; canTransport = Match.getMatches(transports, Matches.UnitCanTransport);</span>
+<span class="fc" id="L197">    Collections.sort(canTransport, transportCapacityComparator);</span>
+<span class="fc" id="L198">    return canTransport;</span>
+  }
+
+  private static List&lt;Unit&gt; sortByTransportCostDescending(final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L202">    final Comparator&lt;Unit&gt; transportCostComparator = (o1, o2) -&gt; {</span>
+<span class="fc" id="L203">      final int cost1 = UnitAttachment.get((o1).getUnitType()).getTransportCost();</span>
+<span class="fc" id="L204">      final int cost2 = UnitAttachment.get((o2).getUnitType()).getTransportCost();</span>
+<span class="fc" id="L205">      return Integer.compare(cost2, cost1);</span>
+    };
+<span class="fc" id="L207">    final List&lt;Unit&gt; canBeTransported = Match.getMatches(units, Matches.UnitCanBeTransported);</span>
+<span class="fc" id="L208">    Collections.sort(canBeTransported, transportCostComparator);</span>
+<span class="fc" id="L209">    return canBeTransported;</span>
+  }
+
+  private static Optional&lt;Unit&gt; loadUnitIntoFirstAvailableTransport(final Unit unit, final List&lt;Unit&gt; canTransport,
+      final Map&lt;Unit, Unit&gt; mapping, final IntegerMap&lt;Unit&gt; addedLoad) {
+<span class="fc" id="L214">    final int cost = UnitAttachment.get((unit).getType()).getTransportCost();</span>
+<span class="fc bfc" id="L215" title="All 2 branches covered.">    for (final Unit transport : canTransport) {</span>
+<span class="fc" id="L216">      final int capacity = TransportTracker.getAvailableCapacity(transport) - addedLoad.getInt(transport);</span>
+<span class="fc bfc" id="L217" title="All 2 branches covered.">      if (capacity &gt;= cost) {</span>
+<span class="fc" id="L218">        addedLoad.add(transport, cost);</span>
+<span class="fc" id="L219">        mapping.put(unit, transport);</span>
+<span class="fc" id="L220">        return Optional.of(transport);</span>
+      }
+    }
+<span class="fc" id="L223">    return Optional.empty();</span>
+  }
+
+  private static void loadMaxUnits(final Unit transport, final List&lt;Unit&gt; canBeTransported,
+      final Map&lt;Unit, Unit&gt; mapping) {
+<span class="nc" id="L228">    int capacity = TransportTracker.getAvailableCapacity(transport);</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = canBeTransported.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L230">      final Unit unit = it.next();</span>
+<span class="nc" id="L231">      final int cost = UnitAttachment.get((unit).getType()).getTransportCost();</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">      if (capacity &gt;= cost) {</span>
+<span class="nc" id="L233">        capacity -= cost;</span>
+<span class="nc" id="L234">        mapping.put(unit, transport);</span>
+<span class="nc" id="L235">        it.remove();</span>
+      }
+    }
+<span class="nc" id="L238">  }</span>
+
+  private static Map&lt;Unit, List&lt;Unit&gt;&gt; findTransportsThatUnitsCouldUnloadFrom(final Collection&lt;Unit&gt; units,
+      final Collection&lt;Unit&gt; transports) {
+<span class="nc" id="L242">    final List&lt;Unit&gt; canBeTransported = Match.getMatches(units, Matches.UnitCanBeTransported);</span>
+<span class="nc" id="L243">    final List&lt;Unit&gt; canTransport = Match.getMatches(transports, Matches.UnitCanTransport);</span>
+<span class="nc" id="L244">    final Map&lt;Unit, List&lt;Unit&gt;&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">    for (final Unit unit : canBeTransported) {</span>
+<span class="nc" id="L246">      final List&lt;Unit&gt; transportOptions = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">      for (final Unit transport : canTransport) {</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (containsEquivalentUnit(unit, TransportTracker.transporting(transport))) {</span>
+<span class="nc" id="L249">          transportOptions.add(transport);</span>
+        }
+      }
+<span class="nc" id="L252">      result.put(unit, transportOptions);</span>
+    }
+<span class="nc" id="L254">    return result;</span>
+  }
+
+  private static Map&lt;Unit, List&lt;Unit&gt;&gt; sortByTransportOptionsAscending(
+      final Map&lt;Unit, List&lt;Unit&gt;&gt; unitToPotentialTransports) {
+<span class="nc" id="L259">    final Map&lt;Unit, List&lt;Unit&gt;&gt; result = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L260">    unitToPotentialTransports.entrySet().stream()</span>
+<span class="nc" id="L261">        .sorted((o1, o2) -&gt; o1.getValue().size() - o2.getValue().size())</span>
+<span class="nc" id="L262">        .forEachOrdered(e -&gt; result.put(e.getKey(), e.getValue()));</span>
+<span class="nc" id="L263">    return result;</span>
+  }
+
+  private static Unit findOptimalTransportToUnloadFrom(final Unit unit,
+      final Map&lt;Unit, List&lt;Unit&gt;&gt; unitToPotentialTransports) {
+<span class="nc" id="L268">    double minAverageTransportOptions = Integer.MAX_VALUE;</span>
+<span class="nc" id="L269">    Unit selectedTransport = unitToPotentialTransports.get(unit).get(0);</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">    for (final Unit transport : unitToPotentialTransports.get(unit)) {</span>
+<span class="nc" id="L271">      int transportOptions = 0;</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">      for (final Unit loadedUnit : TransportTracker.transporting(transport)) {</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        if (containsEquivalentUnit(loadedUnit, unitToPotentialTransports.keySet())) {</span>
+<span class="nc" id="L274">          final Unit equivalentUnit = getEquivalentUnit(loadedUnit, unitToPotentialTransports.keySet());</span>
+<span class="nc" id="L275">          transportOptions += unitToPotentialTransports.get(equivalentUnit).size();</span>
+<span class="nc" id="L276">        } else {</span>
+<span class="nc" id="L277">          transportOptions = Integer.MAX_VALUE;</span>
+<span class="nc" id="L278">          break;</span>
+        }
+      }
+<span class="nc" id="L281">      final double averageTransportOptions =</span>
+<span class="nc" id="L282">          (double) transportOptions / TransportTracker.transporting(transport).size();</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">      if (averageTransportOptions &lt; minAverageTransportOptions) {</span>
+<span class="nc" id="L284">        minAverageTransportOptions = averageTransportOptions;</span>
+<span class="nc" id="L285">        selectedTransport = transport;</span>
+      }
+    }
+<span class="nc" id="L288">    return selectedTransport;</span>
+  }
+
+  private static Map&lt;Unit, List&lt;Unit&gt;&gt; removeTransportAndLoadedUnits(final Unit transport,
+      final Map&lt;Unit, List&lt;Unit&gt;&gt; unitToPotentialTransports) {
+<span class="nc bnc" id="L293" title="All 2 branches missed.">    for (final Unit loadedUnit : TransportTracker.transporting(transport)) {</span>
+<span class="nc bnc" id="L294" title="All 2 branches missed.">      if (containsEquivalentUnit(loadedUnit, unitToPotentialTransports.keySet())) {</span>
+<span class="nc" id="L295">        final Unit unit = getEquivalentUnit(loadedUnit, unitToPotentialTransports.keySet());</span>
+<span class="nc" id="L296">        unitToPotentialTransports.remove(unit);</span>
+      }
+    }
+<span class="nc" id="L299">    unitToPotentialTransports.values().stream().forEach(t -&gt; t.remove(transport));</span>
+<span class="nc" id="L300">    return unitToPotentialTransports;</span>
+  }
+
+  private static boolean containsEquivalentUnit(final Unit unit, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L304">    return units.stream().anyMatch(u -&gt; u.isEquivalent(unit));</span>
+  }
+
+  private static Unit getEquivalentUnit(final Unit unit, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L308">    return units.stream().filter(u -&gt; u.isEquivalent(unit)).findFirst().get();</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

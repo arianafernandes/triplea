@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AvailableGames.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.headlessGameServer</a> &gt; <span class="el_source">AvailableGames.java</span></div><h1>AvailableGames.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework.headlessGameServer;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameParser;
+import games.strategy.engine.framework.ui.NewGameChooserModel;
+import games.strategy.triplea.Constants;
+import games.strategy.util.UrlStreams;
+
+/**
+ * A list of all available games. We make sure we can parse them all, but we don't keep them in memory.
+ */
+public class AvailableGames {
+  private static final boolean s_delayedParsing = false;
+  private static final String ZIP_EXTENSION = &quot;.zip&quot;;
+<span class="nc" id="L38">  private final TreeMap&lt;String, URI&gt; m_availableGames = new TreeMap&lt;&gt;();</span>
+<span class="nc" id="L39">  private final Set&lt;String&gt; m_availableMapFolderOrZipNames = new HashSet&lt;&gt;();</span>
+
+<span class="nc" id="L41">  public AvailableGames() {</span>
+<span class="nc" id="L42">    final Set&lt;String&gt; mapNamePropertyList = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L43">    populateAvailableGames(m_availableGames, m_availableMapFolderOrZipNames, mapNamePropertyList);</span>
+<span class="nc" id="L44">  }</span>
+
+  public List&lt;String&gt; getGameNames() {
+<span class="nc" id="L47">    return new ArrayList&lt;&gt;(m_availableGames.keySet());</span>
+  }
+
+  public Set&lt;String&gt; getAvailableMapFolderOrZipNames() {
+<span class="nc" id="L51">    return new HashSet&lt;&gt;(m_availableMapFolderOrZipNames);</span>
+  }
+
+  /**
+   * Can return null.
+   */
+  public GameData getGameData(final String gameName) {
+<span class="nc" id="L58">    return getGameDataFromXML(m_availableGames.get(gameName));</span>
+  }
+
+  public URI getGameURI(final String gameName) {
+<span class="nc" id="L62">    return m_availableGames.get(gameName);</span>
+  }
+
+  public String getGameFilePath(final String gameName) {
+<span class="nc" id="L66">    return getGameXMLLocation(m_availableGames.get(gameName));</span>
+  }
+
+  private static void populateAvailableGames(final Map&lt;String, URI&gt; availableGames,
+      final Set&lt;String&gt; availableMapFolderOrZipNames, final Set&lt;String&gt; mapNamePropertyList) {
+<span class="nc" id="L71">    System.out.println(&quot;Parsing all available games (this could take a while). &quot;);</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">    for (final File map : allMapFiles()) {</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">      if (map.isDirectory()) {</span>
+<span class="nc" id="L74">        populateFromDirectory(map, availableGames, availableMapFolderOrZipNames, mapNamePropertyList);</span>
+<span class="nc bnc" id="L75" title="All 4 branches missed.">      } else if (map.isFile() &amp;&amp; map.getName().toLowerCase().endsWith(ZIP_EXTENSION)) {</span>
+<span class="nc" id="L76">        populateFromZip(map, availableGames, availableMapFolderOrZipNames, mapNamePropertyList);</span>
+      }
+    }
+<span class="nc" id="L79">    System.out.println(&quot;Finished parsing all available game xmls. &quot;);</span>
+<span class="nc" id="L80">  }</span>
+
+  private static List&lt;File&gt; allMapFiles() {
+<span class="nc" id="L83">    final List&lt;File&gt; rVal = new ArrayList&lt;&gt;();</span>
+    // prioritize user maps folder over root folder
+<span class="nc" id="L85">    rVal.addAll(safeListFiles(ClientFileSystemHelper.getUserMapsFolder()));</span>
+<span class="nc" id="L86">    rVal.addAll(safeListFiles(NewGameChooserModel.getDefaultMapsDir()));</span>
+<span class="nc" id="L87">    return rVal;</span>
+  }
+
+  private static List&lt;File&gt; safeListFiles(final File f) {
+<span class="nc" id="L91">    final File[] files = f.listFiles();</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    if (files == null) {</span>
+<span class="nc" id="L93">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L95">    return Arrays.asList(files);</span>
+  }
+
+  private static void populateFromDirectory(final File mapDir, final Map&lt;String, URI&gt; availableGames,
+      final Set&lt;String&gt; availableMapFolderOrZipNames, final Set&lt;String&gt; mapNamePropertyList) {
+<span class="nc" id="L100">    final File games = new File(mapDir, &quot;games&quot;);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    if (!games.exists()) {</span>
+      // no games in this map dir
+<span class="nc" id="L103">      return;</span>
+    }
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    for (final File game : games.listFiles()) {</span>
+<span class="nc bnc" id="L106" title="All 6 branches missed.">      if (game.toURI() != null &amp;&amp; game.isFile() &amp;&amp; game.getName().toLowerCase().endsWith(&quot;xml&quot;)) {</span>
+<span class="nc" id="L107">        final boolean added = addToAvailableGames(game.toURI(), availableGames, mapNamePropertyList);</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        if (added) {</span>
+<span class="nc" id="L109">          availableMapFolderOrZipNames.add(mapDir.getName());</span>
+        }
+      }
+    }
+<span class="nc" id="L113">  }</span>
+
+  private static void populateFromZip(final File map, final Map&lt;String, URI&gt; availableGames,
+      final Set&lt;String&gt; availableMapFolderOrZipNames, final Set&lt;String&gt; mapNamePropertyList) {
+<span class="nc" id="L117">    try (</span>
+<span class="nc" id="L118">        final FileInputStream fis = new FileInputStream(map);</span>
+<span class="nc" id="L119">        final ZipInputStream zis = new ZipInputStream(fis);</span>
+<span class="nc" id="L120">        final URLClassLoader loader = new URLClassLoader(new URL[] {map.toURI().toURL()});) {</span>
+<span class="nc" id="L121">      ZipEntry entry = zis.getNextEntry();</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">      while (entry != null) {</span>
+<span class="nc bnc" id="L123" title="All 4 branches missed.">        if (entry.getName().contains(&quot;games/&quot;) &amp;&amp; entry.getName().toLowerCase().endsWith(&quot;.xml&quot;)) {</span>
+<span class="nc" id="L124">          final URL url = loader.getResource(entry.getName());</span>
+          // we have to close the loader to allow files to be deleted on windows
+          try {
+<span class="nc" id="L127">            final boolean added = addToAvailableGames(new URI(url.toString().replace(&quot; &quot;, &quot;%20&quot;)), availableGames,</span>
+<span class="nc" id="L128">                mapNamePropertyList);</span>
+<span class="nc bnc" id="L129" title="All 4 branches missed.">            if (added &amp;&amp; map.getName().length() &gt; 4) {</span>
+<span class="nc" id="L130">              availableMapFolderOrZipNames</span>
+<span class="nc" id="L131">                  .add(map.getName().substring(0, map.getName().length() - ZIP_EXTENSION.length()));</span>
+            }
+<span class="nc" id="L133">          } catch (final URISyntaxException e) {</span>
+            // only happens when URI couldn't be build and therefore no entry was added. That's fine
+          }
+        }
+<span class="nc" id="L137">        zis.closeEntry();</span>
+<span class="nc" id="L138">        entry = zis.getNextEntry();</span>
+      }
+<span class="nc bnc" id="L140" title="All 24 branches missed.">    } catch (final IOException e) {</span>
+<span class="nc" id="L141">      ClientLogger.logQuietly(&quot;Map: &quot; + map, e);</span>
+    }
+<span class="nc" id="L143">  }</span>
+
+
+  private static boolean addToAvailableGames(final URI uri, final Map&lt;String, URI&gt; availableGames,
+      final Set&lt;String&gt; mapNamePropertyList) {
+<span class="nc bnc" id="L148" title="All 2 branches missed.">    if (uri == null) {</span>
+<span class="nc" id="L149">      return false;</span>
+    }
+<span class="nc" id="L151">    final AtomicReference&lt;String&gt; gameName = new AtomicReference&lt;&gt;();</span>
+
+<span class="nc" id="L153">    final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(uri);</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">    if (inputStream.isPresent()) {</span>
+<span class="nc" id="L155">      try (InputStream input = inputStream.get()) {</span>
+<span class="nc" id="L156">        final GameData data = new GameParser(uri.toString()).parse(input, gameName, s_delayedParsing);</span>
+<span class="nc" id="L157">        final String name = data.getGameName();</span>
+<span class="nc" id="L158">        final String mapName = data.getProperties().get(Constants.MAP_NAME, &quot;&quot;);</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">        if (!availableGames.containsKey(name)) {</span>
+<span class="nc" id="L160">          availableGames.put(name, uri);</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">          if (mapName.length() &gt; 0) {</span>
+<span class="nc" id="L162">            mapNamePropertyList.add(mapName);</span>
+          }
+<span class="nc" id="L164">          return true;</span>
+        }
+<span class="nc bnc" id="L166" title="All 10 branches missed.">      } catch (final Exception e) {</span>
+<span class="nc" id="L167">        ClientLogger.logError(&quot;Exception while parsing: &quot; + uri.toString() + &quot; : &quot;</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">            + (gameName.get() != null ? gameName.get() + &quot; : &quot; : &quot;&quot;), e);</span>
+      }
+    }
+<span class="nc" id="L171">    return false;</span>
+  }
+
+  private static String getGameXMLLocation(final URI uri) {
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    if (uri == null) {</span>
+<span class="nc" id="L176">      return null;</span>
+    }
+<span class="nc" id="L178">    final String raw = uri.toString();</span>
+<span class="nc" id="L179">    final String base = ClientFileSystemHelper.getRootFolder().toURI().toString() + &quot;maps&quot;;</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">    if (raw.startsWith(base)) {</span>
+<span class="nc" id="L181">      return raw.substring(base.length());</span>
+    }
+<span class="nc bnc" id="L183" title="All 2 branches missed.">    if (raw.startsWith(&quot;jar:&quot; + base)) {</span>
+<span class="nc" id="L184">      return raw.substring(&quot;jar:&quot;.length() + base.length());</span>
+    }
+<span class="nc" id="L186">    return raw;</span>
+  }
+
+  private static GameData getGameDataFromXML(final URI uri) {
+<span class="nc bnc" id="L190" title="All 2 branches missed.">    if (uri == null) {</span>
+<span class="nc" id="L191">      return null;</span>
+    }
+<span class="nc" id="L193">    final AtomicReference&lt;String&gt; gameName = new AtomicReference&lt;&gt;();</span>
+
+<span class="nc" id="L195">    final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(uri);</span>
+<span class="nc bnc" id="L196" title="All 2 branches missed.">    if (inputStream.isPresent()) {</span>
+<span class="nc" id="L197">      try (InputStream input = inputStream.get()) {</span>
+<span class="nc" id="L198">        return new GameParser(uri.toString()).parse(input, gameName, false);</span>
+<span class="nc bnc" id="L199" title="All 8 branches missed.">      } catch (final Exception e) {</span>
+<span class="nc" id="L200">        ClientLogger.logError(&quot;Exception while parsing: &quot; + uri.toString() + &quot; : &quot;</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">            + (gameName.get() != null ? gameName.get() + &quot; : &quot; : &quot;&quot;), e);</span>
+      }
+    }
+<span class="nc" id="L204">    return null;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

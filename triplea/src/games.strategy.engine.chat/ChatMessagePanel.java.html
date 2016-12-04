@@ -1,0 +1,357 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ChatMessagePanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.chat</a> &gt; <span class="el_source">ChatMessagePanel.java</span></div><h1>ChatMessagePanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.chat;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Container;
+import java.awt.Insets;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.text.SimpleDateFormat;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+
+import javax.swing.Action;
+import javax.swing.BoundedRangeModel;
+import javax.swing.InputMap;
+import javax.swing.JButton;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.JTextPane;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.net.INode;
+import games.strategy.net.ServerMessenger;
+import games.strategy.sound.ClipPlayer;
+import games.strategy.sound.SoundPath;
+import games.strategy.ui.SwingAction;
+
+/**
+ * A Chat window.
+ * Mutiple chat panels can be connected to the same Chat.
+ * &lt;p&gt;
+ * We can change the chat we are connected to using the setChat(...) method.
+ */
+public class ChatMessagePanel extends JPanel implements IChatListener {
+  private static final long serialVersionUID = 118727200083595226L;
+<span class="nc" id="L44">  private final ChatFloodControl floodControl = new ChatFloodControl();</span>
+  private static final int MAX_LINES = 5000;
+  private JTextPane text;
+  private JScrollPane scrollPane;
+  private JTextField nextMessage;
+  private JButton send;
+  private JButton setStatus;
+  private Chat chat;
+<span class="nc" id="L52">  private boolean showTime = false;</span>
+<span class="nc" id="L53">  private final SimpleDateFormat simpleDateFormat = new SimpleDateFormat(&quot;'('HH:mm:ss')'&quot;);</span>
+<span class="nc" id="L54">  private final SimpleAttributeSet bold = new SimpleAttributeSet();</span>
+<span class="nc" id="L55">  private final SimpleAttributeSet italic = new SimpleAttributeSet();</span>
+<span class="nc" id="L56">  private final SimpleAttributeSet normal = new SimpleAttributeSet();</span>
+  public static final String ME = &quot;/me &quot;;
+
+  private static boolean isThirdPerson(final String msg) {
+<span class="nc" id="L60">    return msg.toLowerCase().startsWith(ME);</span>
+  }
+
+<span class="nc" id="L63">  public ChatMessagePanel(final Chat chat) {</span>
+<span class="nc" id="L64">    init();</span>
+<span class="nc" id="L65">    setChat(chat);</span>
+<span class="nc" id="L66">  }</span>
+
+  private void init() {
+<span class="nc" id="L69">    createComponents();</span>
+<span class="nc" id="L70">    layoutComponents();</span>
+<span class="nc" id="L71">    StyleConstants.setBold(bold, true);</span>
+<span class="nc" id="L72">    StyleConstants.setItalic(italic, true);</span>
+<span class="nc" id="L73">    setSize(300, 200);</span>
+<span class="nc" id="L74">  }</span>
+
+  public String getAllText() {
+<span class="nc" id="L77">    return text.getText();</span>
+  }
+
+  public void shutDown() {
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    if (chat != null) {</span>
+<span class="nc" id="L82">      chat.removeChatListener(this);</span>
+<span class="nc" id="L83">      cleanupKeyMap();</span>
+    }
+<span class="nc" id="L85">    chat = null;</span>
+<span class="nc" id="L86">    this.setVisible(false);</span>
+<span class="nc" id="L87">    this.removeAll();</span>
+<span class="nc" id="L88">  }</span>
+
+  public void setChat(final Chat chat) {
+<span class="nc bnc" id="L91" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L92">      SwingAction.invokeAndWait(() -&gt; setChat(chat));</span>
+<span class="nc" id="L93">      return;</span>
+    }
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    if (chat != null) {</span>
+<span class="nc" id="L96">      chat.removeChatListener(this);</span>
+<span class="nc" id="L97">      cleanupKeyMap();</span>
+    }
+<span class="nc" id="L99">    this.chat = chat;</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">    if (chat != null) {</span>
+<span class="nc" id="L101">      setupKeyMap();</span>
+<span class="nc" id="L102">      chat.addChatListener(this);</span>
+<span class="nc" id="L103">      send.setEnabled(true);</span>
+<span class="nc" id="L104">      text.setEnabled(true);</span>
+<span class="nc" id="L105">      synchronized (chat.getMutex()) {</span>
+<span class="nc" id="L106">        text.setText(&quot;&quot;);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        for (final ChatMessage message : chat.getChatHistory()) {</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">          if (message.getFrom().equals(chat.getServerNode().getName())) {</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">            if (message.getMessage().equals(ServerMessenger.YOU_HAVE_BEEN_MUTED_LOBBY)) {</span>
+<span class="nc" id="L110">              addChatMessage(&quot;YOUR LOBBY CHATTING HAS BEEN TEMPORARILY 'MUTED' BY THE ADMINS, TRY AGAIN LATER&quot;,</span>
+<span class="nc" id="L111">                  &quot;ADMIN_CHAT_CONTROL&quot;, false);</span>
+<span class="nc" id="L112">              continue;</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">            } else if (message.getMessage().equals(ServerMessenger.YOU_HAVE_BEEN_MUTED_GAME)) {</span>
+<span class="nc" id="L114">              addChatMessage(&quot;YOUR CHATTING IN THIS GAME HAS BEEN 'MUTED' BY THE HOST&quot;, &quot;HOST_CHAT_CONTROL&quot;, false);</span>
+<span class="nc" id="L115">              continue;</span>
+            }
+          }
+<span class="nc" id="L118">          addChatMessage(message.getMessage(), message.getFrom(), message.isMyMessage());</span>
+        }
+      }
+    } else {
+<span class="nc" id="L122">      send.setEnabled(false);</span>
+<span class="nc" id="L123">      text.setEnabled(false);</span>
+<span class="nc" id="L124">      updatePlayerList(Collections.emptyList());</span>
+    }
+<span class="nc" id="L126">  }</span>
+
+  public Chat getChat() {
+<span class="nc" id="L129">    return chat;</span>
+  }
+
+  public void setShowTime(final boolean showTime) {
+<span class="nc" id="L133">    this.showTime = showTime;</span>
+<span class="nc" id="L134">  }</span>
+
+  private void layoutComponents() {
+<span class="nc" id="L137">    final Container content = this;</span>
+<span class="nc" id="L138">    content.setLayout(new BorderLayout());</span>
+<span class="nc" id="L139">    scrollPane = new JScrollPane(text);</span>
+<span class="nc" id="L140">    content.add(scrollPane, BorderLayout.CENTER);</span>
+<span class="nc" id="L141">    final JPanel sendPanel = new JPanel();</span>
+<span class="nc" id="L142">    sendPanel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L143">    sendPanel.add(nextMessage, BorderLayout.CENTER);</span>
+<span class="nc" id="L144">    sendPanel.add(send, BorderLayout.WEST);</span>
+<span class="nc" id="L145">    sendPanel.add(setStatus, BorderLayout.EAST);</span>
+<span class="nc" id="L146">    content.add(sendPanel, BorderLayout.SOUTH);</span>
+<span class="nc" id="L147">  }</span>
+
+  @Override
+  public boolean requestFocusInWindow() {
+<span class="nc" id="L151">    return nextMessage.requestFocusInWindow();</span>
+  }
+
+  private void createComponents() {
+<span class="nc" id="L155">    text = new JTextPane();</span>
+<span class="nc" id="L156">    text.setEditable(false);</span>
+<span class="nc" id="L157">    text.addMouseListener(new MouseListener() {</span>
+      @Override
+      public void mouseReleased(final MouseEvent e) {
+<span class="nc" id="L160">        final String markedText = text.getSelectedText();</span>
+<span class="nc bnc" id="L161" title="All 4 branches missed.">        if (markedText == null || markedText.length() == 0) {</span>
+<span class="nc" id="L162">          nextMessage.requestFocusInWindow();</span>
+        }
+<span class="nc" id="L164">      }</span>
+
+      @Override
+<span class="nc" id="L167">      public void mousePressed(final MouseEvent e) {}</span>
+
+      @Override
+<span class="nc" id="L170">      public void mouseExited(final MouseEvent e) {}</span>
+
+      @Override
+<span class="nc" id="L173">      public void mouseEntered(final MouseEvent e) {}</span>
+
+      @Override
+<span class="nc" id="L176">      public void mouseClicked(final MouseEvent e) {}</span>
+    });
+<span class="nc" id="L178">    nextMessage = new JTextField(10);</span>
+    // when enter is pressed, send the message
+<span class="nc" id="L180">    setStatus = new JButton(setStatusAction);</span>
+<span class="nc" id="L181">    setStatus.setFocusable(false);</span>
+<span class="nc" id="L182">    final Insets inset = new Insets(3, 3, 3, 3);</span>
+<span class="nc" id="L183">    send = new JButton(sendAction);</span>
+<span class="nc" id="L184">    send.setMargin(inset);</span>
+<span class="nc" id="L185">    send.setFocusable(false);</span>
+<span class="nc" id="L186">  }</span>
+
+  private void setupKeyMap() {
+<span class="nc" id="L189">    final InputMap nextMessageKeymap = nextMessage.getInputMap();</span>
+<span class="nc" id="L190">    nextMessageKeymap.put(KeyStroke.getKeyStroke('\n'), sendAction);</span>
+<span class="nc" id="L191">    nextMessageKeymap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_UP, 0, false), upAction);</span>
+<span class="nc" id="L192">    nextMessageKeymap.put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DOWN, 0, false), downAction);</span>
+<span class="nc" id="L193">  }</span>
+
+  private void cleanupKeyMap() {
+<span class="nc" id="L196">    final InputMap nextMessageKeymap = nextMessage.getInputMap();</span>
+<span class="nc" id="L197">    nextMessageKeymap.remove(KeyStroke.getKeyStroke('\n'));</span>
+<span class="nc" id="L198">    nextMessageKeymap.remove(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_UP, 0, false));</span>
+<span class="nc" id="L199">    nextMessageKeymap.remove(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_DOWN, 0, false));</span>
+<span class="nc" id="L200">  }</span>
+
+  /** thread safe */
+  @Override
+  public void addMessage(final String message, final String from, final boolean thirdperson) {
+<span class="nc" id="L205">    addMessageWithSound(message, from, thirdperson, SoundPath.CLIP_CHAT_MESSAGE);</span>
+<span class="nc" id="L206">  }</span>
+
+  /** thread safe */
+  @Override
+  public void addMessageWithSound(final String message, final String from, final boolean thirdperson,
+      final String sound) {
+<span class="nc" id="L212">    final Runnable runner = () -&gt; {</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">      if (from.equals(chat.getServerNode().getName())) {</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">        if (message.equals(ServerMessenger.YOU_HAVE_BEEN_MUTED_LOBBY)) {</span>
+<span class="nc" id="L215">          addChatMessage(&quot;YOUR LOBBY CHATTING HAS BEEN TEMPORARILY 'MUTED' BY THE ADMINS, TRY AGAIN LATER&quot;,</span>
+<span class="nc" id="L216">              &quot;ADMIN_CHAT_CONTROL&quot;, false);</span>
+<span class="nc" id="L217">          return;</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        } else if (message.equals(ServerMessenger.YOU_HAVE_BEEN_MUTED_GAME)) {</span>
+<span class="nc" id="L219">          addChatMessage(&quot;YOUR CHATTING IN THIS GAME HAS BEEN 'MUTED' BY THE HOST&quot;, &quot;HOST_CHAT_CONTROL&quot;, false);</span>
+<span class="nc" id="L220">          return;</span>
+        }
+      }
+<span class="nc bnc" id="L223" title="All 2 branches missed.">      if (!floodControl.allow(from, System.currentTimeMillis())) {</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if (from.equals(chat.getLocalNode().getName())) {</span>
+<span class="nc" id="L225">          addChatMessage(&quot;MESSAGE LIMIT EXCEEDED, TRY AGAIN LATER&quot;, &quot;ADMIN_FLOOD_CONTROL&quot;, false);</span>
+        }
+<span class="nc" id="L227">        return;</span>
+      }
+<span class="nc" id="L229">      addChatMessage(message, from, thirdperson);</span>
+<span class="nc" id="L230">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L231">        final BoundedRangeModel scrollModel = scrollPane.getVerticalScrollBar().getModel();</span>
+<span class="nc" id="L232">        scrollModel.setValue(scrollModel.getMaximum());</span>
+<span class="nc" id="L233">      });</span>
+<span class="nc" id="L234">      ClipPlayer.play(sound);</span>
+<span class="nc" id="L235">    };</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L237">      runner.run();</span>
+<span class="nc" id="L238">    } else {</span>
+<span class="nc" id="L239">      SwingUtilities.invokeLater(runner);</span>
+    }
+<span class="nc" id="L241">  }</span>
+
+  private void addChatMessage(final String originalMessage, final String from, final boolean thirdperson) {
+<span class="nc" id="L244">    final String message = trimMessage(originalMessage);</span>
+<span class="nc" id="L245">    final String time = simpleDateFormat.format(new Date());</span>
+<span class="nc" id="L246">    final Document doc = text.getDocument();</span>
+    try {
+<span class="nc bnc" id="L248" title="All 2 branches missed.">      if (thirdperson) {</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        doc.insertString(doc.getLength(), (showTime ? &quot;* &quot; + time + &quot; &quot; + from : &quot;* &quot; + from), bold);</span>
+<span class="nc" id="L250">      } else {</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">        doc.insertString(doc.getLength(), (showTime ? time + &quot; &quot; + from + &quot;: &quot; : from + &quot;: &quot;), bold);</span>
+      }
+<span class="nc" id="L253">      doc.insertString(doc.getLength(), &quot; &quot; + message + &quot;\n&quot;, normal);</span>
+      // don't let the chat get too big
+<span class="nc" id="L255">      trimLines(doc, MAX_LINES);</span>
+<span class="nc" id="L256">    } catch (final BadLocationException e) {</span>
+<span class="nc" id="L257">      ClientLogger.logError(&quot;There was an Error whilst trying to add the Chat Message \&quot;&quot; + message + &quot;\&quot; sent by &quot;</span>
+<span class="nc" id="L258">          + from + &quot; at &quot; + time, e);</span>
+    }
+<span class="nc" id="L260">  }</span>
+
+  public void addServerMessage(final String message) {
+    try {
+<span class="nc" id="L264">      final Document doc = text.getDocument();</span>
+<span class="nc" id="L265">      doc.insertString(doc.getLength(), message + &quot;\n&quot;, normal);</span>
+<span class="nc" id="L266">    } catch (final BadLocationException e) {</span>
+<span class="nc" id="L267">      ClientLogger.logError(&quot;There was an Error whilst trying to add the Server Message \&quot;&quot; + message + &quot;\&quot;&quot;, e);</span>
+    }
+<span class="nc" id="L269">  }</span>
+
+  @Override
+  public void addStatusMessage(final String message) {
+<span class="nc" id="L273">    SwingUtilities.invokeLater(() -&gt; {</span>
+      try {
+<span class="nc" id="L275">        final Document doc = text.getDocument();</span>
+<span class="nc" id="L276">        doc.insertString(doc.getLength(), message + &quot;\n&quot;, italic);</span>
+        // don't let the chat get too big
+<span class="nc" id="L278">        trimLines(doc, MAX_LINES);</span>
+<span class="nc" id="L279">      } catch (final BadLocationException e) {</span>
+<span class="nc" id="L280">        ClientLogger.logError(&quot;There was an Error whilst trying to add the Status Message \&quot;&quot; + message + &quot;\&quot;&quot;, e);</span>
+      }
+<span class="nc" id="L282">    });</span>
+<span class="nc" id="L283">  }</span>
+
+  /**
+   * Show only the first n lines
+   */
+  public static void trimLines(final Document doc, final int lineCount) {
+<span class="fc bfc" id="L289" title="All 2 branches covered.">    if (doc.getLength() &lt; lineCount) {</span>
+<span class="fc" id="L290">      return;</span>
+    }
+    try {
+<span class="fc" id="L293">      final String text = doc.getText(0, doc.getLength());</span>
+<span class="fc" id="L294">      int returnsFound = 0;</span>
+<span class="pc bpc" id="L295" title="1 of 2 branches missed.">      for (int i = text.length() - 1; i &gt;= 0; i--) {</span>
+<span class="pc bpc" id="L296" title="1 of 2 branches missed.">        if (text.charAt(i) == '\n') {</span>
+<span class="fc" id="L297">          returnsFound++;</span>
+        }
+<span class="fc bfc" id="L299" title="All 2 branches covered.">        if (returnsFound == lineCount) {</span>
+<span class="fc" id="L300">          doc.remove(0, i);</span>
+<span class="fc" id="L301">          return;</span>
+        }
+      }
+<span class="nc" id="L304">    } catch (final BadLocationException e) {</span>
+<span class="nc" id="L305">      ClientLogger.logError(&quot;There was an Error whilst trying trimming Chat&quot;, e);</span>
+    }
+<span class="nc" id="L307">  }</span>
+
+  private static String trimMessage(final String originalMessage) {
+    // don't allow messages that are too long
+<span class="nc bnc" id="L311" title="All 2 branches missed.">    if (originalMessage.length() &gt; 200) {</span>
+<span class="nc" id="L312">      return originalMessage.substring(0, 199) + &quot;...&quot;;</span>
+    } else {
+<span class="nc" id="L314">      return originalMessage;</span>
+    }
+  }
+
+<span class="nc" id="L318">  private final Action setStatusAction = SwingAction.of(&quot;Status...&quot;, e -&gt; {</span>
+<span class="nc" id="L319">    String status = JOptionPane.showInputDialog(JOptionPane.getFrameForComponent(ChatMessagePanel.this),</span>
+<span class="nc" id="L320">        &quot;Enter Status Text (leave blank for no status)&quot;, &quot;&quot;);</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">    if (status != null) {</span>
+<span class="nc bnc" id="L322" title="All 2 branches missed.">      if (status.trim().length() == 0) {</span>
+<span class="nc" id="L323">        status = null;</span>
+      }
+<span class="nc" id="L325">      chat.getStatusManager().setStatus(status);</span>
+    }
+<span class="nc" id="L327">  });</span>
+<span class="nc" id="L328">  private final Action sendAction = SwingAction.of(&quot;Send&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">    if (nextMessage.getText().trim().length() == 0) {</span>
+<span class="nc" id="L330">      return;</span>
+    }
+<span class="nc bnc" id="L332" title="All 2 branches missed.">    if (isThirdPerson(nextMessage.getText())) {</span>
+<span class="nc" id="L333">      chat.sendMessage(nextMessage.getText().substring(ME.length()), true);</span>
+<span class="nc" id="L334">    } else {</span>
+<span class="nc" id="L335">      chat.sendMessage(nextMessage.getText(), false);</span>
+    }
+<span class="nc" id="L337">    nextMessage.setText(&quot;&quot;);</span>
+<span class="nc" id="L338">  });</span>
+<span class="nc" id="L339">  private final Action downAction = SwingAction.of(e -&gt; {</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">    if (chat == null) {</span>
+<span class="nc" id="L341">      return;</span>
+    }
+<span class="nc" id="L343">    chat.getSentMessagesHistory().next();</span>
+<span class="nc" id="L344">    nextMessage.setText(chat.getSentMessagesHistory().current());</span>
+<span class="nc" id="L345">  });</span>
+<span class="nc" id="L346">  private final Action upAction = SwingAction.of(e -&gt; {</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">    if (chat == null) {</span>
+<span class="nc" id="L348">      return;</span>
+    }
+<span class="nc" id="L350">    chat.getSentMessagesHistory().prev();</span>
+<span class="nc" id="L351">    nextMessage.setText(chat.getSentMessagesHistory().current());</span>
+<span class="nc" id="L352">  });</span>
+
+  @Override
+<span class="nc" id="L355">  public void updatePlayerList(final Collection&lt;INode&gt; players) {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

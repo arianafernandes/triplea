@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>LHTRTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">LHTRTest.java</span></div><h1>LHTRTest.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import static games.strategy.triplea.delegate.GameDataTestUtil.addTo;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.Collections;
+import java.util.List;
+
+import org.junit.Before;
+import org.junit.Test;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.ITestDelegateBridge;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.random.IRandomSource;
+import games.strategy.engine.random.ScriptedRandomSource;
+import games.strategy.test.TestUtil;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.xml.LoadGameUtil;
+
+<span class="fc" id="L36">public class LHTRTest {</span>
+  private GameData m_data;
+
+  @Before
+  public void setUp() throws Exception {
+<span class="fc" id="L41">    m_data = LoadGameUtil.loadTestGame(LoadGameUtil.TestMapXml.LHTR);</span>
+<span class="fc" id="L42">  }</span>
+
+  private ITestDelegateBridge getDelegateBridge(final PlayerID player) {
+<span class="fc" id="L45">    return GameDataTestUtil.getDelegateBridge(player, m_data);</span>
+  }
+
+  @Test
+  public void testFightersCanLandOnNewPlacedCarrier() {
+<span class="fc" id="L50">    final MoveDelegate delegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L51">    delegate.initialize(&quot;MoveDelegate&quot;, &quot;MoveDelegate&quot;);</span>
+<span class="fc" id="L52">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L53">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L54">    bridge.setStepName(&quot;germanNonCombatMove&quot;);</span>
+<span class="fc" id="L55">    delegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L56">    delegate.start();</span>
+<span class="fc" id="L57">    final Territory baltic = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L58">    final Territory easternEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+<span class="fc" id="L59">    final UnitType carrirType = GameDataTestUtil.carrier(m_data);</span>
+    // move a fighter to the baltic
+<span class="fc" id="L61">    final Route route = new Route();</span>
+<span class="fc" id="L62">    route.setStart(easternEurope);</span>
+<span class="fc" id="L63">    route.add(baltic);</span>
+<span class="fc" id="L64">    final UnitType fighterType = GameDataTestUtil.fighter(m_data);</span>
+<span class="fc" id="L65">    delegate.move(easternEurope.getUnits().getMatches(Matches.unitIsOfType(fighterType)), route);</span>
+    // add a carrier to be produced in germany
+<span class="fc" id="L67">    final TripleAUnit carrier = new TripleAUnit(carrirType, germans, m_data);</span>
+<span class="fc" id="L68">    m_data.performChange(ChangeFactory.addUnits(germans, Collections.singleton((Unit) carrier)));</span>
+    // end the move phase
+<span class="fc" id="L70">    delegate.end();</span>
+    // make sure the fighter is still there
+    // in lhtr fighters can hover, and carriers placed beneath them
+<span class="fc" id="L73">    assertTrue(baltic.getUnits().someMatch(Matches.unitIsOfType(fighterType)));</span>
+<span class="fc" id="L74">  }</span>
+
+  @Test
+  public void testFightersDestroyedWhenNoPendingCarriers() {
+<span class="fc" id="L78">    final MoveDelegate delegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L79">    delegate.initialize(&quot;MoveDelegate&quot;, &quot;MoveDelegate&quot;);</span>
+<span class="fc" id="L80">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L81">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L82">    bridge.setStepName(&quot;germanNonCombatMove&quot;);</span>
+<span class="fc" id="L83">    delegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L84">    delegate.start();</span>
+<span class="fc" id="L85">    final Territory baltic = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L86">    final Territory easternEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+    // move a fighter to the baltic
+<span class="fc" id="L88">    final Route route = new Route();</span>
+<span class="fc" id="L89">    route.setStart(easternEurope);</span>
+<span class="fc" id="L90">    route.add(baltic);</span>
+<span class="fc" id="L91">    final UnitType fighterType = GameDataTestUtil.fighter(m_data);</span>
+<span class="fc" id="L92">    delegate.move(easternEurope.getUnits().getMatches(Matches.unitIsOfType(fighterType)), route);</span>
+    // end the move phase
+<span class="fc" id="L94">    delegate.end();</span>
+    // there is no pending carrier to be placed
+    // the fighter cannot hover
+<span class="fc" id="L97">    assertFalse(baltic.getUnits().someMatch(Matches.unitIsOfType(fighterType)));</span>
+<span class="fc" id="L98">  }</span>
+
+  @Test
+  public void testAAGunsDontFireNonCombat() {
+<span class="fc" id="L102">    final MoveDelegate delegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L103">    delegate.initialize(&quot;MoveDelegate&quot;, &quot;MoveDelegate&quot;);</span>
+<span class="fc" id="L104">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L105">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L106">    bridge.setStepName(&quot;germanNonCombatMove&quot;);</span>
+<span class="fc" id="L107">    delegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L108">    delegate.start();</span>
+    // if we try to move aa, then the game will ask us if we want to move
+    // fail if we are called
+<span class="fc" id="L111">    final InvocationHandler handler = new InvocationHandler() {</span>
+      @Override
+      public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+<span class="nc" id="L114">        fail(&quot;method called:&quot; + method);</span>
+        // never reached
+<span class="nc" id="L116">        return null;</span>
+      }
+    };
+<span class="fc" id="L119">    final ITripleAPlayer player = (ITripleAPlayer) Proxy</span>
+<span class="fc" id="L120">        .newProxyInstance(Thread.currentThread().getContextClassLoader(),</span>
+<span class="fc" id="L121">            TestUtil.getClassArrayFrom(ITripleAPlayer.class), handler);</span>
+<span class="fc" id="L122">    bridge.setRemote(player);</span>
+    // move 1 fighter over the aa gun in caucus
+<span class="fc" id="L124">    final Route route = new Route();</span>
+<span class="fc" id="L125">    route.setStart(m_data.getMap().getTerritory(&quot;Ukraine S.S.R.&quot;));</span>
+<span class="fc" id="L126">    route.add(m_data.getMap().getTerritory(&quot;Caucasus&quot;));</span>
+<span class="fc" id="L127">    route.add(m_data.getMap().getTerritory(&quot;West Russia&quot;));</span>
+<span class="fc" id="L128">    final List&lt;Unit&gt; fighter = route.getStart().getUnits().getMatches(Matches.UnitIsAir);</span>
+<span class="fc" id="L129">    delegate.move(fighter, route);</span>
+<span class="fc" id="L130">  }</span>
+
+  @Test
+  public void testSubDefenseBonus() {
+<span class="fc" id="L134">    final UnitType sub = GameDataTestUtil.submarine(m_data);</span>
+<span class="fc" id="L135">    final UnitAttachment attachment = UnitAttachment.get(sub);</span>
+<span class="fc" id="L136">    final PlayerID japanese = GameDataTestUtil.japanese(m_data);</span>
+    // before the advance, subs defend and attack at 2
+<span class="fc" id="L138">    assertEquals(2, attachment.getDefense(japanese));</span>
+<span class="fc" id="L139">    assertEquals(2, attachment.getAttack(japanese));</span>
+<span class="fc" id="L140">    final ITestDelegateBridge bridge = getDelegateBridge(japanese);</span>
+<span class="fc" id="L141">    TechTracker.addAdvance(japanese, bridge,</span>
+<span class="fc" id="L142">        TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_SUPER_SUBS, m_data, japanese));</span>
+    // after tech advance, this is now 3
+<span class="fc" id="L144">    assertEquals(3, attachment.getDefense(japanese));</span>
+<span class="fc" id="L145">    assertEquals(3, attachment.getAttack(japanese));</span>
+    // make sure this only changes for the player with the tech
+<span class="fc" id="L147">    final PlayerID americans = GameDataTestUtil.americans(m_data);</span>
+<span class="fc" id="L148">    assertEquals(2, attachment.getDefense(americans));</span>
+<span class="fc" id="L149">    assertEquals(2, attachment.getAttack(americans));</span>
+<span class="fc" id="L150">  }</span>
+
+  @Test
+  public void testLHTRBombingRaid() {
+<span class="fc" id="L154">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L155">    final Territory uk = m_data.getMap().getTerritory(&quot;United Kingdom&quot;);</span>
+<span class="fc" id="L156">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L157">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L158">    final BattleTracker tracker = new BattleTracker();</span>
+<span class="fc" id="L159">    final StrategicBombingRaidBattle battle = new StrategicBombingRaidBattle(germany, m_data, british, tracker);</span>
+<span class="fc" id="L160">    battle.addAttackChange(m_data.getMap().getRoute(uk, germany),</span>
+<span class="fc" id="L161">        uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), null);</span>
+<span class="fc" id="L162">    addTo(germany, uk.getUnits().getMatches(Matches.UnitIsStrategicBomber));</span>
+<span class="fc" id="L163">    tracker.getBattleRecords().addBattle(british, battle.getBattleID(), germany, battle.getBattleType());</span>
+<span class="fc" id="L164">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L165">    TechTracker.addAdvance(british, bridge,</span>
+<span class="fc" id="L166">        TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_HEAVY_BOMBER, m_data, british));</span>
+    // aa guns rolls 3, misses, bomber rolls 2 dice at 3 and 4
+<span class="fc" id="L168">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {2, 2, 3}));</span>
+    // if we try to move aa, then the game will ask us if we want to move
+    // fail if we are called
+<span class="fc" id="L171">    final InvocationHandler handler = new InvocationHandler() {</span>
+      @Override
+      public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+<span class="fc" id="L174">        return null;</span>
+      }
+    };
+<span class="fc" id="L177">    final ITripleAPlayer player = (ITripleAPlayer) Proxy</span>
+<span class="fc" id="L178">        .newProxyInstance(Thread.currentThread().getContextClassLoader(),</span>
+<span class="fc" id="L179">            TestUtil.getClassArrayFrom(ITripleAPlayer.class), handler);</span>
+<span class="fc" id="L180">    bridge.setRemote(player);</span>
+<span class="fc" id="L181">    final int PUsBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L182">    battle.fight(bridge);</span>
+<span class="fc" id="L183">    final int PUsAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+    // targets dice is 4, so damage is 1 + 4 = 5
+    // Changed to match StrategicBombingRaidBattle changes
+<span class="fc" id="L186">    assertEquals(PUsBeforeRaid - 5, PUsAfterRaid);</span>
+<span class="fc" id="L187">  }</span>
+
+  @Test
+  public void testLHTRBombingRaid2Bombers() {
+<span class="fc" id="L191">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L192">    final Territory uk = m_data.getMap().getTerritory(&quot;United Kingdom&quot;);</span>
+<span class="fc" id="L193">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L194">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+    // add a unit
+<span class="fc" id="L196">    final Unit bomber = GameDataTestUtil.bomber(m_data).create(british);</span>
+<span class="fc" id="L197">    final Change change = ChangeFactory.addUnits(uk, Collections.singleton(bomber));</span>
+<span class="fc" id="L198">    m_data.performChange(change);</span>
+<span class="fc" id="L199">    final BattleTracker tracker = new BattleTracker();</span>
+<span class="fc" id="L200">    final StrategicBombingRaidBattle battle = new StrategicBombingRaidBattle(germany, m_data, british, tracker);</span>
+<span class="fc" id="L201">    battle.addAttackChange(m_data.getMap().getRoute(uk, germany),</span>
+<span class="fc" id="L202">        uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), null);</span>
+<span class="fc" id="L203">    addTo(germany, uk.getUnits().getMatches(Matches.UnitIsStrategicBomber));</span>
+<span class="fc" id="L204">    tracker.getBattleRecords().addBattle(british, battle.getBattleID(), germany, battle.getBattleType());</span>
+<span class="fc" id="L205">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L206">    TechTracker.addAdvance(british, bridge,</span>
+<span class="fc" id="L207">        TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_HEAVY_BOMBER, m_data, british));</span>
+    // aa guns rolls 3,3 both miss, bomber 1 rolls 2 dice at 3,4 and bomber 2 rolls dice at 1,2
+<span class="fc" id="L209">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {3, 3, 2, 3, 0, 1}));</span>
+    // if we try to move aa, then the game will ask us if we want to move
+    // fail if we are called
+<span class="fc" id="L212">    final InvocationHandler handler = new InvocationHandler() {</span>
+      @Override
+      public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+<span class="fc" id="L215">        return null;</span>
+      }
+    };
+<span class="fc" id="L218">    final ITripleAPlayer player = (ITripleAPlayer) Proxy</span>
+<span class="fc" id="L219">        .newProxyInstance(Thread.currentThread().getContextClassLoader(),</span>
+<span class="fc" id="L220">            TestUtil.getClassArrayFrom(ITripleAPlayer.class), handler);</span>
+<span class="fc" id="L221">    bridge.setRemote(player);</span>
+<span class="fc" id="L222">    final int PUsBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L223">    battle.fight(bridge);</span>
+<span class="fc" id="L224">    final int PUsAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+    // targets dice is 4, so damage is 1 + 4 = 5
+    // bomber 2 hits at 2, so damage is 3, for a total of 8
+    // Changed to match StrategicBombingRaidBattle changes
+<span class="fc" id="L228">    assertEquals(PUsBeforeRaid - 8, PUsAfterRaid);</span>
+<span class="fc" id="L229">  }</span>
+}
+
+
+/**
+ * a random source that throws when asked for random
+ * usefule for testing
+ */
+<span class="nc" id="L237">class ThrowingRandomSource implements IRandomSource {</span>
+  @Override
+  public int getRandom(final int max, final String annotation) {
+<span class="nc" id="L240">    throw new IllegalStateException(&quot;not allowed&quot;);</span>
+  }
+
+  @Override
+  public int[] getRandom(final int max, final int count, final String annotation) {
+<span class="nc" id="L245">    throw new IllegalStateException(&quot;not allowed&quot;);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

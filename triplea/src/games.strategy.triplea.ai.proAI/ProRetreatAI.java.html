@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProRetreatAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI</a> &gt; <span class="el_source">ProRetreatAI.java</span></div><h1>ProRetreatAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.net.GUID;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.BattleDelegate;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.IBattle;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.util.Match;
+
+/**
+ * Pro retreat AI.
+ * &lt;ol&gt;
+ * &lt;li&gt;Consider whether submerging increases/decreases TUV swing&lt;/li&gt;
+ * &lt;li&gt;Consider what territory needs units when retreating&lt;/li&gt;
+ * &lt;/ol&gt;
+ * AFAIK there are 2 options available for maps (land battles):
+ * 1. air can retreat separately on an amphib attack
+ * 2. non-amphib land can retreat separately
+ * So the result would be 4 situations:
+ * 1. revised: you can't retreat anything on amphib
+ * 2. only air can retreat on amphib
+ * 3. only non-amphib land can retreat on amphib
+ * 4. aa50: air and non-amphib land can retreat on amphib
+ * Check by following TripleA.Constants -&gt; TripleA.Properties statis get methods -&gt; MustFightBattle
+ * For sea battles you can have:
+ * 1. attacker retreats all units at end of battle
+ * 2. attacker submerges sub at start or end of battle
+ * 3. defender submerges (or moves if Classic rules) sub at start or end of battle
+ */
+public class ProRetreatAI {
+
+  private final ProOddsCalculator calc;
+
+<span class="nc" id="L49">  public ProRetreatAI(final ProAI ai) {</span>
+<span class="nc" id="L50">    calc = ai.getCalc();</span>
+<span class="nc" id="L51">  }</span>
+
+  public Territory retreatQuery(final GUID battleID, final boolean submerge, final Territory battleTerritory,
+      final Collection&lt;Territory&gt; possibleTerritories, final String message) {
+
+    // Get battle data
+<span class="nc" id="L57">    final GameData data = ProData.getData();</span>
+<span class="nc" id="L58">    final PlayerID player = ProData.getPlayer();</span>
+<span class="nc" id="L59">    final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L60">    final IBattle battle = delegate.getBattleTracker().getPendingBattle(battleID);</span>
+
+    // Get units and determine if attacker
+<span class="nc" id="L63">    final boolean isAttacker = player.equals(battle.getAttacker());</span>
+<span class="nc" id="L64">    final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L65">    final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+
+    // Calculate battle results
+<span class="nc" id="L68">    final ProBattleResult result =</span>
+<span class="nc" id="L69">        calc.calculateBattleResults(player, battleTerritory, attackers, defenders, new HashSet&lt;&gt;(), isAttacker);</span>
+
+    // Determine if it has a factory
+<span class="nc" id="L72">    int isFactory = 0;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (ProMatches.territoryHasInfraFactoryAndIsLand(player).match(battleTerritory)) {</span>
+<span class="nc" id="L74">      isFactory = 1;</span>
+    }
+
+    // Determine production value and if it is a capital
+<span class="nc" id="L78">    int production = 0;</span>
+<span class="nc" id="L79">    int isCapital = 0;</span>
+<span class="nc" id="L80">    final TerritoryAttachment ta = TerritoryAttachment.get(battleTerritory);</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    if (ta != null) {</span>
+<span class="nc" id="L82">      production = ta.getProduction();</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">      if (ta.isCapital()) {</span>
+<span class="nc" id="L84">        isCapital = 1;</span>
+      }
+    }
+
+    // Calculate current attack value
+<span class="nc" id="L89">    double territoryValue = 0;</span>
+<span class="nc bnc" id="L90" title="All 4 branches missed.">    if (result.isHasLandUnitRemaining() || Match.noneMatch(attackers, Matches.UnitIsAir)) {</span>
+<span class="nc" id="L91">      territoryValue = result.getWinPercentage() / 100 * (2 * production * (1 + isFactory) * (1 + isCapital));</span>
+    }
+<span class="nc" id="L93">    double battleValue = result.getTUVSwing() + territoryValue;</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">    if (!isAttacker) {</span>
+<span class="nc" id="L95">      battleValue = -battleValue;</span>
+    }
+
+    // Decide if we should retreat
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    if (battleValue &lt; 0) {</span>
+
+      // Retreat to capital if available otherwise the territory with highest defense strength
+<span class="nc" id="L102">      Territory retreatTerritory = null;</span>
+<span class="nc" id="L103">      double maxStrength = Double.NEGATIVE_INFINITY;</span>
+<span class="nc" id="L104">      final Territory myCapital = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(player, data);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">      for (final Territory t : possibleTerritories) {</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">        if (t.equals(myCapital)) {</span>
+<span class="nc" id="L107">          retreatTerritory = t;</span>
+<span class="nc" id="L108">          break;</span>
+        }
+<span class="nc" id="L110">        final double strength = ProBattleUtils.estimateStrength(t,</span>
+<span class="nc" id="L111">            t.getUnits().getMatches(Matches.isUnitAllied(player, data)), new ArrayList&lt;&gt;(), false);</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">        if (strength &gt; maxStrength) {</span>
+<span class="nc" id="L113">          retreatTerritory = t;</span>
+<span class="nc" id="L114">          maxStrength = strength;</span>
+        }
+      }
+<span class="nc" id="L117">      ProLogger.debug(player.getName() + &quot; retreating from territory &quot; + battleTerritory + &quot; to &quot; + retreatTerritory</span>
+<span class="nc" id="L118">          + &quot; because AttackValue=&quot; + battleValue + &quot;, TUVSwing=&quot; + result.getTUVSwing() + &quot;, possibleTerritories=&quot;</span>
+<span class="nc" id="L119">          + possibleTerritories.size());</span>
+<span class="nc" id="L120">      return retreatTerritory;</span>
+    }
+<span class="nc" id="L122">    ProLogger.debug(player.getName() + &quot; not retreating from territory &quot; + battleTerritory + &quot; with AttackValue=&quot;</span>
+<span class="nc" id="L123">        + battleValue + &quot;, TUVSwing=&quot; + result.getTUVSwing());</span>
+
+<span class="nc" id="L125">    return null;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

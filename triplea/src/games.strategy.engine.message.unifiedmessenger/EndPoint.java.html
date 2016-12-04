@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EndPoint.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.message.unifiedmessenger</a> &gt; <span class="el_source">EndPoint.java</span></div><h1>EndPoint.java</h1><pre class="source lang-java linenums">package games.strategy.engine.message.unifiedmessenger;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.message.MessageContext;
+import games.strategy.engine.message.RemoteMethodCall;
+import games.strategy.engine.message.RemoteMethodCallResults;
+import games.strategy.net.INode;
+
+/**
+ * This is where the methods finally get called.
+ * An endpoint contains the implementors for a given name that are local to this
+ * node.
+ * You can invoke the method and get the results for all the implementors.
+ */
+class EndPoint {
+  // the next number we are going to give
+<span class="fc" id="L23">  private final AtomicLong m_nextGivenNumber = new AtomicLong();</span>
+  // the next number we can run
+<span class="fc" id="L25">  private long m_currentRunnableNumber = 0;</span>
+<span class="fc" id="L26">  private final Object m_numberMutext = new Object();</span>
+<span class="fc" id="L27">  private final Object m_implementorsMutext = new Object();</span>
+  private final String m_name;
+  private final Class&lt;?&gt; m_remoteClass;
+<span class="fc" id="L30">  private final List&lt;Object&gt; m_implementors = new ArrayList&lt;&gt;();</span>
+  private final boolean m_singleThreaded;
+
+<span class="fc" id="L33">  public EndPoint(final String name, final Class&lt;?&gt; remoteClass, final boolean singleThreaded) {</span>
+<span class="fc" id="L34">    m_name = name;</span>
+<span class="fc" id="L35">    m_remoteClass = remoteClass;</span>
+<span class="fc" id="L36">    m_singleThreaded = singleThreaded;</span>
+<span class="fc" id="L37">  }</span>
+
+  public Object getFirstImplementor() {
+<span class="pc" id="L40">    synchronized (m_implementorsMutext) {</span>
+<span class="pc bpc" id="L41" title="1 of 2 branches missed.">      if (m_implementors.size() != 1) {</span>
+<span class="nc" id="L42">        throw new IllegalStateException(&quot;Invalid implementor count, &quot; + m_implementors);</span>
+      }
+<span class="fc" id="L44">      return m_implementors.get(0);</span>
+    }
+  }
+
+  public long takeANumber() {
+<span class="fc" id="L49">    return m_nextGivenNumber.getAndIncrement();</span>
+  }
+
+  private void waitTillCanBeRun(final long aNumber) {
+<span class="pc" id="L53">    synchronized (m_numberMutext) {</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">      while (aNumber &gt; m_currentRunnableNumber) {</span>
+        try {
+<span class="fc" id="L56">          m_numberMutext.wait();</span>
+<span class="pc" id="L57">        } catch (final InterruptedException e) {</span>
+<span class="nc" id="L58">          ClientLogger.logQuietly(e);</span>
+        }
+      }
+    }
+<span class="fc" id="L62">  }</span>
+
+  private void releaseNumber() {
+<span class="pc" id="L65">    synchronized (m_numberMutext) {</span>
+<span class="fc" id="L66">      m_currentRunnableNumber++;</span>
+<span class="fc" id="L67">      m_numberMutext.notifyAll();</span>
+    }
+<span class="fc" id="L69">  }</span>
+
+  /**
+   * @return is this the first implementor
+   */
+  public boolean addImplementor(final Object implementor) {
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">    if (!m_remoteClass.isAssignableFrom(implementor.getClass())) {</span>
+<span class="nc" id="L76">      throw new IllegalArgumentException(m_remoteClass + &quot; is not assignable from &quot; + implementor.getClass());</span>
+    }
+<span class="pc" id="L78">    synchronized (m_implementorsMutext) {</span>
+<span class="fc" id="L79">      final boolean rVal = m_implementors.isEmpty();</span>
+<span class="fc" id="L80">      m_implementors.add(implementor);</span>
+<span class="fc" id="L81">      return rVal;</span>
+    }
+  }
+
+  public boolean isSingleThreaded() {
+<span class="nc" id="L86">    return m_singleThreaded;</span>
+  }
+
+  public boolean hasImplementors() {
+<span class="nc" id="L90">    synchronized (m_implementorsMutext) {</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">      return !m_implementors.isEmpty();</span>
+    }
+  }
+
+  public int getLocalImplementorCount() {
+<span class="pc" id="L96">    synchronized (m_implementorsMutext) {</span>
+<span class="fc" id="L97">      return m_implementors.size();</span>
+    }
+  }
+
+  /**
+   * @return - we have no more implementors
+   */
+  boolean removeImplementor(final Object implementor) {
+<span class="pc" id="L105">    synchronized (m_implementorsMutext) {</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">      if (!m_implementors.remove(implementor)) {</span>
+<span class="nc" id="L107">        throw new IllegalStateException(&quot;Not removed, impl:&quot; + implementor + &quot; have &quot; + m_implementors);</span>
+      }
+<span class="fc" id="L109">      return m_implementors.isEmpty();</span>
+    }
+  }
+
+  public String getName() {
+<span class="nc" id="L114">    return m_name;</span>
+  }
+
+  public Class&lt;?&gt; getRemoteClass() {
+<span class="nc" id="L118">    return m_remoteClass;</span>
+  }
+
+  /*
+   * @param number - like the number you get in a bank line, if we are single
+   * threaded, then the method will not run until the number comes up. Acquire
+   * with getNumber() @return a List of RemoteMethodCallResults
+   */
+  public List&lt;RemoteMethodCallResults&gt; invokeLocal(final RemoteMethodCall call, final long number,
+      final INode messageOriginator) {
+    try {
+<span class="fc bfc" id="L129" title="All 2 branches covered.">      if (m_singleThreaded) {</span>
+<span class="fc" id="L130">        waitTillCanBeRun(number);</span>
+      }
+<span class="fc" id="L132">      return invokeMultiple(call, messageOriginator);</span>
+<span class="nc" id="L133">    } finally {</span>
+<span class="pc" id="L134">      releaseNumber();</span>
+<span class="nc" id="L135">    }</span>
+  }
+
+  /**
+   * @param call
+   * @param rVal
+   */
+  private List&lt;RemoteMethodCallResults&gt; invokeMultiple(final RemoteMethodCall call, final INode messageOriginator) {
+    // copy the implementors
+    List&lt;Object&gt; implementorsCopy;
+<span class="pc" id="L145">    synchronized (m_implementorsMutext) {</span>
+<span class="fc" id="L146">      implementorsCopy = new ArrayList&lt;&gt;(m_implementors);</span>
+    }
+<span class="fc" id="L148">    final List&lt;RemoteMethodCallResults&gt; results = new ArrayList&lt;&gt;(implementorsCopy.size());</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">    for (final Object implementor : implementorsCopy) {</span>
+<span class="fc" id="L150">      results.add(invokeSingle(call, implementor, messageOriginator));</span>
+    }
+<span class="fc" id="L152">    return results;</span>
+  }
+
+  /**
+   * @param call
+   * @param implementor
+   */
+  private RemoteMethodCallResults invokeSingle(final RemoteMethodCall call, final Object implementor,
+      final INode messageOriginator) {
+<span class="fc" id="L161">    call.resolve(m_remoteClass);</span>
+    Method method;
+    try {
+<span class="fc" id="L164">      method = implementor.getClass().getMethod(call.getMethodName(), call.getArgTypes());</span>
+<span class="fc" id="L165">      method.setAccessible(true);</span>
+<span class="pc" id="L166">    } catch (final SecurityException | NoSuchMethodException e) {</span>
+<span class="nc" id="L167">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L168">      throw new IllegalStateException(e.getMessage());</span>
+    }
+<span class="fc" id="L170">    MessageContext.setSenderNodeForThread(messageOriginator);</span>
+    try {
+<span class="fc" id="L172">      final Object methodRVal = method.invoke(implementor, call.getArgs());</span>
+<span class="fc" id="L173">      return new RemoteMethodCallResults(methodRVal);</span>
+<span class="fc" id="L174">    } catch (final InvocationTargetException e) {</span>
+<span class="fc" id="L175">      return new RemoteMethodCallResults(e.getTargetException());</span>
+<span class="nc" id="L176">    } catch (final IllegalAccessException e) {</span>
+<span class="nc" id="L177">      ClientLogger.logQuietly(&quot;error in call:&quot; + call, e);</span>
+<span class="nc" id="L178">      return new RemoteMethodCallResults(e);</span>
+<span class="nc" id="L179">    } catch (final IllegalArgumentException e) {</span>
+<span class="nc" id="L180">      ClientLogger.logQuietly(&quot;error in call:&quot; + call, e);</span>
+<span class="nc" id="L181">      return new RemoteMethodCallResults(e);</span>
+<span class="nc" id="L182">    } finally {</span>
+<span class="pc" id="L183">      MessageContext.setSenderNodeForThread(null);</span>
+<span class="nc" id="L184">    }</span>
+  }
+
+  public boolean equivalent(final EndPoint other) {
+<span class="nc bnc" id="L188" title="All 2 branches missed.">    if (other.m_singleThreaded != this.m_singleThreaded) {</span>
+<span class="nc" id="L189">      return false;</span>
+    }
+<span class="nc bnc" id="L191" title="All 2 branches missed.">    if (!other.m_name.equals(this.m_name)) {</span>
+<span class="nc" id="L192">      return false;</span>
+    }
+<span class="nc" id="L194">    return other.m_remoteClass.equals(m_remoteClass);</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L199">    return &quot;Name:&quot; + m_name + &quot; singleThreaded:&quot; + m_singleThreaded + &quot; implementors:&quot; + m_implementors;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

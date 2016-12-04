@@ -1,0 +1,1170 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DiceRoll.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">DiceRoll.java</span></div><h1>DiceRoll.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.RulesAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.attachments.UnitSupportAttachment;
+import games.strategy.triplea.delegate.Die.DieType;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.LinkedIntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Triple;
+import games.strategy.util.Tuple;
+
+/**
+ * Used to store information about a dice roll.
+ * # of rolls at 5, at 4, etc.
+ * &lt;p&gt;
+ * Externalizable so we can efficiently write out our dice as ints rather than as full objects.
+ */
+public class DiceRoll implements Externalizable {
+  private static final long serialVersionUID = -1167204061937566271L;
+  private List&lt;Die&gt; m_rolls;
+  // this does not need to match the Die with isHit true
+  // since for low luck we get many hits with few dice
+  private int m_hits;
+
+
+
+  /**
+   * Returns a Tuple with 2 values, the first is the max attack, the second is the max dice sides for the AA unit with
+   * that attack value
+   */
+  public static Tuple&lt;Integer, Integer&gt; getAAattackAndMaxDiceSides(final Collection&lt;Unit&gt; defendingEnemyAA,
+      final GameData data, final boolean defending) {
+<span class="fc" id="L62">    int highestAttack = 0;</span>
+<span class="fc" id="L63">    final int diceSize = data.getDiceSides();</span>
+<span class="fc" id="L64">    int chosenDiceSize = diceSize;</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">    for (final Unit u : defendingEnemyAA) {</span>
+<span class="fc" id="L66">      final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">      int uaDiceSides = defending ? ua.getAttackAAmaxDieSides() : ua.getOffensiveAttackAAmaxDieSides();</span>
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">      if (uaDiceSides &lt; 1) {</span>
+<span class="nc" id="L69">        uaDiceSides = diceSize;</span>
+      }
+<span class="pc bpc" id="L71" title="1 of 2 branches missed.">      int attack = defending ? ua.getAttackAA(u.getOwner()) : ua.getOffensiveAttackAA(u.getOwner());</span>
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">      if (attack &gt; uaDiceSides) {</span>
+<span class="nc" id="L73">        attack = uaDiceSides;</span>
+      }
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">      if ((((float) attack) / ((float) uaDiceSides)) &gt; (((float) highestAttack) / ((float) chosenDiceSize))) {</span>
+<span class="fc" id="L76">        highestAttack = attack;</span>
+<span class="fc" id="L77">        chosenDiceSize = uaDiceSides;</span>
+      }
+    }
+<span class="pc bpc" id="L80" title="3 of 4 branches missed.">    if (highestAttack &gt; chosenDiceSize / 2 &amp;&amp; chosenDiceSize &gt; 1) {</span>
+      // TODO: sadly the whole low luck section falls apart if AA are hitting at greater than half the
+      // value of dice, and I don't feel like rewriting it
+<span class="nc" id="L83">      highestAttack = chosenDiceSize / 2;</span>
+    }
+<span class="fc" id="L85">    return Tuple.of(highestAttack, chosenDiceSize);</span>
+  }
+
+  public static int getTotalAAattacks(final Collection&lt;Unit&gt; defendingEnemyAA,
+      final Collection&lt;Unit&gt; validAttackingUnitsForThisRoll) {
+<span class="pc bpc" id="L90" title="1 of 4 branches missed.">    if (defendingEnemyAA.isEmpty() || validAttackingUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L91">      return 0;</span>
+    }
+<span class="fc" id="L93">    int totalAAattacksNormal = 0;</span>
+<span class="fc" id="L94">    int totalAAattacksSurplus = 0;</span>
+<span class="fc bfc" id="L95" title="All 2 branches covered.">    for (final Unit aa : defendingEnemyAA) {</span>
+<span class="fc" id="L96">      final UnitAttachment ua = UnitAttachment.get(aa.getType());</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">      if (ua.getMaxAAattacks() == -1) {</span>
+<span class="fc" id="L98">        totalAAattacksNormal = validAttackingUnitsForThisRoll.size();</span>
+<span class="fc" id="L99">      } else {</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (ua.getMayOverStackAA()) {</span>
+<span class="nc" id="L101">          totalAAattacksSurplus += ua.getMaxAAattacks();</span>
+<span class="nc" id="L102">        } else {</span>
+<span class="nc" id="L103">          totalAAattacksNormal += ua.getMaxAAattacks();</span>
+        }
+      }
+    }
+<span class="fc" id="L107">    totalAAattacksNormal = Math.min(totalAAattacksNormal, validAttackingUnitsForThisRoll.size());</span>
+<span class="fc" id="L108">    return totalAAattacksNormal + totalAAattacksSurplus;</span>
+  }
+
+  public static DiceRoll rollAA(final Collection&lt;Unit&gt; validAttackingUnitsForThisRoll,
+      final Collection&lt;Unit&gt; defendingAAForThisRoll, final IDelegateBridge bridge, final Territory location,
+      final boolean defending) {
+    {
+<span class="fc" id="L115">      final Set&lt;Unit&gt; duplicatesCheckSet1 = new HashSet&lt;&gt;(validAttackingUnitsForThisRoll);</span>
+<span class="pc bpc" id="L116" title="1 of 2 branches missed.">      if (validAttackingUnitsForThisRoll.size() != duplicatesCheckSet1.size()) {</span>
+<span class="nc" id="L117">        throw new IllegalStateException(&quot;Duplicate Units Detected: Original List:&quot; + validAttackingUnitsForThisRoll</span>
+<span class="nc" id="L118">            + &quot;  HashSet:&quot; + duplicatesCheckSet1);</span>
+      }
+<span class="fc" id="L120">      final Set&lt;Unit&gt; duplicatesCheckSet2 = new HashSet&lt;&gt;(defendingAAForThisRoll);</span>
+<span class="pc bpc" id="L121" title="1 of 2 branches missed.">      if (defendingAAForThisRoll.size() != duplicatesCheckSet2.size()) {</span>
+<span class="nc" id="L122">        throw new IllegalStateException(</span>
+<span class="nc" id="L123">            &quot;Duplicate Units Detected: Original List:&quot; + defendingAAForThisRoll + &quot;  HashSet:&quot; + duplicatesCheckSet2);</span>
+      }
+    }
+<span class="fc" id="L126">    final List&lt;Unit&gt; defendingAA = Match.getMatches(defendingAAForThisRoll,</span>
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">        (defending ? Matches.UnitAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero</span>
+<span class="nc" id="L128">            : Matches.UnitOffensiveAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero));</span>
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">    if (defendingAA.isEmpty()) {</span>
+<span class="nc" id="L130">      return new DiceRoll(new ArrayList&lt;&gt;(0), 0);</span>
+    }
+<span class="fc" id="L132">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L133">    final int totalAAattacksTotal = getTotalAAattacks(defendingAA, validAttackingUnitsForThisRoll);</span>
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">    if (totalAAattacksTotal &lt;= 0) {</span>
+<span class="nc" id="L135">      return new DiceRoll(new ArrayList&lt;&gt;(0), 0);</span>
+    }
+    // determine dicesides for everyone (we are not going to consider the possibility of different dicesides within the
+    // same typeAA)
+<span class="fc" id="L139">    final Tuple&lt;Integer, Integer&gt; attackThenDiceSidesForAll = getAAattackAndMaxDiceSides(defendingAA, data, defending);</span>
+    // final int highestAttackPower = attackThenDiceSidesForAll.getFirst();
+<span class="fc" id="L141">    final int chosenDiceSizeForAll = attackThenDiceSidesForAll.getSecond();</span>
+<span class="fc" id="L142">    int hits = 0;</span>
+<span class="fc" id="L143">    final List&lt;Die&gt; sortedDice = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L144">    final String typeAA = UnitAttachment.get(defendingAA.get(0).getType()).getTypeAA();</span>
+    // LOW LUCK
+<span class="pc bpc" id="L146" title="1 of 4 branches missed.">    if (games.strategy.triplea.Properties.getLow_Luck(data) || games.strategy.triplea.Properties.getLL_AA_ONLY(data)) {</span>
+<span class="fc" id="L147">      final String annotation = &quot;Roll &quot; + typeAA + &quot; in &quot; + location.getName();</span>
+<span class="fc" id="L148">      final Triple&lt;Integer, Integer, Boolean&gt; triple = getTotalAAPowerThenHitsAndFillSortedDiceThenIfAllUseSameAttack(</span>
+<span class="fc" id="L149">          null, null, defending, defendingAA, validAttackingUnitsForThisRoll, data, false);</span>
+<span class="fc" id="L150">      final int totalPower = triple.getFirst();</span>
+<span class="fc" id="L151">      hits += getLowLuckHits(bridge, sortedDice, totalPower, chosenDiceSizeForAll, defendingAA.get(0).getOwner(),</span>
+<span class="fc" id="L152">          annotation);</span>
+<span class="fc" id="L153">    } else {</span>
+<span class="fc" id="L154">      final String annotation = &quot;Roll &quot; + typeAA + &quot; in &quot; + location.getName();</span>
+<span class="fc" id="L155">      final int[] dice = bridge.getRandom(chosenDiceSizeForAll, totalAAattacksTotal, defendingAA.get(0).getOwner(),</span>
+<span class="fc" id="L156">          DiceType.COMBAT, annotation);</span>
+<span class="fc" id="L157">      hits += getTotalAAPowerThenHitsAndFillSortedDiceThenIfAllUseSameAttack(dice, sortedDice, defending, defendingAA,</span>
+<span class="fc" id="L158">          validAttackingUnitsForThisRoll, data, true).getSecond();</span>
+    }
+<span class="fc" id="L160">    final DiceRoll roll = new DiceRoll(sortedDice, hits);</span>
+<span class="fc" id="L161">    final String annotation = typeAA + &quot; fire in &quot; + location + &quot; : &quot; + MyFormatter.asDice(roll);</span>
+<span class="fc" id="L162">    bridge.getHistoryWriter().addChildToEvent(annotation, roll);</span>
+<span class="fc" id="L163">    return roll;</span>
+  }
+
+  /**
+   * Basically I wanted 1 single method for both Low Luck and Dice, because if we have 2 methods then there is a chance
+   * they will go out of
+   * sync.
+   *
+   * @param dice
+   *        = Rolled Dice numbers from bridge. Can be null if we do not want to return hits or fill the sortedDice
+   * @param sortedDice
+   *        List of dice we are recording. Can be null if we do not want to return hits or fill the sortedDice
+   * @param defendingAA
+   * @param validAttackingUnitsForThisRoll
+   * @param data
+   * @param fillInSortedDiceAndRecordHits
+   * @return an object containing 3 things: first is the total power of the defendingAA who will be rolling, second is
+   *         number of hits,
+   *         third is true/false are all rolls using the same hitAt (example: if all the rolls are at 1, we would return
+   *         true, but if one
+   *         roll is at 1 and another roll is at 2, then we return false)
+   */
+  public static Triple&lt;Integer, Integer, Boolean&gt; getTotalAAPowerThenHitsAndFillSortedDiceThenIfAllUseSameAttack(
+      final int[] dice, final List&lt;Die&gt; sortedDice, final boolean defending,
+      final Collection&lt;Unit&gt; defendingAAForThisRoll, final Collection&lt;Unit&gt; validAttackingUnitsForThisRoll,
+      final GameData data, final boolean fillInSortedDiceAndRecordHits) {
+<span class="fc" id="L189">    final List&lt;Unit&gt; defendingAA = Match.getMatches(defendingAAForThisRoll,</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">        (defending ? Matches.UnitAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero</span>
+<span class="nc" id="L191">            : Matches.UnitOffensiveAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero));</span>
+<span class="pc bpc" id="L192" title="1 of 2 branches missed.">    if (defendingAA.size() &lt;= 0) {</span>
+<span class="nc" id="L193">      return Triple.of(0, 0, false);</span>
+    }
+    // we want to make sure the higher powers fire
+<span class="fc" id="L196">    sortAAHighToLow(defendingAA, data, defending);</span>
+    // this is confusing, but what we want to do is the following:
+    // any aa that are NOT infinite attacks, and NOT overstack, will fire first individually ((because their
+    // power/dicesides might be
+    // different [example: radar tech on a german aa gun, in the same territory as an italian aagun without radar,
+    // neither is infinite])
+    // all aa that have &quot;infinite attacks&quot; will have the one with the highest power/dicesides of them all, fire at
+    // whatever aa units have
+    // not yet been fired at
+    // HOWEVER, if the non-infinite attackers are less powerful than the infinite attacker, then the non-infinite will
+    // not fire, and the
+    // infinite one will do all the attacks for both groups.
+    // the total number of shots from these first 2 groups cannot exceed the number of air units being shot at
+    // last, any aa that can overstack will fire after, individually
+    // (an aa guns that is both infinite, and overstacks, ignores the overstack part because that totally doesn't make
+    // any sense)
+    // set up all 3 groups of aa guns
+<span class="fc" id="L213">    final List&lt;Unit&gt; normalNonInfiniteAA = new ArrayList&lt;&gt;(defendingAA);</span>
+<span class="fc" id="L214">    final List&lt;Unit&gt; infiniteAA = Match.getMatches(defendingAA, Matches.UnitMaxAAattacksIsInfinite);</span>
+<span class="fc" id="L215">    final List&lt;Unit&gt; overstackAA = Match.getMatches(defendingAA, Matches.UnitMayOverStackAA);</span>
+<span class="fc" id="L216">    overstackAA.removeAll(infiniteAA);</span>
+<span class="fc" id="L217">    normalNonInfiniteAA.removeAll(infiniteAA);</span>
+<span class="fc" id="L218">    normalNonInfiniteAA.removeAll(overstackAA);</span>
+    // determine maximum total attacks
+<span class="fc" id="L220">    final int totalAAattacksTotal = getTotalAAattacks(defendingAA, validAttackingUnitsForThisRoll);</span>
+    // determine individual totals
+<span class="fc" id="L222">    final int normalNonInfiniteAAtotalAAattacks =</span>
+<span class="fc" id="L223">        getTotalAAattacks(normalNonInfiniteAA, validAttackingUnitsForThisRoll);</span>
+<span class="fc" id="L224">    final int infiniteAAtotalAAattacks =</span>
+<span class="fc" id="L225">        Math.min((validAttackingUnitsForThisRoll.size() - normalNonInfiniteAAtotalAAattacks),</span>
+<span class="fc" id="L226">            getTotalAAattacks(infiniteAA, validAttackingUnitsForThisRoll));</span>
+<span class="fc" id="L227">    final int overstackAAtotalAAattacks = getTotalAAattacks(overstackAA, validAttackingUnitsForThisRoll);</span>
+<span class="pc bpc" id="L228" title="1 of 2 branches missed.">    if (totalAAattacksTotal != (normalNonInfiniteAAtotalAAattacks + infiniteAAtotalAAattacks</span>
+<span class="fc" id="L229">        + overstackAAtotalAAattacks)) {</span>
+<span class="nc" id="L230">      throw new IllegalStateException(&quot;Total attacks should be: &quot; + totalAAattacksTotal + &quot; but instead is: &quot;</span>
+<span class="nc" id="L231">          + (normalNonInfiniteAAtotalAAattacks + infiniteAAtotalAAattacks + overstackAAtotalAAattacks));</span>
+      // determine dicesides for everyone (we are not going to consider the possibility of different dicesides within
+      // the same typeAA)
+      // final Tuple&lt;Integer, Integer&gt; attackThenDiceSidesForAll = getAAattackAndMaxDiceSides(defendingAA, data);
+      // final int chosenDiceSizeForAll = attackThenDiceSidesForAll.getSecond();
+    }
+    // determine highest attack for infinite group
+<span class="fc" id="L238">    final Tuple&lt;Integer, Integer&gt; attackThenDiceSidesForInfinite =</span>
+<span class="fc" id="L239">        getAAattackAndMaxDiceSides(infiniteAA, data, defending);</span>
+    // not zero based
+<span class="fc" id="L241">    final int hitAtForInfinite = attackThenDiceSidesForInfinite.getFirst();</span>
+    // not zero based
+    // final int powerForInfinite = highestAttackForInfinite;
+    // if we are low luck, we only want to know the power and total attacks, while if we are dice we will be filling the
+    // sorted dice
+<span class="fc" id="L246">    final boolean recordSortedDice =</span>
+<span class="pc bpc" id="L247" title="3 of 8 branches missed.">        fillInSortedDiceAndRecordHits &amp;&amp; dice != null &amp;&amp; dice.length &gt; 0 &amp;&amp; sortedDice != null;</span>
+<span class="fc" id="L248">    int totalPower = 0;</span>
+<span class="fc" id="L249">    int hits = 0;</span>
+<span class="fc" id="L250">    int i = 0;</span>
+<span class="fc" id="L251">    final Set&lt;Integer&gt; rolledAt = new HashSet&lt;&gt;();</span>
+    // non-infinite, non-overstack aa
+<span class="fc" id="L253">    int runningMaximum = normalNonInfiniteAAtotalAAattacks;</span>
+<span class="fc" id="L254">    final Iterator&lt;Unit&gt; normalAAiter = normalNonInfiniteAA.iterator();</span>
+<span class="pc bpc" id="L255" title="3 of 4 branches missed.">    while (i &lt; runningMaximum &amp;&amp; normalAAiter.hasNext()) {</span>
+<span class="nc" id="L256">      final Unit aaGun = normalAAiter.next();</span>
+      // should be &gt; 0 at this point
+<span class="nc" id="L258">      int numAttacks = UnitAttachment.get(aaGun.getType()).getMaxAAattacks();</span>
+<span class="nc" id="L259">      final int hitAt = getAAattackAndMaxDiceSides(Collections.singleton(aaGun), data, defending).getFirst();</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">      if (hitAt &lt; hitAtForInfinite) {</span>
+<span class="nc" id="L261">        continue;</span>
+      }
+<span class="nc bnc" id="L263" title="All 4 branches missed.">      while (i &lt; runningMaximum &amp;&amp; numAttacks &gt; 0) {</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        if (recordSortedDice) {</span>
+          // dice are zero based
+<span class="nc bnc" id="L266" title="All 2 branches missed.">          final boolean hit = dice[i] &lt; hitAt;</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">          sortedDice.add(new Die(dice[i], hitAt, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="nc bnc" id="L268" title="All 2 branches missed.">          if (hit) {</span>
+<span class="nc" id="L269">            hits++;</span>
+          }
+        }
+<span class="nc" id="L272">        i++;</span>
+<span class="nc" id="L273">        numAttacks--;</span>
+<span class="nc" id="L274">        totalPower += hitAt;</span>
+<span class="nc" id="L275">        rolledAt.add(hitAt);</span>
+      }
+    }
+    // infinite aa
+<span class="fc" id="L279">    runningMaximum += infiniteAAtotalAAattacks;</span>
+<span class="fc bfc" id="L280" title="All 2 branches covered.">    while (i &lt; runningMaximum) {</span>
+      // we use the highest attack of this group, since each is infinite. (this is the default behavior in revised)
+<span class="fc bfc" id="L282" title="All 2 branches covered.">      if (recordSortedDice) {</span>
+        // dice are zero based
+<span class="fc bfc" id="L284" title="All 2 branches covered.">        final boolean hit = dice[i] &lt; hitAtForInfinite;</span>
+<span class="fc bfc" id="L285" title="All 2 branches covered.">        sortedDice.add(new Die(dice[i], hitAtForInfinite, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="fc bfc" id="L286" title="All 2 branches covered.">        if (hit) {</span>
+<span class="fc" id="L287">          hits++;</span>
+        }
+      }
+<span class="fc" id="L290">      i++;</span>
+<span class="fc" id="L291">      totalPower += hitAtForInfinite;</span>
+<span class="fc" id="L292">      rolledAt.add(hitAtForInfinite);</span>
+    }
+    // overstack aa
+<span class="fc" id="L295">    runningMaximum += overstackAAtotalAAattacks;</span>
+<span class="fc" id="L296">    final Iterator&lt;Unit&gt; overstackAAiter = overstackAA.iterator();</span>
+<span class="pc bpc" id="L297" title="3 of 4 branches missed.">    while (i &lt; runningMaximum &amp;&amp; overstackAAiter.hasNext()) {</span>
+<span class="nc" id="L298">      final Unit aaGun = overstackAAiter.next();</span>
+      // should be &gt; 0 at this point
+<span class="nc" id="L300">      int numAttacks = UnitAttachment.get(aaGun.getType()).getMaxAAattacks();</span>
+      // zero based, so subtract 1
+<span class="nc" id="L302">      final int hitAt = getAAattackAndMaxDiceSides(Collections.singleton(aaGun), data, defending).getFirst();</span>
+<span class="nc bnc" id="L303" title="All 4 branches missed.">      while (i &lt; runningMaximum &amp;&amp; numAttacks &gt; 0) {</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        if (recordSortedDice) {</span>
+          // dice are zero based
+<span class="nc bnc" id="L306" title="All 2 branches missed.">          final boolean hit = dice[i] &lt; hitAt;</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">          sortedDice.add(new Die(dice[i], hitAt, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">          if (hit) {</span>
+<span class="nc" id="L309">            hits++;</span>
+          }
+        }
+<span class="nc" id="L312">        i++;</span>
+<span class="nc" id="L313">        numAttacks--;</span>
+<span class="nc" id="L314">        totalPower += hitAt;</span>
+<span class="nc" id="L315">        rolledAt.add(hitAt);</span>
+      }
+    }
+<span class="pc bpc" id="L318" title="1 of 2 branches missed.">    return Triple.of(totalPower, hits, (rolledAt.size() == 1));</span>
+  }
+
+  private static void sortAAHighToLow(final List&lt;Unit&gt; units, final GameData data, final boolean defending) {
+<span class="fc" id="L322">    final Comparator&lt;Unit&gt; comparator = (u1, u2) -&gt; {</span>
+<span class="nc" id="L323">      final Tuple&lt;Integer, Integer&gt; tuple1 = getAAattackAndMaxDiceSides(Collections.singleton(u1), data, defending);</span>
+<span class="nc" id="L324">      final Tuple&lt;Integer, Integer&gt; tuple2 = getAAattackAndMaxDiceSides(Collections.singleton(u2), data, defending);</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">      if (tuple1.getFirst() == 0) {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">        if (tuple2.getFirst() == 0) {</span>
+<span class="nc" id="L327">          return 0;</span>
+        }
+<span class="nc" id="L329">        return 1;</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">      } else if (tuple2.getFirst() == 0) {</span>
+<span class="nc" id="L331">        return -1;</span>
+      }
+<span class="nc" id="L333">      final float value1 = ((float) tuple1.getFirst()) / ((float) tuple1.getSecond());</span>
+<span class="nc" id="L334">      final float value2 = ((float) tuple2.getFirst()) / ((float) tuple2.getSecond());</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">      if (value1 &lt; value2) {</span>
+<span class="nc" id="L336">        return 1;</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">      } else if (value1 &gt; value2) {</span>
+<span class="nc" id="L338">        return -1;</span>
+      }
+<span class="nc" id="L340">      return 0;</span>
+    };
+<span class="fc" id="L342">    Collections.sort(units, comparator);</span>
+<span class="fc" id="L343">  }</span>
+
+  private static int getLowLuckHits(final IDelegateBridge bridge, final List&lt;Die&gt; sortedDice, final int totalPower,
+      final int chosenDiceSize, final PlayerID playerRolling, final String annotation) {
+<span class="fc" id="L347">    int hits = totalPower / chosenDiceSize;</span>
+<span class="fc" id="L348">    final int hitsFractional = totalPower % chosenDiceSize;</span>
+<span class="fc bfc" id="L349" title="All 2 branches covered.">    if (hitsFractional &gt; 0) {</span>
+<span class="fc" id="L350">      final int[] dice = bridge.getRandom(chosenDiceSize, 1, playerRolling, DiceType.COMBAT, annotation);</span>
+<span class="fc bfc" id="L351" title="All 2 branches covered.">      final boolean hit = hitsFractional &gt; dice[0];</span>
+<span class="fc bfc" id="L352" title="All 2 branches covered.">      if (hit) {</span>
+<span class="fc" id="L353">        hits++;</span>
+      }
+<span class="fc bfc" id="L355" title="All 2 branches covered.">      final Die die = new Die(dice[0], hitsFractional, hit ? DieType.HIT : DieType.MISS);</span>
+<span class="fc" id="L356">      sortedDice.add(die);</span>
+    }
+<span class="fc" id="L358">    return hits;</span>
+  }
+
+  /**
+   * Roll dice for units.
+   *
+   * @param annotation
+   */
+  public static DiceRoll rollDice(final List&lt;Unit&gt; units, final boolean defending, final PlayerID player,
+      final IDelegateBridge bridge, final IBattle battle, final String annotation,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final List&lt;Unit&gt; allEnemyUnitsAliveOrWaitingToDie) {
+    // Decide whether to use low luck rules or normal rules.
+<span class="fc bfc" id="L370" title="All 2 branches covered.">    if (games.strategy.triplea.Properties.getLow_Luck(bridge.getData())) {</span>
+<span class="fc" id="L371">      return rollDiceLowLuck(units, defending, player, bridge, battle, annotation, territoryEffects,</span>
+<span class="fc" id="L372">          allEnemyUnitsAliveOrWaitingToDie);</span>
+    } else {
+<span class="fc" id="L374">      return rollDiceNormal(units, defending, player, bridge, battle, annotation, territoryEffects,</span>
+<span class="fc" id="L375">          allEnemyUnitsAliveOrWaitingToDie);</span>
+    }
+  }
+
+  /**
+   * Roll n-sided dice.
+   *
+   * @param annotation
+   *        0 based, add 1 to get actual die roll
+   */
+  public static DiceRoll rollNDice(final IDelegateBridge bridge, final int rollCount, final int sides,
+      final PlayerID playerRolling, final DiceType diceType, final String annotation) {
+<span class="nc bnc" id="L387" title="All 2 branches missed.">    if (rollCount == 0) {</span>
+<span class="nc" id="L388">      return new DiceRoll(new ArrayList&lt;&gt;(), 0);</span>
+    }
+<span class="nc" id="L390">    final int[] random = bridge.getRandom(sides, rollCount, playerRolling, diceType, annotation);</span>
+<span class="nc" id="L391">    final List&lt;Die&gt; dice = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">    for (int i = 0; i &lt; rollCount; i++) {</span>
+<span class="nc" id="L393">      dice.add(new Die(random[i], 1, DieType.IGNORED));</span>
+    }
+<span class="nc" id="L395">    return new DiceRoll(dice, rollCount);</span>
+  }
+
+  /**
+   * @param unitsGettingPowerFor
+   *        should be sorted from weakest to strongest, before the method is called, for the actual battle
+   */
+  public static Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; getUnitPowerAndRollsForNormalBattles(
+      final List&lt;Unit&gt; unitsGettingPowerFor, final List&lt;Unit&gt; allEnemyUnitsAliveOrWaitingToDie,
+      final boolean defending, final boolean bombing, final GameData data, final Territory location,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final boolean isAmphibiousBattle,
+      final Collection&lt;Unit&gt; amphibiousLandAttackers) {
+
+<span class="fc" id="L408">    return getUnitPowerAndRollsForNormalBattles(unitsGettingPowerFor,</span>
+<span class="fc" id="L409">        allEnemyUnitsAliveOrWaitingToDie, defending, bombing, data, location, territoryEffects,</span>
+<span class="fc" id="L410">        isAmphibiousBattle, amphibiousLandAttackers, new HashMap&lt;&gt;(),</span>
+<span class="fc" id="L411">        new HashMap&lt;&gt;());</span>
+  }
+
+  /**
+   * @param unitsGettingPowerFor
+   *        should be sorted from weakest to strongest, before the method is called, for the actual battle
+   */
+  protected static Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; getUnitPowerAndRollsForNormalBattles(
+      final List&lt;Unit&gt; unitsGettingPowerFor,
+      final List&lt;Unit&gt; allEnemyUnitsAliveOrWaitingToDie, final boolean defending, final boolean bombing,
+      final GameData data, final Territory location,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final boolean isAmphibiousBattle,
+      final Collection&lt;Unit&gt; amphibiousLandAttackers, final Map&lt;Unit, IntegerMap&lt;Unit&gt;&gt; unitSupportPowerMap,
+      final Map&lt;Unit, IntegerMap&lt;Unit&gt;&gt; unitSupportRollsMap) {
+<span class="fc" id="L425">    final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; rVal = new HashMap&lt;&gt;();</span>
+<span class="pc bpc" id="L426" title="2 of 4 branches missed.">    if (unitsGettingPowerFor == null || unitsGettingPowerFor.isEmpty()) {</span>
+<span class="nc" id="L427">      return rVal;</span>
+    }
+    // get all supports, friendly and enemy
+<span class="fc" id="L430">    final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportRulesFriendly = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L431">    final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftFriendly = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L432">    final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; supportUnitsLeftFriendly =</span>
+<span class="fc" id="L433">        new HashMap&lt;&gt;();</span>
+<span class="fc" id="L434">    getSupport(unitsGettingPowerFor, supportRulesFriendly, supportLeftFriendly, supportUnitsLeftFriendly,</span>
+<span class="fc" id="L435">        data, defending, true);</span>
+<span class="fc" id="L436">    final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportRulesEnemy = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L437">    final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftEnemy = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L438">    final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; supportUnitsLeftEnemy =</span>
+<span class="fc" id="L439">        new HashMap&lt;&gt;();</span>
+<span class="fc" id="L440">    getSupport(allEnemyUnitsAliveOrWaitingToDie, supportRulesEnemy, supportLeftEnemy, supportUnitsLeftEnemy, data,</span>
+<span class="fc bfc" id="L441" title="All 2 branches covered.">        !defending, false);</span>
+    // copy for rolls
+<span class="fc" id="L443">    final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftFriendlyRolls =</span>
+<span class="fc" id="L444">        new IntegerMap&lt;&gt;(supportLeftFriendly);</span>
+<span class="fc" id="L445">    final IntegerMap&lt;UnitSupportAttachment&gt; supportLeftEnemyRolls =</span>
+<span class="fc" id="L446">        new IntegerMap&lt;&gt;(supportLeftEnemy);</span>
+<span class="fc" id="L447">    final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; supportUnitsLeftFriendlyRolls =</span>
+<span class="fc" id="L448">        new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L449" title="All 2 branches covered.">    for (final UnitSupportAttachment usa : supportUnitsLeftFriendly.keySet()) {</span>
+<span class="fc" id="L450">      supportUnitsLeftFriendlyRolls.put(usa, new LinkedIntegerMap&lt;&gt;(supportUnitsLeftFriendly.get(usa)));</span>
+    }
+<span class="fc" id="L452">    final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; supportUnitsLeftEnemyRolls =</span>
+<span class="fc" id="L453">        new HashMap&lt;&gt;();</span>
+<span class="pc bpc" id="L454" title="1 of 2 branches missed.">    for (final UnitSupportAttachment usa : supportUnitsLeftEnemy.keySet()) {</span>
+<span class="nc" id="L455">      supportUnitsLeftEnemyRolls.put(usa, new LinkedIntegerMap&lt;&gt;(supportUnitsLeftEnemy.get(usa)));</span>
+    }
+<span class="fc" id="L457">    final int diceSides = data.getDiceSides();</span>
+<span class="fc bfc" id="L458" title="All 2 branches covered.">    for (final Unit current : unitsGettingPowerFor) {</span>
+      // find our initial strength
+      int strength;
+<span class="fc" id="L461">      final UnitAttachment ua = UnitAttachment.get(current.getType());</span>
+<span class="fc bfc" id="L462" title="All 2 branches covered.">      if (defending) {</span>
+<span class="fc" id="L463">        strength = ua.getDefense(current.getOwner());</span>
+<span class="fc bfc" id="L464" title="All 2 branches covered.">        if (isFirstTurnLimitedRoll(current.getOwner(), data)) {</span>
+<span class="fc" id="L465">          strength = Math.min(1, strength);</span>
+<span class="fc" id="L466">        } else {</span>
+<span class="fc" id="L467">          strength += getSupport(current, supportRulesFriendly, supportLeftFriendly, supportUnitsLeftFriendly,</span>
+<span class="fc" id="L468">              unitSupportPowerMap, true, false);</span>
+        }
+<span class="fc" id="L470">        strength += getSupport(current, supportRulesEnemy, supportLeftEnemy, supportUnitsLeftEnemy, unitSupportPowerMap,</span>
+<span class="fc" id="L471">            true, false);</span>
+<span class="fc" id="L472">      } else {</span>
+<span class="fc" id="L473">        strength = ua.getAttack(current.getOwner());</span>
+<span class="pc bpc" id="L474" title="1 of 4 branches missed.">        if (ua.getIsMarine() != 0 &amp;&amp; isAmphibiousBattle) {</span>
+<span class="fc bfc" id="L475" title="All 2 branches covered.">          if (amphibiousLandAttackers.contains(current)) {</span>
+<span class="fc" id="L476">            strength += ua.getIsMarine();</span>
+          }
+        }
+<span class="pc bpc" id="L479" title="1 of 6 branches missed.">        if (ua.getIsSea() &amp;&amp; isAmphibiousBattle &amp;&amp; Matches.TerritoryIsLand.match(location)) {</span>
+          // change the strength to be bombard, not attack/defense, because this is a
+<span class="fc" id="L481">          strength = ua.getBombard(current.getOwner());</span>
+          // bombarding naval unit
+        }
+<span class="fc" id="L484">        strength += getSupport(current, supportRulesFriendly, supportLeftFriendly, supportUnitsLeftFriendly,</span>
+<span class="fc" id="L485">            unitSupportPowerMap, true, false);</span>
+<span class="fc" id="L486">        strength += getSupport(current, supportRulesEnemy, supportLeftEnemy, supportUnitsLeftEnemy, unitSupportPowerMap,</span>
+<span class="fc" id="L487">            true, false);</span>
+      }
+<span class="fc" id="L489">      strength += TerritoryEffectHelper.getTerritoryCombatBonus(current.getType(), territoryEffects, defending);</span>
+<span class="fc" id="L490">      strength = Math.min(Math.max(strength, 0), diceSides);</span>
+      // now determine our rolls
+      int rolls;
+<span class="pc bpc" id="L493" title="1 of 4 branches missed.">      if (!bombing &amp;&amp; strength == 0) {</span>
+<span class="fc" id="L494">        rolls = 0;</span>
+<span class="fc" id="L495">      } else {</span>
+<span class="fc bfc" id="L496" title="All 2 branches covered.">        if (defending) {</span>
+<span class="fc" id="L497">          rolls = ua.getDefenseRolls(current.getOwner());</span>
+<span class="fc" id="L498">        } else {</span>
+<span class="fc" id="L499">          rolls = ua.getAttackRolls(current.getOwner());</span>
+        }
+<span class="fc" id="L501">        rolls += getSupport(current, supportRulesFriendly, supportLeftFriendlyRolls, supportUnitsLeftFriendlyRolls,</span>
+<span class="fc" id="L502">            unitSupportRollsMap, false, true);</span>
+<span class="fc" id="L503">        rolls += getSupport(current, supportRulesEnemy, supportLeftEnemyRolls, supportUnitsLeftEnemyRolls,</span>
+<span class="fc" id="L504">            unitSupportRollsMap, false, true);</span>
+<span class="fc" id="L505">        rolls = Math.max(0, rolls);</span>
+<span class="pc bpc" id="L506" title="1 of 2 branches missed.">        if (rolls == 0) {</span>
+<span class="nc" id="L507">          strength = 0;</span>
+        }
+      }
+<span class="fc" id="L510">      rVal.put(current, Tuple.of(strength, rolls));</span>
+    }
+<span class="fc" id="L512">    return rVal;</span>
+  }
+
+  public static int getTotalPower(final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; unitPowerAndRollsMap,
+      final GameData data) {
+<span class="fc" id="L517">    return getTotalPowerAndRolls(unitPowerAndRollsMap, data).getFirst();</span>
+  }
+
+
+  private static Tuple&lt;Integer, Integer&gt; getTotalPowerAndRolls(
+      final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; unitPowerAndRollsMap, final GameData data) {
+<span class="fc" id="L523">    final int diceSides = data.getDiceSides();</span>
+<span class="fc" id="L524">    final boolean lowLuck = games.strategy.triplea.Properties.getLow_Luck(data);</span>
+<span class="fc" id="L525">    final boolean lhtrBombers = games.strategy.triplea.Properties.getLHTR_Heavy_Bombers(data);</span>
+    // bonus is normally 1 for most games
+<span class="fc" id="L527">    final int extraRollBonus = Math.max(1, data.getDiceSides() / 6);</span>
+<span class="fc" id="L528">    int totalPower = 0;</span>
+<span class="fc" id="L529">    int totalRolls = 0;</span>
+<span class="fc bfc" id="L530" title="All 2 branches covered.">    for (final Entry&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; entry : unitPowerAndRollsMap.entrySet()) {</span>
+<span class="fc" id="L531">      int unitStrength = Math.min(Math.max(0, entry.getValue().getFirst()), diceSides);</span>
+<span class="fc" id="L532">      final int unitRolls = entry.getValue().getSecond();</span>
+<span class="pc bpc" id="L533" title="1 of 4 branches missed.">      if (unitStrength &lt;= 0 || unitRolls &lt;= 0) {</span>
+<span class="nc" id="L534">        continue;</span>
+      }
+<span class="fc bfc" id="L536" title="All 2 branches covered.">      if (unitRolls == 1) {</span>
+<span class="fc" id="L537">        totalPower += unitStrength;</span>
+<span class="fc" id="L538">        totalRolls += unitRolls;</span>
+<span class="fc" id="L539">      } else {</span>
+<span class="fc" id="L540">        final UnitAttachment ua = UnitAttachment.get(entry.getKey().getType());</span>
+<span class="pc bpc" id="L541" title="1 of 2 branches missed.">        if (lowLuck) {</span>
+<span class="nc bnc" id="L542" title="All 4 branches missed.">          if (lhtrBombers || ua.getChooseBestRoll()) {</span>
+            // LHTR means pick the best dice roll, which doesn't really make sense in LL. So instead, we will just add
+            // +1 onto the power to
+            // simulate the gains of having the best die picked.
+<span class="nc" id="L546">            unitStrength += extraRollBonus * (unitRolls - 1);</span>
+<span class="nc" id="L547">            totalPower += Math.min(unitStrength, diceSides);</span>
+<span class="nc" id="L548">            totalRolls += unitRolls;</span>
+<span class="nc" id="L549">          } else {</span>
+<span class="nc" id="L550">            totalPower += unitRolls * unitStrength;</span>
+<span class="nc" id="L551">            totalRolls += unitRolls;</span>
+          }
+<span class="nc" id="L553">        } else {</span>
+<span class="pc bpc" id="L554" title="1 of 4 branches missed.">          if (lhtrBombers || ua.getChooseBestRoll()) {</span>
+            // Even though we are DICE, we still have to wait for actual dice to be thrown before we can pick the best
+            // die. So actually for
+            // dice this totalPower method is basically useless, so lets just use the approximation of adding on +1 to
+            // power for now.
+<span class="fc" id="L559">            unitStrength += extraRollBonus * (unitRolls - 1);</span>
+<span class="fc" id="L560">            totalPower += Math.min(unitStrength, diceSides);</span>
+<span class="fc" id="L561">            totalRolls += unitRolls;</span>
+<span class="fc" id="L562">          } else {</span>
+<span class="fc" id="L563">            totalPower += unitRolls * unitStrength;</span>
+<span class="fc" id="L564">            totalRolls += unitRolls;</span>
+          }
+        }
+      }
+    }
+
+<span class="fc" id="L570">    return Tuple.of(totalPower, totalRolls);</span>
+  }
+
+  /**
+   * Roll dice for units using low luck rules. Low luck rules based on rules in DAAK.
+   */
+  private static DiceRoll rollDiceLowLuck(final List&lt;Unit&gt; unitsList, final boolean defending, final PlayerID player,
+      final IDelegateBridge bridge, final IBattle battle, final String annotation,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final List&lt;Unit&gt; allEnemyUnitsAliveOrWaitingToDie) {
+<span class="fc" id="L579">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitsList);</span>
+    {
+<span class="fc" id="L581">      final Set&lt;Unit&gt; duplicatesCheckSet = new HashSet&lt;&gt;(unitsList);</span>
+<span class="pc bpc" id="L582" title="1 of 2 branches missed.">      if (units.size() != duplicatesCheckSet.size()) {</span>
+<span class="nc" id="L583">        throw new IllegalStateException(</span>
+<span class="nc" id="L584">            &quot;Duplicate Units Detected: Original List:&quot; + units + &quot;  HashSet:&quot; + duplicatesCheckSet);</span>
+      }
+    }
+<span class="fc" id="L587">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L588">    final Territory location = battle.getTerritory();</span>
+<span class="fc" id="L589">    final boolean isAmphibiousBattle = battle.isAmphibious();</span>
+<span class="fc" id="L590">    final Collection&lt;Unit&gt; amphibiousLandAttackers = battle.getAmphibiousLandAttackers();</span>
+<span class="fc" id="L591">    final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; unitPowerAndRollsMap =</span>
+<span class="fc" id="L592">        DiceRoll.getUnitPowerAndRollsForNormalBattles(units, allEnemyUnitsAliveOrWaitingToDie, defending, false,</span>
+<span class="fc" id="L593">            data, location, territoryEffects, isAmphibiousBattle, amphibiousLandAttackers);</span>
+<span class="fc" id="L594">    final int power = getTotalPower(unitPowerAndRollsMap, data);</span>
+<span class="pc bpc" id="L595" title="1 of 2 branches missed.">    if (power == 0) {</span>
+<span class="nc" id="L596">      return new DiceRoll(new ArrayList&lt;&gt;(0), 0);</span>
+    }
+<span class="fc" id="L598">    int hitCount = power / data.getDiceSides();</span>
+<span class="fc" id="L599">    final List&lt;Die&gt; dice = new ArrayList&lt;&gt;();</span>
+    // We need to roll dice for the fractional part of the dice.
+<span class="fc" id="L601">    final int rollFor = power % data.getDiceSides();</span>
+    final int[] random;
+<span class="fc bfc" id="L603" title="All 2 branches covered.">    if (rollFor == 0) {</span>
+<span class="fc" id="L604">      random = new int[0];</span>
+<span class="fc" id="L605">    } else {</span>
+<span class="fc" id="L606">      random = bridge.getRandom(data.getDiceSides(), 1, player, DiceType.COMBAT, annotation);</span>
+      // zero based
+<span class="fc bfc" id="L608" title="All 2 branches covered.">      final boolean hit = rollFor &gt; random[0];</span>
+<span class="fc bfc" id="L609" title="All 2 branches covered.">      if (hit) {</span>
+<span class="fc" id="L610">        hitCount++;</span>
+      }
+<span class="fc bfc" id="L612" title="All 2 branches covered.">      dice.add(new Die(random[0], rollFor, hit ? DieType.HIT : DieType.MISS));</span>
+    }
+    // Create DiceRoll object
+<span class="fc" id="L615">    final DiceRoll rVal = new DiceRoll(dice, hitCount);</span>
+<span class="fc" id="L616">    bridge.getHistoryWriter().addChildToEvent(annotation + &quot; : &quot; + MyFormatter.asDice(random), rVal);</span>
+<span class="fc" id="L617">    return rVal;</span>
+  }
+
+  /**
+   * Fills a set and map with the support possibly given by these units.
+   *
+   * @param unitsGivingTheSupport
+   * @param supportsAvailable
+   *        an empty set that will be filled with all support rules grouped into lists of non-stacking rules
+   * @param supportLeft
+   *        an empty map that will be filled with all the support that can be given in the form of counters
+   * @param supportUnitsLeft
+   *        an empty map that will be filled with all the support that can be given in the form of counters
+   * @param data
+   * @param defence
+   *        are the receiving units defending?
+   * @param allies
+   *        are the receiving units allied to the giving units?
+   */
+  public static void getSupport(final List&lt;Unit&gt; unitsGivingTheSupport,
+      final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportsAvailable, final IntegerMap&lt;UnitSupportAttachment&gt; supportLeft,
+      final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; supportUnitsLeft, final GameData data,
+      final boolean defence, final boolean allies) {
+<span class="fc bfc" id="L640" title="All 4 branches covered.">    if (unitsGivingTheSupport == null || unitsGivingTheSupport.isEmpty()) {</span>
+<span class="fc" id="L641">      return;</span>
+    }
+<span class="fc bfc" id="L643" title="All 2 branches covered.">    for (final UnitSupportAttachment rule : UnitSupportAttachment.get(data)) {</span>
+<span class="pc bpc" id="L644" title="1 of 2 branches missed.">      if (rule.getPlayers().isEmpty()) {</span>
+<span class="nc" id="L645">        continue;</span>
+      }
+<span class="pc bpc" id="L647" title="2 of 8 branches missed.">      if (!((defence &amp;&amp; rule.getDefence()) || (!defence &amp;&amp; rule.getOffence()))) {</span>
+<span class="nc" id="L648">        continue;</span>
+      }
+<span class="pc bpc" id="L650" title="3 of 8 branches missed.">      if (!((allies &amp;&amp; rule.getAllied()) || (!allies &amp;&amp; rule.getEnemy()))) {</span>
+<span class="fc" id="L651">        continue;</span>
+      }
+<span class="fc" id="L653">      final CompositeMatchAnd&lt;Unit&gt; canSupport = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L654">          Matches.unitIsOfType((UnitType) rule.getAttachedTo()), Matches.unitOwnedBy(rule.getPlayers()));</span>
+<span class="fc" id="L655">      final List&lt;Unit&gt; supporters = Match.getMatches(unitsGivingTheSupport, canSupport);</span>
+<span class="fc" id="L656">      int numSupport = supporters.size();</span>
+<span class="fc bfc" id="L657" title="All 2 branches covered.">      if (numSupport &lt;= 0) {</span>
+<span class="fc" id="L658">        continue;</span>
+      }
+<span class="fc" id="L660">      final List&lt;Unit&gt; impArtTechUnits = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L661" title="1 of 2 branches missed.">      if (rule.getImpArtTech()) {</span>
+<span class="fc" id="L662">        impArtTechUnits.addAll(Match.getMatches(supporters, Matches.unitOwnerHasImprovedArtillerySupportTech()));</span>
+      }
+<span class="fc" id="L664">      numSupport += impArtTechUnits.size();</span>
+<span class="fc" id="L665">      supportLeft.put(rule, numSupport * rule.getNumber());</span>
+<span class="fc" id="L666">      supportUnitsLeft.put(rule, new LinkedIntegerMap&lt;&gt;(supporters, rule.getNumber()));</span>
+<span class="fc" id="L667">      supportUnitsLeft.get(rule).addAll(impArtTechUnits, rule.getNumber());</span>
+<span class="fc" id="L668">      final Iterator&lt;List&lt;UnitSupportAttachment&gt;&gt; iter2 = supportsAvailable.iterator();</span>
+<span class="fc" id="L669">      List&lt;UnitSupportAttachment&gt; ruleType = null;</span>
+<span class="fc" id="L670">      boolean found = false;</span>
+<span class="fc" id="L671">      final String bonusType = rule.getBonusType();</span>
+<span class="pc bpc" id="L672" title="1 of 2 branches missed.">      while (iter2.hasNext()) {</span>
+<span class="nc" id="L673">        ruleType = iter2.next();</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">        if (ruleType.get(0).getBonusType().equals(bonusType)) {</span>
+<span class="nc" id="L675">          found = true;</span>
+<span class="nc" id="L676">          break;</span>
+        }
+      }
+<span class="pc bpc" id="L679" title="1 of 2 branches missed.">      if (!found) {</span>
+<span class="fc" id="L680">        ruleType = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L681">        supportsAvailable.add(ruleType);</span>
+      }
+<span class="pc bpc" id="L683" title="1 of 2 branches missed.">      if (ruleType != null) {</span>
+<span class="fc" id="L684">        ruleType.add(rule);</span>
+      }
+    }
+<span class="fc" id="L687">    sortSupportRules(supportsAvailable, defence, allies);</span>
+<span class="fc" id="L688">  }</span>
+
+  /**
+   * Returns the support for this unit type, and decrements the supportLeft counters.
+   *
+   * @param unit
+   * @param supportsAvailable
+   * @param supportLeft
+   * @param supportUnitsLeft
+   * @param unitSupportMap
+   * @param strength
+   * @param rolls
+   * @return the bonus given to the unit
+   */
+  public static int getSupport(final Unit unit, final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; supportsAvailable,
+      final IntegerMap&lt;UnitSupportAttachment&gt; supportLeft,
+      final Map&lt;UnitSupportAttachment, LinkedIntegerMap&lt;Unit&gt;&gt; supportUnitsLeft,
+      final Map&lt;Unit, IntegerMap&lt;Unit&gt;&gt; unitSupportMap, final boolean strength, final boolean rolls) {
+<span class="fc" id="L706">    int givenSupport = 0;</span>
+<span class="fc bfc" id="L707" title="All 2 branches covered.">    for (final List&lt;UnitSupportAttachment&gt; bonusType : supportsAvailable) {</span>
+<span class="fc bfc" id="L708" title="All 2 branches covered.">      for (final UnitSupportAttachment rule : bonusType) {</span>
+<span class="pc bpc" id="L709" title="3 of 8 branches missed.">        if (!((strength &amp;&amp; rule.getStrength()) || (rolls &amp;&amp; rule.getRoll()))) {</span>
+<span class="fc" id="L710">          continue;</span>
+        }
+<span class="fc" id="L712">        final HashSet&lt;UnitType&gt; types = rule.getUnitType();</span>
+<span class="pc bpc" id="L713" title="1 of 6 branches missed.">        if (types != null &amp;&amp; types.contains(unit.getType()) &amp;&amp; supportLeft.getInt(rule) &gt; 0) {</span>
+<span class="fc" id="L714">          givenSupport += rule.getBonus();</span>
+<span class="fc" id="L715">          supportLeft.add(rule, -1);</span>
+<span class="fc" id="L716">          final LinkedIntegerMap&lt;Unit&gt; supportersLeft = supportUnitsLeft.get(rule);</span>
+<span class="pc bpc" id="L717" title="1 of 2 branches missed.">          if (supportersLeft != null) {</span>
+<span class="fc" id="L718">            final Set&lt;Unit&gt; supporters = supportersLeft.keySet();</span>
+<span class="pc bpc" id="L719" title="1 of 2 branches missed.">            if (!supporters.isEmpty()) {</span>
+<span class="fc" id="L720">              final Unit u = supporters.iterator().next();</span>
+<span class="fc" id="L721">              supportUnitsLeft.get(rule).add(u, -1);</span>
+<span class="fc bfc" id="L722" title="All 2 branches covered.">              if (supportUnitsLeft.get(rule).getInt(u) &lt;= 0) {</span>
+<span class="fc" id="L723">                supportUnitsLeft.get(rule).removeKey(u);</span>
+              }
+<span class="fc bfc" id="L725" title="All 2 branches covered.">              if (unitSupportMap.containsKey(u)) {</span>
+<span class="fc" id="L726">                unitSupportMap.get(u).add(unit, rule.getBonus());</span>
+<span class="fc" id="L727">              } else {</span>
+<span class="fc" id="L728">                unitSupportMap.put(u, new IntegerMap&lt;&gt;(unit, rule.getBonus()));</span>
+              }
+            }
+          }
+<span class="fc" id="L732">          break;</span>
+        }
+      }
+    }
+<span class="fc" id="L736">    return givenSupport;</span>
+  }
+
+  public static void sortByStrength(final List&lt;Unit&gt; units, final boolean defending) {
+<span class="fc" id="L740">    final Comparator&lt;Unit&gt; comp = (u1, u2) -&gt; {</span>
+      Integer v1, v2;
+<span class="fc bfc" id="L742" title="All 2 branches covered.">      if (defending) {</span>
+<span class="fc" id="L743">        v1 = UnitAttachment.get(u1.getType()).getDefense(u1.getOwner());</span>
+<span class="fc" id="L744">        v2 = UnitAttachment.get(u2.getType()).getDefense(u2.getOwner());</span>
+<span class="fc" id="L745">      } else {</span>
+<span class="fc" id="L746">        v1 = UnitAttachment.get(u1.getType()).getAttack(u1.getOwner());</span>
+<span class="fc" id="L747">        v2 = UnitAttachment.get(u2.getType()).getAttack(u2.getOwner());</span>
+      }
+<span class="fc" id="L749">      return v1.compareTo(v2);</span>
+    };
+<span class="fc" id="L751">    Collections.sort(units, comp);</span>
+<span class="fc" id="L752">  }</span>
+
+  private static void sortSupportRules(final Set&lt;List&lt;UnitSupportAttachment&gt;&gt; support, final boolean defense,
+      final boolean friendly) {
+    // first, sort the lists inside each set
+<span class="fc" id="L757">    final Comparator&lt;UnitSupportAttachment&gt; compList = (u1, u2) -&gt; {</span>
+<span class="nc" id="L758">      int compareTo = 0;</span>
+      // we want to apply the biggest bonus first
+      // Make sure stronger supports are ordered first if friendly, and worst are ordered first if enemy
+      // TODO: it is possible that we will waste negative support if we reduce a units power to less than zero.
+      // We should actually apply enemy negative support in order from worst to least bad, on a unit list that is
+      // ordered from strongest
+      // to weakest.
+<span class="nc bnc" id="L765" title="All 2 branches missed.">      final boolean u1CanBonus = defense ? u1.getDefence() : u1.getOffence();</span>
+<span class="nc bnc" id="L766" title="All 2 branches missed.">      final boolean u2CanBonus = defense ? u2.getDefence() : u2.getOffence();</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">      if (friendly) {</span>
+        // favor rolls over strength
+<span class="nc bnc" id="L769" title="All 4 branches missed.">        if (u1.getRoll() || u2.getRoll()) {</span>
+<span class="nc bnc" id="L770" title="All 4 branches missed.">          final int u1Bonus = u1.getRoll() &amp;&amp; u1CanBonus ? u1.getBonus() : 0;</span>
+<span class="nc bnc" id="L771" title="All 4 branches missed.">          final Integer u2Bonus = u2.getRoll() &amp;&amp; u2CanBonus ? u2.getBonus() : 0;</span>
+<span class="nc" id="L772">          compareTo = u2Bonus.compareTo(u1Bonus);</span>
+<span class="nc bnc" id="L773" title="All 2 branches missed.">          if (compareTo != 0) {</span>
+<span class="nc" id="L774">            return compareTo;</span>
+          }
+        }
+<span class="nc bnc" id="L777" title="All 4 branches missed.">        if (u1.getStrength() || u2.getStrength()) {</span>
+<span class="nc bnc" id="L778" title="All 4 branches missed.">          final int u1Bonus = u1.getStrength() &amp;&amp; u1CanBonus ? u1.getBonus() : 0;</span>
+<span class="nc bnc" id="L779" title="All 4 branches missed.">          final Integer u2Bonus = u2.getStrength() &amp;&amp; u2CanBonus ? u2.getBonus() : 0;</span>
+<span class="nc" id="L780">          compareTo = u2Bonus.compareTo(u1Bonus);</span>
+<span class="nc bnc" id="L781" title="All 2 branches missed.">          if (compareTo != 0) {</span>
+<span class="nc" id="L782">            return compareTo;</span>
+          }
+        }
+      } else {
+<span class="nc bnc" id="L786" title="All 4 branches missed.">        if (u1.getRoll() || u2.getRoll()) {</span>
+<span class="nc bnc" id="L787" title="All 4 branches missed.">          final Integer u1Bonus = u1.getRoll() &amp;&amp; u1CanBonus ? u1.getBonus() : 0;</span>
+<span class="nc bnc" id="L788" title="All 4 branches missed.">          final int u2Bonus = u2.getRoll() &amp;&amp; u2CanBonus ? u2.getBonus() : 0;</span>
+<span class="nc" id="L789">          compareTo = u1Bonus.compareTo(u2Bonus);</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">          if (compareTo != 0) {</span>
+<span class="nc" id="L791">            return compareTo;</span>
+          }
+        }
+<span class="nc bnc" id="L794" title="All 4 branches missed.">        if (u1.getStrength() || u2.getStrength()) {</span>
+<span class="nc bnc" id="L795" title="All 4 branches missed.">          final Integer u1Bonus = u1.getStrength() &amp;&amp; u1CanBonus ? u1.getBonus() : 0;</span>
+<span class="nc bnc" id="L796" title="All 4 branches missed.">          final int u2Bonus = u2.getStrength() &amp;&amp; u2CanBonus ? u2.getBonus() : 0;</span>
+<span class="nc" id="L797">          compareTo = u1Bonus.compareTo(u2Bonus);</span>
+<span class="nc bnc" id="L798" title="All 2 branches missed.">          if (compareTo != 0) {</span>
+<span class="nc" id="L799">            return compareTo;</span>
+          }
+        }
+      }
+      // if the bonuses are the same, we want to make sure any support which only supports 1 single unittype goes
+      // first
+      // the reason being that we could have Support1 which supports both infantry and mech infantry, and Support2
+      // which only supports
+      // mech infantry
+      // if the Support1 goes first, and the mech infantry is first in the unit list (highly probable), then Support1
+      // will end up using
+      // all of itself up on the mech infantry
+      // then when the Support2 comes up, all the mech infantry are used up, and it does nothing.
+      // instead, we want Support2 to come first, support all mech infantry that it can, then have Support1 come in
+      // and support whatever
+      // is left, that way no support is wasted
+      // TODO: this breaks down completely if we have Support1 having a higher bonus than Support2, because it will
+      // come first. It should
+      // come first, unless we would have support wasted otherwise. This ends up being a pretty tricky math puzzle.
+<span class="nc" id="L818">      final HashSet&lt;UnitType&gt; types1 = u1.getUnitType();</span>
+<span class="nc" id="L819">      final HashSet&lt;UnitType&gt; types2 = u2.getUnitType();</span>
+<span class="nc bnc" id="L820" title="All 2 branches missed.">      final Integer s1 = types1 == null ? 0 : types1.size();</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">      final int s2 = types2 == null ? 0 : types2.size();</span>
+<span class="nc" id="L822">      compareTo = s1.compareTo(s2);</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">      if (compareTo != 0) {</span>
+<span class="nc" id="L824">        return compareTo;</span>
+      }
+      // Now we need to sort so that the supporters who are the most powerful go before the less powerful
+      // This is not necessary for the providing of support, but is necessary for our default casualty selection
+      // method
+<span class="nc" id="L829">      final UnitType unitType1 = (UnitType) u1.getAttachedTo();</span>
+<span class="nc" id="L830">      final UnitType unitType2 = (UnitType) u2.getAttachedTo();</span>
+<span class="nc" id="L831">      final UnitAttachment ua1 = UnitAttachment.get(unitType1);</span>
+<span class="nc" id="L832">      final UnitAttachment ua2 = UnitAttachment.get(unitType2);</span>
+      final int unitPower1;
+      final Integer unitPower2;
+<span class="nc bnc" id="L835" title="All 2 branches missed.">      if (u1.getDefence()) {</span>
+<span class="nc" id="L836">        unitPower1 = ua1.getDefenseRolls(PlayerID.NULL_PLAYERID) * ua1.getDefense(PlayerID.NULL_PLAYERID);</span>
+<span class="nc" id="L837">        unitPower2 = ua2.getDefenseRolls(PlayerID.NULL_PLAYERID) * ua2.getDefense(PlayerID.NULL_PLAYERID);</span>
+<span class="nc" id="L838">      } else {</span>
+<span class="nc" id="L839">        unitPower1 = ua1.getAttackRolls(PlayerID.NULL_PLAYERID) * ua1.getAttack(PlayerID.NULL_PLAYERID);</span>
+<span class="nc" id="L840">        unitPower2 = ua2.getAttackRolls(PlayerID.NULL_PLAYERID) * ua2.getAttack(PlayerID.NULL_PLAYERID);</span>
+      }
+<span class="nc" id="L842">      return unitPower2.compareTo(unitPower1);</span>
+    };
+<span class="fc" id="L844">    final Iterator&lt;List&lt;UnitSupportAttachment&gt;&gt; iter = support.iterator();</span>
+<span class="fc bfc" id="L845" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L846">      Collections.sort(iter.next(), compList);</span>
+    }
+<span class="fc" id="L848">  }</span>
+
+  public static DiceRoll airBattle(final List&lt;Unit&gt; unitsList, final boolean defending, final PlayerID player,
+      final IDelegateBridge bridge, final String annotation) {
+    {
+<span class="nc" id="L853">      final Set&lt;Unit&gt; duplicatesCheckSet1 = new HashSet&lt;&gt;(unitsList);</span>
+<span class="nc bnc" id="L854" title="All 2 branches missed.">      if (unitsList.size() != duplicatesCheckSet1.size()) {</span>
+<span class="nc" id="L855">        throw new IllegalStateException(</span>
+<span class="nc" id="L856">            &quot;Duplicate Units Detected: Original List:&quot; + unitsList + &quot;  HashSet:&quot; + duplicatesCheckSet1);</span>
+      }
+    }
+<span class="nc" id="L859">    final GameData data = bridge.getData();</span>
+<span class="nc" id="L860">    final boolean lhtrBombers = games.strategy.triplea.Properties.getLHTR_Heavy_Bombers(data);</span>
+<span class="nc" id="L861">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitsList);</span>
+<span class="nc" id="L862">    final int rollCount = AirBattle.getAirBattleRolls(unitsList, defending);</span>
+<span class="nc bnc" id="L863" title="All 2 branches missed.">    if (rollCount == 0) {</span>
+<span class="nc" id="L864">      return new DiceRoll(new ArrayList&lt;&gt;(), 0);</span>
+    }
+    int[] random;
+<span class="nc" id="L867">    final List&lt;Die&gt; dice = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L868">    int hitCount = 0;</span>
+<span class="nc bnc" id="L869" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getLow_Luck(data)) {</span>
+      // bonus is normally 1 for most games
+<span class="nc" id="L871">      final int extraRollBonus = Math.max(1, data.getDiceSides() / 6);</span>
+<span class="nc" id="L872">      final Iterator&lt;Unit&gt; iter = units.iterator();</span>
+<span class="nc" id="L873">      int power = 0;</span>
+      // We iterate through the units to find the total strength of the units
+<span class="nc bnc" id="L875" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L876">        final Unit current = iter.next();</span>
+<span class="nc" id="L877">        final UnitAttachment ua = UnitAttachment.get(current.getType());</span>
+<span class="nc" id="L878">        final int rolls = AirBattle.getAirBattleRolls(current, defending);</span>
+<span class="nc" id="L879">        int totalStrength = 0;</span>
+<span class="nc" id="L880">        final int strength = Math.min(data.getDiceSides(),</span>
+<span class="nc bnc" id="L881" title="All 2 branches missed.">            Math.max(0, (defending ? ua.getAirDefense(current.getOwner()) : ua.getAirAttack(current.getOwner()))));</span>
+<span class="nc bnc" id="L882" title="All 2 branches missed.">        for (int i = 0; i &lt; rolls; i++) {</span>
+          // LHTR means pick the best dice roll, which doesn't really make sense in LL. So instead, we will just add +1
+          // onto the power to
+          // simulate the gains of having the best die picked.
+<span class="nc bnc" id="L886" title="All 6 branches missed.">          if (i &gt; 1 &amp;&amp; (lhtrBombers || ua.getChooseBestRoll())) {</span>
+<span class="nc" id="L887">            totalStrength += extraRollBonus;</span>
+<span class="nc" id="L888">            continue;</span>
+          }
+<span class="nc" id="L890">          totalStrength += strength;</span>
+        }
+<span class="nc" id="L892">        power += Math.min(Math.max(totalStrength, 0), data.getDiceSides());</span>
+      }
+      // Get number of hits
+<span class="nc" id="L895">      hitCount = power / data.getDiceSides();</span>
+<span class="nc" id="L896">      random = new int[0];</span>
+      // We need to roll dice for the fractional part of the dice.
+<span class="nc" id="L898">      power = power % data.getDiceSides();</span>
+<span class="nc bnc" id="L899" title="All 2 branches missed.">      if (power != 0) {</span>
+<span class="nc" id="L900">        random = bridge.getRandom(data.getDiceSides(), 1, player, DiceType.COMBAT, annotation);</span>
+<span class="nc bnc" id="L901" title="All 2 branches missed.">        final boolean hit = power &gt; random[0];</span>
+<span class="nc bnc" id="L902" title="All 2 branches missed.">        if (hit) {</span>
+<span class="nc" id="L903">          hitCount++;</span>
+        }
+<span class="nc bnc" id="L905" title="All 2 branches missed.">        dice.add(new Die(random[0], power, hit ? DieType.HIT : DieType.MISS));</span>
+      }
+<span class="nc" id="L907">    } else {</span>
+<span class="nc" id="L908">      random = bridge.getRandom(data.getDiceSides(), rollCount, player, DiceType.COMBAT, annotation);</span>
+<span class="nc" id="L909">      final Iterator&lt;Unit&gt; iter = units.iterator();</span>
+<span class="nc" id="L910">      int diceIndex = 0;</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L912">        final Unit current = iter.next();</span>
+<span class="nc" id="L913">        final UnitAttachment ua = UnitAttachment.get(current.getType());</span>
+<span class="nc" id="L914">        final int strength = Math.min(data.getDiceSides(),</span>
+<span class="nc bnc" id="L915" title="All 2 branches missed.">            Math.max(0, (defending ? ua.getAirDefense(current.getOwner()) : ua.getAirAttack(current.getOwner()))));</span>
+<span class="nc" id="L916">        final int rolls = AirBattle.getAirBattleRolls(current, defending);</span>
+        // lhtr heavy bombers take best of n dice for both attack and defense
+<span class="nc bnc" id="L918" title="All 6 branches missed.">        if (rolls &gt; 1 &amp;&amp; (lhtrBombers || ua.getChooseBestRoll())) {</span>
+<span class="nc" id="L919">          int minIndex = 0;</span>
+<span class="nc" id="L920">          int min = data.getDiceSides();</span>
+<span class="nc bnc" id="L921" title="All 2 branches missed.">          for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="nc bnc" id="L922" title="All 2 branches missed.">            if (random[diceIndex + i] &lt; min) {</span>
+<span class="nc" id="L923">              min = random[diceIndex + i];</span>
+<span class="nc" id="L924">              minIndex = i;</span>
+            }
+          }
+<span class="nc bnc" id="L927" title="All 2 branches missed.">          final boolean hit = strength &gt; random[diceIndex + minIndex];</span>
+<span class="nc bnc" id="L928" title="All 2 branches missed.">          dice.add(new Die(random[diceIndex + minIndex], strength, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="nc bnc" id="L929" title="All 2 branches missed.">          for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="nc bnc" id="L930" title="All 2 branches missed.">            if (i != minIndex) {</span>
+<span class="nc" id="L931">              dice.add(new Die(random[diceIndex + i], strength, DieType.IGNORED));</span>
+            }
+          }
+<span class="nc bnc" id="L934" title="All 2 branches missed.">          if (hit) {</span>
+<span class="nc" id="L935">            hitCount++;</span>
+          }
+<span class="nc" id="L937">          diceIndex += rolls;</span>
+<span class="nc" id="L938">        } else {</span>
+<span class="nc bnc" id="L939" title="All 2 branches missed.">          for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="nc bnc" id="L940" title="All 2 branches missed.">            final boolean hit = strength &gt; random[diceIndex];</span>
+<span class="nc bnc" id="L941" title="All 2 branches missed.">            dice.add(new Die(random[diceIndex], strength, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="nc bnc" id="L942" title="All 2 branches missed.">            if (hit) {</span>
+<span class="nc" id="L943">              hitCount++;</span>
+            }
+<span class="nc" id="L945">            diceIndex++;</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L950">    final DiceRoll rVal = new DiceRoll(dice, hitCount);</span>
+<span class="nc" id="L951">    bridge.getHistoryWriter().addChildToEvent(annotation + &quot; : &quot; + MyFormatter.asDice(random), rVal);</span>
+<span class="nc" id="L952">    return rVal;</span>
+  }
+
+  /**
+   * Roll dice for units per normal rules.
+   */
+  private static DiceRoll rollDiceNormal(final List&lt;Unit&gt; unitsList, final boolean defending, final PlayerID player,
+      final IDelegateBridge bridge, final IBattle battle, final String annotation,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final List&lt;Unit&gt; allEnemyUnitsAliveOrWaitingToDie) {
+<span class="fc" id="L961">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitsList);</span>
+    {
+<span class="fc" id="L963">      final Set&lt;Unit&gt; duplicatesCheckSet = new HashSet&lt;&gt;(unitsList);</span>
+<span class="pc bpc" id="L964" title="1 of 2 branches missed.">      if (units.size() != duplicatesCheckSet.size()) {</span>
+<span class="nc" id="L965">        throw new IllegalStateException(</span>
+<span class="nc" id="L966">            &quot;Duplicate Units Detected: Original List:&quot; + units + &quot;  HashSet:&quot; + duplicatesCheckSet);</span>
+      }
+    }
+<span class="fc" id="L969">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L970">    sortByStrength(units, defending);</span>
+<span class="fc" id="L971">    final Territory location = battle.getTerritory();</span>
+<span class="fc" id="L972">    final boolean isAmphibiousBattle = battle.isAmphibious();</span>
+<span class="fc" id="L973">    final Collection&lt;Unit&gt; amphibiousLandAttackers = battle.getAmphibiousLandAttackers();</span>
+<span class="fc" id="L974">    final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; unitPowerAndRollsMap =</span>
+<span class="fc" id="L975">        DiceRoll.getUnitPowerAndRollsForNormalBattles(units, allEnemyUnitsAliveOrWaitingToDie, defending, false,</span>
+<span class="fc" id="L976">            data, location, territoryEffects, isAmphibiousBattle, amphibiousLandAttackers);</span>
+<span class="fc" id="L977">    final Tuple&lt;Integer, Integer&gt; totalPowerAndRolls = getTotalPowerAndRolls(unitPowerAndRollsMap, data);</span>
+<span class="fc" id="L978">    final int rollCount = totalPowerAndRolls.getSecond();</span>
+<span class="fc bfc" id="L979" title="All 2 branches covered.">    if (rollCount == 0) {</span>
+<span class="fc" id="L980">      return new DiceRoll(new ArrayList&lt;&gt;(), 0);</span>
+    }
+<span class="fc" id="L982">    final int[] random = bridge.getRandom(data.getDiceSides(), rollCount, player, DiceType.COMBAT, annotation);</span>
+<span class="fc" id="L983">    final boolean lhtrBombers = games.strategy.triplea.Properties.getLHTR_Heavy_Bombers(data);</span>
+<span class="fc" id="L984">    final List&lt;Die&gt; dice = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L985">    int hitCount = 0;</span>
+<span class="fc" id="L986">    int diceIndex = 0;</span>
+<span class="fc bfc" id="L987" title="All 2 branches covered.">    for (final Unit current : units) {</span>
+<span class="fc" id="L988">      final UnitAttachment ua = UnitAttachment.get(current.getType());</span>
+<span class="fc" id="L989">      final Tuple&lt;Integer, Integer&gt; powerAndRolls = unitPowerAndRollsMap.get(current);</span>
+<span class="fc" id="L990">      final int strength = powerAndRolls.getFirst();</span>
+<span class="fc" id="L991">      final int rolls = powerAndRolls.getSecond();</span>
+      // lhtr heavy bombers take best of n dice for both attack and defense
+<span class="pc bpc" id="L993" title="1 of 4 branches missed.">      if (rolls &lt;= 0 || strength &lt;= 0) {</span>
+<span class="nc" id="L994">        continue;</span>
+      }
+<span class="pc bpc" id="L996" title="1 of 6 branches missed.">      if (rolls &gt; 1 &amp;&amp; (lhtrBombers || ua.getChooseBestRoll())) {</span>
+<span class="fc" id="L997">        int smallestDieIndex = 0;</span>
+<span class="fc" id="L998">        int smallestDie = data.getDiceSides();</span>
+<span class="fc bfc" id="L999" title="All 2 branches covered.">        for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="fc bfc" id="L1000" title="All 2 branches covered.">          if (random[diceIndex + i] &lt; smallestDie) {</span>
+<span class="fc" id="L1001">            smallestDie = random[diceIndex + i];</span>
+<span class="fc" id="L1002">            smallestDieIndex = i;</span>
+          }
+        }
+        // zero based
+<span class="pc bpc" id="L1006" title="1 of 2 branches missed.">        final boolean hit = strength &gt; random[diceIndex + smallestDieIndex];</span>
+<span class="pc bpc" id="L1007" title="1 of 2 branches missed.">        dice.add(new Die(random[diceIndex + smallestDieIndex], strength, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="fc bfc" id="L1008" title="All 2 branches covered.">        for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="fc bfc" id="L1009" title="All 2 branches covered.">          if (i != smallestDieIndex) {</span>
+<span class="fc" id="L1010">            dice.add(new Die(random[diceIndex + i], strength, DieType.IGNORED));</span>
+          }
+        }
+<span class="pc bpc" id="L1013" title="1 of 2 branches missed.">        if (hit) {</span>
+<span class="fc" id="L1014">          hitCount++;</span>
+        }
+<span class="fc" id="L1016">        diceIndex += rolls;</span>
+<span class="fc" id="L1017">      } else {</span>
+<span class="fc bfc" id="L1018" title="All 2 branches covered.">        for (int i = 0; i &lt; rolls; i++) {</span>
+          // zero based
+<span class="fc bfc" id="L1020" title="All 2 branches covered.">          final boolean hit = strength &gt; random[diceIndex];</span>
+<span class="fc bfc" id="L1021" title="All 2 branches covered.">          dice.add(new Die(random[diceIndex], strength, hit ? DieType.HIT : DieType.MISS));</span>
+<span class="fc bfc" id="L1022" title="All 2 branches covered.">          if (hit) {</span>
+<span class="fc" id="L1023">            hitCount++;</span>
+          }
+<span class="fc" id="L1025">          diceIndex++;</span>
+        }
+      }
+    }
+<span class="fc" id="L1029">    final DiceRoll rVal = new DiceRoll(dice, hitCount);</span>
+<span class="fc" id="L1030">    bridge.getHistoryWriter().addChildToEvent(annotation + &quot; : &quot; + MyFormatter.asDice(random), rVal);</span>
+<span class="fc" id="L1031">    return rVal;</span>
+  }
+
+  private static boolean isFirstTurnLimitedRoll(final PlayerID player, final GameData data) {
+    // If player is null, Round &gt; 1, or player has negate rule set: return false
+<span class="pc bpc" id="L1036" title="1 of 6 branches missed.">    if (player.isNull() || data.getSequence().getRound() != 1 || isNegateDominatingFirstRoundAttack(player)) {</span>
+<span class="fc" id="L1037">      return false;</span>
+    }
+<span class="fc" id="L1039">    return isDominatingFirstRoundAttack(data.getSequence().getStep().getPlayerID());</span>
+  }
+
+  private static boolean isDominatingFirstRoundAttack(final PlayerID player) {
+<span class="fc bfc" id="L1043" title="All 2 branches covered.">    if (player == null) {</span>
+<span class="fc" id="L1044">      return false;</span>
+    }
+<span class="fc" id="L1046">    final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="fc bfc" id="L1047" title="All 2 branches covered.">    if (ra == null) {</span>
+<span class="fc" id="L1048">      return false;</span>
+    }
+<span class="fc" id="L1050">    return ra.getDominatingFirstRoundAttack();</span>
+  }
+
+  private static boolean isNegateDominatingFirstRoundAttack(final PlayerID player) {
+<span class="fc" id="L1054">    final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="fc bfc" id="L1055" title="All 2 branches covered.">    if (ra == null) {</span>
+<span class="fc" id="L1056">      return false;</span>
+    }
+<span class="fc" id="L1058">    return ra.getNegateDominatingFirstRoundAttack();</span>
+  }
+
+  public static boolean isAmphibious(final Collection&lt;Unit&gt; m_units) {
+<span class="nc" id="L1062">    final Iterator&lt;Unit&gt; unitIter = m_units.iterator();</span>
+<span class="nc bnc" id="L1063" title="All 2 branches missed.">    while (unitIter.hasNext()) {</span>
+<span class="nc" id="L1064">      final TripleAUnit checkedUnit = (TripleAUnit) unitIter.next();</span>
+<span class="nc bnc" id="L1065" title="All 2 branches missed.">      if (checkedUnit.getWasAmphibious()) {</span>
+<span class="nc" id="L1066">        return true;</span>
+      }
+    }
+<span class="nc" id="L1069">    return false;</span>
+  }
+
+  public static String getAnnotation(final List&lt;Unit&gt; units, final PlayerID player, final IBattle battle) {
+<span class="fc" id="L1073">    final StringBuilder buffer = new StringBuilder(80);</span>
+<span class="fc" id="L1074">    buffer.append(player.getName()).append(&quot; roll dice for &quot;).append(MyFormatter.unitsToTextNoOwner(units));</span>
+<span class="pc bpc" id="L1075" title="1 of 2 branches missed.">    if (battle != null) {</span>
+<span class="fc" id="L1076">      buffer.append(&quot; in &quot;).append(battle.getTerritory().getName()).append(&quot;, round &quot;)</span>
+<span class="fc" id="L1077">          .append((battle.getBattleRound() + 1));</span>
+    }
+<span class="fc" id="L1079">    return buffer.toString();</span>
+  }
+
+  /**
+   * @param dice
+   *        int[] the dice, 0 based
+   * @param hits
+   *        int - the number of hits
+   * @param rollAt
+   *        int - what we roll at, [0,Constants.MAX_DICE]
+   * @param hitOnlyIfEquals
+   *        boolean - do we get a hit only if we are equals, or do we hit
+   *        when we are equal or less than for example a 5 is a hit when
+   *        rolling at 6 for equal and less than, but is not for equals
+   */
+<span class="fc" id="L1094">  public DiceRoll(final int[] dice, final int hits, final int rollAt, final boolean hitOnlyIfEquals) {</span>
+<span class="fc" id="L1095">    m_hits = hits;</span>
+<span class="fc" id="L1096">    m_rolls = new ArrayList&lt;&gt;(dice.length);</span>
+<span class="fc bfc" id="L1097" title="All 2 branches covered.">    for (final int element : dice) {</span>
+      boolean hit;
+<span class="fc bfc" id="L1099" title="All 2 branches covered.">      if (hitOnlyIfEquals) {</span>
+<span class="fc bfc" id="L1100" title="All 2 branches covered.">        hit = (rollAt == element);</span>
+<span class="fc" id="L1101">      } else {</span>
+<span class="pc bpc" id="L1102" title="1 of 2 branches missed.">        hit = element &lt;= rollAt;</span>
+      }
+<span class="fc bfc" id="L1104" title="All 2 branches covered.">      m_rolls.add(new Die(element, rollAt, hit ? DieType.HIT : DieType.MISS));</span>
+    }
+<span class="fc" id="L1106">  }</span>
+
+  // only for externalizable
+<span class="nc" id="L1109">  public DiceRoll() {}</span>
+
+<span class="fc" id="L1111">  private DiceRoll(final List&lt;Die&gt; dice, final int hits) {</span>
+<span class="fc" id="L1112">    m_rolls = new ArrayList&lt;&gt;(dice);</span>
+<span class="fc" id="L1113">    m_hits = hits;</span>
+<span class="fc" id="L1114">  }</span>
+
+  public int getHits() {
+<span class="fc" id="L1117">    return m_hits;</span>
+  }
+
+  /**
+   * @param rollAt
+   *        the strength of the roll, eg infantry roll at 2, expecting a
+   *        number in [1,6]
+   * @return in int[] which shouldnt be modifed, the int[] is 0 based, ie
+   *         0..MAX_DICE
+   */
+  public List&lt;Die&gt; getRolls(final int rollAt) {
+<span class="fc" id="L1128">    final List&lt;Die&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L1129" title="All 2 branches covered.">    for (final Die die : m_rolls) {</span>
+<span class="pc bpc" id="L1130" title="1 of 2 branches missed.">      if (die.getRolledAt() == rollAt) {</span>
+<span class="fc" id="L1131">        rVal.add(die);</span>
+      }
+    }
+<span class="fc" id="L1134">    return rVal;</span>
+  }
+
+  public int size() {
+<span class="fc" id="L1138">    return m_rolls.size();</span>
+  }
+
+  public Die getDie(final int index) {
+<span class="fc" id="L1142">    return m_rolls.get(index);</span>
+  }
+
+  @Override
+  public void writeExternal(final ObjectOutput out) throws IOException {
+<span class="nc" id="L1147">    final int[] dice = new int[m_rolls.size()];</span>
+<span class="nc bnc" id="L1148" title="All 2 branches missed.">    for (int i = 0; i &lt; m_rolls.size(); i++) {</span>
+<span class="nc" id="L1149">      dice[i] = m_rolls.get(i).getCompressedValue();</span>
+    }
+<span class="nc" id="L1151">    out.writeObject(dice);</span>
+<span class="nc" id="L1152">    out.writeInt(m_hits);</span>
+<span class="nc" id="L1153">  }</span>
+
+  @Override
+  public void readExternal(final ObjectInput in) throws IOException, ClassNotFoundException {
+<span class="nc" id="L1157">    final int[] dice = (int[]) in.readObject();</span>
+<span class="nc" id="L1158">    m_rolls = new ArrayList&lt;&gt;(dice.length);</span>
+<span class="nc bnc" id="L1159" title="All 2 branches missed.">    for (final int element : dice) {</span>
+<span class="nc" id="L1160">      m_rolls.add(Die.getFromWriteValue(element));</span>
+    }
+<span class="nc" id="L1162">    m_hits = in.readInt();</span>
+<span class="nc" id="L1163">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L1167">    return &quot;DiceRoll dice:&quot; + m_rolls + &quot; hits:&quot; + m_hits;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

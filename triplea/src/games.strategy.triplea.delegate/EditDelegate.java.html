@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EditDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">EditDelegate.java</span></div><h1>EditDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.message.IRemote;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.remote.IEditDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.util.TransportUtils;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Triple;
+
+/**
+ * Edit game state
+ */
+<span class="nc" id="L33">public class EditDelegate extends BaseEditDelegate implements IEditDelegate {</span>
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="nc" id="L39">    super.start();</span>
+<span class="nc" id="L40">  }</span>
+
+  @Override
+<span class="nc" id="L43">  public void end() {}</span>
+
+  @Override
+  public String removeUnits(final Territory territory, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L47">    String result = null;</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L49">      return result;</span>
+    }
+<span class="nc bnc" id="L51" title="All 2 branches missed.">    if (null != (result = EditValidator.validateRemoveUnits(getData(), territory, units))) {</span>
+<span class="nc" id="L52">      return result;</span>
+    }
+<span class="nc bnc" id="L54" title="All 4 branches missed.">    if (units == null || units.isEmpty()) {</span>
+<span class="nc" id="L55">      return null;</span>
+    }
+<span class="nc" id="L57">    final Collection&lt;PlayerID&gt; owners = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L59">      owners.add(u.getOwner());</span>
+    }
+<span class="nc bnc" id="L61" title="All 2 branches missed.">    for (final PlayerID p : owners) {</span>
+<span class="nc" id="L62">      final List&lt;Unit&gt; unitsOwned = Match.getMatches(units, Matches.unitIsOwnedBy(p));</span>
+<span class="nc" id="L63">      logEvent(&quot;Removing units owned by &quot; + p.getName() + &quot; from &quot; + territory.getName() + &quot;: &quot;</span>
+<span class="nc" id="L64">          + MyFormatter.unitsToTextNoOwner(unitsOwned), unitsOwned);</span>
+<span class="nc" id="L65">      m_bridge.addChange(ChangeFactory.removeUnits(territory, unitsOwned));</span>
+    }
+<span class="nc" id="L67">    return null;</span>
+  }
+
+  @Override
+  public String addUnits(final Territory territory, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L72">    String result = null;</span>
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L74">      return result;</span>
+    }
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (null != (result = EditValidator.validateAddUnits(getData(), territory, units))) {</span>
+<span class="nc" id="L77">      return result;</span>
+    }
+<span class="nc bnc" id="L79" title="All 4 branches missed.">    if (units == null || units.isEmpty()) {</span>
+<span class="nc" id="L80">      return null;</span>
+    }
+    // now make sure land units are put on transports properly
+<span class="nc" id="L83">    final PlayerID player = units.iterator().next().getOwner();</span>
+<span class="nc" id="L84">    final GameData data = getData();</span>
+<span class="nc" id="L85">    Map&lt;Unit, Unit&gt; mapLoading = null;</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">    if (territory.isWater()) {</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">      if (!Match.allMatch(units, Matches.UnitIsSea)) {</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (Match.someMatch(units, Matches.UnitIsLand)) {</span>
+          // this should be exact same as the one in the EditValidator
+<span class="nc bnc" id="L90" title="All 2 branches missed.">          if (!Match.allMatch(units, Matches.alliedUnit(player, data))) {</span>
+<span class="nc" id="L91">            return &quot;Can't add mixed nationality units to water&quot;;</span>
+          }
+<span class="nc" id="L93">          final Match&lt;Unit&gt; friendlySeaTransports =</span>
+<span class="nc" id="L94">              new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransport, Matches.UnitIsSea, Matches.alliedUnit(player, data));</span>
+<span class="nc" id="L95">          final Collection&lt;Unit&gt; seaTransports = Match.getMatches(units, friendlySeaTransports);</span>
+<span class="nc" id="L96">          final Collection&lt;Unit&gt; landUnitsToAdd = Match.getMatches(units, Matches.UnitIsLand);</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">          if (!Match.allMatch(landUnitsToAdd, Matches.UnitCanBeTransported)) {</span>
+<span class="nc" id="L98">            return &quot;Can't add land units that can't be transported, to water&quot;;</span>
+          }
+<span class="nc" id="L100">          seaTransports.addAll(territory.getUnits().getMatches(friendlySeaTransports));</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">          if (seaTransports.isEmpty()) {</span>
+<span class="nc" id="L102">            return &quot;Can't add land units to water without enough transports&quot;;</span>
+          }
+<span class="nc" id="L104">          mapLoading = TransportUtils.mapTransportsToLoad(landUnitsToAdd, seaTransports);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">          if (!mapLoading.keySet().containsAll(landUnitsToAdd)) {</span>
+<span class="nc" id="L106">            return &quot;Can't add land units to water without enough transports&quot;;</span>
+          }
+        }
+      }
+    }
+    // now perform the changes
+<span class="nc" id="L112">    logEvent(&quot;Adding units owned by &quot; + units.iterator().next().getOwner().getName() + &quot; to &quot; + territory.getName()</span>
+<span class="nc" id="L113">        + &quot;: &quot; + MyFormatter.unitsToTextNoOwner(units), units);</span>
+<span class="nc" id="L114">    m_bridge.addChange(ChangeFactory.addUnits(territory, units));</span>
+<span class="nc bnc" id="L115" title="All 4 branches missed.">    if (mapLoading != null &amp;&amp; !mapLoading.isEmpty()) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">      for (final Entry&lt;Unit, Unit&gt; entry : mapLoading.entrySet()) {</span>
+<span class="nc" id="L117">        m_bridge.addChange(TransportTracker.loadTransportChange((TripleAUnit) entry.getValue(), entry.getKey()));</span>
+      }
+    }
+<span class="nc" id="L120">    return null;</span>
+  }
+
+  /**
+   * @return gets the production of the territory, ignores whether the territory was an original factory
+   */
+  protected int getProduction(final Territory territory) {
+<span class="nc" id="L127">    final TerritoryAttachment ta = TerritoryAttachment.get(territory);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">    if (ta != null) {</span>
+<span class="nc" id="L129">      return ta.getProduction();</span>
+    }
+<span class="nc" id="L131">    return 0;</span>
+  }
+
+  @Override
+  public String changeTerritoryOwner(final Territory territory, final PlayerID player) {
+<span class="nc" id="L136">    String result = null;</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L138">      return result;</span>
+    }
+<span class="nc" id="L140">    final GameData data = getData();</span>
+    // validate this edit
+<span class="nc bnc" id="L142" title="All 2 branches missed.">    if (null != (result = EditValidator.validateChangeTerritoryOwner(data, territory, player))) {</span>
+<span class="nc" id="L143">      return result;</span>
+    }
+<span class="nc" id="L145">    logEvent(&quot;Changing ownership of &quot; + territory.getName() + &quot; from &quot; + territory.getOwner().getName() + &quot; to &quot;</span>
+<span class="nc" id="L146">        + player.getName(), territory);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">    if (!data.getRelationshipTracker().isAtWar(territory.getOwner(), player)) {</span>
+      // change ownership of friendly factories
+<span class="nc" id="L149">      final Collection&lt;Unit&gt; units = territory.getUnits().getMatches(Matches.UnitIsInfrastructure);</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">      for (final Unit unit : units) {</span>
+<span class="nc" id="L151">        m_bridge.addChange(ChangeFactory.changeOwner(unit, player, territory));</span>
+      }
+<span class="nc" id="L153">    } else {</span>
+<span class="nc" id="L154">      final CompositeMatch&lt;Unit&gt; enemyNonCom = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L155">      enemyNonCom.add(Matches.UnitIsInfrastructure);</span>
+<span class="nc" id="L156">      enemyNonCom.add(Matches.enemyUnit(player, data));</span>
+<span class="nc" id="L157">      final Collection&lt;Unit&gt; units = territory.getUnits().getMatches(enemyNonCom);</span>
+      // mark no movement for enemy units
+<span class="nc" id="L159">      m_bridge.addChange(ChangeFactory.markNoMovementChange(units));</span>
+      // change ownership of enemy AA and factories
+<span class="nc bnc" id="L161" title="All 2 branches missed.">      for (final Unit unit : units) {</span>
+<span class="nc" id="L162">        m_bridge.addChange(ChangeFactory.changeOwner(unit, player, territory));</span>
+      }
+    }
+    // change ownership of territory
+<span class="nc" id="L166">    m_bridge.addChange(ChangeFactory.changeOwner(territory, player));</span>
+<span class="nc" id="L167">    return null;</span>
+  }
+
+  @Override
+  public String changePUs(final PlayerID player, final int newTotal) {
+<span class="nc" id="L172">    String result = null;</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L174">      return result;</span>
+    }
+<span class="nc" id="L176">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L177">    final int oldTotal = player.getResources().getQuantity(PUs);</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    if (oldTotal == newTotal) {</span>
+<span class="nc" id="L179">      return &quot;New PUs total is unchanged&quot;;</span>
+    }
+<span class="nc bnc" id="L181" title="All 2 branches missed.">    if (newTotal &lt; 0) {</span>
+<span class="nc" id="L182">      return &quot;New PUs total is invalid&quot;;</span>
+    }
+<span class="nc" id="L184">    logEvent(&quot;Changing PUs for &quot; + player.getName() + &quot; from &quot; + oldTotal + &quot; to &quot; + newTotal, null);</span>
+<span class="nc" id="L185">    m_bridge.addChange(ChangeFactory.changeResourcesChange(player, PUs, (newTotal - oldTotal)));</span>
+<span class="nc" id="L186">    return null;</span>
+  }
+
+  @Override
+  public String changeTechTokens(final PlayerID player, final int newTotal) {
+<span class="nc" id="L191">    String result = null;</span>
+<span class="nc bnc" id="L192" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L193">      return result;</span>
+    }
+<span class="nc" id="L195">    final Resource techTokens = getData().getResourceList().getResource(Constants.TECH_TOKENS);</span>
+<span class="nc" id="L196">    final int oldTotal = player.getResources().getQuantity(techTokens);</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">    if (oldTotal == newTotal) {</span>
+<span class="nc" id="L198">      return &quot;New token total is unchanged&quot;;</span>
+    }
+<span class="nc bnc" id="L200" title="All 2 branches missed.">    if (newTotal &lt; 0) {</span>
+<span class="nc" id="L201">      return &quot;New token total is invalid&quot;;</span>
+    }
+<span class="nc" id="L203">    logEvent(&quot;Changing tech tokens for &quot; + player.getName() + &quot; from &quot; + oldTotal + &quot; to &quot; + newTotal, null);</span>
+<span class="nc" id="L204">    m_bridge.addChange(ChangeFactory.changeResourcesChange(player, techTokens, (newTotal - oldTotal)));</span>
+<span class="nc" id="L205">    return null;</span>
+  }
+
+  @Override
+  public String addTechAdvance(final PlayerID player, final Collection&lt;TechAdvance&gt; advances) {
+<span class="nc" id="L210">    String result = null;</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L212">      return result;</span>
+    }
+<span class="nc bnc" id="L214" title="All 2 branches missed.">    if (null != (result = EditValidator.validateAddTech(getData(), advances, player))) {</span>
+<span class="nc" id="L215">      return result;</span>
+    }
+<span class="nc bnc" id="L217" title="All 2 branches missed.">    for (final TechAdvance advance : advances) {</span>
+<span class="nc" id="L218">      logEvent(&quot;Adding Technology &quot; + advance.getName() + &quot; for &quot; + player.getName(), null);</span>
+<span class="nc" id="L219">      TechTracker.addAdvance(player, m_bridge, advance);</span>
+    }
+<span class="nc" id="L221">    return null;</span>
+  }
+
+  @Override
+  public String removeTechAdvance(final PlayerID player, final Collection&lt;TechAdvance&gt; advances) {
+<span class="nc" id="L226">    String result = null;</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L228">      return result;</span>
+    }
+<span class="nc bnc" id="L230" title="All 2 branches missed.">    if (null != (result = EditValidator.validateRemoveTech(getData(), advances, player))) {</span>
+<span class="nc" id="L231">      return result;</span>
+    }
+<span class="nc bnc" id="L233" title="All 2 branches missed.">    for (final TechAdvance advance : advances) {</span>
+<span class="nc" id="L234">      logEvent(&quot;Removing Technology &quot; + advance.getName() + &quot; for &quot; + player.getName(), null);</span>
+<span class="nc" id="L235">      TechTracker.removeAdvance(player, m_bridge, advance);</span>
+    }
+<span class="nc" id="L237">    return null;</span>
+  }
+
+  @Override
+  public String changeUnitHitDamage(final IntegerMap&lt;Unit&gt; unitDamageMap, final Territory territory) {
+<span class="nc" id="L242">    String result = null;</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L244">      return result;</span>
+    }
+<span class="nc bnc" id="L246" title="All 2 branches missed.">    if (null != (result = EditValidator.validateChangeHitDamage(getData(), unitDamageMap, territory))) {</span>
+<span class="nc" id="L247">      return result;</span>
+    }
+    // remove anyone who is the same
+<span class="nc" id="L250">    final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitDamageMap.keySet());</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L252">      final int dmg = unitDamageMap.getInt(u);</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">      if (u.getHits() == dmg) {</span>
+<span class="nc" id="L254">        unitDamageMap.removeKey(u);</span>
+      }
+    }
+<span class="nc bnc" id="L257" title="All 2 branches missed.">    if (unitDamageMap.isEmpty()) {</span>
+<span class="nc" id="L258">      return null;</span>
+    }
+<span class="nc" id="L260">    final Collection&lt;Unit&gt; unitsFinal = new ArrayList&lt;&gt;(unitDamageMap.keySet());</span>
+<span class="nc" id="L261">    logEvent(&quot;Changing unit hit damage for these &quot; + unitsFinal.iterator().next().getOwner().getName()</span>
+<span class="nc" id="L262">        + &quot; owned units to: &quot; + MyFormatter.integerUnitMapToString(unitDamageMap, &quot;, &quot;, &quot; = &quot;, false), unitsFinal);</span>
+<span class="nc" id="L263">    m_bridge.addChange(ChangeFactory.unitsHit(unitDamageMap));</span>
+    // territory.notifyChanged();
+<span class="nc" id="L265">    return null;</span>
+  }
+
+  @Override
+  public String changeUnitBombingDamage(final IntegerMap&lt;Unit&gt; unitDamageMap, final Territory territory) {
+<span class="nc" id="L270">    String result = null;</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L272">      return result;</span>
+    }
+<span class="nc bnc" id="L274" title="All 2 branches missed.">    if (null != (result = EditValidator.validateChangeBombingDamage(getData(), unitDamageMap, territory))) {</span>
+<span class="nc" id="L275">      return result;</span>
+    }
+    // remove anyone who is the same
+<span class="nc" id="L278">    final Collection&lt;Unit&gt; units = new ArrayList&lt;&gt;(unitDamageMap.keySet());</span>
+<span class="nc bnc" id="L279" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L280">      final int dmg = unitDamageMap.getInt(u);</span>
+<span class="nc" id="L281">      final int currentDamage = ((TripleAUnit) u).getUnitDamage();</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">      if (currentDamage == dmg) {</span>
+<span class="nc" id="L283">        unitDamageMap.removeKey(u);</span>
+      }
+    }
+<span class="nc bnc" id="L286" title="All 2 branches missed.">    if (unitDamageMap.isEmpty()) {</span>
+<span class="nc" id="L287">      return null;</span>
+    }
+    // we do damage to the unit
+<span class="nc" id="L290">    final Collection&lt;Unit&gt; unitsFinal = new ArrayList&lt;&gt;(unitDamageMap.keySet());</span>
+<span class="nc" id="L291">    logEvent(&quot;Changing unit bombing damage for these &quot; + unitsFinal.iterator().next().getOwner().getName()</span>
+<span class="nc" id="L292">        + &quot; owned units to: &quot; + MyFormatter.integerUnitMapToString(unitDamageMap, &quot;, &quot;, &quot; = &quot;, false), unitsFinal);</span>
+<span class="nc" id="L293">    m_bridge.addChange(ChangeFactory.bombingUnitDamage(unitDamageMap));</span>
+    // territory.notifyChanged();
+<span class="nc" id="L295">    return null;</span>
+  }
+
+  @Override
+  public String changePoliticalRelationships(
+      final Collection&lt;Triple&lt;PlayerID, PlayerID, RelationshipType&gt;&gt; relationshipChanges) {
+<span class="nc" id="L301">    String result = null;</span>
+<span class="nc bnc" id="L302" title="All 4 branches missed.">    if (relationshipChanges == null || relationshipChanges.isEmpty()) {</span>
+<span class="nc" id="L303">      return result;</span>
+    }
+<span class="nc bnc" id="L305" title="All 2 branches missed.">    if (null != (result = checkEditMode())) {</span>
+<span class="nc" id="L306">      return result;</span>
+    }
+<span class="nc bnc" id="L308" title="All 2 branches missed.">    if (null != (result = EditValidator.validateChangePoliticalRelationships(getData(), relationshipChanges))) {</span>
+<span class="nc" id="L309">      return result;</span>
+    }
+<span class="nc" id="L311">    final BattleTracker battleTracker = AbstractMoveDelegate.getBattleTracker(getData());</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">    for (final Triple&lt;PlayerID, PlayerID, RelationshipType&gt; relationshipChange : relationshipChanges) {</span>
+<span class="nc" id="L313">      final RelationshipType currentRelation = getData().getRelationshipTracker()</span>
+<span class="nc" id="L314">          .getRelationshipType(relationshipChange.getFirst(), relationshipChange.getSecond());</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">      if (!currentRelation.equals(relationshipChange.getThird())) {</span>
+<span class="nc" id="L316">        logEvent(&quot;Editing Political Relationship for &quot; + relationshipChange.getFirst().getName() + &quot; and &quot;</span>
+<span class="nc" id="L317">            + relationshipChange.getSecond().getName() + &quot; from &quot; + currentRelation.getName() + &quot; to &quot;</span>
+<span class="nc" id="L318">            + relationshipChange.getThird().getName(), null);</span>
+<span class="nc" id="L319">        m_bridge.addChange(ChangeFactory.relationshipChange(relationshipChange.getFirst(),</span>
+<span class="nc" id="L320">            relationshipChange.getSecond(), currentRelation, relationshipChange.getThird()));</span>
+<span class="nc" id="L321">        battleTracker.addRelationshipChangesThisTurn(relationshipChange.getFirst(), relationshipChange.getSecond(),</span>
+<span class="nc" id="L322">            currentRelation, relationshipChange.getThird());</span>
+      }
+    }
+<span class="nc" id="L325">    return null;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L330">    return IEditDelegate.class;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

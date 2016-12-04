@@ -1,0 +1,738 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>OddsCalculator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.oddsCalculator.ta</a> &gt; <span class="el_source">OddsCalculator.java</span></div><h1>OddsCalculator.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.oddsCalculator.ta;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.Callable;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitHitsChange;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.UnitTypeList;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.display.IDisplay;
+import games.strategy.engine.framework.GameDataUtils;
+import games.strategy.engine.framework.IGameModifiedChannel;
+import games.strategy.engine.gamePlayer.IRemotePlayer;
+import games.strategy.engine.history.DelegateHistoryWriter;
+import games.strategy.engine.history.IDelegateHistoryWriter;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.engine.random.PlainRandomSource;
+import games.strategy.net.GUID;
+import games.strategy.sound.HeadlessSoundChannel;
+import games.strategy.sound.ISound;
+import games.strategy.triplea.ai.AIUtils;
+import games.strategy.triplea.ai.AbstractAI;
+import games.strategy.triplea.delegate.BattleTracker;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.GameDelegateBridge;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MustFightBattle;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.triplea.ui.display.HeadlessDisplay;
+import games.strategy.triplea.ui.display.ITripleADisplay;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+public class OddsCalculator implements IOddsCalculator, Callable&lt;AggregateResults&gt; {
+  public static final String OOL_ALL = &quot;*&quot;;
+  public static final String OOL_ALL_REGEX = &quot;\\*&quot;;
+  public static final String OOL_SEPARATOR = &quot;;&quot;;
+  public static final String OOL_SEPARATOR_REGEX = &quot;;&quot;;
+  public static final String OOL_AMOUNT_DESCRIPTOR = &quot;^&quot;;
+  public static final String OOL_AMOUNT_DESCRIPTOR_REGEX = &quot;\\^&quot;;
+<span class="fc" id="L64">  private GameData m_data = null;</span>
+<span class="fc" id="L65">  private PlayerID m_attacker = null;</span>
+<span class="fc" id="L66">  private PlayerID m_defender = null;</span>
+<span class="fc" id="L67">  private Territory m_location = null;</span>
+<span class="fc" id="L68">  private Collection&lt;Unit&gt; m_attackingUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L69">  private Collection&lt;Unit&gt; m_defendingUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L70">  private Collection&lt;Unit&gt; m_bombardingUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L71">  private Collection&lt;TerritoryEffect&gt; m_territoryEffects = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L72">  private boolean m_keepOneAttackingLandUnit = false;</span>
+<span class="fc" id="L73">  private boolean m_amphibious = false;</span>
+<span class="fc" id="L74">  private int m_retreatAfterRound = -1;</span>
+<span class="fc" id="L75">  private int m_retreatAfterXUnitsLeft = -1;</span>
+<span class="fc" id="L76">  private boolean m_retreatWhenOnlyAirLeft = false;</span>
+<span class="fc" id="L77">  private String m_attackerOrderOfLosses = null;</span>
+<span class="fc" id="L78">  private String m_defenderOrderOfLosses = null;</span>
+<span class="fc" id="L79">  private int m_runCount = 0;</span>
+<span class="fc" id="L80">  private volatile boolean m_cancelled = false;</span>
+<span class="fc" id="L81">  private volatile boolean m_isDataSet = false;</span>
+<span class="fc" id="L82">  private volatile boolean m_isCalcSet = false;</span>
+<span class="fc" id="L83">  private volatile boolean m_isRunning = false;</span>
+<span class="fc" id="L84">  private final List&lt;OddsCalculatorListener&gt; m_listeners = new ArrayList&lt;&gt;();</span>
+
+  public OddsCalculator(final GameData data) {
+<span class="fc" id="L87">    this(data, false);</span>
+<span class="fc" id="L88">  }</span>
+
+<span class="fc" id="L90">  public OddsCalculator(final GameData data, final boolean dataHasAlreadyBeenCloned) {</span>
+<span class="pc bpc" id="L91" title="2 of 4 branches missed.">    m_data = data == null ? null : (dataHasAlreadyBeenCloned ? data : GameDataUtils.cloneGameData(data, false));</span>
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">    if (data != null) {</span>
+<span class="fc" id="L93">      m_isDataSet = true;</span>
+<span class="fc" id="L94">      notifyListenersGameDataIsSet();</span>
+    }
+<span class="fc" id="L96">  }</span>
+
+  @Override
+  public void setGameData(final GameData data) {
+<span class="nc bnc" id="L100" title="All 2 branches missed.">    if (m_isRunning) {</span>
+<span class="nc" id="L101">      return;</span>
+    }
+<span class="nc" id="L103">    m_isDataSet = false;</span>
+<span class="nc" id="L104">    m_isCalcSet = false;</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    m_data = (data == null ? null : GameDataUtils.cloneGameData(data, false));</span>
+    // reset old data
+<span class="nc" id="L107">    m_attacker = null;</span>
+<span class="nc" id="L108">    m_defender = null;</span>
+<span class="nc" id="L109">    m_location = null;</span>
+<span class="nc" id="L110">    m_attackingUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L111">    m_defendingUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L112">    m_bombardingUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L113">    m_territoryEffects = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L114">    m_runCount = 0;</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">    if (data != null) {</span>
+<span class="nc" id="L116">      m_isDataSet = true;</span>
+<span class="nc" id="L117">      notifyListenersGameDataIsSet();</span>
+    }
+<span class="nc" id="L119">  }</span>
+
+  /**
+   * Calculates odds using the stored game data.
+   */
+  @Override
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public void setCalculateData(final PlayerID attacker, final PlayerID defender, final Territory location,
+      final Collection&lt;Unit&gt; attacking, final Collection&lt;Unit&gt; defending, final Collection&lt;Unit&gt; bombarding,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, final int runCount) throws IllegalStateException {
+<span class="pc bpc" id="L129" title="1 of 2 branches missed.">    if (m_isRunning) {</span>
+<span class="nc" id="L130">      return;</span>
+    }
+<span class="fc" id="L132">    m_isCalcSet = false;</span>
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">    if (!m_isDataSet) {</span>
+<span class="nc" id="L134">      throw new IllegalStateException(&quot;Called set calculation before setting game data!&quot;);</span>
+    }
+<span class="fc" id="L136">    m_attacker =</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        m_data.getPlayerList().getPlayerID((attacker == null ? PlayerID.NULL_PLAYERID.getName() : attacker.getName()));</span>
+<span class="fc" id="L138">    m_defender =</span>
+<span class="pc bpc" id="L139" title="1 of 2 branches missed.">        m_data.getPlayerList().getPlayerID((defender == null ? PlayerID.NULL_PLAYERID.getName() : defender.getName()));</span>
+<span class="fc" id="L140">    m_location = m_data.getMap().getTerritory(location.getName());</span>
+<span class="fc" id="L141">    m_attackingUnits = (Collection&lt;Unit&gt;) GameDataUtils.translateIntoOtherGameData(attacking, m_data);</span>
+<span class="fc" id="L142">    m_defendingUnits = (Collection&lt;Unit&gt;) GameDataUtils.translateIntoOtherGameData(defending, m_data);</span>
+<span class="fc" id="L143">    m_bombardingUnits = (Collection&lt;Unit&gt;) GameDataUtils.translateIntoOtherGameData(bombarding, m_data);</span>
+<span class="fc" id="L144">    m_territoryEffects =</span>
+<span class="fc" id="L145">        (Collection&lt;TerritoryEffect&gt;) GameDataUtils.translateIntoOtherGameData(territoryEffects, m_data);</span>
+<span class="fc" id="L146">    m_data.performChange(ChangeFactory.removeUnits(m_location, m_location.getUnits().getUnits()));</span>
+<span class="fc" id="L147">    m_data.performChange(ChangeFactory.addUnits(m_location, m_attackingUnits));</span>
+<span class="fc" id="L148">    m_data.performChange(ChangeFactory.addUnits(m_location, m_defendingUnits));</span>
+<span class="fc" id="L149">    m_runCount = runCount;</span>
+<span class="fc" id="L150">    m_isCalcSet = true;</span>
+<span class="fc" id="L151">  }</span>
+
+  @Override
+  public AggregateResults setCalculateDataAndCalculate(final PlayerID attacker, final PlayerID defender,
+      final Territory location, final Collection&lt;Unit&gt; attacking, final Collection&lt;Unit&gt; defending,
+      final Collection&lt;Unit&gt; bombarding, final Collection&lt;TerritoryEffect&gt; territoryEffects, final int runCount) {
+<span class="fc" id="L157">    setCalculateData(attacker, defender, location, attacking, defending, bombarding, territoryEffects, runCount);</span>
+<span class="fc" id="L158">    return calculate();</span>
+  }
+
+  @Override
+  public AggregateResults calculate() {
+<span class="pc bpc" id="L163" title="1 of 2 branches missed.">    if (!getIsReady()) {</span>
+<span class="nc" id="L164">      throw new IllegalStateException(&quot;Called calculate before setting calculate data!&quot;);</span>
+    }
+<span class="fc" id="L166">    return calculate(m_runCount);</span>
+  }
+
+  @Override
+  public AggregateResults call() throws Exception {
+<span class="nc" id="L171">    return calculate();</span>
+  }
+
+  @Override
+  public boolean getIsReady() {
+<span class="pc bpc" id="L176" title="2 of 4 branches missed.">    return m_isDataSet &amp;&amp; m_isCalcSet;</span>
+  }
+
+  @Override
+  public int getRunCount() {
+<span class="nc" id="L181">    return m_runCount;</span>
+  }
+
+  @Override
+  public void setKeepOneAttackingLandUnit(final boolean bool) {
+<span class="fc" id="L186">    m_keepOneAttackingLandUnit = bool;</span>
+<span class="fc" id="L187">  }</span>
+
+  @Override
+  public void setAmphibious(final boolean bool) {
+<span class="nc" id="L191">    m_amphibious = bool;</span>
+<span class="nc" id="L192">  }</span>
+
+  @Override
+  public void setRetreatAfterRound(final int value) {
+<span class="nc" id="L196">    m_retreatAfterRound = value;</span>
+<span class="nc" id="L197">  }</span>
+
+  @Override
+  public void setRetreatAfterXUnitsLeft(final int value) {
+<span class="nc" id="L201">    m_retreatAfterXUnitsLeft = value;</span>
+<span class="nc" id="L202">  }</span>
+
+  @Override
+  public void setRetreatWhenOnlyAirLeft(final boolean value) {
+<span class="nc" id="L206">    m_retreatWhenOnlyAirLeft = value;</span>
+<span class="nc" id="L207">  }</span>
+
+  @Override
+  public void setAttackerOrderOfLosses(final String attackerOrderOfLosses) {
+<span class="nc" id="L211">    m_attackerOrderOfLosses = attackerOrderOfLosses;</span>
+<span class="nc" id="L212">  }</span>
+
+  @Override
+  public void setDefenderOrderOfLosses(final String defenderOrderOfLosses) {
+<span class="nc" id="L216">    m_defenderOrderOfLosses = defenderOrderOfLosses;</span>
+<span class="nc" id="L217">  }</span>
+
+  @Override
+  public void cancel() {
+<span class="fc" id="L221">    m_cancelled = true;</span>
+<span class="fc" id="L222">  }</span>
+
+  @Override
+  public void shutdown() {
+<span class="fc" id="L226">    cancel();</span>
+<span class="pc" id="L227">    synchronized (m_listeners) {</span>
+<span class="fc" id="L228">      m_listeners.clear();</span>
+    }
+<span class="fc" id="L230">  }</span>
+
+  @Override
+  public int getThreadCount() {
+<span class="nc" id="L234">    return 1;</span>
+  }
+
+  private AggregateResults calculate(final int count) {
+<span class="fc" id="L238">    m_isRunning = true;</span>
+<span class="fc" id="L239">    final long start = System.currentTimeMillis();</span>
+<span class="fc" id="L240">    final AggregateResults rVal = new AggregateResults(count);</span>
+<span class="fc" id="L241">    final BattleTracker battleTracker = new BattleTracker();</span>
+    // CasualtySortingCaching can cause issues if there is more than 1 one battle being calced at the same time (like if
+    // the AI and a human
+    // are both using the calc)
+    // TODO: first, see how much it actually speeds stuff up by, and if it does make a difference then convert it to a
+    // per-thread, per-calc
+    // caching
+<span class="fc" id="L248">    final List&lt;Unit&gt; attackerOrderOfLosses =</span>
+<span class="fc" id="L249">        OddsCalculator.getUnitListByOrderOfLoss(m_attackerOrderOfLosses, m_attackingUnits, m_data);</span>
+<span class="fc" id="L250">    final List&lt;Unit&gt; defenderOrderOfLosses =</span>
+<span class="fc" id="L251">        OddsCalculator.getUnitListByOrderOfLoss(m_defenderOrderOfLosses, m_defendingUnits, m_data);</span>
+<span class="pc bpc" id="L252" title="1 of 4 branches missed.">    for (int i = 0; i &lt; count &amp;&amp; !m_cancelled; i++) {</span>
+<span class="fc" id="L253">      final CompositeChange allChanges = new CompositeChange();</span>
+<span class="fc" id="L254">      final DummyDelegateBridge bridge1 = new DummyDelegateBridge(m_attacker, m_data, allChanges, attackerOrderOfLosses,</span>
+<span class="fc" id="L255">          defenderOrderOfLosses, m_keepOneAttackingLandUnit, m_retreatAfterRound, m_retreatAfterXUnitsLeft,</span>
+<span class="fc" id="L256">          m_retreatWhenOnlyAirLeft);</span>
+<span class="fc" id="L257">      final GameDelegateBridge bridge = new GameDelegateBridge(bridge1);</span>
+<span class="fc" id="L258">      final MustFightBattle battle = new MustFightBattle(m_location, m_attacker, m_data, battleTracker);</span>
+<span class="fc" id="L259">      battle.setHeadless(true);</span>
+<span class="fc" id="L260">      battle.isAmphibious();</span>
+<span class="fc" id="L261">      battle.setUnits(m_defendingUnits, m_attackingUnits, m_bombardingUnits,</span>
+<span class="pc bpc" id="L262" title="1 of 2 branches missed.">          (m_amphibious ? m_attackingUnits : new ArrayList&lt;&gt;()), m_defender, m_territoryEffects);</span>
+      // battle.setAttackingFromAndMap(attackingFromMap);
+<span class="fc" id="L264">      bridge1.setBattle(battle);</span>
+<span class="fc" id="L265">      battle.fight(bridge);</span>
+<span class="fc" id="L266">      rVal.addResult(new BattleResults(battle, m_data));</span>
+      // restore the game to its original state
+<span class="fc" id="L268">      m_data.performChange(allChanges.invert());</span>
+<span class="fc" id="L269">      battleTracker.clear();</span>
+<span class="fc" id="L270">      battleTracker.clearBattleRecords();</span>
+    }
+    // BattleCalculator.DisableCasualtySortingCaching();
+<span class="fc" id="L273">    rVal.setTime(System.currentTimeMillis() - start);</span>
+<span class="fc" id="L274">    m_isRunning = false;</span>
+<span class="fc" id="L275">    m_cancelled = false;</span>
+<span class="fc" id="L276">    return rVal;</span>
+  }
+
+  public static boolean isValidOrderOfLoss(final String orderOfLoss, final GameData data) {
+<span class="nc bnc" id="L280" title="All 4 branches missed.">    if (orderOfLoss == null || orderOfLoss.trim().length() == 0) {</span>
+<span class="nc" id="L281">      return true;</span>
+    }
+    try {
+      final String[] sections;
+<span class="nc bnc" id="L285" title="All 2 branches missed.">      if (orderOfLoss.contains(OOL_SEPARATOR)) {</span>
+<span class="nc" id="L286">        sections = orderOfLoss.trim().split(OOL_SEPARATOR_REGEX);</span>
+<span class="nc" id="L287">      } else {</span>
+<span class="nc" id="L288">        sections = new String[1];</span>
+<span class="nc" id="L289">        sections[0] = orderOfLoss.trim();</span>
+      }
+      final UnitTypeList unitTypes;
+      try {
+<span class="nc" id="L293">        data.acquireReadLock();</span>
+<span class="nc" id="L294">        unitTypes = data.getUnitTypeList();</span>
+<span class="nc" id="L295">      } finally {</span>
+<span class="nc" id="L296">        data.releaseReadLock();</span>
+<span class="nc" id="L297">      }</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">      for (final String section : sections) {</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">        if (section.length() == 0) {</span>
+<span class="nc" id="L300">          continue;</span>
+        }
+<span class="nc" id="L302">        final String[] amountThenType = section.split(OOL_AMOUNT_DESCRIPTOR_REGEX);</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        if (amountThenType.length != 2) {</span>
+<span class="nc" id="L304">          return false;</span>
+        }
+<span class="nc bnc" id="L306" title="All 2 branches missed.">        if (!amountThenType[0].equals(OOL_ALL)) {</span>
+<span class="nc" id="L307">          final int amount = Integer.parseInt(amountThenType[0]);</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">          if (amount &lt;= 0) {</span>
+<span class="nc" id="L309">            return false;</span>
+          }
+        }
+<span class="nc" id="L312">        final UnitType type = unitTypes.getUnitType(amountThenType[1]);</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        if (type == null) {</span>
+<span class="nc" id="L314">          return false;</span>
+        }
+      }
+<span class="nc" id="L317">    } catch (final Exception e) {</span>
+<span class="nc" id="L318">      return false;</span>
+    }
+<span class="nc" id="L320">    return true;</span>
+  }
+
+  private static List&lt;Unit&gt; getUnitListByOrderOfLoss(final String ool, final Collection&lt;Unit&gt; units,
+      final GameData data) {
+<span class="pc bpc" id="L325" title="3 of 4 branches missed.">    if (ool == null || ool.trim().length() == 0) {</span>
+<span class="fc" id="L326">      return null;</span>
+    }
+<span class="nc" id="L328">    final List&lt;Tuple&lt;Integer, UnitType&gt;&gt; map = new ArrayList&lt;&gt;();</span>
+    final String[] sections;
+<span class="nc bnc" id="L330" title="All 2 branches missed.">    if (ool.contains(OOL_SEPARATOR)) {</span>
+<span class="nc" id="L331">      sections = ool.trim().split(OOL_SEPARATOR_REGEX);</span>
+<span class="nc" id="L332">    } else {</span>
+<span class="nc" id="L333">      sections = new String[1];</span>
+<span class="nc" id="L334">      sections[0] = ool.trim();</span>
+    }
+<span class="nc bnc" id="L336" title="All 2 branches missed.">    for (final String section : sections) {</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">      if (section.length() == 0) {</span>
+<span class="nc" id="L338">        continue;</span>
+      }
+<span class="nc" id="L340">      final String[] amountThenType = section.split(OOL_AMOUNT_DESCRIPTOR_REGEX);</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">      final int amount = amountThenType[0].equals(OOL_ALL) ? Integer.MAX_VALUE : Integer.parseInt(amountThenType[0]);</span>
+<span class="nc" id="L342">      final UnitType type = data.getUnitTypeList().getUnitType(amountThenType[1]);</span>
+<span class="nc" id="L343">      map.add(Tuple.of(amount, type));</span>
+    }
+<span class="nc" id="L345">    Collections.reverse(map);</span>
+<span class="nc" id="L346">    final Set&lt;Unit&gt; unitsLeft = new HashSet&lt;&gt;(units);</span>
+<span class="nc" id="L347">    final List&lt;Unit&gt; order = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L348" title="All 2 branches missed.">    for (final Tuple&lt;Integer, UnitType&gt; section : map) {</span>
+<span class="nc" id="L349">      final List&lt;Unit&gt; unitsOfType =</span>
+<span class="nc" id="L350">          Match.getNMatches(unitsLeft, section.getFirst(), Matches.unitIsOfType(section.getSecond()));</span>
+<span class="nc" id="L351">      order.addAll(unitsOfType);</span>
+<span class="nc" id="L352">      unitsLeft.removeAll(unitsOfType);</span>
+    }
+<span class="nc" id="L354">    Collections.reverse(order);</span>
+<span class="nc" id="L355">    return order;</span>
+  }
+
+  @Override
+  public void addOddsCalculatorListener(final OddsCalculatorListener listener) {
+<span class="nc" id="L360">    synchronized (m_listeners) {</span>
+<span class="nc" id="L361">      m_listeners.add(listener);</span>
+    }
+<span class="nc" id="L363">  }</span>
+
+  @Override
+  public void removeOddsCalculatorListener(final OddsCalculatorListener listener) {
+<span class="nc" id="L367">    synchronized (m_listeners) {</span>
+<span class="nc" id="L368">      m_listeners.remove(listener);</span>
+    }
+<span class="nc" id="L370">  }</span>
+
+  private void notifyListenersGameDataIsSet() {
+<span class="pc" id="L373">    synchronized (m_listeners) {</span>
+<span class="pc bpc" id="L374" title="1 of 2 branches missed.">      for (final OddsCalculatorListener listener : m_listeners) {</span>
+<span class="nc" id="L375">        listener.dataReady();</span>
+      }
+    }
+<span class="fc" id="L378">  }</span>
+}
+
+
+class DummyDelegateBridge implements IDelegateBridge {
+<span class="fc" id="L383">  private final PlainRandomSource m_randomSource = new PlainRandomSource();</span>
+<span class="fc" id="L384">  private final ITripleADisplay m_display = new HeadlessDisplay();</span>
+<span class="fc" id="L385">  private final ISound m_soundChannel = new HeadlessSoundChannel();</span>
+  private final DummyPlayer m_attackingPlayer;
+  private final DummyPlayer m_defendingPlayer;
+  private final PlayerID m_attacker;
+<span class="fc" id="L389">  private final DelegateHistoryWriter m_writer = new DelegateHistoryWriter(new DummyGameModifiedChannel());</span>
+  private final CompositeChange m_allChanges;
+  private final GameData m_data;
+<span class="fc" id="L392">  private MustFightBattle m_battle = null;</span>
+
+<span class="fc" id="L394">  public DummyDelegateBridge(final PlayerID attacker, final GameData data, final CompositeChange allChanges,</span>
+      final List&lt;Unit&gt; attackerOrderOfLosses, final List&lt;Unit&gt; defenderOrderOfLosses,
+      final boolean attackerKeepOneLandUnit, final int retreatAfterRound, final int retreatAfterXUnitsLeft,
+      final boolean retreatWhenOnlyAirLeft) {
+<span class="fc" id="L398">    m_attackingPlayer =</span>
+<span class="fc" id="L399">        new DummyPlayer(this, true, &quot;battle calc dummy&quot;, &quot;None (AI)&quot;, attackerOrderOfLosses, attackerKeepOneLandUnit,</span>
+<span class="fc" id="L400">            retreatAfterRound, retreatAfterXUnitsLeft, retreatWhenOnlyAirLeft);</span>
+<span class="fc" id="L401">    m_defendingPlayer = new DummyPlayer(this, false, &quot;battle calc dummy&quot;, &quot;None (AI)&quot;, defenderOrderOfLosses, false,</span>
+<span class="fc" id="L402">        retreatAfterRound, -1, false);</span>
+<span class="fc" id="L403">    m_data = data;</span>
+<span class="fc" id="L404">    m_attacker = attacker;</span>
+<span class="fc" id="L405">    m_allChanges = allChanges;</span>
+<span class="fc" id="L406">  }</span>
+
+  @Override
+  public GameData getData() {
+<span class="fc" id="L410">    return m_data;</span>
+  }
+
+  @Override
+<span class="nc" id="L414">  public void leaveDelegateExecution() {}</span>
+
+  @Override
+  public Properties getStepProperties() {
+<span class="nc" id="L418">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public String getStepName() {
+<span class="nc" id="L423">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public IRemotePlayer getRemotePlayer(final PlayerID id) {
+<span class="fc bfc" id="L428" title="All 2 branches covered.">    if (id.equals(m_attacker)) {</span>
+<span class="fc" id="L429">      return m_attackingPlayer;</span>
+    } else {
+<span class="fc" id="L431">      return m_defendingPlayer;</span>
+    }
+  }
+
+  @Override
+  public IRemotePlayer getRemotePlayer() {
+    // the current player is attacker
+<span class="nc" id="L438">    return m_attackingPlayer;</span>
+  }
+
+  @Override
+  public int[] getRandom(final int max, final int count, final PlayerID player, final DiceType diceType,
+      final String annotation) {
+<span class="fc" id="L444">    return m_randomSource.getRandom(max, count, annotation);</span>
+  }
+
+  @Override
+  public int getRandom(final int max, final PlayerID player, final DiceType diceType, final String annotation) {
+<span class="nc" id="L449">    return m_randomSource.getRandom(max, annotation);</span>
+  }
+
+  @Override
+  public PlayerID getPlayerID() {
+<span class="nc" id="L454">    return m_attacker;</span>
+  }
+
+  @Override
+  public IDelegateHistoryWriter getHistoryWriter() {
+<span class="fc" id="L459">    return m_writer;</span>
+  }
+
+  @Override
+  public IDisplay getDisplayChannelBroadcaster() {
+<span class="fc" id="L464">    return m_display;</span>
+  }
+
+  @Override
+  public ISound getSoundChannelBroadcaster() {
+<span class="nc" id="L469">    return m_soundChannel;</span>
+  }
+
+  @Override
+<span class="nc" id="L473">  public void enterDelegateExecution() {}</span>
+
+  @Override
+  public void addChange(final Change aChange) {
+<span class="pc bpc" id="L477" title="1 of 2 branches missed.">    if (!(aChange instanceof UnitHitsChange)) {</span>
+<span class="fc" id="L478">      return;</span>
+    }
+<span class="nc" id="L480">    m_allChanges.add(aChange);</span>
+<span class="nc" id="L481">    m_data.performChange(aChange);</span>
+<span class="nc" id="L482">  }</span>
+
+  @Override
+<span class="nc" id="L485">  public void stopGameSequence() {}</span>
+
+  public MustFightBattle getBattle() {
+<span class="fc" id="L488">    return m_battle;</span>
+  }
+
+  public void setBattle(final MustFightBattle battle) {
+<span class="fc" id="L492">    m_battle = battle;</span>
+<span class="fc" id="L493">  }</span>
+}
+
+
+<span class="fc" id="L497">class DummyGameModifiedChannel implements IGameModifiedChannel {</span>
+  @Override
+<span class="fc" id="L499">  public void addChildToEvent(final String text, final Object renderingData) {}</span>
+
+  @Override
+<span class="nc" id="L502">  public void gameDataChanged(final Change aChange) {}</span>
+
+  @Override
+<span class="nc" id="L505">  public void shutDown() {}</span>
+
+  @Override
+<span class="nc" id="L508">  public void startHistoryEvent(final String event) {}</span>
+
+  @Override
+  public void stepChanged(final String stepName, final String delegateName, final PlayerID player, final int round,
+<span class="nc" id="L512">      final String displayName, final boolean loadedFromSavedGame) {}</span>
+
+  @Override
+<span class="fc" id="L515">  public void startHistoryEvent(final String event, final Object renderingData) {}</span>
+}
+
+
+class DummyPlayer extends AbstractAI {
+  private final boolean m_keepAtLeastOneLand;
+  // negative = do not retreat
+  private final int m_retreatAfterRound;
+  // negative = do not retreat
+  private final int m_retreatAfterXUnitsLeft;
+  private final boolean m_retreatWhenOnlyAirLeft;
+  private final DummyDelegateBridge m_bridge;
+  private final boolean m_isAttacker;
+  private final List&lt;Unit&gt; m_orderOfLosses;
+
+  public DummyPlayer(final DummyDelegateBridge dummyDelegateBridge, final boolean attacker, final String name,
+      final String type, final List&lt;Unit&gt; orderOfLosses, final boolean keepAtLeastOneLand, final int retreatAfterRound,
+      final int retreatAfterXUnitsLeft, final boolean retreatWhenOnlyAirLeft) {
+<span class="fc" id="L533">    super(name, type);</span>
+<span class="fc" id="L534">    m_keepAtLeastOneLand = keepAtLeastOneLand;</span>
+<span class="fc" id="L535">    m_retreatAfterRound = retreatAfterRound;</span>
+<span class="fc" id="L536">    m_retreatAfterXUnitsLeft = retreatAfterXUnitsLeft;</span>
+<span class="fc" id="L537">    m_retreatWhenOnlyAirLeft = retreatWhenOnlyAirLeft;</span>
+<span class="fc" id="L538">    m_bridge = dummyDelegateBridge;</span>
+<span class="fc" id="L539">    m_isAttacker = attacker;</span>
+<span class="fc" id="L540">    m_orderOfLosses = orderOfLosses;</span>
+<span class="fc" id="L541">  }</span>
+
+  private MustFightBattle getBattle() {
+<span class="fc" id="L544">    return m_bridge.getBattle();</span>
+  }
+
+  private List&lt;Unit&gt; getOurUnits() {
+<span class="fc" id="L548">    final MustFightBattle battle = getBattle();</span>
+<span class="pc bpc" id="L549" title="1 of 2 branches missed.">    if (battle == null) {</span>
+<span class="nc" id="L550">      return null;</span>
+    }
+<span class="fc bfc" id="L552" title="All 2 branches covered.">    return new ArrayList&lt;&gt;((m_isAttacker ? battle.getAttackingUnits() : battle.getDefendingUnits()));</span>
+  }
+
+  private List&lt;Unit&gt; getEnemyUnits() {
+<span class="fc" id="L556">    final MustFightBattle battle = getBattle();</span>
+<span class="pc bpc" id="L557" title="1 of 2 branches missed.">    if (battle == null) {</span>
+<span class="nc" id="L558">      return null;</span>
+    }
+<span class="fc bfc" id="L560" title="All 2 branches covered.">    return new ArrayList&lt;&gt;((m_isAttacker ? battle.getDefendingUnits() : battle.getAttackingUnits()));</span>
+  }
+
+  @Override
+  protected void move(final boolean nonCombat, final IMoveDelegate moveDel, final GameData data,
+<span class="nc" id="L565">      final PlayerID player) {}</span>
+
+  @Override
+  protected void place(final boolean placeForBid, final IAbstractPlaceDelegate placeDelegate, final GameData data,
+<span class="nc" id="L569">      final PlayerID player) {}</span>
+
+  @Override
+  protected void purchase(final boolean purcahseForBid, final int PUsToSpend, final IPurchaseDelegate purchaseDelegate,
+<span class="nc" id="L573">      final GameData data, final PlayerID player) {}</span>
+
+  @Override
+<span class="nc" id="L576">  protected void tech(final ITechDelegate techDelegate, final GameData data, final PlayerID player) {}</span>
+
+  @Override
+  public boolean confirmMoveInFaceOfAA(final Collection&lt;Territory&gt; aaFiringTerritories) {
+<span class="nc" id="L580">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getNumberOfFightersToMoveToNewCarrier(final Collection&lt;Unit&gt; fightersThatCanBeMoved,
+      final Territory from) {
+<span class="nc" id="L586">    throw new UnsupportedOperationException();</span>
+  }
+
+  /**
+   * The battle calc doesn't actually care if you have available territories to retreat to or not.
+   * It will always let you retreat to the 'current' territory (the battle territory), even if that is illegal.
+   * This is because the battle calc does not know where the attackers are actually coming from.
+   */
+  @Override
+  public Territory retreatQuery(final GUID battleID, final boolean submerge, final Territory battleSite,
+      final Collection&lt;Territory&gt; possibleTerritories, final String message) {
+    // null = do not retreat
+<span class="pc bpc" id="L598" title="1 of 2 branches missed.">    if (possibleTerritories.isEmpty()) {</span>
+<span class="nc" id="L599">      return null;</span>
+    }
+<span class="fc bfc" id="L601" title="All 2 branches covered.">    if (submerge) {</span>
+      // submerge if all air vs subs
+<span class="fc" id="L603">      final CompositeMatch&lt;Unit&gt; seaSub = new CompositeMatchAnd&lt;&gt;(Matches.UnitIsSea, Matches.UnitIsSub);</span>
+<span class="fc" id="L604">      final CompositeMatch&lt;Unit&gt; planeNotDestroyer =</span>
+<span class="fc" id="L605">          new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.UnitIsDestroyer.invert());</span>
+<span class="fc" id="L606">      final List&lt;Unit&gt; ourUnits = getOurUnits();</span>
+<span class="fc" id="L607">      final List&lt;Unit&gt; enemyUnits = getEnemyUnits();</span>
+<span class="pc bpc" id="L608" title="2 of 4 branches missed.">      if (ourUnits == null || enemyUnits == null) {</span>
+<span class="nc" id="L609">        return null;</span>
+      }
+<span class="pc bpc" id="L611" title="3 of 6 branches missed.">      if (enemyUnits.size() &gt; 0 &amp;&amp; Match.allMatch(ourUnits, seaSub) &amp;&amp; Match.allMatch(enemyUnits, planeNotDestroyer)) {</span>
+<span class="nc" id="L612">        return possibleTerritories.iterator().next();</span>
+      }
+<span class="fc" id="L614">      return null;</span>
+    } else {
+<span class="fc" id="L616">      final MustFightBattle battle = getBattle();</span>
+<span class="pc bpc" id="L617" title="1 of 2 branches missed.">      if (battle == null) {</span>
+<span class="nc" id="L618">        return null;</span>
+      }
+<span class="pc bpc" id="L620" title="3 of 4 branches missed.">      if (m_retreatAfterRound &gt; -1 &amp;&amp; battle.getBattleRound() &gt;= m_retreatAfterRound) {</span>
+<span class="nc" id="L621">        return possibleTerritories.iterator().next();</span>
+      }
+<span class="pc bpc" id="L623" title="2 of 4 branches missed.">      if (!m_retreatWhenOnlyAirLeft &amp;&amp; m_retreatAfterXUnitsLeft &lt;= -1) {</span>
+<span class="fc" id="L624">        return null;</span>
+      }
+<span class="nc bnc" id="L626" title="All 2 branches missed.">      final Collection&lt;Unit&gt; unitsLeft = m_isAttacker ? battle.getAttackingUnits() : battle.getDefendingUnits();</span>
+<span class="nc" id="L627">      final Collection&lt;Unit&gt; airLeft = Match.getMatches(unitsLeft, Matches.UnitIsAir);</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">      if (m_retreatWhenOnlyAirLeft) {</span>
+        // lets say we have a bunch of 3 attack air unit, and a 4 attack non-air unit,
+        // and we want to retreat when we have all air units left + that 4 attack non-air (cus it gets taken casualty
+        // last)
+        // then we add the number of air, to the retreat after X left number (which we would set to '1')
+<span class="nc" id="L633">        int retreatNum = airLeft.size();</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">        if (m_retreatAfterXUnitsLeft &gt; 0) {</span>
+<span class="nc" id="L635">          retreatNum += m_retreatAfterXUnitsLeft;</span>
+        }
+<span class="nc bnc" id="L637" title="All 2 branches missed.">        if (retreatNum &gt;= unitsLeft.size()) {</span>
+<span class="nc" id="L638">          return possibleTerritories.iterator().next();</span>
+        }
+      }
+<span class="nc bnc" id="L641" title="All 4 branches missed.">      if (m_retreatAfterXUnitsLeft &gt; -1 &amp;&amp; m_retreatAfterXUnitsLeft &gt;= unitsLeft.size()) {</span>
+<span class="nc" id="L642">        return possibleTerritories.iterator().next();</span>
+      }
+<span class="nc" id="L644">      return null;</span>
+    }
+  }
+
+  @Override
+  public HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleUnitsQuery(final Territory scrambleTo,
+      final Map&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; possibleScramblers) {
+<span class="nc" id="L651">    return null;</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; selectUnitsQuery(final Territory current, final Collection&lt;Unit&gt; possible,
+      final String message) {
+<span class="nc" id="L657">    return null;</span>
+  }
+
+  // Added new collection autoKilled to handle killing units prior to casualty selection
+  @Override
+  public CasualtyDetails selectCasualties(final Collection&lt;Unit&gt; selectFrom,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents, final int count, final String message, final DiceRoll dice,
+      final PlayerID hit, final Collection&lt;Unit&gt; friendlyUnits, final PlayerID enemyPlayer,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers,
+      final CasualtyList defaultCasualties, final GUID battleID, final Territory battlesite,
+      final boolean allowMultipleHitsPerUnit) {
+<span class="fc" id="L668">    final List&lt;Unit&gt; rDamaged = new ArrayList&lt;&gt;(defaultCasualties.getDamaged());</span>
+<span class="fc" id="L669">    final List&lt;Unit&gt; rKilled = new ArrayList&lt;&gt;(defaultCasualties.getKilled());</span>
+<span class="pc bpc" id="L670" title="1 of 2 branches missed.">    if (m_keepAtLeastOneLand) {</span>
+<span class="fc" id="L671">      final List&lt;Unit&gt; notKilled = new ArrayList&lt;&gt;(selectFrom);</span>
+<span class="fc" id="L672">      notKilled.removeAll(rKilled);</span>
+      // no land units left, but we have a non land unit to kill and land unit was killed
+<span class="pc bpc" id="L674" title="2 of 4 branches missed.">      if (!Match.someMatch(notKilled, Matches.UnitIsLand) &amp;&amp; Match.someMatch(notKilled, Matches.UnitIsNotLand)</span>
+<span class="pc bpc" id="L675" title="1 of 2 branches missed.">          &amp;&amp; Match.someMatch(rKilled, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L676">        final List&lt;Unit&gt; notKilledAndNotLand = Match.getMatches(notKilled, Matches.UnitIsNotLand);</span>
+        // sort according to cost
+<span class="fc" id="L678">        Collections.sort(notKilledAndNotLand, AIUtils.getCostComparator());</span>
+        // remove the last killed unit, this should be the strongest
+<span class="fc" id="L680">        rKilled.remove(rKilled.size() - 1);</span>
+        // add the cheapest unit
+<span class="fc" id="L682">        rKilled.add(notKilledAndNotLand.get(0));</span>
+      }
+    }
+<span class="pc bpc" id="L685" title="5 of 6 branches missed.">    if (m_orderOfLosses != null &amp;&amp; !m_orderOfLosses.isEmpty() &amp;&amp; !rKilled.isEmpty()) {</span>
+<span class="nc" id="L686">      final List&lt;Unit&gt; orderOfLosses = new ArrayList&lt;&gt;(m_orderOfLosses);</span>
+<span class="nc" id="L687">      orderOfLosses.retainAll(selectFrom);</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">      if (!orderOfLosses.isEmpty()) {</span>
+<span class="nc" id="L689">        int killedSize = rKilled.size();</span>
+<span class="nc" id="L690">        rKilled.clear();</span>
+<span class="nc bnc" id="L691" title="All 4 branches missed.">        while (killedSize &gt; 0 &amp;&amp; !orderOfLosses.isEmpty()) {</span>
+<span class="nc" id="L692">          rKilled.add(orderOfLosses.get(0));</span>
+<span class="nc" id="L693">          orderOfLosses.remove(0);</span>
+<span class="nc" id="L694">          killedSize--;</span>
+        }
+<span class="nc bnc" id="L696" title="All 2 branches missed.">        if (killedSize &gt; 0) {</span>
+<span class="nc" id="L697">          final List&lt;Unit&gt; defaultKilled = new ArrayList&lt;&gt;(defaultCasualties.getKilled());</span>
+<span class="nc" id="L698">          defaultKilled.removeAll(rKilled);</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">          while (killedSize &gt; 0) {</span>
+<span class="nc" id="L700">            rKilled.add(defaultKilled.get(0));</span>
+<span class="nc" id="L701">            defaultKilled.remove(0);</span>
+<span class="nc" id="L702">            killedSize--;</span>
+          }
+        }
+      }
+    }
+<span class="fc" id="L707">    final CasualtyDetails casualtyDetails = new CasualtyDetails(rKilled, rDamaged, false);</span>
+<span class="fc" id="L708">    return casualtyDetails;</span>
+  }
+
+  @Override
+  public Territory selectTerritoryForAirToLand(final Collection&lt;Territory&gt; candidates, final Territory currentTerritory,
+      final String unitMessage) {
+<span class="nc" id="L714">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public boolean shouldBomberBomb(final Territory territory) {
+<span class="nc" id="L719">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public Unit whatShouldBomberBomb(final Territory territory, final Collection&lt;Unit&gt; potentialTargets,
+      final Collection&lt;Unit&gt; bombers) {
+<span class="nc" id="L725">    throw new UnsupportedOperationException();</span>
+  }
+
+  @Override
+  public int[] selectFixedDice(final int numRolls, final int hitAt, final boolean hitOnlyIfEquals, final String message,
+      final int diceSides) {
+<span class="nc" id="L731">    final int[] dice = new int[numRolls];</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">    for (int i = 0; i &lt; numRolls; i++) {</span>
+<span class="nc" id="L733">      dice[i] = (int) Math.ceil(Math.random() * diceSides);</span>
+    }
+<span class="nc" id="L735">    return dice;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

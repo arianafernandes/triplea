@@ -1,0 +1,442 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>RocketsFireHelper.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">RocketsFireHelper.java</span></div><h1>RocketsFireHelper.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * Logic to fire rockets.
+ */
+public class RocketsFireHelper {
+  private boolean isWW2V2(final GameData data) {
+<span class="nc" id="L40">    return games.strategy.triplea.Properties.getWW2V2(data);</span>
+  }
+
+  private boolean isAllRocketsAttack(final GameData data) {
+<span class="nc" id="L44">    return games.strategy.triplea.Properties.getAllRocketsAttack(data);</span>
+  }
+
+  private boolean isRocketsCanFlyOverImpassables(final GameData data) {
+<span class="nc" id="L48">    return games.strategy.triplea.Properties.getRocketsCanFlyOverImpassables(data);</span>
+  }
+
+  private boolean isDamageFromBombingDoneToUnitsInsteadOfTerritories(final GameData data) {
+<span class="nc" id="L52">    return games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data);</span>
+  }
+
+  private boolean isRocketAttacksPerFactoryInfinite(final GameData data) {
+<span class="nc" id="L56">    return games.strategy.triplea.Properties.getRocketAttacksPerFactoryInfinite(data);</span>
+  }
+
+  private boolean isPUCap(final GameData data) {
+<span class="nc" id="L60">    return games.strategy.triplea.Properties.getPUCap(data);</span>
+  }
+
+  private boolean isLimitRocketDamagePerTurn(final GameData data) {
+<span class="nc" id="L64">    return games.strategy.triplea.Properties.getLimitRocketDamagePerTurn(data);</span>
+  }
+
+  private boolean isLimitRocketDamageToProduction(final GameData data) {
+<span class="nc" id="L68">    return games.strategy.triplea.Properties.getLimitRocketAndSBRDamageToProduction(data);</span>
+  }
+
+<span class="fc" id="L71">  public RocketsFireHelper() {}</span>
+
+  public void fireRockets(final IDelegateBridge bridge, final PlayerID player) {
+<span class="nc" id="L74">    final GameData data = bridge.getData();</span>
+<span class="nc" id="L75">    final Set&lt;Territory&gt; rocketTerritories = getTerritoriesWithRockets(data, player);</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (rocketTerritories.isEmpty()) {</span>
+<span class="nc" id="L77">      bridge.getHistoryWriter().startEvent(player.getName() + &quot; has no rockets to fire&quot;);</span>
+      // getRemote(bridge).reportMessage(&quot;No rockets to fire&quot;, &quot;No rockets to fire&quot;);
+<span class="nc" id="L79">      return;</span>
+    }
+<span class="nc bnc" id="L81" title="All 4 branches missed.">    if (isWW2V2(data) || isAllRocketsAttack(data)) {</span>
+<span class="nc" id="L82">      fireWW2V2(bridge, player, rocketTerritories);</span>
+<span class="nc" id="L83">    } else {</span>
+<span class="nc" id="L84">      fireWW2V1(bridge, player, rocketTerritories);</span>
+    }
+<span class="nc" id="L86">  }</span>
+
+  private void fireWW2V2(final IDelegateBridge bridge, final PlayerID player, final Set&lt;Territory&gt; rocketTerritories) {
+<span class="nc" id="L89">    final GameData data = bridge.getData();</span>
+<span class="nc" id="L90">    final Set&lt;Territory&gt; attackedTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">    final boolean oneAttackPerTerritory = !isRocketAttacksPerFactoryInfinite(data);</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    for (final Territory territory : rocketTerritories) {</span>
+<span class="nc" id="L93">      final Set&lt;Territory&gt; targets = getTargetsWithinRange(territory, data, player);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">      if (oneAttackPerTerritory) {</span>
+<span class="nc" id="L95">        targets.removeAll(attackedTerritories);</span>
+      }
+<span class="nc bnc" id="L97" title="All 2 branches missed.">      if (targets.isEmpty()) {</span>
+<span class="nc" id="L98">        continue;</span>
+      }
+<span class="nc" id="L100">      final Territory target = getTarget(targets, player, bridge, territory);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">      if (target != null) {</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (oneAttackPerTerritory) {</span>
+<span class="nc" id="L103">          attackedTerritories.add(target);</span>
+        }
+<span class="nc" id="L105">        fireRocket(player, target, bridge, territory);</span>
+      }
+    }
+<span class="nc" id="L108">  }</span>
+
+  private void fireWW2V1(final IDelegateBridge bridge, final PlayerID player, final Set&lt;Territory&gt; rocketTerritories) {
+<span class="nc" id="L111">    final GameData data = bridge.getData();</span>
+<span class="nc" id="L112">    final Set&lt;Territory&gt; targets = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">    for (final Territory territory : rocketTerritories) {</span>
+<span class="nc" id="L114">      targets.addAll(getTargetsWithinRange(territory, data, player));</span>
+    }
+<span class="nc bnc" id="L116" title="All 2 branches missed.">    if (targets.isEmpty()) {</span>
+<span class="nc" id="L117">      bridge.getHistoryWriter().startEvent(player.getName() + &quot; has no targets to attack with rockets&quot;);</span>
+      // getRemote(bridge).reportMessage(&quot;No targets to attack with rockets&quot;, &quot;No targets to attack with rockets&quot;);
+<span class="nc" id="L119">      return;</span>
+    }
+<span class="nc" id="L121">    final Territory attacked = getTarget(targets, player, bridge, null);</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">    if (attacked != null) {</span>
+<span class="nc" id="L123">      fireRocket(player, attacked, bridge, null);</span>
+    }
+<span class="nc" id="L125">  }</span>
+
+  Set&lt;Territory&gt; getTerritoriesWithRockets(final GameData data, final PlayerID player) {
+<span class="fc" id="L128">    final Set&lt;Territory&gt; territories = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L129">    final CompositeMatch&lt;Unit&gt; ownedRockets = rocketMatch(player, data);</span>
+<span class="fc" id="L130">    final BattleTracker tracker = AbstractMoveDelegate.getBattleTracker(data);</span>
+<span class="fc bfc" id="L131" title="All 2 branches covered.">    for (final Territory current : data.getMap()) {</span>
+<span class="fc bfc" id="L132" title="All 2 branches covered.">      if (tracker.wasConquered(current)) {</span>
+<span class="fc" id="L133">        continue;</span>
+      }
+<span class="fc bfc" id="L135" title="All 2 branches covered.">      if (current.getUnits().someMatch(ownedRockets)) {</span>
+<span class="fc" id="L136">        territories.add(current);</span>
+      }
+    }
+<span class="fc" id="L139">    return territories;</span>
+  }
+
+  CompositeMatch&lt;Unit&gt; rocketMatch(final PlayerID player, final GameData data) {
+<span class="fc" id="L143">    return new CompositeMatchAnd&lt;&gt;(Matches.UnitIsRocket, Matches.unitIsOwnedBy(player), Matches.UnitIsNotDisabled,</span>
+<span class="fc" id="L144">        Matches.unitIsBeingTransported().invert(), Matches.unitIsSubmerged(data).invert(), Matches.unitHasNotMoved);</span>
+  }
+
+  private Set&lt;Territory&gt; getTargetsWithinRange(final Territory territory, final GameData data, final PlayerID player) {
+<span class="nc" id="L148">    final int maxDistance = TechAbilityAttachment.getRocketDistance(player, data);</span>
+<span class="nc" id="L149">    final Collection&lt;Territory&gt; possible = data.getMap().getNeighbors(territory, maxDistance);</span>
+<span class="nc" id="L150">    final Set&lt;Territory&gt; hasFactory = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L151">    final CompositeMatchAnd&lt;Territory&gt; allowed =</span>
+<span class="nc" id="L152">        new CompositeMatchAnd&lt;&gt;(Matches.territoryAllowsRocketsCanFlyOver(player, data));</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">    if (!isRocketsCanFlyOverImpassables(data)) {</span>
+<span class="nc" id="L154">      allowed.add(Matches.TerritoryIsNotImpassable);</span>
+    }
+<span class="nc" id="L156">    final CompositeMatchAnd&lt;Unit&gt; attackableUnits =</span>
+<span class="nc" id="L157">        new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(player, data), Matches.unitIsBeingTransported().invert());</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">    for (final Territory current : possible) {</span>
+<span class="nc" id="L159">      final Route route = data.getMap().getRoute(territory, current, allowed);</span>
+<span class="nc bnc" id="L160" title="All 4 branches missed.">      if (route != null &amp;&amp; route.numberOfSteps() &lt;= maxDistance) {</span>
+<span class="nc" id="L161">        if (current.getUnits().someMatch(new CompositeMatchAnd&lt;&gt;(attackableUnits,</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">            Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(current).invert()))) {</span>
+<span class="nc" id="L163">          hasFactory.add(current);</span>
+        }
+      }
+    }
+<span class="nc" id="L167">    return hasFactory;</span>
+  }
+
+  private Territory getTarget(final Collection&lt;Territory&gt; targets, final PlayerID player, final IDelegateBridge bridge,
+      final Territory from) {
+    // ask even if there is only once choice, that will allow the user to not attack if he doesn't want to
+<span class="nc" id="L173">    return ((ITripleAPlayer) bridge.getRemotePlayer()).whereShouldRocketsAttack(targets, from);</span>
+  }
+
+  private void fireRocket(final PlayerID player, final Territory attackedTerritory, final IDelegateBridge bridge,
+      final Territory attackFrom) {
+<span class="nc" id="L178">    final GameData data = bridge.getData();</span>
+<span class="nc" id="L179">    final PlayerID attacked = attackedTerritory.getOwner();</span>
+<span class="nc" id="L180">    final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L181">    final boolean DamageFromBombingDoneToUnits = isDamageFromBombingDoneToUnitsInsteadOfTerritories(data);</span>
+    // unit damage vs territory damage
+<span class="nc" id="L183">    final Collection&lt;Unit&gt; enemyUnits = attackedTerritory.getUnits().getMatches(</span>
+<span class="nc" id="L184">        new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(player, data), Matches.unitIsBeingTransported().invert()));</span>
+<span class="nc" id="L185">    final Collection&lt;Unit&gt; enemyTargetsTotal =</span>
+<span class="nc" id="L186">        Match.getMatches(enemyUnits, Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(attackedTerritory).invert());</span>
+<span class="nc" id="L187">    final Collection&lt;Unit&gt; targets = new ArrayList&lt;&gt;();</span>
+    final Collection&lt;Unit&gt; rockets;
+    // attackFrom could be null if WW2V1
+<span class="nc bnc" id="L190" title="All 2 branches missed.">    if (attackFrom == null) {</span>
+<span class="nc" id="L191">      rockets = null;</span>
+<span class="nc" id="L192">    } else {</span>
+<span class="nc" id="L193">      rockets = new ArrayList&lt;&gt;(Match.getMatches(attackFrom.getUnits().getUnits(), rocketMatch(player, data)));</span>
+    }
+<span class="nc bnc" id="L195" title="All 2 branches missed.">    final int numberOfAttacks = (rockets == null ? 1</span>
+<span class="nc" id="L196">        : Math.min(TechAbilityAttachment.getRocketNumberPerTerritory(player, data),</span>
+<span class="nc" id="L197">            TechAbilityAttachment.getRocketDiceNumber(rockets, data)));</span>
+<span class="nc bnc" id="L198" title="All 2 branches missed.">    if (numberOfAttacks &lt;= 0) {</span>
+<span class="nc" id="L199">      return;</span>
+    }
+    final String transcript;
+<span class="nc bnc" id="L202" title="All 2 branches missed.">    if (DamageFromBombingDoneToUnits) {</span>
+      // TODO: rockets needs to be completely redone to allow for multiple rockets to fire at different targets, etc
+      // etc.
+<span class="nc" id="L205">      final HashSet&lt;UnitType&gt; legalTargetsForTheseRockets = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">      if (rockets == null) {</span>
+<span class="nc" id="L207">        legalTargetsForTheseRockets.addAll(data.getUnitTypeList().getAllUnitTypes());</span>
+<span class="nc" id="L208">      } else {</span>
+        // a hack for now, we let the rockets fire at anyone who could be targetted by any rocket
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        for (final Unit r : rockets) {</span>
+<span class="nc" id="L211">          legalTargetsForTheseRockets.addAll(UnitAttachment.get(r.getType()).getBombingTargets(data));</span>
+        }
+      }
+<span class="nc" id="L214">      final Collection&lt;Unit&gt; enemyTargets =</span>
+<span class="nc" id="L215">          Match.getMatches(enemyTargetsTotal, Matches.unitIsOfTypes(legalTargetsForTheseRockets));</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">      if (enemyTargets.isEmpty()) {</span>
+        // TODO: this sucks
+<span class="nc" id="L218">        return;</span>
+      }
+<span class="nc" id="L220">      Unit target = null;</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">      if (enemyTargets.size() == 1) {</span>
+<span class="nc" id="L222">        target = enemyTargets.iterator().next();</span>
+<span class="nc" id="L223">      } else {</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        while (target == null) {</span>
+<span class="nc" id="L225">          final ITripleAPlayer iplayer = (ITripleAPlayer) bridge.getRemotePlayer(player);</span>
+<span class="nc" id="L226">          target = iplayer.whatShouldBomberBomb(attackedTerritory, enemyTargets, rockets);</span>
+        }
+      }
+<span class="nc bnc" id="L229" title="All 2 branches missed.">      if (target == null) {</span>
+<span class="nc" id="L230">        throw new IllegalStateException(&quot;No Targets in &quot; + attackedTerritory.getName());</span>
+      }
+<span class="nc" id="L232">      targets.add(target);</span>
+    }
+<span class="nc" id="L234">    final boolean doNotUseBombingBonus =</span>
+<span class="nc bnc" id="L235" title="All 4 branches missed.">        !games.strategy.triplea.Properties.getUseBombingMaxDiceSidesAndBonus(data) || rockets == null;</span>
+<span class="nc" id="L236">    int cost = 0;</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getLL_DAMAGE_ONLY(data)) {</span>
+<span class="nc bnc" id="L238" title="All 4 branches missed.">      if (doNotUseBombingBonus || rockets == null) {</span>
+        // no low luck, and no bonus, so just roll based on the map's dice sides
+<span class="nc" id="L240">        final int[] rolls = bridge.getRandom(data.getDiceSides(), numberOfAttacks, player, DiceType.BOMBING,</span>
+<span class="nc" id="L241">            &quot;Rocket fired by &quot; + player.getName() + &quot; at &quot; + attacked.getName());</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        for (final int r : rolls) {</span>
+          // we are zero based
+<span class="nc" id="L244">          cost += r + 1;</span>
+        }
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        transcript = &quot;Rockets &quot; + (attackFrom == null ? &quot;&quot; : &quot;in &quot; + attackFrom.getName()) + &quot; roll: &quot;</span>
+<span class="nc" id="L247">            + MyFormatter.asDice(rolls);</span>
+<span class="nc" id="L248">      } else {</span>
+        // we must use bombing bonus
+<span class="nc" id="L250">        int highestMaxDice = 0;</span>
+<span class="nc" id="L251">        int highestBonus = 0;</span>
+<span class="nc" id="L252">        final int diceSides = data.getDiceSides();</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        for (final Unit u : rockets) {</span>
+<span class="nc" id="L254">          final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L255">          int maxDice = ua.getBombingMaxDieSides();</span>
+<span class="nc" id="L256">          int bonus = ua.getBombingBonus();</span>
+          // both could be -1, meaning they were not set. if they were not set, then we use default dice sides for the
+          // map, and zero for the
+          // bonus.
+<span class="nc bnc" id="L260" title="All 2 branches missed.">          if (maxDice &lt; 0) {</span>
+<span class="nc" id="L261">            maxDice = diceSides;</span>
+          }
+<span class="nc bnc" id="L263" title="All 2 branches missed.">          if (bonus &lt; 0) {</span>
+<span class="nc" id="L264">            bonus = 0;</span>
+          }
+          // we only roll once for rockets, so if there are other rockets here we just roll for the best rocket
+<span class="nc bnc" id="L267" title="All 2 branches missed.">          if ((bonus + ((maxDice + 1) / 2)) &gt; (highestBonus + ((highestMaxDice + 1) / 2))) {</span>
+<span class="nc" id="L268">            highestMaxDice = maxDice;</span>
+<span class="nc" id="L269">            highestBonus = bonus;</span>
+          }
+        }
+        // now we roll, or don't if there is nothing to roll.
+<span class="nc bnc" id="L273" title="All 2 branches missed.">        if (highestMaxDice &gt; 0) {</span>
+<span class="nc" id="L274">          final int[] rolls = bridge.getRandom(highestMaxDice, numberOfAttacks, player, DiceType.BOMBING,</span>
+<span class="nc" id="L275">              &quot;Rocket fired by &quot; + player.getName() + &quot; at &quot; + attacked.getName());</span>
+<span class="nc bnc" id="L276" title="All 2 branches missed.">          for (int i = 0; i &lt; rolls.length; i++) {</span>
+<span class="nc" id="L277">            final int r = rolls[i] + highestBonus;</span>
+<span class="nc" id="L278">            rolls[i] = r;</span>
+            // we are zero based
+<span class="nc" id="L280">            cost += r + 1;</span>
+          }
+<span class="nc bnc" id="L282" title="All 2 branches missed.">          transcript = &quot;Rockets &quot; + (attackFrom == null ? &quot;&quot; : &quot;in &quot; + attackFrom.getName()) + &quot; roll: &quot;</span>
+<span class="nc" id="L283">              + MyFormatter.asDice(rolls);</span>
+<span class="nc" id="L284">        } else {</span>
+<span class="nc" id="L285">          cost = highestBonus * numberOfAttacks;</span>
+<span class="nc bnc" id="L286" title="All 2 branches missed.">          transcript = &quot;Rockets &quot; + (attackFrom == null ? &quot;&quot; : &quot;in &quot; + attackFrom.getName()) + &quot; do &quot; + highestBonus</span>
+<span class="nc" id="L287">              + &quot; damage for each rocket&quot;;</span>
+        }
+      }
+<span class="nc" id="L290">    } else {</span>
+<span class="nc bnc" id="L291" title="All 4 branches missed.">      if (doNotUseBombingBonus || rockets == null) {</span>
+        // no bonus, so just roll based on the map's dice sides, but modify for LL
+<span class="nc" id="L293">        final int maxDice = (data.getDiceSides() + 1) / 3;</span>
+<span class="nc" id="L294">        final int bonus = (data.getDiceSides() + 1) / 3;</span>
+<span class="nc" id="L295">        final int[] rolls = bridge.getRandom(maxDice, numberOfAttacks, player, DiceType.BOMBING,</span>
+<span class="nc" id="L296">            &quot;Rocket fired by &quot; + player.getName() + &quot; at &quot; + attacked.getName());</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">        for (int i = 0; i &lt; rolls.length; i++) {</span>
+<span class="nc" id="L298">          final int r = rolls[i] + bonus;</span>
+<span class="nc" id="L299">          rolls[i] = r;</span>
+          // we are zero based
+<span class="nc" id="L301">          cost += r + 1;</span>
+        }
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        transcript = &quot;Rockets &quot; + (attackFrom == null ? &quot;&quot; : &quot;in &quot; + attackFrom.getName()) + &quot; roll: &quot;</span>
+<span class="nc" id="L304">            + MyFormatter.asDice(rolls);</span>
+<span class="nc" id="L305">      } else {</span>
+<span class="nc" id="L306">        int highestMaxDice = 0;</span>
+<span class="nc" id="L307">        int highestBonus = 0;</span>
+<span class="nc" id="L308">        final int diceSides = data.getDiceSides();</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">        for (final Unit u : rockets) {</span>
+<span class="nc" id="L310">          final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L311">          int maxDice = ua.getBombingMaxDieSides();</span>
+<span class="nc" id="L312">          int bonus = ua.getBombingBonus();</span>
+          // both could be -1, meaning they were not set. if they were not set, then we use default dice sides for the
+          // map, and zero for the
+          // bonus.
+<span class="nc bnc" id="L316" title="All 4 branches missed.">          if (maxDice &lt; 0 || doNotUseBombingBonus) {</span>
+<span class="nc" id="L317">            maxDice = diceSides;</span>
+          }
+<span class="nc bnc" id="L319" title="All 4 branches missed.">          if (bonus &lt; 0 || doNotUseBombingBonus) {</span>
+<span class="nc" id="L320">            bonus = 0;</span>
+          }
+          // now, regardless of whether they were set or not, we have to apply &quot;low luck&quot; to them, meaning in this case
+          // that we reduce the
+          // luck by 2/3.
+<span class="nc bnc" id="L325" title="All 2 branches missed.">          if (maxDice &gt;= 5) {</span>
+<span class="nc" id="L326">            bonus += (maxDice + 1) / 3;</span>
+<span class="nc" id="L327">            maxDice = (maxDice + 1) / 3;</span>
+          }
+          // we only roll once for rockets, so if there are other rockets here we just roll for the best rocket
+<span class="nc bnc" id="L330" title="All 2 branches missed.">          if ((bonus + ((maxDice + 1) / 2)) &gt; (highestBonus + ((highestMaxDice + 1) / 2))) {</span>
+<span class="nc" id="L331">            highestMaxDice = maxDice;</span>
+<span class="nc" id="L332">            highestBonus = bonus;</span>
+          }
+        }
+        // now we roll, or don't if there is nothing to roll.
+<span class="nc bnc" id="L336" title="All 2 branches missed.">        if (highestMaxDice &gt; 0) {</span>
+<span class="nc" id="L337">          final int[] rolls = bridge.getRandom(highestMaxDice, numberOfAttacks, player, DiceType.BOMBING,</span>
+<span class="nc" id="L338">              &quot;Rocket fired by &quot; + player.getName() + &quot; at &quot; + attacked.getName());</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">          for (int i = 0; i &lt; rolls.length; i++) {</span>
+<span class="nc" id="L340">            final int r = rolls[i] + highestBonus;</span>
+<span class="nc" id="L341">            rolls[i] = r;</span>
+            // we are zero based
+<span class="nc" id="L343">            cost += r + 1;</span>
+          }
+<span class="nc bnc" id="L345" title="All 2 branches missed.">          transcript = &quot;Rockets &quot; + (attackFrom == null ? &quot;&quot; : &quot;in &quot; + attackFrom.getName()) + &quot; roll: &quot;</span>
+<span class="nc" id="L346">              + MyFormatter.asDice(rolls);</span>
+<span class="nc" id="L347">        } else {</span>
+<span class="nc" id="L348">          cost = highestBonus * numberOfAttacks;</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">          transcript = &quot;Rockets &quot; + (attackFrom == null ? &quot;&quot; : &quot;in &quot; + attackFrom.getName()) + &quot; do &quot; + highestBonus</span>
+<span class="nc" id="L350">              + &quot; damage for each rocket&quot;;</span>
+        }
+      }
+    }
+<span class="nc" id="L354">    int territoryProduction = TerritoryAttachment.getProduction(attackedTerritory);</span>
+<span class="nc bnc" id="L355" title="All 4 branches missed.">    if (DamageFromBombingDoneToUnits &amp;&amp; !targets.isEmpty()) {</span>
+      // we are doing damage to 'target', not to the territory
+<span class="nc" id="L357">      final Unit target = targets.iterator().next();</span>
+      // UnitAttachment ua = UnitAttachment.get(target.getType());
+<span class="nc" id="L359">      final TripleAUnit taUnit = (TripleAUnit) target;</span>
+<span class="nc" id="L360">      final int damageLimit = taUnit.getHowMuchMoreDamageCanThisUnitTake(target, attackedTerritory);</span>
+<span class="nc" id="L361">      cost = Math.max(0, Math.min(cost, damageLimit));</span>
+<span class="nc" id="L362">      final int totalDamage = taUnit.getUnitDamage() + cost;</span>
+      // Record production lost
+      // DelegateFinder.moveDelegate(data).PUsLost(attackedTerritory, cost);
+      // apply the hits to the targets
+<span class="nc" id="L366">      final IntegerMap&lt;Unit&gt; damageMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L367">      damageMap.put(target, totalDamage);</span>
+<span class="nc" id="L368">      bridge.addChange(ChangeFactory.bombingUnitDamage(damageMap));</span>
+      // attackedTerritory.notifyChanged();
+<span class="nc" id="L370">    }</span>
+    // in WW2V2, limit rocket attack cost to production value of factory.
+<span class="nc bnc" id="L372" title="All 4 branches missed.">    else if (isWW2V2(data) || isLimitRocketDamageToProduction(data)) {</span>
+      // If we are limiting total PUs lost then take that into account
+<span class="nc bnc" id="L374" title="All 4 branches missed.">      if (isPUCap(data) || isLimitRocketDamagePerTurn(data)) {</span>
+<span class="nc" id="L375">        final int alreadyLost = DelegateFinder.moveDelegate(data).PUsAlreadyLost(attackedTerritory);</span>
+<span class="nc" id="L376">        territoryProduction -= alreadyLost;</span>
+<span class="nc" id="L377">        territoryProduction = Math.max(0, territoryProduction);</span>
+      }
+<span class="nc bnc" id="L379" title="All 2 branches missed.">      if (cost &gt; territoryProduction) {</span>
+<span class="nc" id="L380">        cost = territoryProduction;</span>
+      }
+    }
+    // Record the PUs lost
+<span class="nc" id="L384">    DelegateFinder.moveDelegate(data).PUsLost(attackedTerritory, cost);</span>
+<span class="nc bnc" id="L385" title="All 4 branches missed.">    if (DamageFromBombingDoneToUnits &amp;&amp; !targets.isEmpty()) {</span>
+<span class="nc" id="L386">      getRemote(bridge).reportMessage(</span>
+<span class="nc" id="L387">          &quot;Rocket attack in &quot; + attackedTerritory.getName() + &quot; does &quot; + cost + &quot; damage to &quot;</span>
+<span class="nc" id="L388">              + targets.iterator().next(),</span>
+<span class="nc" id="L389">          &quot;Rocket attack in &quot; + attackedTerritory.getName() + &quot; does &quot; + cost + &quot; damage to &quot;</span>
+<span class="nc" id="L390">              + targets.iterator().next());</span>
+<span class="nc" id="L391">      bridge.getHistoryWriter().startEvent(&quot;Rocket attack in &quot; + attackedTerritory.getName() + &quot; does &quot; + cost</span>
+<span class="nc" id="L392">          + &quot; damage to &quot; + targets.iterator().next());</span>
+<span class="nc" id="L393">    } else {</span>
+<span class="nc" id="L394">      cost *= Properties.getPU_Multiplier(data);</span>
+<span class="nc" id="L395">      getRemote(bridge).reportMessage(&quot;Rocket attack in &quot; + attackedTerritory.getName() + &quot; costs:&quot; + cost,</span>
+<span class="nc" id="L396">          &quot;Rocket attack in &quot; + attackedTerritory.getName() + &quot; costs:&quot; + cost);</span>
+      // Trying to remove more PUs than the victim has is A Bad Thing[tm]
+<span class="nc" id="L398">      final int availForRemoval = attacked.getResources().getQuantity(PUs);</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">      if (cost &gt; availForRemoval) {</span>
+<span class="nc" id="L400">        cost = availForRemoval;</span>
+      }
+<span class="nc" id="L402">      final String transcriptText =</span>
+<span class="nc" id="L403">          attacked.getName() + &quot; lost &quot; + cost + &quot; PUs to rocket attack by &quot; + player.getName();</span>
+<span class="nc" id="L404">      bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L405">      final Change rocketCharge = ChangeFactory.changeResourcesChange(attacked, PUs, -cost);</span>
+<span class="nc" id="L406">      bridge.addChange(rocketCharge);</span>
+    }
+<span class="nc bnc" id="L408" title="All 2 branches missed.">    bridge.getHistoryWriter().addChildToEvent(transcript, rockets == null ? null : new ArrayList&lt;&gt;(rockets));</span>
+    // this is null in WW2V1
+<span class="nc bnc" id="L410" title="All 2 branches missed.">    if (attackFrom != null) {</span>
+<span class="nc bnc" id="L411" title="All 4 branches missed.">      if (rockets != null &amp;&amp; !rockets.isEmpty()) {</span>
+        // TODO: only a certain number fired...
+<span class="nc" id="L413">        final Change change = ChangeFactory.markNoMovementChange(Collections.singleton(rockets.iterator().next()));</span>
+<span class="nc" id="L414">        bridge.addChange(change);</span>
+<span class="nc" id="L415">      } else {</span>
+<span class="nc" id="L416">        throw new IllegalStateException(&quot;No rockets?&quot; + attackFrom.getUnits().getUnits());</span>
+      }
+    }
+    // kill any units that can die if they have reached max damage (veqryn)
+<span class="nc bnc" id="L420" title="All 2 branches missed.">    if (Match.someMatch(targets, Matches.UnitCanDieFromReachingMaxDamage)) {</span>
+<span class="nc" id="L421">      final List&lt;Unit&gt; unitsCanDie = Match.getMatches(targets, Matches.UnitCanDieFromReachingMaxDamage);</span>
+<span class="nc" id="L422">      unitsCanDie</span>
+<span class="nc" id="L423">          .retainAll(Match.getMatches(unitsCanDie, Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(attackedTerritory)));</span>
+<span class="nc bnc" id="L424" title="All 2 branches missed.">      if (!unitsCanDie.isEmpty()) {</span>
+        // targets.removeAll(unitsCanDie);
+<span class="nc" id="L426">        final Change removeDead = ChangeFactory.removeUnits(attackedTerritory, unitsCanDie);</span>
+<span class="nc" id="L427">        final String transcriptText = MyFormatter.unitsToText(unitsCanDie) + &quot; lost in &quot; + attackedTerritory.getName();</span>
+<span class="nc" id="L428">        bridge.getHistoryWriter().addChildToEvent(transcriptText, unitsCanDie);</span>
+<span class="nc" id="L429">        bridge.addChange(removeDead);</span>
+      }
+    }
+    // play a sound
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    if (cost &gt; 0) {</span>
+<span class="nc" id="L434">      bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BOMBING_ROCKET, player);</span>
+    }
+<span class="nc" id="L436">  }</span>
+
+  private ITripleAPlayer getRemote(final IDelegateBridge bridge) {
+<span class="nc" id="L439">    return (ITripleAPlayer) bridge.getRemotePlayer();</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

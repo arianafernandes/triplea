@@ -1,0 +1,931 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DecorationPlacer.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.image</a> &gt; <span class="el_source">DecorationPlacer.java</span></div><h1>DecorationPlacer.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package tools.image;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.HeadlessException;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+
+import javax.swing.Action;
+import javax.swing.BoxLayout;
+import javax.swing.ButtonGroup;
+import javax.swing.ButtonModel;
+import javax.swing.JCheckBoxMenuItem;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JRadioButton;
+import javax.swing.JScrollPane;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.triplea.ResourceLoader;
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import games.strategy.util.PointFileReaderWriter;
+import games.strategy.util.Triple;
+import games.strategy.util.Tuple;
+
+/**
+ * This is the DecorationPlacer, it will create a text file for you containing the points to place images at. &lt;br&gt;
+ * &lt;br&gt;
+ * In order to begin this, you must already have the map file, as well as the centers.txt and polygons.txt finished.
+ * &lt;br&gt;
+ * To start, load you map image. Then you will be asked which kind of Image Point File you are creating. &lt;br&gt;
+ * &lt;br&gt;
+ * There are basically 2 different kinds of image point files, and with each of those are 2 different sub-types. &lt;br&gt;
+ * The 1st type is a folder full of many different images, that after being placed on the map will never be changed.
+ * &lt;br&gt;
+ * Examples of this are the decorations.txt file [misc folder] and the name_place.txt file [territoryNames folder]. &lt;br&gt;
+ * In these files the 'point' string directly corresponds to exact name of an image file in the folder, with the only
+ * &lt;br&gt;
+ * exception being whether the point string needs the .png extension or not (decorations do, name_place does not). &lt;br&gt;
+ * &lt;br&gt;
+ * The 2nd type is single image, or small set of images, where the chosen image is determined by something in the xml
+ * file. &lt;br&gt;
+ * Examples of this are the pu_place.txt file [PUs folder] and the capitols.txt file [flags folder]. &lt;br&gt;
+ * In these files, the 'point' string is the exact name of a territory, while the image file has a different name, &lt;br&gt;
+ * and is chosen by the engine based on the game data. For things like the pu_place you may want the decoration placer
+ * &lt;br&gt;
+ * to generate placements for all territories, while others like capitols are more rare and you may want to individually
+ * &lt;br&gt;
+ * select which territories you need a placement point for. &lt;br&gt;
+ * &lt;br&gt;
+ * After selecting the point file type you want to make, the program will choose the default selections for you, &lt;br&gt;
+ * but it will still confirm with you by asking you the questions. Just hit 'enter' a lot if you do not know the
+ * answers. &lt;br&gt;
+ * &lt;br&gt;
+ * Any images that this program cannot find the point for, will start in the upper left corner of the map, &lt;br&gt;
+ * and you may click on them to move them to their appropriate place.&quot; &lt;br&gt;
+ * &lt;br&gt;
+ * Do not forget to save the points when finished. To save and continue with another set of images, choose the &lt;br&gt;
+ * option to 'Save Current And Keep On Map And Load New'. To reset all currently image points, use 'Load Image Points'.
+ */
+public class DecorationPlacer extends JFrame {
+  private static final long serialVersionUID = 6385408390173085656L;
+  // The map image will be stored here
+  private Image m_image;
+  // hash map for image points
+<span class="nc" id="L100">  private Map&lt;String, List&lt;Point&gt;&gt; m_currentPoints = new HashMap&lt;&gt;();</span>
+  // hash map for center points
+<span class="nc" id="L102">  private Map&lt;String, Point&gt; m_centers = new HashMap&lt;&gt;();</span>
+  // hash map for polygon points
+<span class="nc" id="L104">  private Map&lt;String, List&lt;Polygon&gt;&gt; m_polygons = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L105">  private final JLabel m_location = new JLabel();</span>
+<span class="nc" id="L106">  private static File s_mapFolderLocation = null;</span>
+  private static final String TRIPLEA_MAP_FOLDER = &quot;triplea.map.folder&quot;;
+<span class="nc" id="L108">  private static File s_currentImageFolderLocation = null;</span>
+<span class="nc" id="L109">  private static File s_currentImagePointsTextFile = null;</span>
+<span class="nc" id="L110">  private Point m_currentMousePoint = new Point(0, 0);</span>
+<span class="nc" id="L111">  private Triple&lt;String, Image, Point&gt; m_currentSelectedImage = null;</span>
+<span class="nc" id="L112">  private Map&lt;String, Tuple&lt;Image, List&lt;Point&gt;&gt;&gt; m_currentImagePoints =</span>
+<span class="nc" id="L113">      new HashMap&lt;&gt;();</span>
+<span class="nc" id="L114">  private static boolean s_highlightAll = false;</span>
+<span class="nc" id="L115">  private static boolean s_createNewImageOnRightClick = false;</span>
+<span class="nc" id="L116">  private static Image s_staticImageForPlacing = null;</span>
+<span class="nc" id="L117">  private static boolean s_showFromTopLeft = true;</span>
+<span class="nc" id="L118">  private static ImagePointType s_imagePointType = ImagePointType.decorations;</span>
+<span class="nc" id="L119">  private static boolean s_cheapMutex = false;</span>
+<span class="nc" id="L120">  private static boolean s_showPointNames = false;</span>
+
+  public static void main(final String[] args) {
+<span class="nc" id="L123">    handleCommandLineArgs(args);</span>
+<span class="nc" id="L124">    System.out.println(&quot;Select the map&quot;);</span>
+<span class="nc" id="L125">    final FileOpen mapSelection = new FileOpen(&quot;Select The Map&quot;, s_mapFolderLocation, &quot;.gif&quot;, &quot;.png&quot;);</span>
+<span class="nc" id="L126">    final String mapName = mapSelection.getPathString();</span>
+<span class="nc bnc" id="L127" title="All 4 branches missed.">    if (s_mapFolderLocation == null &amp;&amp; mapSelection.getFile() != null) {</span>
+<span class="nc" id="L128">      s_mapFolderLocation = mapSelection.getFile().getParentFile();</span>
+    }
+<span class="nc bnc" id="L130" title="All 2 branches missed.">    if (mapName != null) {</span>
+<span class="nc" id="L131">      System.out.println(&quot;Map : &quot; + mapName);</span>
+<span class="nc" id="L132">      final DecorationPlacer picker = new DecorationPlacer(mapName);</span>
+<span class="nc" id="L133">      picker.setSize(800, 600);</span>
+<span class="nc" id="L134">      picker.setLocationRelativeTo(null);</span>
+<span class="nc" id="L135">      picker.setVisible(true);</span>
+<span class="nc" id="L136">      JOptionPane.showMessageDialog(picker,</span>
+<span class="nc" id="L137">          new JLabel(&quot;&lt;html&gt;&quot;</span>
+              + &quot;This is the DecorationPlacer, it will create a text file for you containing the points to place images at. &quot;
+              + &quot;&lt;br&gt;&lt;br&gt;In order to begin this, you must already have the map file, as well as the centers.txt and polygons.txt finished. &quot;
+              + &quot;&lt;br&gt;To start, load you map image. Then you will be asked which kind of Image Point File you are creating. &quot;
+              + &quot;&lt;br&gt;&lt;br&gt;There are basically 2 different kinds of image point files, and with each of those are 2 different sub-types. &quot;
+              + &quot;&lt;br&gt;The 1st type is a folder full of many different images, that after being placed on the map will never be changed. &quot;
+              + &quot;&lt;br&gt;Examples of this are the decorations.txt file [misc folder] and the name_place.txt file [territoryNames folder]. &quot;
+              + &quot;&lt;br&gt;In these files the 'point' string directly corresponds to exact name of an image file in the folder, with the only &quot;
+              + &quot;&lt;br&gt;exception being whether the point string needs the .png extension or not (decorations do, name_place does not). &quot;
+              + &quot;&lt;br&gt;&lt;br&gt;The 2nd type is single image, or small set of images, where the chosen image is determined by something in the xml file. &quot;
+              + &quot;&lt;br&gt;Examples of this are the pu_place.txt file [PUs folder] and the capitols.txt file [flags folder]. &quot;
+              + &quot;&lt;br&gt;In these files, the 'point' string is the exact name of a territory, while the image file has a different name, &quot;
+              + &quot;&lt;br&gt;and is chosen by the engine based on the game data.  For things like the pu_place you may want the decoration placer &quot;
+              + &quot;&lt;br&gt;to generate placements for all territories, while others like capitols are more rare and you may want to individually &quot;
+              + &quot;&lt;br&gt;select which territories you need a placement point for.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;After selecting the point file type you want to make, the program will choose the default selections for you, &quot;
+              + &quot;&lt;br&gt;but it will still confirm with you by asking you the questions. Just hit 'enter' a lot if you do not know the answers. &quot;
+              + &quot;&lt;br&gt;&lt;br&gt;Any images that this program cannot find the point for, will start in the upper left corner of the map, &quot;
+              + &quot;&lt;br&gt;and you may click on them to move them to their appropriate place.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;Do not forget to save the points when finished. To save and continue with another set of images, choose the &quot;
+              + &quot;&lt;br&gt;option to 'Save Current And Keep On Map And Load New'.  To reset all currently image points, use 'Load Image Points'.&quot;
+              + &quot;&lt;/html&gt;&quot;));
+<span class="nc" id="L159">      picker.loadImagesAndPoints();</span>
+<span class="nc" id="L160">    } else {</span>
+<span class="nc" id="L161">      System.out.println(&quot;No Image Map Selected. Shutting down.&quot;);</span>
+<span class="nc" id="L162">      System.exit(0);</span>
+    }
+<span class="nc" id="L164">  }// end main</span>
+
+  public DecorationPlacer(final String mapName) {
+<span class="nc" id="L167">    super(&quot;Decoration Placer&quot;);</span>
+<span class="nc" id="L168">    setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);</span>
+<span class="nc" id="L169">    setLocationRelativeTo(null);</span>
+<span class="nc" id="L170">    s_highlightAll = false;</span>
+<span class="nc" id="L171">    File fileCenters = null;</span>
+<span class="nc bnc" id="L172" title="All 4 branches missed.">    if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+<span class="nc" id="L173">      fileCenters = new File(s_mapFolderLocation, &quot;centers.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L175" title="All 4 branches missed.">    if (fileCenters == null || !fileCenters.exists()) {</span>
+<span class="nc" id="L176">      fileCenters = new File(new File(mapName).getParent() + File.separator + &quot;centers.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L178" title="All 4 branches missed.">    if (fileCenters.exists() &amp;&amp; JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L179">        &quot;A centers.txt file was found in the map's folder, do you want to use the file to supply the territories centers?&quot;,</span>
+<span class="nc" id="L180">        &quot;File Suggestion&quot;, 1) == 0) {</span>
+      try {
+<span class="nc" id="L182">        System.out.println(&quot;Centers : &quot; + fileCenters.getPath());</span>
+<span class="nc" id="L183">        m_centers = PointFileReaderWriter.readOneToOne(new FileInputStream(fileCenters.getPath()));</span>
+<span class="nc" id="L184">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L185">        System.out.println(&quot;Something wrong with Centers file&quot;);</span>
+<span class="nc" id="L186">        ex1.printStackTrace();</span>
+<span class="nc" id="L187">        System.exit(0);</span>
+      }
+<span class="nc" id="L189">    } else {</span>
+      try {
+<span class="nc" id="L191">        System.out.println(&quot;Select the Centers file&quot;);</span>
+<span class="nc" id="L192">        final String centerPath = new FileOpen(&quot;Select A Center File&quot;, s_mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">        if (centerPath != null) {</span>
+<span class="nc" id="L194">          System.out.println(&quot;Centers : &quot; + centerPath);</span>
+<span class="nc" id="L195">          m_centers = PointFileReaderWriter.readOneToOne(new FileInputStream(centerPath));</span>
+<span class="nc" id="L196">        } else {</span>
+<span class="nc" id="L197">          System.out.println(&quot;You must specify a centers file.&quot;);</span>
+<span class="nc" id="L198">          System.out.println(&quot;Shutting down.&quot;);</span>
+<span class="nc" id="L199">          System.exit(0);</span>
+        }
+<span class="nc" id="L201">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L202">        System.out.println(&quot;Something wrong with Centers file&quot;);</span>
+<span class="nc" id="L203">        ex1.printStackTrace();</span>
+<span class="nc" id="L204">        System.exit(0);</span>
+      }
+    }
+<span class="nc" id="L207">    File filePoly = null;</span>
+<span class="nc bnc" id="L208" title="All 4 branches missed.">    if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+<span class="nc" id="L209">      filePoly = new File(s_mapFolderLocation, &quot;polygons.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L211" title="All 4 branches missed.">    if (filePoly == null || !filePoly.exists()) {</span>
+<span class="nc" id="L212">      filePoly = new File(new File(mapName).getParent() + File.separator + &quot;polygons.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L214" title="All 4 branches missed.">    if (filePoly.exists() &amp;&amp; JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L215">        &quot;A polygons.txt file was found in the map's folder, do you want to use the file to supply the territories polygons?&quot;,</span>
+<span class="nc" id="L216">        &quot;File Suggestion&quot;, 1) == 0) {</span>
+      try {
+<span class="nc" id="L218">        System.out.println(&quot;Polygons : &quot; + filePoly.getPath());</span>
+<span class="nc" id="L219">        m_polygons = PointFileReaderWriter.readOneToManyPolygons(new FileInputStream(filePoly.getPath()));</span>
+<span class="nc" id="L220">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L221">        System.out.println(&quot;Something wrong with your Polygons file&quot;);</span>
+<span class="nc" id="L222">        ex1.printStackTrace();</span>
+<span class="nc" id="L223">        System.exit(0);</span>
+      }
+<span class="nc" id="L225">    } else {</span>
+      try {
+<span class="nc" id="L227">        System.out.println(&quot;Select the Polygons file&quot;);</span>
+<span class="nc" id="L228">        final String polyPath = new FileOpen(&quot;Select A Polygon File&quot;, s_mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">        if (polyPath != null) {</span>
+<span class="nc" id="L230">          System.out.println(&quot;Polygons : &quot; + polyPath);</span>
+<span class="nc" id="L231">          m_polygons = PointFileReaderWriter.readOneToManyPolygons(new FileInputStream(polyPath));</span>
+<span class="nc" id="L232">        } else {</span>
+<span class="nc" id="L233">          System.out.println(&quot;You must specify a Polgyon file.&quot;);</span>
+<span class="nc" id="L234">          System.out.println(&quot;Shutting down.&quot;);</span>
+<span class="nc" id="L235">          System.exit(0);</span>
+        }
+<span class="nc" id="L237">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L238">        System.out.println(&quot;Something wrong with your Polygons file&quot;);</span>
+<span class="nc" id="L239">        ex1.printStackTrace();</span>
+<span class="nc" id="L240">        System.exit(0);</span>
+      }
+    }
+<span class="nc" id="L243">    m_image = createImage(mapName);</span>
+<span class="nc" id="L244">    final JPanel imagePanel = createMainPanel();</span>
+    /*
+     * Add a mouse listener to show
+     * X : Y coordinates on the lower
+     * left corner of the screen.
+     */
+<span class="nc" id="L250">    imagePanel.addMouseMotionListener(new MouseMotionAdapter() {</span>
+      @Override
+      public void mouseMoved(final MouseEvent e) {
+<span class="nc bnc" id="L253" title="All 2 branches missed.">        m_location.setText((m_currentSelectedImage == null ? &quot;&quot; : m_currentSelectedImage.getFirst()) + &quot;    x:&quot;</span>
+<span class="nc" id="L254">            + e.getX() + &quot; y:&quot; + e.getY());</span>
+<span class="nc" id="L255">        m_currentMousePoint = new Point(e.getPoint());</span>
+<span class="nc" id="L256">        DecorationPlacer.this.repaint();</span>
+<span class="nc" id="L257">      }</span>
+    });
+<span class="nc" id="L259">    m_location.setFont(new Font(&quot;Ariel&quot;, Font.BOLD, 16));</span>
+    /*
+     * Add a mouse listener to monitor
+     * for right mouse button being
+     * clicked.
+     */
+<span class="nc" id="L265">    imagePanel.addMouseListener(new MouseAdapter() {</span>
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc bnc" id="L268" title="All 4 branches missed.">        mouseEvent(e.getPoint(), e.isControlDown() || e.isShiftDown(), SwingUtilities.isRightMouseButton(e));</span>
+<span class="nc" id="L269">      }</span>
+    });
+    // set up the image panel size dimensions ...etc
+<span class="nc" id="L272">    imagePanel.setMinimumSize(new Dimension(m_image.getWidth(this), m_image.getHeight(this)));</span>
+<span class="nc" id="L273">    imagePanel.setPreferredSize(new Dimension(m_image.getWidth(this), m_image.getHeight(this)));</span>
+<span class="nc" id="L274">    imagePanel.setMaximumSize(new Dimension(m_image.getWidth(this), m_image.getHeight(this)));</span>
+    // set up the layout manager
+<span class="nc" id="L276">    this.getContentPane().setLayout(new BorderLayout());</span>
+<span class="nc" id="L277">    this.getContentPane().add(new JScrollPane(imagePanel), BorderLayout.CENTER);</span>
+<span class="nc" id="L278">    this.getContentPane().add(m_location, BorderLayout.SOUTH);</span>
+    // set up the actions
+<span class="nc" id="L280">    final Action openAction = SwingAction.of(&quot;Load Image Locations&quot;, e -&gt; loadImagesAndPoints());</span>
+<span class="nc" id="L281">    openAction.putValue(Action.SHORT_DESCRIPTION, &quot;Load An Existing Image Points File&quot;);</span>
+<span class="nc" id="L282">    final Action saveAction = SwingAction.of(&quot;Save Image Locations&quot;, e -&gt; saveImagePoints());</span>
+<span class="nc" id="L283">    saveAction.putValue(Action.SHORT_DESCRIPTION, &quot;Save The Image Points To File&quot;);</span>
+<span class="nc" id="L284">    final Action keepGoingAction = SwingAction.of(&quot;Save Current and Keep Them On Map and Load New File&quot;, e -&gt; {</span>
+<span class="nc" id="L285">      saveImagePoints();</span>
+<span class="nc" id="L286">      saveCurrentToMapPicture();</span>
+<span class="nc" id="L287">      loadImagesAndPoints();</span>
+<span class="nc" id="L288">    });</span>
+<span class="nc" id="L289">    keepGoingAction.putValue(Action.SHORT_DESCRIPTION,</span>
+<span class="nc" id="L290">        &quot;Save current points to a file, then draw the images onto the map, then load a new points file.&quot;);</span>
+<span class="nc" id="L291">    final Action exitAction = SwingAction.of(&quot;Exit&quot;, e -&gt; System.exit(0));</span>
+<span class="nc" id="L292">    exitAction.putValue(Action.SHORT_DESCRIPTION, &quot;Exit The Program&quot;);</span>
+    // set up the menu items
+<span class="nc" id="L294">    final JMenuItem openItem = new JMenuItem(openAction);</span>
+<span class="nc" id="L295">    openItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_MASK));</span>
+<span class="nc" id="L296">    final JMenuItem saveItem = new JMenuItem(saveAction);</span>
+<span class="nc" id="L297">    saveItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK));</span>
+<span class="nc" id="L298">    final JMenuItem exitItem = new JMenuItem(exitAction);</span>
+    // set up the menu bar
+<span class="nc" id="L300">    final JMenuBar menuBar = new JMenuBar();</span>
+<span class="nc" id="L301">    setJMenuBar(menuBar);</span>
+<span class="nc" id="L302">    final JMenu fileMenu = new JMenu(&quot;File&quot;);</span>
+<span class="nc" id="L303">    fileMenu.setMnemonic('F');</span>
+<span class="nc" id="L304">    fileMenu.add(openItem);</span>
+<span class="nc" id="L305">    fileMenu.add(saveItem);</span>
+<span class="nc" id="L306">    fileMenu.add(keepGoingAction);</span>
+<span class="nc" id="L307">    fileMenu.addSeparator();</span>
+<span class="nc" id="L308">    fileMenu.add(exitItem);</span>
+<span class="nc" id="L309">    final JCheckBoxMenuItem highlightAllModeItem = new JCheckBoxMenuItem(&quot;Highlight All&quot;, false);</span>
+<span class="nc" id="L310">    highlightAllModeItem.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L313">        s_highlightAll = highlightAllModeItem.getState();</span>
+<span class="nc" id="L314">        DecorationPlacer.this.repaint();</span>
+<span class="nc" id="L315">      }</span>
+    });
+<span class="nc" id="L317">    final JCheckBoxMenuItem showNamesModeItem = new JCheckBoxMenuItem(&quot;Show Point Names&quot;, false);</span>
+<span class="nc" id="L318">    showNamesModeItem.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L321">        s_showPointNames = showNamesModeItem.getState();</span>
+<span class="nc" id="L322">        DecorationPlacer.this.repaint();</span>
+<span class="nc" id="L323">      }</span>
+    });
+<span class="nc" id="L325">    final Action clearAction = SwingAction.of(&quot;Clear All Current Points.&quot;, e -&gt; m_currentImagePoints.clear());</span>
+<span class="nc" id="L326">    clearAction.putValue(Action.SHORT_DESCRIPTION, &quot;Delete all points.&quot;);</span>
+<span class="nc" id="L327">    final JMenu editMenu = new JMenu(&quot;Edit&quot;);</span>
+<span class="nc" id="L328">    editMenu.setMnemonic('E');</span>
+<span class="nc" id="L329">    editMenu.add(highlightAllModeItem);</span>
+<span class="nc" id="L330">    editMenu.add(showNamesModeItem);</span>
+<span class="nc" id="L331">    editMenu.addSeparator();</span>
+<span class="nc" id="L332">    editMenu.add(clearAction);</span>
+<span class="nc" id="L333">    menuBar.add(fileMenu);</span>
+<span class="nc" id="L334">    menuBar.add(editMenu);</span>
+<span class="nc" id="L335">  }// end constructor</span>
+
+  /**
+   * createImage(java.lang.String)
+   * creates the image map and makes sure
+   * it is properly loaded.
+   *
+   * @param java
+   *        .lang.String mapName the path of image map
+   */
+  private static Image createImage(final String mapName) {
+<span class="nc" id="L346">    final Image image = Toolkit.getDefaultToolkit().createImage(mapName);</span>
+<span class="nc" id="L347">    Util.ensureImageLoaded(image);</span>
+<span class="nc" id="L348">    return image;</span>
+  }
+
+  /**
+   * javax.swing.JPanel createMainPanel()
+   * Creates the main panel and returns
+   * a JPanel object.
+   *
+   * @return javax.swing.JPanel the panel to return
+   */
+  private JPanel createMainPanel() {
+<span class="nc" id="L359">    final JPanel imagePanel = new JPanel() {</span>
+      private static final long serialVersionUID = -7130828419508975924L;
+
+      @Override
+      public void paint(final Graphics g) {
+        // super.paint(g);
+<span class="nc" id="L365">        paintToG(g);</span>
+<span class="nc" id="L366">      }</span>
+    };
+<span class="nc" id="L368">    return imagePanel;</span>
+  }
+
+  private void paintToG(final Graphics g) {
+<span class="nc bnc" id="L372" title="All 2 branches missed.">    if (s_cheapMutex) {</span>
+<span class="nc" id="L373">      return;</span>
+    }
+<span class="nc" id="L375">    g.drawImage(m_image, 0, 0, this);</span>
+<span class="nc" id="L376">    g.setColor(Color.red);</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">    for (final Entry&lt;String, Tuple&lt;Image, List&lt;Point&gt;&gt;&gt; entry : m_currentImagePoints.entrySet()) {</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">      for (final Point p : entry.getValue().getSecond()) {</span>
+<span class="nc" id="L379">        g.drawImage(entry.getValue().getFirst(), p.x,</span>
+<span class="nc bnc" id="L380" title="All 2 branches missed.">            p.y - (s_showFromTopLeft ? 0 : entry.getValue().getFirst().getHeight(null)), null);</span>
+<span class="nc bnc" id="L381" title="All 4 branches missed.">        if (m_currentSelectedImage != null &amp;&amp; m_currentSelectedImage.getThird().equals(p)) {</span>
+<span class="nc" id="L382">          g.setColor(Color.green);</span>
+<span class="nc bnc" id="L383" title="All 2 branches missed.">          g.drawRect(p.x, p.y - (s_showFromTopLeft ? 0 : entry.getValue().getFirst().getHeight(null)),</span>
+<span class="nc" id="L384">              entry.getValue().getFirst().getWidth(null), entry.getValue().getFirst().getHeight(null));</span>
+<span class="nc" id="L385">          g.setColor(Color.red);</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">        } else if (s_highlightAll) {</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">          g.drawRect(p.x, p.y - (s_showFromTopLeft ? 0 : entry.getValue().getFirst().getHeight(null)),</span>
+<span class="nc" id="L388">              entry.getValue().getFirst().getWidth(null), entry.getValue().getFirst().getHeight(null));</span>
+        }
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        if (s_showPointNames) {</span>
+<span class="nc" id="L391">          g.drawString(entry.getKey(), p.x,</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">              p.y - (s_showFromTopLeft ? 0 : entry.getValue().getFirst().getHeight(null)));</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L396" title="All 2 branches missed.">    if (m_currentSelectedImage != null) {</span>
+<span class="nc" id="L397">      g.setColor(Color.green);</span>
+<span class="nc" id="L398">      g.drawImage(m_currentSelectedImage.getSecond(), m_currentMousePoint.x,</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">          m_currentMousePoint.y - (s_showFromTopLeft ? 0 : m_currentSelectedImage.getSecond().getHeight(null)), null);</span>
+<span class="nc bnc" id="L400" title="All 2 branches missed.">      if (s_highlightAll) {</span>
+<span class="nc" id="L401">        g.drawRect(m_currentMousePoint.x,</span>
+<span class="nc bnc" id="L402" title="All 2 branches missed.">            m_currentMousePoint.y - (s_showFromTopLeft ? 0 : m_currentSelectedImage.getSecond().getHeight(null)),</span>
+<span class="nc" id="L403">            m_currentSelectedImage.getSecond().getWidth(null), m_currentSelectedImage.getSecond().getHeight(null));</span>
+      }
+<span class="nc bnc" id="L405" title="All 2 branches missed.">      if (s_showPointNames) {</span>
+<span class="nc" id="L406">        g.drawString(m_currentSelectedImage.getFirst(), m_currentMousePoint.x,</span>
+<span class="nc bnc" id="L407" title="All 2 branches missed.">            m_currentMousePoint.y - (s_showFromTopLeft ? 0 : m_currentSelectedImage.getSecond().getHeight(null)));</span>
+      }
+    }
+<span class="nc" id="L410">  }</span>
+
+  private void saveCurrentToMapPicture() {
+<span class="nc" id="L413">    final BufferedImage bufferedImage =</span>
+<span class="nc" id="L414">        new BufferedImage(m_image.getWidth(null), m_image.getHeight(null), BufferedImage.TYPE_INT_ARGB);</span>
+<span class="nc" id="L415">    final Graphics g = bufferedImage.getGraphics();</span>
+<span class="nc" id="L416">    final boolean saveHighlight = s_highlightAll;</span>
+<span class="nc" id="L417">    final boolean saveNames = s_showPointNames;</span>
+<span class="nc" id="L418">    s_highlightAll = false;</span>
+<span class="nc" id="L419">    s_showPointNames = false;</span>
+<span class="nc" id="L420">    paintToG(g);</span>
+<span class="nc" id="L421">    g.dispose();</span>
+<span class="nc" id="L422">    s_highlightAll = saveHighlight;</span>
+<span class="nc" id="L423">    s_showPointNames = saveNames;</span>
+<span class="nc" id="L424">    m_image = bufferedImage;</span>
+<span class="nc" id="L425">  }</span>
+
+  /**
+   * saveCenters()
+   * Saves the centers to disk.
+   */
+  private void saveImagePoints() {
+<span class="nc" id="L432">    m_currentPoints = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    for (final Entry&lt;String, Tuple&lt;Image, List&lt;Point&gt;&gt;&gt; entry : m_currentImagePoints.entrySet()) {</span>
+      // remove duplicates
+<span class="nc" id="L435">      final LinkedHashSet&lt;Point&gt; pointSet = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc" id="L436">      pointSet.addAll(entry.getValue().getSecond());</span>
+<span class="nc" id="L437">      entry.getValue().getSecond().clear();</span>
+<span class="nc" id="L438">      entry.getValue().getSecond().addAll(pointSet);</span>
+<span class="nc" id="L439">      m_currentPoints.put(entry.getKey(), entry.getValue().getSecond());</span>
+    }
+    try {
+<span class="nc" id="L442">      final String fileName = new FileSave(&quot;Where To Save Image Points Text File?&quot;, JFileChooser.FILES_ONLY,</span>
+<span class="nc" id="L443">          s_currentImagePointsTextFile, s_mapFolderLocation).getPathString();</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">      if (fileName == null) {</span>
+<span class="nc" id="L445">        return;</span>
+      }
+<span class="nc" id="L447">      final FileOutputStream out = new FileOutputStream(fileName);</span>
+
+<span class="nc" id="L449">      PointFileReaderWriter.writeOneToMany(out, new HashMap&lt;&gt;(m_currentPoints));</span>
+
+<span class="nc" id="L451">      out.flush();</span>
+<span class="nc" id="L452">      out.close();</span>
+<span class="nc" id="L453">      System.out.println(&quot;Data written to :&quot; + new File(fileName).getCanonicalPath());</span>
+<span class="nc" id="L454">    } catch (final Exception ex) {</span>
+<span class="nc" id="L455">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L457">    System.out.println(&quot;&quot;);</span>
+<span class="nc" id="L458">  }</span>
+
+  private void selectImagePointType() {
+<span class="nc" id="L461">    System.out.println(&quot;Select Which type of image points file are we making?&quot;);</span>
+<span class="nc" id="L462">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L463">    panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L464">    panel.add(new JLabel(&quot;Which type of image points file are we making?&quot;));</span>
+<span class="nc" id="L465">    final ButtonGroup group = new ButtonGroup();</span>
+<span class="nc bnc" id="L466" title="All 2 branches missed.">    for (final ImagePointType type : ImagePointType.getTypes()) {</span>
+<span class="nc" id="L467">      final JRadioButton button = new JRadioButton(type.toString() + &quot;      :      &quot; + type.getDescription());</span>
+<span class="nc" id="L468">      button.setActionCommand(type.toString());</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">      if (s_imagePointType == type) {</span>
+<span class="nc" id="L470">        button.setSelected(true);</span>
+<span class="nc" id="L471">      } else {</span>
+<span class="nc" id="L472">        button.setSelected(false);</span>
+      }
+<span class="nc" id="L474">      group.add(button);</span>
+<span class="nc" id="L475">      panel.add(button);</span>
+    }
+<span class="nc" id="L477">    JOptionPane.showMessageDialog(this, panel, &quot;Which type of image points file are we making?&quot;,</span>
+<span class="nc" id="L478">        JOptionPane.QUESTION_MESSAGE);</span>
+<span class="nc" id="L479">    final ButtonModel selected = group.getSelection();</span>
+<span class="nc" id="L480">    final String choice = selected.getActionCommand();</span>
+<span class="nc bnc" id="L481" title="All 2 branches missed.">    for (final ImagePointType type : ImagePointType.getTypes()) {</span>
+<span class="nc bnc" id="L482" title="All 2 branches missed.">      if (type.toString().equals(choice)) {</span>
+<span class="nc" id="L483">        s_imagePointType = type;</span>
+<span class="nc" id="L484">        System.out.println(&quot;Selected Type: &quot; + choice);</span>
+<span class="nc" id="L485">        break;</span>
+      }
+    }
+<span class="nc" id="L488">  }</span>
+
+  private void topLeftOrBottomLeft() {
+<span class="nc" id="L491">    final Object[] showFromTopLeft = {&quot;Point is Top Left&quot;, &quot;Point is Bottom Left&quot;};</span>
+<span class="nc" id="L492">    System.out.println(&quot;Select Show images from top left or bottom left point?&quot;);</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">    s_showFromTopLeft = JOptionPane.showOptionDialog(this,</span>
+<span class="nc" id="L494">        &quot;Are the images shown from the top left, or from the bottom left point? \r\n&quot;</span>
+            + &quot;All images are shown from the top left, except for 'name_place.txt', 'pu_place.txt', and 'comments.txt'. \r\n&quot;
+            + &quot;For these 3 files, whether they are top left or bottom left is determined by the \r\n&quot;
+            + &quot;'map.properties' property: 'map.drawNamesFromTopLeft', which defaults to false if not specified [meaning bottom left]. \r\n&quot;
+            + &quot;Do NOT change this from whatever the default has choosen, unless you know exactly what you are doing!&quot;,
+<span class="nc" id="L499">        &quot;Show images from top left or bottom left point?&quot;, JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,</span>
+<span class="nc" id="L500">        null, showFromTopLeft,</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">        showFromTopLeft[(s_imagePointType.isCanUseBottomLeftPoint() ? 1 : 0)]) != JOptionPane.NO_OPTION;</span>
+<span class="nc" id="L502">  }</span>
+
+  private void loadImagesAndPoints() {
+<span class="nc" id="L505">    s_cheapMutex = true;</span>
+<span class="nc" id="L506">    m_currentImagePoints = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L507">    m_currentSelectedImage = null;</span>
+<span class="nc" id="L508">    selectImagePointType();</span>
+<span class="nc" id="L509">    final Object[] miscOrNamesOptions = {&quot;Folder Full of Images&quot;, &quot;Text File Full of Points&quot;};</span>
+<span class="nc" id="L510">    final Object[] pointsAreNamesOptions = {&quot;Points end in .png&quot;, &quot;Points do NOT end in .png&quot;};</span>
+<span class="nc" id="L511">    final Object[] fillAllOptions = {&quot;Fill In All Territories&quot;, &quot;Let Me Select Territories&quot;};</span>
+<span class="nc" id="L512">    System.out.println(&quot;Select Folder full of images OR Text file full of points?&quot;);</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">    if (JOptionPane.showOptionDialog(this,</span>
+<span class="nc" id="L514">        &quot;Are you doing a folder full of different images (decorations.txt [misc] and name_place.txt [territoryNames]) \r\n&quot;</span>
+            + &quot;Or are we doing a per territory static or dynamic image based on game data (pu_place.txt [PUs], capitols.txt [flags], etc, basically all others) ?&quot;,
+<span class="nc" id="L516">        &quot;Folder full of images OR Text file full of points?&quot;, JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,</span>
+<span class="nc" id="L517">        null, miscOrNamesOptions,</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">        miscOrNamesOptions[(s_imagePointType.isUseFolder() ? 0 : 1)]) != JOptionPane.NO_OPTION) {</span>
+      // points are 'territory name' as opposed to exactly an image file name, like 'territory name.png' (everything but
+      // decorations is a
+      // territory name, while decorations are image file names)
+<span class="nc" id="L522">      loadImageFolder();</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">      if (s_currentImageFolderLocation == null) {</span>
+<span class="nc" id="L524">        return;</span>
+      }
+<span class="nc" id="L526">      loadImagePointTextFile();</span>
+<span class="nc" id="L527">      topLeftOrBottomLeft();</span>
+      // decorations.txt (misc folder) and name_place.txt (territoryNames folder) use a different image for each point,
+      // while everything else (like pu_place.txt (PUs folder)) will use either a static image or a dynamically chosen
+      // image based on some
+      // in game property in the game data.
+<span class="nc" id="L532">      System.out.println(&quot;Points end in .png OR they do not?&quot;);</span>
+<span class="nc" id="L533">      fillCurrentImagePointsBasedOnImageFolder(JOptionPane.showOptionDialog(this,</span>
+<span class="nc" id="L534">          &quot;Does the text file use the exact image file name, including the .png extension (decorations.txt) \r\n&quot;</span>
+              + &quot;Or does the text file not use the full file name with no extension, just a territory name (name_place.txt) ?&quot;,
+<span class="nc" id="L536">          &quot;Points end in .png OR they do not?&quot;, JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE, null,</span>
+<span class="nc" id="L537">          pointsAreNamesOptions,</span>
+<span class="nc bnc" id="L538" title="All 4 branches missed.">          pointsAreNamesOptions[(s_imagePointType.isEndInPNG() ? 0 : 1)]) == JOptionPane.NO_OPTION);</span>
+<span class="nc" id="L539">      s_createNewImageOnRightClick = false;</span>
+<span class="nc" id="L540">      s_staticImageForPlacing = null;</span>
+<span class="nc" id="L541">    } else {</span>
+<span class="nc" id="L542">      loadImagePointTextFile();</span>
+<span class="nc" id="L543">      topLeftOrBottomLeft();</span>
+      // load all territories? things like pu_place.txt should have all or most territories, while things like
+      // blockade.txt and
+      // kamikaze_place.txt and capitols.txt will only have a small number of territories
+<span class="nc" id="L547">      System.out.println(&quot;Select Fill in all territories OR let you select them?&quot;);</span>
+<span class="nc" id="L548">      fillCurrentImagePointsBasedOnTextFile(JOptionPane.showOptionDialog(this,</span>
+<span class="nc" id="L549">          &quot;Are you going to do a point for every single territory (pu_place.txt) \r\n&quot;</span>
+              + &quot;Or are you going to do just a few territories (capitols.txt, convoy.txt, vc.txt, etc, most others) ? \r\n&quot;
+              + &quot;(If you choose the later option, you must Right Click on a territory to create an image for that territory.)&quot;,
+<span class="nc" id="L552">          &quot;Fill in all territories OR let you select them?&quot;, JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,</span>
+<span class="nc bnc" id="L553" title="All 4 branches missed.">          null, fillAllOptions, fillAllOptions[(s_imagePointType.isFillAll() ? 0 : 1)]) != JOptionPane.NO_OPTION);</span>
+    }
+<span class="nc" id="L555">    s_cheapMutex = false;</span>
+<span class="nc" id="L556">    System.out.println(&quot;&quot;);</span>
+<span class="nc" id="L557">    repaint();</span>
+<span class="nc" id="L558">    JOptionPane.showMessageDialog(this, new JLabel(s_imagePointType.getInstructions()));</span>
+<span class="nc" id="L559">  }</span>
+
+  private static void loadImageFolder() {
+<span class="nc" id="L562">    System.out.println(&quot;Load an image folder (eg: 'misc' or 'territoryNames', etc)&quot;);</span>
+<span class="nc" id="L563">    File folder = new File(s_mapFolderLocation, s_imagePointType.getFolderName());</span>
+<span class="nc bnc" id="L564" title="All 4 branches missed.">    if (folder == null || !folder.exists()) {</span>
+<span class="nc" id="L565">      folder = s_mapFolderLocation;</span>
+    }
+<span class="nc" id="L567">    final FileSave imageFolder = new FileSave(&quot;Load an Image Folder&quot;, null, folder);</span>
+<span class="nc bnc" id="L568" title="All 6 branches missed.">    if (imageFolder == null || imageFolder.getPathString() == null || imageFolder.getFile() == null</span>
+<span class="nc bnc" id="L569" title="All 2 branches missed.">        || !imageFolder.getFile().exists()) {</span>
+<span class="nc" id="L570">      s_currentImageFolderLocation = null;</span>
+<span class="nc" id="L571">    } else {</span>
+<span class="nc" id="L572">      s_currentImageFolderLocation = imageFolder.getFile();</span>
+    }
+<span class="nc" id="L574">  }</span>
+
+  private void loadImagePointTextFile() {
+    try {
+<span class="nc" id="L578">      System.out.println(&quot;Load the points text file (eg: decorations.txt or pu_place.txt, etc)&quot;);</span>
+<span class="nc" id="L579">      final FileOpen centerName = new FileOpen(&quot;Load an Image Points Text File&quot;, s_mapFolderLocation,</span>
+<span class="nc" id="L580">          new File(s_mapFolderLocation, s_imagePointType.getFileName()), &quot;.txt&quot;);</span>
+<span class="nc" id="L581">      s_currentImagePointsTextFile = centerName.getFile();</span>
+<span class="nc bnc" id="L582" title="All 6 branches missed.">      if (centerName != null &amp;&amp; centerName.getFile() != null &amp;&amp; centerName.getFile().exists()</span>
+<span class="nc bnc" id="L583" title="All 2 branches missed.">          &amp;&amp; centerName.getPathString() != null) {</span>
+<span class="nc" id="L584">        final FileInputStream in = new FileInputStream(centerName.getPathString());</span>
+<span class="nc" id="L585">        m_currentPoints = PointFileReaderWriter.readOneToMany(in);</span>
+<span class="nc" id="L586">      } else {</span>
+<span class="nc" id="L587">        m_currentPoints = new HashMap&lt;&gt;();</span>
+      }
+<span class="nc" id="L589">    } catch (final HeadlessException | IOException ex) {</span>
+<span class="nc" id="L590">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L592">  }</span>
+
+  private void fillCurrentImagePointsBasedOnTextFile(final boolean fillInAllTerritories) {
+<span class="nc" id="L595">    s_staticImageForPlacing = null;</span>
+<span class="nc" id="L596">    File image = new File(s_mapFolderLocation + File.separator + s_imagePointType.getFolderName(),</span>
+<span class="nc" id="L597">        s_imagePointType.getImageName());</span>
+<span class="nc bnc" id="L598" title="All 4 branches missed.">    if (image == null || !image.exists()) {</span>
+<span class="nc" id="L599">      image = new File(ClientFileSystemHelper.getRootFolder() + File.separator + ResourceLoader.RESOURCE_FOLDER</span>
+<span class="nc" id="L600">          + File.separator + s_imagePointType.getFolderName(), s_imagePointType.getImageName());</span>
+    }
+<span class="nc bnc" id="L602" title="All 4 branches missed.">    if (image == null || !image.exists()) {</span>
+<span class="nc" id="L603">      image = null;</span>
+    }
+<span class="nc bnc" id="L605" title="All 2 branches missed.">    while (s_staticImageForPlacing == null) {</span>
+<span class="nc" id="L606">      final FileOpen imageSelection = new FileOpen(&quot;Select Example Image To Use&quot;,</span>
+<span class="nc bnc" id="L607" title="All 2 branches missed.">          (image == null ? s_mapFolderLocation : new File(image.getParent())), image, &quot;.gif&quot;, &quot;.png&quot;);</span>
+<span class="nc bnc" id="L608" title="All 6 branches missed.">      if (imageSelection == null || imageSelection.getFile() == null || !imageSelection.getFile().exists()) {</span>
+<span class="nc" id="L609">        continue;</span>
+      }
+<span class="nc" id="L611">      s_staticImageForPlacing = createImage(imageSelection.getPathString());</span>
+    }
+<span class="nc" id="L613">    final int width = s_staticImageForPlacing.getWidth(null);</span>
+<span class="nc" id="L614">    final int height = s_staticImageForPlacing.getHeight(null);</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">    final int addY = (s_imagePointType == ImagePointType.comments ? ((-ImagePointType.SPACE_BETWEEN_NAMES_AND_PUS))</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">        : (s_imagePointType == ImagePointType.pu_place ? (ImagePointType.SPACE_BETWEEN_NAMES_AND_PUS) : 0));</span>
+<span class="nc bnc" id="L617" title="All 2 branches missed.">    if (fillInAllTerritories) {</span>
+<span class="nc bnc" id="L618" title="All 2 branches missed.">      for (final Entry&lt;String, Point&gt; entry : m_centers.entrySet()) {</span>
+<span class="nc" id="L619">        List&lt;Point&gt; points = m_currentPoints.get(entry.getKey());</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">        if (points == null) {</span>
+<span class="nc" id="L621">          System.out.println(&quot;Did NOT find point for: &quot; + entry.getKey());</span>
+<span class="nc" id="L622">          points = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L623">          final Point p = new Point(entry.getValue().x - (width / 2),</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">              entry.getValue().y + addY + ((s_showFromTopLeft ? -1 : 1) * (height / 2)));</span>
+<span class="nc" id="L625">          points.add(p);</span>
+<span class="nc" id="L626">        } else {</span>
+<span class="nc" id="L627">          System.out.println(&quot;Found point for: &quot; + entry.getKey());</span>
+        }
+<span class="nc" id="L629">        m_currentImagePoints.put(entry.getKey(), Tuple.of(s_staticImageForPlacing, points));</span>
+      }
+<span class="nc" id="L631">    } else {</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">      for (final Entry&lt;String, List&lt;Point&gt;&gt; entry : m_currentPoints.entrySet()) {</span>
+<span class="nc" id="L633">        m_currentImagePoints.put(entry.getKey(),</span>
+<span class="nc" id="L634">            Tuple.of(s_staticImageForPlacing, entry.getValue()));</span>
+      }
+    }
+    // !fillInAllTerritories;
+<span class="nc" id="L638">    s_createNewImageOnRightClick = true;</span>
+<span class="nc" id="L639">  }</span>
+
+  private void fillCurrentImagePointsBasedOnImageFolder(final boolean pointsAreExactlyTerritoryNames) {
+<span class="nc bnc" id="L642" title="All 2 branches missed.">    final int addY = (s_imagePointType == ImagePointType.comments ? ((-ImagePointType.SPACE_BETWEEN_NAMES_AND_PUS))</span>
+<span class="nc bnc" id="L643" title="All 2 branches missed.">        : (s_imagePointType == ImagePointType.pu_place ? (ImagePointType.SPACE_BETWEEN_NAMES_AND_PUS) : 0));</span>
+<span class="nc" id="L644">    final List&lt;String&gt; allTerritories = new ArrayList&lt;&gt;(m_centers.keySet());</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">    for (final File file : s_currentImageFolderLocation.listFiles()) {</span>
+<span class="nc bnc" id="L646" title="All 4 branches missed.">      if (!file.getPath().endsWith(&quot;.png&quot;) &amp;&amp; !file.getPath().endsWith(&quot;.gif&quot;)) {</span>
+<span class="nc" id="L647">        continue;</span>
+      }
+<span class="nc" id="L649">      final String imageName = file.getName();</span>
+<span class="nc" id="L650">      final String possibleTerritoryName = imageName.substring(0, imageName.length() - 4);</span>
+<span class="nc" id="L651">      final Image image = createImage(file.getPath());</span>
+<span class="nc bnc" id="L652" title="All 2 branches missed.">      List&lt;Point&gt; points = (m_currentPoints != null</span>
+<span class="nc bnc" id="L653" title="All 2 branches missed.">          ? m_currentPoints.get((pointsAreExactlyTerritoryNames ? possibleTerritoryName : imageName)) : null);</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">      if (points == null) {</span>
+<span class="nc" id="L655">        points = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L656">        Point p = m_centers.get(possibleTerritoryName);</span>
+<span class="nc bnc" id="L657" title="All 2 branches missed.">        if (p == null) {</span>
+<span class="nc" id="L658">          System.out.println(&quot;Did NOT find point for: &quot; + possibleTerritoryName);</span>
+<span class="nc" id="L659">          points.add(new Point(50, 50));</span>
+<span class="nc" id="L660">        } else {</span>
+<span class="nc" id="L661">          p = new Point(p.x - (image.getWidth(null) / 2),</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">              p.y + addY + ((s_showFromTopLeft ? -1 : 1) * (image.getHeight(null) / 2)));</span>
+<span class="nc" id="L663">          points.add(p);</span>
+<span class="nc" id="L664">          allTerritories.remove(possibleTerritoryName);</span>
+<span class="nc" id="L665">          System.out.println(&quot;Found point for: &quot; + possibleTerritoryName);</span>
+        }
+<span class="nc" id="L667">      } else {</span>
+<span class="nc" id="L668">        allTerritories.remove(possibleTerritoryName);</span>
+      }
+<span class="nc bnc" id="L670" title="All 2 branches missed.">      m_currentImagePoints.put((pointsAreExactlyTerritoryNames ? possibleTerritoryName : imageName),</span>
+<span class="nc" id="L671">          Tuple.of(image, points));</span>
+    }
+<span class="nc bnc" id="L673" title="All 4 branches missed.">    if (!allTerritories.isEmpty() &amp;&amp; s_imagePointType == ImagePointType.name_place) {</span>
+<span class="nc" id="L674">      JOptionPane.showMessageDialog(this, new JLabel(&quot;Territory images not found in folder: &quot; + allTerritories));</span>
+<span class="nc" id="L675">      System.out.println(allTerritories);</span>
+    }
+<span class="nc" id="L677">  }</span>
+
+  /**
+   * mouseEvent(java.awt.Point, java.lang.boolean, java.lang.boolean)
+   *
+   * @param java
+   *        .awt.Point point a point clicked by mouse
+   * @param java
+   *        .lang.boolean ctrlDown true if ctrl key was hit
+   * @param java
+   *        .lang.boolean rightMouse true if the right mouse button was hit
+   */
+  private void mouseEvent(final Point point, final boolean ctrlDown, final boolean rightMouse) {
+<span class="nc bnc" id="L690" title="All 2 branches missed.">    if (s_cheapMutex) {</span>
+<span class="nc" id="L691">      return;</span>
+    }
+<span class="nc bnc" id="L693" title="All 6 branches missed.">    if (!rightMouse &amp;&amp; !ctrlDown &amp;&amp; m_currentSelectedImage == null) {</span>
+      // find whatever image we are left clicking on
+<span class="nc" id="L695">      Point testPoint = null;</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">      for (final Entry&lt;String, Tuple&lt;Image, List&lt;Point&gt;&gt;&gt; entry : m_currentImagePoints.entrySet()) {</span>
+<span class="nc bnc" id="L697" title="All 2 branches missed.">        for (final Point p : entry.getValue().getSecond()) {</span>
+<span class="nc bnc" id="L698" title="All 4 branches missed.">          if (testPoint == null || p.distance(m_currentMousePoint) &lt; testPoint.distance(m_currentMousePoint)) {</span>
+<span class="nc" id="L699">            testPoint = p;</span>
+<span class="nc" id="L700">            m_currentSelectedImage = Triple.of(entry.getKey(), entry.getValue().getFirst(), p);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L704" title="All 6 branches missed.">    } else if (!rightMouse &amp;&amp; !ctrlDown &amp;&amp; m_currentSelectedImage != null) {</span>
+      // save the image
+<span class="nc" id="L706">      final Tuple&lt;Image, List&lt;Point&gt;&gt; imagePoints = m_currentImagePoints.get(m_currentSelectedImage.getFirst());</span>
+<span class="nc" id="L707">      final List&lt;Point&gt; points = imagePoints.getSecond();</span>
+<span class="nc" id="L708">      points.remove(m_currentSelectedImage.getThird());</span>
+<span class="nc" id="L709">      points.add(new Point(m_currentMousePoint));</span>
+<span class="nc" id="L710">      m_currentImagePoints.put(m_currentSelectedImage.getFirst(),</span>
+<span class="nc" id="L711">          Tuple.of(m_currentSelectedImage.getSecond(), points));</span>
+<span class="nc" id="L712">      m_currentSelectedImage = null;</span>
+<span class="nc bnc" id="L713" title="All 8 branches missed.">    } else if (rightMouse &amp;&amp; !ctrlDown &amp;&amp; s_createNewImageOnRightClick &amp;&amp; s_staticImageForPlacing != null</span>
+<span class="nc bnc" id="L714" title="All 2 branches missed.">        &amp;&amp; m_currentSelectedImage == null) {</span>
+      // create a new point here in this territory
+<span class="nc" id="L716">      final Optional&lt;String&gt; territoryName = Util.findTerritoryName(m_currentMousePoint, m_polygons);</span>
+<span class="nc bnc" id="L717" title="All 2 branches missed.">      if (territoryName.isPresent()) {</span>
+<span class="nc" id="L718">        final List&lt;Point&gt; points = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L719">        points.add(new Point(m_currentMousePoint));</span>
+<span class="nc" id="L720">        m_currentImagePoints.put(territoryName.get(), Tuple.of(s_staticImageForPlacing, points));</span>
+      }
+<span class="nc bnc" id="L722" title="All 6 branches missed.">    } else if (rightMouse &amp;&amp; !ctrlDown &amp;&amp; s_imagePointType.isCanHaveMultiplePoints()) {</span>
+      // if none selected find the image we are clicking on, and duplicate it (not replace/move it)
+<span class="nc bnc" id="L724" title="All 2 branches missed.">      if (m_currentSelectedImage == null) {</span>
+<span class="nc" id="L725">        Point testPoint = null;</span>
+<span class="nc bnc" id="L726" title="All 2 branches missed.">        for (final Entry&lt;String, Tuple&lt;Image, List&lt;Point&gt;&gt;&gt; entry : m_currentImagePoints.entrySet()) {</span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">          for (final Point p : entry.getValue().getSecond()) {</span>
+<span class="nc bnc" id="L728" title="All 4 branches missed.">            if (testPoint == null || p.distance(m_currentMousePoint) &lt; testPoint.distance(m_currentMousePoint)) {</span>
+<span class="nc" id="L729">              testPoint = p;</span>
+<span class="nc" id="L730">              m_currentSelectedImage =</span>
+<span class="nc" id="L731">                  Triple.of(entry.getKey(), entry.getValue().getFirst(), null);</span>
+            }
+          }
+        }
+<span class="nc" id="L735">      } else {</span>
+<span class="nc" id="L736">        m_currentSelectedImage = Triple.of(m_currentSelectedImage.getFirst(),</span>
+<span class="nc" id="L737">            m_currentSelectedImage.getSecond(), null);</span>
+      }
+      // then save (same code as above for saving)
+<span class="nc" id="L740">      final Tuple&lt;Image, List&lt;Point&gt;&gt; imagePoints = m_currentImagePoints.get(m_currentSelectedImage.getFirst());</span>
+<span class="nc" id="L741">      final List&lt;Point&gt; points = imagePoints.getSecond();</span>
+<span class="nc" id="L742">      points.remove(m_currentSelectedImage.getThird());</span>
+<span class="nc" id="L743">      points.add(new Point(m_currentMousePoint));</span>
+<span class="nc" id="L744">      m_currentImagePoints.put(m_currentSelectedImage.getFirst(),</span>
+<span class="nc" id="L745">          Tuple.of(m_currentSelectedImage.getSecond(), points));</span>
+<span class="nc" id="L746">      m_currentSelectedImage = null;</span>
+<span class="nc bnc" id="L747" title="All 4 branches missed.">    } else if (rightMouse &amp;&amp; ctrlDown) {</span>
+      // must be right click AND ctrl down to delete an image
+<span class="nc bnc" id="L749" title="All 2 branches missed.">      if (m_currentSelectedImage == null) {</span>
+<span class="nc" id="L750">        return;</span>
+      }
+<span class="nc" id="L752">      final Tuple&lt;Image, List&lt;Point&gt;&gt; current = m_currentImagePoints.get(m_currentSelectedImage.getFirst());</span>
+<span class="nc" id="L753">      final List&lt;Point&gt; points = current.getSecond();</span>
+<span class="nc" id="L754">      points.remove(m_currentSelectedImage.getThird());</span>
+<span class="nc bnc" id="L755" title="All 2 branches missed.">      if (points.isEmpty()) {</span>
+<span class="nc" id="L756">        m_currentImagePoints.remove(m_currentSelectedImage.getFirst());</span>
+      }
+<span class="nc" id="L758">      m_currentSelectedImage = null;</span>
+    }
+<span class="nc" id="L760">    repaint();</span>
+<span class="nc" id="L761">  }</span>
+
+  private static String getValue(final String arg) {
+<span class="nc" id="L764">    final int index = arg.indexOf('=');</span>
+<span class="nc bnc" id="L765" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L766">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L768">    return arg.substring(index + 1);</span>
+  }
+
+  private static void handleCommandLineArgs(final String[] args) {
+    // arg can only be the map folder location.
+<span class="nc bnc" id="L773" title="All 2 branches missed.">    if (args.length == 1) {</span>
+      String value;
+<span class="nc bnc" id="L775" title="All 2 branches missed.">      if (args[0].startsWith(TRIPLEA_MAP_FOLDER)) {</span>
+<span class="nc" id="L776">        value = getValue(args[0]);</span>
+<span class="nc" id="L777">      } else {</span>
+<span class="nc" id="L778">        value = args[0];</span>
+      }
+<span class="nc" id="L780">      final File mapFolder = new File(value);</span>
+<span class="nc bnc" id="L781" title="All 2 branches missed.">      if (mapFolder.exists()) {</span>
+<span class="nc" id="L782">        s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L783">      } else {</span>
+<span class="nc" id="L784">        System.out.println(&quot;Could not find directory: &quot; + value);</span>
+      }
+<span class="nc bnc" id="L786" title="All 2 branches missed.">    } else if (args.length &gt; 1) {</span>
+<span class="nc" id="L787">      System.out.println(&quot;Only argument allowed is the map directory.&quot;);</span>
+    }
+    // might be set by -D
+<span class="nc bnc" id="L790" title="All 4 branches missed.">    if (s_mapFolderLocation == null || s_mapFolderLocation.length() &lt; 1) {</span>
+<span class="nc" id="L791">      final String value = System.getProperty(TRIPLEA_MAP_FOLDER);</span>
+<span class="nc bnc" id="L792" title="All 4 branches missed.">      if (value != null &amp;&amp; value.length() &gt; 0) {</span>
+<span class="nc" id="L793">        final File mapFolder = new File(value);</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">        if (mapFolder.exists()) {</span>
+<span class="nc" id="L795">          s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L796">        } else {</span>
+<span class="nc" id="L797">          System.out.println(&quot;Could not find directory: &quot; + value);</span>
+        }
+      }
+    }
+<span class="nc" id="L801">  }</span>
+}
+
+
+enum ImagePointType {
+<span class="nc" id="L806">  decorations(&quot;decorations.txt&quot;, &quot;misc&quot;, &quot;decorationExample.png&quot;, true, true, true, false, true, true,</span>
+<span class="nc" id="L807">      &quot;decorations.txt will place any kind of image you want anywhere, using the 'misc' folder&quot;,</span>
+<span class="nc" id="L808">      &quot;&lt;html&gt;decorations.txt will allow for multiple points per image. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L809">          + &quot;&lt;br&gt;Right click = create a copy of currently selected image OR closest image &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), name_place(</span>
+<span class="nc" id="L810">              &quot;name_place.txt&quot;, &quot;territoryNames&quot;, &quot;territoryName.png&quot;, true, false, true, true, false, false,</span>
+<span class="nc" id="L811">              &quot;name_place.txt only places images with the exact name of the territories on map, using the 'territoryNames' folder&quot;,</span>
+<span class="nc" id="L812">              &quot;&lt;html&gt;name_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L813">                  + &quot;&lt;br&gt;Right click = nothing &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), pu_place(</span>
+<span class="nc" id="L814">                      &quot;pu_place.txt&quot;, &quot;PUs&quot;, &quot;2.png&quot;, false, false, true, true, false, false,</span>
+<span class="nc" id="L815">                      &quot;pu_place.txt is the point where the PUs get shown, and picks the PU images (like '2.png') from the 'PUs' folder&quot;,</span>
+<span class="nc" id="L816">                      &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L817">                          + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), capitols(</span>
+<span class="nc" id="L818">                              &quot;capitols.txt&quot;, &quot;flags&quot;, &quot;Neutral_large.png&quot;, false, false, false, false, false, true,</span>
+<span class="nc" id="L819">                              &quot;capitols.txt is the point where a capitol flag is shown, and picks the &lt;name&gt;_large.png image from the 'flags' folder&quot;,</span>
+<span class="nc" id="L820">                              &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L821">                                  + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), vc(</span>
+<span class="nc" id="L822">                                      &quot;vc.txt&quot;, &quot;misc&quot;, &quot;vc.png&quot;, false, false, false, false, false, true,</span>
+<span class="nc" id="L823">                                      &quot;vc.txt is the point where a Victory City icon is shown, and picks the 'vc.png' image from the 'misc' folder&quot;,</span>
+<span class="nc" id="L824">                                      &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L825">                                          + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), blockade(</span>
+<span class="nc" id="L826">                                              &quot;blockade.txt&quot;, &quot;misc&quot;, &quot;blockade.png&quot;, false, false, false, false, false,</span>
+<span class="nc" id="L827">                                              true,</span>
+<span class="nc" id="L828">                                              &quot;blockade.txt is the point where a blockade zone icon is shown, and picks the 'blockade.png' image from the 'misc' folder&quot;,</span>
+<span class="nc" id="L829">                                              &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L830">                                                  + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), convoy(</span>
+<span class="nc" id="L831">                                                      &quot;convoy.txt&quot;, &quot;flags&quot;, &quot;Neutral.png&quot;, false, false, false, false,</span>
+<span class="nc" id="L832">                                                      false, true,</span>
+<span class="nc" id="L833">                                                      &quot;convoy.txt is the point where a nation flag is shown on any sea zone that has production ability, and picks the &lt;name&gt;.png image from the 'flags' folder&quot;,</span>
+<span class="nc" id="L834">                                                      &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L835">                                                          + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), comments(</span>
+<span class="nc" id="L836">                                                              &quot;comments.txt&quot;, &quot;misc&quot;, &quot;exampleConvoyText.png&quot;, false,</span>
+<span class="nc" id="L837">                                                              false, false, true, false, false,</span>
+<span class="nc" id="L838">                                                              &quot;comments.txt is the point where text details about a convoy zone or route is shown, and it does not use any image, instead it writes the text in-game&quot;,</span>
+<span class="nc" id="L839">                                                              &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L840">                                                                  + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), kamikaze_place(</span>
+<span class="nc" id="L841">                                                                      &quot;kamikaze_place.txt&quot;, &quot;flags&quot;, &quot;Neutral_fade.png&quot;,</span>
+<span class="nc" id="L842">                                                                      false, false, false, false, false, true,</span>
+<span class="nc" id="L843">                                                                      &quot;kamikaze_place.txt is the point where a kamikaze zone symbol is shown, and it picks the &lt;name&gt;_fade.png image from the 'flags' folder&quot;,</span>
+<span class="nc" id="L844">                                                                      &quot;&lt;html&gt;pu_place.txt only allows 1 point per image/territory. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+<span class="nc" id="L845">                                                                          + &quot;&lt;br&gt;Right click = create an image and point for this territory if none exists yet &lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;), territory_effects(</span>
+<span class="nc" id="L846">                                                                              &quot;territory_effects.txt&quot;,</span>
+<span class="nc" id="L847">                                                                              &quot;territoryEffects&quot;, &quot;mountain.png&quot;, false,</span>
+<span class="nc" id="L848">                                                                              false, false, false, true, true,</span>
+<span class="nc" id="L849">                                                                              &quot;territory_effects.txt is the point where a territory effect image is shown, and it picks the &lt;effect&gt;.png image from the 'territoryEffects' folder&quot;,</span>
+<span class="nc" id="L850">                                                                              &quot;&lt;html&gt;pu_place.txt will allow for multiple points per image. &lt;br&gt;Left Click = select closest image  OR  place currently selected image &quot;</span>
+                                                                                  + &quot;&lt;br&gt;Right click = copy selected image OR create an image for this territory&lt;br&gt;CTRL/SHIFT + Right Click = delete currently selected image point&lt;/html&gt;&quot;);
+<span class="nc" id="L852">  public static final int SPACE_BETWEEN_NAMES_AND_PUS = 32;</span>
+  private final String m_fileName;
+  private final String m_folderName;
+  private final String m_imageName;
+  private final boolean m_useFolder;
+  private final boolean m_endInPNG;
+  private final boolean m_fillAll;
+  private final boolean m_canUseBottomLeftPoint;
+  private final boolean m_canHaveMultiplePoints;
+  private final boolean m_usesCentersPoint;
+  private final String m_description;
+  private final String m_instructions;
+
+  protected static ImagePointType[] getTypes() {
+<span class="nc" id="L866">    return new ImagePointType[] {decorations, name_place, pu_place, capitols, vc, blockade, convoy, comments,</span>
+<span class="nc" id="L867">        kamikaze_place, territory_effects};</span>
+  }
+
+<span class="nc" id="L870">  ImagePointType(final String fileName, final String folderName, final String imageName, final boolean useFolder,</span>
+      final boolean endInPNG, final boolean fillAll, final boolean canUseBottomLeftPoint,
+      final boolean canHaveMultiplePoints, final boolean usesCentersPoint, final String description,
+      final String instructions) {
+<span class="nc" id="L874">    m_fileName = fileName;</span>
+<span class="nc" id="L875">    m_folderName = folderName;</span>
+<span class="nc" id="L876">    m_imageName = imageName;</span>
+<span class="nc" id="L877">    m_useFolder = useFolder;</span>
+<span class="nc" id="L878">    m_endInPNG = endInPNG;</span>
+<span class="nc" id="L879">    m_fillAll = fillAll;</span>
+<span class="nc" id="L880">    m_canUseBottomLeftPoint = canUseBottomLeftPoint;</span>
+<span class="nc" id="L881">    m_canHaveMultiplePoints = canHaveMultiplePoints;</span>
+<span class="nc" id="L882">    m_usesCentersPoint = usesCentersPoint;</span>
+<span class="nc" id="L883">    m_description = description;</span>
+<span class="nc" id="L884">    m_instructions = instructions;</span>
+<span class="nc" id="L885">  }</span>
+
+  public String getFileName() {
+<span class="nc" id="L888">    return m_fileName;</span>
+  }
+
+  public String getFolderName() {
+<span class="nc" id="L892">    return m_folderName;</span>
+  }
+
+  public String getImageName() {
+<span class="nc" id="L896">    return m_imageName;</span>
+  }
+
+  public boolean isUseFolder() {
+<span class="nc" id="L900">    return m_useFolder;</span>
+  }
+
+  public boolean isEndInPNG() {
+<span class="nc" id="L904">    return m_endInPNG;</span>
+  }
+
+  public boolean isFillAll() {
+<span class="nc" id="L908">    return m_fillAll;</span>
+  }
+
+  public boolean isCanUseBottomLeftPoint() {
+<span class="nc" id="L912">    return m_canUseBottomLeftPoint;</span>
+  }
+
+  public boolean isCanHaveMultiplePoints() {
+<span class="nc" id="L916">    return m_canHaveMultiplePoints;</span>
+  }
+
+  public boolean isUsesCentersPoint() {
+<span class="nc" id="L920">    return m_usesCentersPoint;</span>
+  }
+
+  public String getDescription() {
+<span class="nc" id="L924">    return m_description;</span>
+  }
+
+  public String getInstructions() {
+<span class="nc" id="L928">    return m_instructions;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

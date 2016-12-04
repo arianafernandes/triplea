@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractMoveDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">AbstractMoveDelegate.java</span></div><h1>AbstractMoveDelegate.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.pbem.PBEMMessagePoster;
+import games.strategy.triplea.delegate.dataObjects.MoveValidationResult;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+
+/**
+ * An abstraction of MoveDelegate in order to allow other delegates to extend this.
+ */
+public abstract class AbstractMoveDelegate extends BaseTripleADelegate implements IMoveDelegate {
+  // A collection of UndoableMoves
+<span class="fc" id="L26">  protected List&lt;UndoableMove&gt; m_movesToUndo = new ArrayList&lt;&gt;();</span>
+  // protected final TransportTracker m_transportTracker = new TransportTracker();
+  // if we are in the process of doing a move. this instance will allow us to resume the move
+  protected MovePerformer m_tempMovePerformer;
+
+<span class="nc" id="L31">  public static enum MoveType {</span>
+<span class="nc" id="L32">    DEFAULT, SPECIAL</span>
+  }
+
+<span class="fc" id="L35">  public AbstractMoveDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L42">    super.start();</span>
+<span class="pc bpc" id="L43" title="1 of 2 branches missed.">    if (m_tempMovePerformer != null) {</span>
+<span class="nc" id="L44">      m_tempMovePerformer.initialize(this);</span>
+<span class="nc" id="L45">      m_tempMovePerformer.resume();</span>
+<span class="nc" id="L46">      m_tempMovePerformer = null;</span>
+    }
+<span class="fc" id="L48">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   */
+  @Override
+  public void end() {
+<span class="fc" id="L55">    super.end();</span>
+<span class="fc" id="L56">    m_movesToUndo.clear();</span>
+<span class="fc" id="L57">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L61">    final AbstractMoveExtendedDelegateState state = new AbstractMoveExtendedDelegateState();</span>
+<span class="nc" id="L62">    state.superState = super.saveState();</span>
+    // add other variables to state here:
+<span class="nc" id="L64">    state.m_movesToUndo = m_movesToUndo;</span>
+<span class="nc" id="L65">    state.m_tempMovePerformer = m_tempMovePerformer;</span>
+<span class="nc" id="L66">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L71">    final AbstractMoveExtendedDelegateState s = (AbstractMoveExtendedDelegateState) state;</span>
+<span class="nc" id="L72">    super.loadState(s.superState);</span>
+    // if the undo state wasnt saved, then dont load it. prevents overwriting undo state when we restore from an undo
+    // move
+<span class="nc bnc" id="L75" title="All 2 branches missed.">    if (s.m_movesToUndo != null) {</span>
+<span class="nc" id="L76">      m_movesToUndo = s.m_movesToUndo;</span>
+    }
+<span class="nc" id="L78">    m_tempMovePerformer = s.m_tempMovePerformer;</span>
+<span class="nc" id="L79">  }</span>
+
+  @Override
+  public List&lt;UndoableMove&gt; getMovesMade() {
+<span class="fc" id="L83">    return new ArrayList&lt;&gt;(m_movesToUndo);</span>
+  }
+
+  @Override
+  public String undoMove(final int moveIndex) {
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">    if (m_movesToUndo.isEmpty()) {</span>
+<span class="nc" id="L89">      return &quot;No moves to undo&quot;;</span>
+    }
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">    if (moveIndex &gt;= m_movesToUndo.size()) {</span>
+<span class="nc" id="L92">      return &quot;Undo move index out of range&quot;;</span>
+    }
+<span class="fc" id="L94">    final UndoableMove moveToUndo = m_movesToUndo.get(moveIndex);</span>
+<span class="pc bpc" id="L95" title="1 of 2 branches missed.">    if (!moveToUndo.getcanUndo()) {</span>
+<span class="nc" id="L96">      return moveToUndo.getReasonCantUndo();</span>
+    }
+<span class="fc" id="L98">    moveToUndo.undo(m_bridge);</span>
+<span class="fc" id="L99">    m_movesToUndo.remove(moveIndex);</span>
+<span class="fc" id="L100">    updateUndoableMoveIndexes();</span>
+<span class="fc" id="L101">    return null;</span>
+  }
+
+  private void updateUndoableMoveIndexes() {
+<span class="fc bfc" id="L105" title="All 2 branches covered.">    for (int i = 0; i &lt; m_movesToUndo.size(); i++) {</span>
+<span class="fc" id="L106">      m_movesToUndo.get(i).setIndex(i);</span>
+    }
+<span class="fc" id="L108">  }</span>
+
+  protected void updateUndoableMoves(final UndoableMove currentMove) {
+<span class="fc" id="L111">    currentMove.initializeDependencies(m_movesToUndo);</span>
+<span class="fc" id="L112">    m_movesToUndo.add(currentMove);</span>
+<span class="fc" id="L113">    updateUndoableMoveIndexes();</span>
+<span class="fc" id="L114">  }</span>
+
+  protected PlayerID getUnitsOwner(final Collection&lt;Unit&gt; units) {
+    // if we are not in edit mode, return m_player. if we are in edit mode, we use whoever's units these are.
+<span class="pc bpc" id="L118" title="2 of 4 branches missed.">    if (units.isEmpty() || !BaseEditDelegate.getEditMode(getData())) {</span>
+<span class="fc" id="L119">      return m_player;</span>
+    } else {
+<span class="nc" id="L121">      return units.iterator().next().getOwner();</span>
+    }
+  }
+
+  @Override
+  public String move(final Collection&lt;Unit&gt; units, final Route route) {
+<span class="fc" id="L127">    return move(units, route, Collections.emptyList());</span>
+  }
+
+  @Override
+  public String move(final Collection&lt;Unit&gt; units, final Route route,
+      final Collection&lt;Unit&gt; transportsThatCanBeLoaded) {
+<span class="fc" id="L133">    return move(units, route, transportsThatCanBeLoaded, new HashMap&lt;&gt;());</span>
+  }
+
+  @Override
+  public abstract String move(final Collection&lt;Unit&gt; units, final Route route,
+      final Collection&lt;Unit&gt; m_transportsThatCanBeLoaded, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; newDependents);
+
+  public static MoveValidationResult validateMove(final MoveType moveType, final Collection&lt;Unit&gt; units,
+      final Route route, final PlayerID player, final Collection&lt;Unit&gt; transportsToLoad,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; newDependents, final boolean isNonCombat,
+      final List&lt;UndoableMove&gt; undoableMoves, final GameData data) {
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    if (moveType == MoveType.SPECIAL) {</span>
+<span class="nc" id="L145">      return SpecialMoveDelegate.validateMove(units, route, player, transportsToLoad, newDependents, isNonCombat,</span>
+<span class="nc" id="L146">          undoableMoves, data);</span>
+    }
+<span class="nc" id="L148">    return MoveValidator.validateMove(units, route, player, transportsToLoad, newDependents, isNonCombat, undoableMoves,</span>
+<span class="nc" id="L149">        data);</span>
+  }
+
+  @Override
+  public Collection&lt;Territory&gt; getTerritoriesWhereAirCantLand(final PlayerID player) {
+<span class="nc" id="L154">    return new AirThatCantLandUtil(m_bridge).getTerritoriesWhereAirCantLand(player);</span>
+  }
+
+  @Override
+  public Collection&lt;Territory&gt; getTerritoriesWhereAirCantLand() {
+<span class="fc" id="L159">    return new AirThatCantLandUtil(m_bridge).getTerritoriesWhereAirCantLand(m_player);</span>
+  }
+
+  @Override
+  public Collection&lt;Territory&gt; getTerritoriesWhereUnitsCantFight() {
+<span class="nc" id="L164">    return new UnitsThatCantFightUtil(getData()).getTerritoriesWhereUnitsCantFight(m_player);</span>
+  }
+
+  /**
+   * @param unit
+   *        referring unit
+   * @param end
+   *        target territory
+   * @return the route that a unit used to move into the given territory
+   */
+  public Route getRouteUsedToMoveInto(final Unit unit, final Territory end) {
+<span class="fc" id="L175">    return AbstractMoveDelegate.getRouteUsedToMoveInto(m_movesToUndo, unit, end);</span>
+  }
+
+  /**
+   * This method is static so it can be called from the client side.
+   *
+   * @param undoableMoves
+   *        list of moves that have been done
+   * @param unit
+   *        referring unit
+   * @param end
+   *        target territory
+   * @return the route that a unit used to move into the given territory.
+   */
+  public static Route getRouteUsedToMoveInto(final List&lt;UndoableMove&gt; undoableMoves, final Unit unit,
+      final Territory end) {
+<span class="fc" id="L191">    final ListIterator&lt;UndoableMove&gt; iter = undoableMoves.listIterator(undoableMoves.size());</span>
+<span class="fc bfc" id="L192" title="All 2 branches covered.">    while (iter.hasPrevious()) {</span>
+<span class="fc" id="L193">      final UndoableMove move = iter.previous();</span>
+<span class="fc bfc" id="L194" title="All 2 branches covered.">      if (!move.getUnits().contains(unit)) {</span>
+<span class="fc" id="L195">        continue;</span>
+      }
+<span class="fc bfc" id="L197" title="All 2 branches covered.">      if (move.getRoute().getEnd().equals(end)) {</span>
+<span class="fc" id="L198">        return move.getRoute();</span>
+      }
+    }
+<span class="fc" id="L201">    return null;</span>
+  }
+
+  public static BattleTracker getBattleTracker(final GameData data) {
+<span class="fc" id="L205">    return DelegateFinder.battleDelegate(data).getBattleTracker();</span>
+  }
+
+  protected boolean isWW2V2() {
+<span class="nc" id="L209">    return games.strategy.triplea.Properties.getWW2V2(getData());</span>
+  }
+
+  @Override
+  public void setHasPostedTurnSummary(final boolean hasPostedTurnSummary) {
+    // nothing for now
+<span class="nc" id="L215">  }</span>
+
+  @Override
+  public boolean getHasPostedTurnSummary() {
+<span class="nc" id="L219">    return false;</span>
+  }
+
+  @Override
+  public boolean postTurnSummary(final PBEMMessagePoster poster, final String title, final boolean includeSaveGame) {
+<span class="nc" id="L224">    return poster.post(m_bridge.getHistoryWriter(), title, includeSaveGame);</span>
+  }
+
+  public abstract int PUsAlreadyLost(final Territory t);
+
+  public abstract void PUsLost(final Territory t, final int amt);
+
+  @Override
+  public Class&lt;IMoveDelegate&gt; getRemoteType() {
+<span class="nc" id="L233">    return IMoveDelegate.class;</span>
+  }
+}
+
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

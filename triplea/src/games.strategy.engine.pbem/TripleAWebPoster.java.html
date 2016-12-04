@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TripleAWebPoster.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.pbem</a> &gt; <span class="el_source">TripleAWebPoster.java</span></div><h1>TripleAWebPoster.java</h1><pre class="source lang-java linenums">package games.strategy.engine.pbem;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.TreeSet;
+import java.util.Vector;
+
+import org.apache.commons.httpclient.HostConfiguration;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.HttpState;
+import org.apache.commons.httpclient.methods.PostMethod;
+import org.apache.commons.httpclient.methods.multipart.FilePart;
+import org.apache.commons.httpclient.methods.multipart.MultipartRequestEntity;
+import org.apache.commons.httpclient.methods.multipart.Part;
+import org.apache.commons.httpclient.methods.multipart.StringPart;
+import org.apache.commons.httpclient.params.HttpMethodParams;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.framework.startup.ui.editors.EditorPanel;
+import games.strategy.engine.framework.startup.ui.editors.IBean;
+import games.strategy.engine.framework.startup.ui.editors.MicroWebPosterEditor;
+import games.strategy.engine.framework.system.HttpProxy;
+import games.strategy.engine.stats.AbstractStat;
+import games.strategy.net.OpenFileUtility;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.help.HelpSupport;
+
+<span class="nc" id="L35">public class TripleAWebPoster implements IWebPoster {</span>
+  private static final long serialVersionUID = -3013355800798928625L;
+<span class="nc" id="L37">  private String m_host = MicroWebPosterEditor.HTTP_BLANK;</span>
+<span class="nc" id="L38">  private Vector&lt;String&gt; m_allHosts = new Vector&lt;&gt;();</span>
+<span class="nc" id="L39">  private String m_siteId = &quot;&quot;;</span>
+<span class="nc" id="L40">  private boolean m_mailSaveGame = true;</span>
+<span class="nc" id="L41">  private String m_gameName = &quot;&quot;;</span>
+<span class="nc" id="L42">  private transient String m_serverMessage = &quot;&quot;;</span>
+<span class="nc" id="L43">  private transient File m_saveGameFile = null;</span>
+<span class="nc" id="L44">  private transient String m_saveGameFileName = &quot;&quot;;</span>
+  private String[] parties;
+
+  private static Collection&lt;String&gt; getAlliances(final GameData gameData) {
+<span class="nc" id="L48">    final Collection&lt;String&gt; rVal = new TreeSet&lt;&gt;();</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">    for (final String alliance : gameData.getAllianceTracker().getAlliances()) {</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">      if (gameData.getAllianceTracker().getPlayersInAlliance(alliance).size() &gt; 1) {</span>
+<span class="nc" id="L51">        rVal.add(alliance);</span>
+      }
+    }
+<span class="nc" id="L54">    return rVal;</span>
+  }
+
+  private static String getProductionData(final GameData gameData) {
+<span class="nc" id="L58">    gameData.acquireReadLock();</span>
+    try {
+<span class="nc" id="L60">      final Collection&lt;String&gt; alliances = getAlliances(gameData);</span>
+<span class="nc" id="L61">      final ProductionStat prodStat = new ProductionStat();</span>
+<span class="nc" id="L62">      String result = &quot;&quot;;</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">      for (final String alliance : alliances) {</span>
+<span class="nc" id="L64">        final int value = (int) prodStat.getValue(alliance, gameData);</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (!result.equals(&quot;&quot;)) {</span>
+<span class="nc" id="L66">          result += &quot;;&quot;;</span>
+        }
+<span class="nc" id="L68">        result += alliance + &quot;=&quot; + value;</span>
+      }
+<span class="nc" id="L70">      return result;</span>
+<span class="nc" id="L71">    } finally {</span>
+<span class="nc" id="L72">      gameData.releaseReadLock();</span>
+<span class="nc" id="L73">    }</span>
+  }
+
+  @Override
+  public boolean postTurnSummary(final GameData gameData, final String turnSummary, final String player,
+      final int round) {
+    try {
+<span class="nc" id="L80">      final List&lt;Part&gt; parts = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L81">      parts.add(createStringPart(&quot;siteid&quot;, m_siteId));</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      if (gameData != null) {</span>
+<span class="nc" id="L83">        parts.add(createStringPart(&quot;production&quot;, getProductionData(gameData)));</span>
+      }
+<span class="nc" id="L85">      parts.add(createStringPart(&quot;gamename&quot;, m_gameName));</span>
+<span class="nc" id="L86">      parts.add(createStringPart(&quot;player&quot;, player));</span>
+<span class="nc" id="L87">      parts.add(createStringPart(&quot;summary&quot;, turnSummary));</span>
+<span class="nc" id="L88">      parts.add(createStringPart(&quot;round&quot;, &quot;&quot; + round));</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">      parts.add(createStringPart(&quot;sendmail&quot;, m_mailSaveGame ? &quot;true&quot; : &quot;false&quot;));</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">      if (m_saveGameFile != null) {</span>
+<span class="nc" id="L91">        final FilePart part = new FilePart(&quot;userfile&quot;, m_saveGameFileName, m_saveGameFile);</span>
+<span class="nc" id="L92">        part.setContentType(&quot;application/octet-stream&quot;);</span>
+<span class="nc" id="L93">        parts.add(part);</span>
+      }
+<span class="nc" id="L95">      m_serverMessage = executePost(m_host, &quot;upload.php&quot;, parts);</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">      if (!m_serverMessage.toLowerCase().contains(&quot;success&quot;)) {</span>
+<span class="nc" id="L97">        System.out.println(&quot;Unknown error, site response: &quot; + m_serverMessage);</span>
+<span class="nc" id="L98">        return false;</span>
+      }
+<span class="nc" id="L100">    } catch (final Exception e) {</span>
+<span class="nc" id="L101">      m_serverMessage = e.getMessage();</span>
+<span class="nc" id="L102">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L103">      return false;</span>
+    }
+<span class="nc" id="L105">    return true;</span>
+  }
+
+  public static String executePost(final String host, final String path, final List&lt;Part&gt; parts) throws Exception {
+<span class="nc" id="L109">    final HttpClient client = new HttpClient();</span>
+<span class="nc" id="L110">    client.getParams().setParameter(&quot;http.protocol.single-cookie-header&quot;, true);</span>
+<span class="nc" id="L111">    client.getParams().setParameter(&quot;http.useragent&quot;,</span>
+<span class="nc" id="L112">        &quot;Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0)&quot;);</span>
+<span class="nc" id="L113">    final HttpState httpState = new HttpState();</span>
+<span class="nc" id="L114">    final HostConfiguration hostConfiguration = new HostConfiguration();</span>
+    // add the proxy
+<span class="nc" id="L116">    HttpProxy.addProxy(hostConfiguration);</span>
+<span class="nc" id="L117">    hostConfiguration.setHost(host);</span>
+<span class="nc" id="L118">    final MultipartRequestEntity entity =</span>
+<span class="nc" id="L119">        new MultipartRequestEntity(parts.toArray(new Part[parts.size()]), new HttpMethodParams());</span>
+<span class="nc" id="L120">    final PostMethod post = new PostMethod(getHostUrlPrefix(host) + path);</span>
+<span class="nc" id="L121">    post.setRequestEntity(entity);</span>
+    try {
+<span class="nc" id="L123">      final int status = client.executeMethod(hostConfiguration, post, httpState);</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">      if (status != 200) {</span>
+<span class="nc" id="L125">        throw new Exception(&quot;Post command to &quot; + host + &quot; failed, the server returned status: &quot; + status);</span>
+      }
+<span class="nc" id="L127">      return post.getResponseBodyAsString();</span>
+<span class="nc" id="L128">    } finally {</span>
+<span class="nc" id="L129">      post.releaseConnection();</span>
+<span class="nc" id="L130">    }</span>
+  }
+
+  @Override
+  public boolean getMailSaveGame() {
+<span class="nc" id="L135">    return m_mailSaveGame;</span>
+  }
+
+  @Override
+  public void setMailSaveGame(final boolean mail) {
+<span class="nc" id="L140">    m_mailSaveGame = mail;</span>
+<span class="nc" id="L141">  }</span>
+
+  @Override
+  public void addSaveGame(final File saveGame, final String fileName) {
+<span class="nc" id="L145">    m_saveGameFile = saveGame;</span>
+<span class="nc" id="L146">    m_saveGameFileName = fileName;</span>
+<span class="nc" id="L147">  }</span>
+
+  @Override
+  public EditorPanel getEditor() {
+<span class="nc" id="L151">    return new MicroWebPosterEditor(this, parties);</span>
+  }
+
+  @Override
+  public boolean sameType(final IBean other) {
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    return getClass() == other.getClass();</span>
+  }
+
+  /**
+   * Utility method for creating string parts, since we need to remove transferEncoding and content type to behave like
+   * a browser
+   *
+   * @param name
+   *        the form field name
+   * @param value
+   *        the for field value
+   * @return return the created StringPart
+   */
+  public static StringPart createStringPart(final String name, final String value) {
+<span class="nc" id="L170">    final StringPart stringPart = new StringPart(name, value);</span>
+<span class="nc" id="L171">    stringPart.setTransferEncoding(null);</span>
+<span class="nc" id="L172">    stringPart.setContentType(null);</span>
+<span class="nc" id="L173">    return stringPart;</span>
+  }
+
+  @Override
+  public String getTestMessage() {
+<span class="nc" id="L178">    return &quot;Testing, this will take a couple of seconds...&quot;;</span>
+  }
+
+  @Override
+  public String getServerMessage() {
+<span class="nc" id="L183">    return m_serverMessage;</span>
+  }
+
+  @Override
+  public String getHelpText() {
+<span class="nc" id="L188">    return HelpSupport.loadHelp(&quot;tripleAMicroWebsite.html&quot;);</span>
+  }
+
+  @Override
+  public IWebPoster doClone() {
+<span class="nc" id="L193">    final TripleAWebPoster clone = new TripleAWebPoster();</span>
+<span class="nc" id="L194">    clone.setMailSaveGame(getMailSaveGame());</span>
+<span class="nc" id="L195">    clone.setHost(getHost());</span>
+<span class="nc" id="L196">    clone.setAllHosts(new Vector&lt;&gt;(getAllHosts()));</span>
+<span class="nc" id="L197">    clone.setSiteId(getSiteId());</span>
+<span class="nc" id="L198">    clone.setGameName(getGameName());</span>
+<span class="nc" id="L199">    return clone;</span>
+  }
+
+  @Override
+  public String getDisplayName() {
+<span class="nc" id="L204">    return &quot;TripleA Micro Web Site&quot;;</span>
+  }
+
+  @Override
+  public String getSiteId() {
+<span class="nc" id="L209">    return m_siteId;</span>
+  }
+
+  @Override
+  public String getHost() {
+<span class="nc" id="L214">    return m_host;</span>
+  }
+
+  @Override
+  public Vector&lt;String&gt; getAllHosts() {
+<span class="nc" id="L219">    return m_allHosts;</span>
+  }
+
+  private static String getHostUrlPrefix(final String host) {
+<span class="nc bnc" id="L223" title="All 2 branches missed.">    if (host.endsWith(&quot;/&quot;)) {</span>
+<span class="nc" id="L224">      return host;</span>
+    } else {
+<span class="nc" id="L226">      return host + &quot;/&quot;;</span>
+    }
+  }
+
+  @Override
+  public String getGameName() {
+<span class="nc" id="L232">    return m_gameName;</span>
+  }
+
+  @Override
+  public void setSiteId(final String siteId) {
+<span class="nc" id="L237">    m_siteId = siteId;</span>
+<span class="nc" id="L238">  }</span>
+
+  @Override
+  public void setGameName(final String gameName) {
+<span class="nc" id="L242">    m_gameName = gameName;</span>
+<span class="nc" id="L243">  }</span>
+
+  @Override
+  public void setHost(final String host) {
+<span class="nc" id="L247">    m_host = getHostUrlPrefix(host);</span>
+<span class="nc" id="L248">  }</span>
+
+  @Override
+  public void setAllHosts(final Vector&lt;String&gt; hosts) {
+<span class="nc" id="L252">    m_allHosts = hosts;</span>
+<span class="nc" id="L253">  }</span>
+
+  @Override
+  public void addToAllHosts(final String host) {
+<span class="nc" id="L257">    final String hostToAdd = getHostUrlPrefix(host);</span>
+<span class="nc" id="L258">    m_allHosts.remove(hostToAdd);</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">    if (m_allHosts.size() &gt; 10) {</span>
+<span class="nc" id="L260">      m_allHosts.subList(10, m_allHosts.size()).clear();</span>
+    }
+<span class="nc" id="L262">    m_allHosts.add(0, hostToAdd);</span>
+<span class="nc" id="L263">  }</span>
+
+  @Override
+  public void viewSite() {
+<span class="nc" id="L267">    OpenFileUtility.openURL(getHost());</span>
+<span class="nc" id="L268">  }</span>
+
+  public void setParties(final String[] parties) {
+<span class="nc" id="L271">    this.parties = parties;</span>
+<span class="nc" id="L272">  }</span>
+
+  @Override
+  public void clearSensitiveInfo() {
+<span class="nc" id="L276">    m_allHosts.clear();</span>
+<span class="nc" id="L277">  }</span>
+}
+
+
+<span class="nc" id="L281">class ProductionStat extends AbstractStat {</span>
+  @Override
+  public String getName() {
+<span class="nc" id="L284">    return &quot;Production&quot;;</span>
+  }
+
+  @Override
+  public double getValue(final PlayerID player, final GameData data) {
+<span class="nc" id="L289">    int rVal = 0;</span>
+<span class="nc bnc" id="L290" title="All 2 branches missed.">    for (final Territory place : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L291">      final TerritoryAttachment ta = TerritoryAttachment.get(place);</span>
+      /*
+       * Match will Check if terr is a Land Convoy Route and check ownership of neighboring Sea Zone, and also check if
+       * territory is
+       * contested
+       */
+<span class="nc bnc" id="L297" title="All 6 branches missed.">      if (ta != null &amp;&amp; player != null &amp;&amp; player.equals(place.getOwner())</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">          &amp;&amp; Matches.territoryCanCollectIncomeFrom(player, data).match(place)) {</span>
+<span class="nc" id="L299">        rVal += ta.getProduction();</span>
+      }
+    }
+<span class="nc" id="L302">    rVal *= Properties.getPU_Multiplier(data);</span>
+<span class="nc" id="L303">    return rVal;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

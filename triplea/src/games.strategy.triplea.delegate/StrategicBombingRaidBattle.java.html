@@ -1,0 +1,833 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>StrategicBombingRaidBattle.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">StrategicBombingRaidBattle.java</span></div><h1>StrategicBombingRaidBattle.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.message.ConnectionLostException;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.Die.DieType;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.oddsCalculator.ta.BattleResults;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+public class StrategicBombingRaidBattle extends AbstractBattle implements BattleStepStrings {
+  private static final long serialVersionUID = 8490171037606078890L;
+  private final static String RAID = &quot;Strategic bombing raid&quot;;
+  // these would be the factories or other targets. does not include aa.
+<span class="fc" id="L47">  protected final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; m_targets = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L48">  protected final ExecutionStack m_stack = new ExecutionStack();</span>
+  protected List&lt;String&gt; m_steps;
+  protected List&lt;Unit&gt; m_defendingAA;
+  protected List&lt;String&gt; m_AAtypes;
+  private int m_bombingRaidTotal;
+<span class="fc" id="L53">  private final IntegerMap&lt;Unit&gt; m_bombingRaidDamage = new IntegerMap&lt;&gt;();</span>
+
+  /**
+   * Creates new StrategicBombingRaidBattle
+   *
+   * @param battleSite
+   *        - battle territory
+   * @param data
+   *        - game data
+   * @param attacker
+   *        - attacker PlayerID
+   * @param defender
+   *        - defender PlayerID
+   * @param battleTracker
+   *        - BattleTracker
+   **/
+  public StrategicBombingRaidBattle(final Territory battleSite, final GameData data, final PlayerID attacker,
+      final BattleTracker battleTracker) {
+<span class="fc" id="L71">    super(battleSite, attacker, battleTracker, true, BattleType.BOMBING_RAID, data);</span>
+<span class="fc" id="L72">    m_isAmphibious = false;</span>
+<span class="fc" id="L73">    updateDefendingUnits();</span>
+<span class="fc" id="L74">  }</span>
+
+  @Override
+  protected void removeUnitsThatNoLongerExist() {
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">    if (m_headless) {</span>
+<span class="nc" id="L79">      return;</span>
+    }
+    // we were having a problem with units that had been killed previously were still part of battle's variables, so we
+    // double check that
+    // the stuff still exists here.
+<span class="fc" id="L84">    m_defendingUnits.retainAll(m_battleSite.getUnits().getUnits());</span>
+<span class="fc" id="L85">    m_attackingUnits.retainAll(m_battleSite.getUnits().getUnits());</span>
+<span class="fc" id="L86">    final Iterator&lt;Unit&gt; iter = m_targets.keySet().iterator();</span>
+<span class="fc bfc" id="L87" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">      if (!m_battleSite.getUnits().getUnits().contains(iter.next())) {</span>
+<span class="nc" id="L89">        iter.remove();</span>
+      }
+    }
+<span class="fc" id="L92">  }</span>
+
+  protected void updateDefendingUnits() {
+    // fill in defenders
+<span class="fc" id="L96">    final HashMap&lt;String, HashSet&lt;UnitType&gt;&gt; airborneTechTargetsAllowed =</span>
+<span class="fc" id="L97">        TechAbilityAttachment.getAirborneTargettedByAA(m_attacker, m_data);</span>
+<span class="fc" id="L98">    final Match&lt;Unit&gt; defenders = new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(m_attacker, m_data),</span>
+<span class="fc" id="L99">        new CompositeMatchOr&lt;Unit&gt;(Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(m_battleSite).invert(),</span>
+<span class="fc" id="L100">            Matches.UnitIsAAthatCanFire(m_attackingUnits, airborneTechTargetsAllowed, m_attacker,</span>
+<span class="fc" id="L101">                Matches.UnitIsAAforBombingThisUnitOnly, m_round, true, m_data)));</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">    if (m_targets.isEmpty()) {</span>
+<span class="fc" id="L103">      m_defendingUnits = Match.getMatches(m_battleSite.getUnits().getUnits(), defenders);</span>
+<span class="fc" id="L104">    } else {</span>
+<span class="fc" id="L105">      final List&lt;Unit&gt; targets =</span>
+<span class="fc" id="L106">          Match.getMatches(m_battleSite.getUnits().getUnits(), Matches.UnitIsAAthatCanFire(m_attackingUnits,</span>
+<span class="fc" id="L107">              airborneTechTargetsAllowed, m_attacker, Matches.UnitIsAAforBombingThisUnitOnly, m_round, true, m_data));</span>
+<span class="fc" id="L108">      targets.addAll(m_targets.keySet());</span>
+<span class="fc" id="L109">      m_defendingUnits = targets;</span>
+    }
+<span class="fc" id="L111">  }</span>
+
+  @Override
+  public boolean isEmpty() {
+<span class="fc" id="L115">    return m_attackingUnits.isEmpty();</span>
+  }
+
+  @Override
+  public void removeAttack(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L120">    removeAttackers(units, true);</span>
+<span class="nc" id="L121">  }</span>
+
+  private void removeAttackers(final Collection&lt;Unit&gt; units, final boolean removeTarget) {
+<span class="fc" id="L124">    m_attackingUnits.removeAll(units);</span>
+<span class="fc" id="L125">    final Iterator&lt;Unit&gt; targetIter = m_targets.keySet().iterator();</span>
+<span class="fc bfc" id="L126" title="All 2 branches covered.">    while (targetIter.hasNext()) {</span>
+<span class="fc" id="L127">      final HashSet&lt;Unit&gt; currentAttackers = m_targets.get(targetIter.next());</span>
+<span class="fc" id="L128">      currentAttackers.removeAll(units);</span>
+<span class="pc bpc" id="L129" title="2 of 4 branches missed.">      if (currentAttackers.isEmpty() &amp;&amp; removeTarget) {</span>
+<span class="nc" id="L130">        targetIter.remove();</span>
+      }
+    }
+<span class="fc" id="L133">  }</span>
+
+  private Unit getTarget(final Unit attacker) {
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    for (final Unit target : m_targets.keySet()) {</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">      if (m_targets.get(target).contains(attacker)) {</span>
+<span class="nc" id="L138">        return target;</span>
+      }
+    }
+<span class="nc" id="L141">    throw new IllegalStateException(&quot;Unit &quot; + attacker.getType().getName() + &quot; has no target&quot;);</span>
+  }
+
+  @Override
+  public Change addAttackChange(final Route route, final Collection&lt;Unit&gt; units,
+      final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets) {
+<span class="fc" id="L147">    m_attackingUnits.addAll(units);</span>
+<span class="fc bfc" id="L148" title="All 2 branches covered.">    if (targets == null) {</span>
+<span class="fc" id="L149">      return ChangeFactory.EMPTY_CHANGE;</span>
+    }
+<span class="fc bfc" id="L151" title="All 2 branches covered.">    for (final Unit target : targets.keySet()) {</span>
+<span class="fc" id="L152">      HashSet&lt;Unit&gt; currentAttackers = m_targets.get(target);</span>
+<span class="pc bpc" id="L153" title="1 of 2 branches missed.">      if (currentAttackers == null) {</span>
+<span class="fc" id="L154">        currentAttackers = new HashSet&lt;&gt;();</span>
+      }
+<span class="fc" id="L156">      currentAttackers.addAll(targets.get(target));</span>
+<span class="fc" id="L157">      m_targets.put(target, currentAttackers);</span>
+    }
+<span class="fc" id="L159">    return ChangeFactory.EMPTY_CHANGE;</span>
+  }
+
+  @Override
+  public void fight(final IDelegateBridge bridge) {
+    // remove units that may already be dead due to a previous event (like they died from a strategic bombing raid,
+    // rocket attack, etc)
+<span class="fc" id="L166">    removeUnitsThatNoLongerExist();</span>
+    // we were interrupted
+<span class="pc bpc" id="L168" title="1 of 2 branches missed.">    if (m_stack.isExecuting()) {</span>
+<span class="nc" id="L169">      showBattle(bridge);</span>
+<span class="nc" id="L170">      m_stack.execute(bridge);</span>
+<span class="nc" id="L171">      return;</span>
+    }
+    // We update Defending Units twice: first time when the battle is created, and second time before the battle begins.
+    // The reason is because when the battle is created, there are no attacking units yet in it, meaning that m_targets
+    // is empty. We need to
+    // update right as battle begins to know we have the full list of targets.
+<span class="fc" id="L177">    updateDefendingUnits();</span>
+<span class="fc" id="L178">    bridge.getHistoryWriter().startEvent(&quot;Strategic bombing raid in &quot; + m_battleSite, m_battleSite);</span>
+<span class="pc bpc" id="L179" title="1 of 4 branches missed.">    if (m_attackingUnits.isEmpty() || (m_defendingUnits.isEmpty()</span>
+<span class="pc bpc" id="L180" title="1 of 2 branches missed.">        || Match.noneMatch(m_defendingUnits, Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(m_battleSite).invert()))) {</span>
+<span class="fc" id="L181">      endBeforeRolling(bridge);</span>
+<span class="fc" id="L182">      return;</span>
+    }
+<span class="fc" id="L184">    BattleCalculator.sortPreBattle(m_attackingUnits);</span>
+    // TODO: determine if the target has the property, not just any unit with the property isAAforBombingThisUnitOnly
+<span class="fc" id="L186">    final HashMap&lt;String, HashSet&lt;UnitType&gt;&gt; airborneTechTargetsAllowed =</span>
+<span class="fc" id="L187">        TechAbilityAttachment.getAirborneTargettedByAA(m_attacker, m_data);</span>
+<span class="fc" id="L188">    m_defendingAA = m_battleSite.getUnits().getMatches(Matches.UnitIsAAthatCanFire(m_attackingUnits,</span>
+<span class="fc" id="L189">        airborneTechTargetsAllowed, m_attacker, Matches.UnitIsAAforBombingThisUnitOnly, m_round, true, m_data));</span>
+<span class="fc" id="L190">    m_AAtypes = UnitAttachment.getAllOfTypeAAs(m_defendingAA);</span>
+    // reverse since stacks are in reverse order
+<span class="fc" id="L192">    Collections.reverse(m_AAtypes);</span>
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">    final boolean hasAA = m_defendingAA.size() &gt; 0;</span>
+<span class="fc" id="L194">    m_steps = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L195" title="1 of 2 branches missed.">    if (hasAA) {</span>
+<span class="fc bfc" id="L196" title="All 2 branches covered.">      for (final String typeAA : UnitAttachment.getAllOfTypeAAs(m_defendingAA)) {</span>
+<span class="fc" id="L197">        m_steps.add(typeAA + AA_GUNS_FIRE_SUFFIX);</span>
+<span class="fc" id="L198">        m_steps.add(SELECT_PREFIX + typeAA + CASUALTIES_SUFFIX);</span>
+<span class="fc" id="L199">        m_steps.add(REMOVE_PREFIX + typeAA + CASUALTIES_SUFFIX);</span>
+      }
+    }
+<span class="fc" id="L202">    m_steps.add(RAID);</span>
+<span class="fc" id="L203">    showBattle(bridge);</span>
+<span class="fc" id="L204">    final List&lt;IExecutable&gt; steps = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L205" title="1 of 2 branches missed.">    if (hasAA) {</span>
+      // global1940 rules - each target type fires an AA shot against the planes bombing it
+<span class="fc" id="L207">      m_targets.entrySet().stream()</span>
+<span class="fc" id="L208">          .filter(entry -&gt; entry.getKey().getUnitAttachment().getIsAAforBombingThisUnitOnly())</span>
+<span class="pc" id="L209">          .forEach(entry -&gt; steps.add(new FireAA(entry.getValue())));</span>
+
+      // otherwise fire an AA shot at all the planes
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">      if(steps.isEmpty()) {</span>
+<span class="fc" id="L213">        steps.add(new FireAA());</span>
+      }
+    }
+<span class="fc" id="L216">    steps.add(new ConductBombing());</span>
+<span class="fc" id="L217">    steps.add(new IExecutable() {</span>
+      private static final long serialVersionUID = 4299575008166316488L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L222">        getDisplay(bridge).gotoBattleStep(m_battleID, RAID);</span>
+<span class="fc bfc" id="L223" title="All 2 branches covered.">        if (isDamageFromBombingDoneToUnitsInsteadOfTerritories()) {</span>
+<span class="fc" id="L224">          bridge.getHistoryWriter()</span>
+<span class="fc" id="L225">              .addChildToEvent(&quot;Bombing raid in &quot; + m_battleSite.getName() + &quot; causes &quot; + m_bombingRaidTotal</span>
+<span class="pc bpc" id="L226" title="1 of 2 branches missed.">                  + &quot; damage total. &quot; + (m_bombingRaidDamage.size() &gt; 1 ? (&quot; Damaged units is as follows: &quot;</span>
+<span class="pc" id="L227">                      + MyFormatter.integerUnitMapToString(m_bombingRaidDamage, &quot;, &quot;, &quot; = &quot;, false)) : &quot;&quot;));</span>
+<span class="fc" id="L228">        } else {</span>
+<span class="fc" id="L229">          bridge.getHistoryWriter().addChildToEvent(</span>
+<span class="fc" id="L230">              &quot;Bombing raid costs &quot; + m_bombingRaidTotal + &quot; &quot; + MyFormatter.pluralize(&quot;PU&quot;, m_bombingRaidTotal));</span>
+        }
+        // TODO remove the reference to the constant.japanese- replace with a rule
+<span class="pc bpc" id="L233" title="2 of 4 branches missed.">        if (isPacificTheater() || isSBRVictoryPoints()) {</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">          if (m_defender.getName().equals(Constants.PLAYER_NAME_JAPANESE)) {</span>
+            Change changeVP;
+<span class="nc" id="L236">            final PlayerAttachment pa = PlayerAttachment.get(m_defender);</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">            if (pa != null) {</span>
+<span class="nc" id="L238">              changeVP =</span>
+<span class="nc" id="L239">                  ChangeFactory.attachmentPropertyChange(pa, ((-(m_bombingRaidTotal / 10)) + pa.getVps()), &quot;vps&quot;);</span>
+<span class="nc" id="L240">              bridge.addChange(changeVP);</span>
+<span class="nc" id="L241">              bridge.getHistoryWriter().addChildToEvent(&quot;Bombing raid costs &quot; + (m_bombingRaidTotal / 10) + &quot; &quot;</span>
+<span class="nc" id="L242">                  + MyFormatter.pluralize(&quot;vp&quot;, (m_bombingRaidTotal / 10)));</span>
+            }
+          }
+        }
+        // kill any suicide attackers (veqryn)
+<span class="pc bpc" id="L247" title="1 of 2 branches missed.">        if (Match.someMatch(m_attackingUnits, Matches.UnitIsSuicide)) {</span>
+<span class="nc" id="L248">          final List&lt;Unit&gt; suicideUnits = Match.getMatches(m_attackingUnits, Matches.UnitIsSuicide);</span>
+<span class="nc" id="L249">          m_attackingUnits.removeAll(suicideUnits);</span>
+<span class="nc" id="L250">          final Change removeSuicide = ChangeFactory.removeUnits(m_battleSite, suicideUnits);</span>
+<span class="nc" id="L251">          final String transcriptText = MyFormatter.unitsToText(suicideUnits) + &quot; lost in &quot; + m_battleSite.getName();</span>
+<span class="nc" id="L252">          final IntegerMap&lt;UnitType&gt; costs = BattleCalculator.getCostsForTUV(m_attacker, m_data);</span>
+<span class="nc" id="L253">          final int tuvLostAttacker = BattleCalculator.getTUV(suicideUnits, m_attacker, costs, m_data);</span>
+<span class="nc" id="L254">          m_attackerLostTUV += tuvLostAttacker;</span>
+<span class="nc" id="L255">          bridge.getHistoryWriter().addChildToEvent(transcriptText, suicideUnits);</span>
+<span class="nc" id="L256">          bridge.addChange(removeSuicide);</span>
+        }
+        // kill any units that can die if they have reached max damage (veqryn)
+<span class="pc bpc" id="L259" title="1 of 2 branches missed.">        if (Match.someMatch(m_targets.keySet(), Matches.UnitCanDieFromReachingMaxDamage)) {</span>
+<span class="nc" id="L260">          final List&lt;Unit&gt; unitsCanDie = Match.getMatches(m_targets.keySet(), Matches.UnitCanDieFromReachingMaxDamage);</span>
+<span class="nc" id="L261">          unitsCanDie</span>
+<span class="nc" id="L262">              .retainAll(Match.getMatches(unitsCanDie, Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(m_battleSite)));</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">          if (!unitsCanDie.isEmpty()) {</span>
+            // m_targets.removeAll(unitsCanDie);
+<span class="nc" id="L265">            final Change removeDead = ChangeFactory.removeUnits(m_battleSite, unitsCanDie);</span>
+<span class="nc" id="L266">            final String transcriptText = MyFormatter.unitsToText(unitsCanDie) + &quot; lost in &quot; + m_battleSite.getName();</span>
+<span class="nc" id="L267">            final IntegerMap&lt;UnitType&gt; costs = BattleCalculator.getCostsForTUV(m_defender, m_data);</span>
+<span class="nc" id="L268">            final int tuvLostDefender = BattleCalculator.getTUV(unitsCanDie, m_defender, costs, m_data);</span>
+<span class="nc" id="L269">            m_defenderLostTUV += tuvLostDefender;</span>
+<span class="nc" id="L270">            bridge.getHistoryWriter().addChildToEvent(transcriptText, unitsCanDie);</span>
+<span class="nc" id="L271">            bridge.addChange(removeDead);</span>
+          }
+        }
+<span class="fc" id="L274">      }</span>
+    });
+<span class="fc" id="L276">    steps.add(new IExecutable() {</span>
+      private static final long serialVersionUID = -7649516174883172328L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L281">        end(bridge);</span>
+<span class="fc" id="L282">      }</span>
+    });
+<span class="fc" id="L284">    Collections.reverse(steps);</span>
+<span class="fc bfc" id="L285" title="All 2 branches covered.">    for (final IExecutable executable : steps) {</span>
+<span class="fc" id="L286">      m_stack.push(executable);</span>
+    }
+<span class="fc" id="L288">    m_stack.execute(bridge);</span>
+<span class="fc" id="L289">  }</span>
+
+  private void endBeforeRolling(final IDelegateBridge bridge) {
+<span class="fc" id="L292">    getDisplay(bridge).battleEnd(m_battleID, &quot;Bombing raid does no damage&quot;);</span>
+<span class="fc" id="L293">    m_whoWon = WhoWon.DRAW;</span>
+<span class="fc" id="L294">    m_battleResultDescription = BattleRecord.BattleResultDescription.NO_BATTLE;</span>
+<span class="fc" id="L295">    m_battleTracker.getBattleRecords().addResultToBattle(m_attacker, m_battleID, m_defender, m_attackerLostTUV,</span>
+<span class="fc" id="L296">        m_defenderLostTUV, m_battleResultDescription, new BattleResults(this, m_data));</span>
+<span class="fc" id="L297">    m_isOver = true;</span>
+<span class="fc" id="L298">    m_battleTracker.removeBattle(StrategicBombingRaidBattle.this);</span>
+<span class="fc" id="L299">  }</span>
+
+  private void end(final IDelegateBridge bridge) {
+<span class="fc bfc" id="L302" title="All 2 branches covered.">    if (isDamageFromBombingDoneToUnitsInsteadOfTerritories()) {</span>
+<span class="fc" id="L303">      getDisplay(bridge).battleEnd(m_battleID,</span>
+<span class="fc" id="L304">          &quot;Raid causes &quot; + m_bombingRaidTotal + &quot; damage total.&quot;</span>
+<span class="pc bpc" id="L305" title="1 of 2 branches missed.">              + (m_bombingRaidDamage.size() &gt; 1</span>
+<span class="nc" id="L306">                  ? (&quot; To units: &quot; + MyFormatter.integerUnitMapToString(m_bombingRaidDamage, &quot;, &quot;, &quot; = &quot;, false))</span>
+<span class="fc" id="L307">                  : &quot;&quot;));</span>
+<span class="fc" id="L308">    } else {</span>
+<span class="fc" id="L309">      getDisplay(bridge).battleEnd(m_battleID,</span>
+<span class="fc" id="L310">          &quot;Bombing raid cost &quot; + m_bombingRaidTotal + &quot; &quot; + MyFormatter.pluralize(&quot;PU&quot;, m_bombingRaidTotal));</span>
+    }
+<span class="fc bfc" id="L312" title="All 2 branches covered.">    if (m_bombingRaidTotal &gt; 0) {</span>
+<span class="fc" id="L313">      m_whoWon = WhoWon.ATTACKER;</span>
+<span class="fc" id="L314">      m_battleResultDescription = BattleRecord.BattleResultDescription.BOMBED;</span>
+<span class="fc" id="L315">    } else {</span>
+<span class="fc" id="L316">      m_whoWon = WhoWon.DEFENDER;</span>
+<span class="fc" id="L317">      m_battleResultDescription = BattleRecord.BattleResultDescription.LOST;</span>
+    }
+<span class="fc" id="L319">    m_battleTracker.getBattleRecords().addResultToBattle(m_attacker, m_battleID, m_defender, m_attackerLostTUV,</span>
+<span class="fc" id="L320">        m_defenderLostTUV, m_battleResultDescription, new BattleResults(this, m_data));</span>
+<span class="fc" id="L321">    m_isOver = true;</span>
+<span class="fc" id="L322">    m_battleTracker.removeBattle(StrategicBombingRaidBattle.this);</span>
+<span class="fc" id="L323">  }</span>
+
+  private void showBattle(final IDelegateBridge bridge) {
+<span class="fc" id="L326">    final String title = &quot;Bombing raid in &quot; + m_battleSite.getName();</span>
+<span class="fc" id="L327">    getDisplay(bridge).showBattle(m_battleID, m_battleSite, title, m_attackingUnits, m_defendingUnits, null, null, null,</span>
+<span class="fc" id="L328">        Collections.emptyMap(), m_attacker, m_defender, isAmphibious(), getBattleType(),</span>
+<span class="fc" id="L329">        Collections.emptySet());</span>
+<span class="fc" id="L330">    getDisplay(bridge).listBattleSteps(m_battleID, m_steps);</span>
+<span class="fc" id="L331">  }</span>
+
+  class FireAA implements IExecutable {
+    private static final long serialVersionUID = -4667856856747597406L;
+    DiceRoll m_dice;
+    CasualtyDetails m_casualties;
+<span class="pc" id="L337">    Collection&lt;Unit&gt; m_casualtiesSoFar = new ArrayList&lt;&gt;();</span>
+    Collection&lt;Unit&gt; validAttackingUnitsForThisRoll;
+    boolean determineAttackers;
+
+<span class="nc" id="L341">    public FireAA( Collection&lt;Unit&gt; attackers ) {</span>
+<span class="nc" id="L342">      validAttackingUnitsForThisRoll = attackers;</span>
+<span class="nc" id="L343">      determineAttackers = false;</span>
+<span class="nc" id="L344">    }</span>
+    
+<span class="fc" id="L346">    public FireAA() {</span>
+<span class="fc" id="L347">      validAttackingUnitsForThisRoll = Collections.emptyList();</span>
+<span class="fc" id="L348">      determineAttackers = true;</span>
+<span class="fc" id="L349">    }</span>
+      
+    @Override
+    public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L353">      final boolean isEditMode = BaseEditDelegate.getEditMode(bridge.getData());</span>
+<span class="fc bfc" id="L354" title="All 2 branches covered.">      for (final String currentTypeAA : m_AAtypes) {</span>
+<span class="fc" id="L355">        final Collection&lt;Unit&gt; currentPossibleAA                = Match.getMatches(m_defendingAA, Matches.UnitIsAAofTypeAA(currentTypeAA));</span>
+<span class="fc" id="L356">        final Set&lt;UnitType&gt; targetUnitTypesForThisTypeAA        = UnitAttachment.get(currentPossibleAA.iterator().next().getType()).getTargetsAA(m_data);</span>
+<span class="fc" id="L357">        final Set&lt;UnitType&gt; airborneTypesTargettedToo           = TechAbilityAttachment.getAirborneTargettedByAA(m_attacker, m_data).get(currentTypeAA);</span>
+<span class="pc bpc" id="L358" title="1 of 2 branches missed.">        if( determineAttackers ) {</span>
+<span class="fc" id="L359">          validAttackingUnitsForThisRoll = Match.getMatches(m_attackingUnits, new CompositeMatchOr&lt;&gt;(Matches.unitIsOfTypes(targetUnitTypesForThisTypeAA),</span>
+<span class="fc" id="L360">                    new CompositeMatchAnd&lt;Unit&gt;(Matches.UnitIsAirborne, Matches.unitIsOfTypes(airborneTypesTargettedToo))));</span>
+        }
+
+<span class="fc" id="L363">        final IExecutable roll = new IExecutable() {</span>
+          private static final long serialVersionUID = 379538344036513009L;
+
+          @Override
+          public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L368">            validAttackingUnitsForThisRoll.removeAll(m_casualtiesSoFar);</span>
+<span class="pc bpc" id="L369" title="1 of 2 branches missed.">            if (!validAttackingUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L370">              m_dice = DiceRoll.rollAA(validAttackingUnitsForThisRoll, currentPossibleAA, bridge, m_battleSite, true);</span>
+<span class="pc bpc" id="L371" title="1 of 2 branches missed.">              if (currentTypeAA.equals(&quot;AA&quot;)) {</span>
+<span class="fc bfc" id="L372" title="All 2 branches covered.">                if (m_dice.getHits() &gt; 0) {</span>
+<span class="fc" id="L373">                  bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BATTLE_AA_HIT, m_defender);</span>
+<span class="fc" id="L374">                } else {</span>
+<span class="fc" id="L375">                  bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BATTLE_AA_MISS, m_defender);</span>
+                }
+<span class="fc" id="L377">              } else {</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">                if (m_dice.getHits() &gt; 0) {</span>
+<span class="nc" id="L379">                  bridge.getSoundChannelBroadcaster().playSoundForAll(</span>
+<span class="nc" id="L380">                      SoundPath.CLIP_BATTLE_X_PREFIX + currentTypeAA.toLowerCase() + SoundPath.CLIP_BATTLE_X_HIT,</span>
+<span class="nc" id="L381">                      m_defender);</span>
+<span class="nc" id="L382">                } else {</span>
+<span class="nc" id="L383">                  bridge.getSoundChannelBroadcaster().playSoundForAll(</span>
+<span class="nc" id="L384">                      SoundPath.CLIP_BATTLE_X_PREFIX + currentTypeAA.toLowerCase() + SoundPath.CLIP_BATTLE_X_MISS,</span>
+<span class="nc" id="L385">                      m_defender);</span>
+                }
+              }
+            }
+<span class="fc" id="L389">          }</span>
+        };
+<span class="fc" id="L391">        final IExecutable calculateCasualties = new IExecutable() {</span>
+          private static final long serialVersionUID = -4658133491636765763L;
+
+          @Override
+          public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="pc bpc" id="L396" title="1 of 2 branches missed.">            if (!validAttackingUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L397">              final CasualtyDetails details =</span>
+<span class="fc" id="L398">                  calculateCasualties(validAttackingUnitsForThisRoll, currentPossibleAA, bridge, m_dice, currentTypeAA);</span>
+<span class="fc" id="L399">              markDamaged(details.getDamaged(), bridge, true);</span>
+<span class="fc" id="L400">              m_casualties = details;</span>
+<span class="fc" id="L401">              m_casualtiesSoFar.addAll(details.getKilled());</span>
+            }
+<span class="fc" id="L403">          }</span>
+        };
+<span class="fc" id="L405">        final IExecutable notifyCasualties = new IExecutable() {</span>
+          private static final long serialVersionUID = -4989154196975570919L;
+
+          @Override
+          public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="pc bpc" id="L410" title="1 of 2 branches missed.">            if (!validAttackingUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L411">              notifyAAHits(bridge, m_dice, m_casualties, currentTypeAA);</span>
+            }
+<span class="fc" id="L413">          }</span>
+        };
+<span class="fc" id="L415">        final IExecutable removeHits = new IExecutable() {</span>
+          private static final long serialVersionUID = -3673833177336068509L;
+
+          @Override
+          public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="pc bpc" id="L420" title="1 of 2 branches missed.">            if (!validAttackingUnitsForThisRoll.isEmpty()) {</span>
+<span class="fc" id="L421">              removeAAHits(bridge, m_dice, m_casualties, currentTypeAA);</span>
+            }
+<span class="fc" id="L423">          }</span>
+        };
+        // push in reverse order of execution
+<span class="fc" id="L426">        stack.push(removeHits);</span>
+<span class="fc" id="L427">        stack.push(notifyCasualties);</span>
+<span class="fc" id="L428">        stack.push(calculateCasualties);</span>
+<span class="pc bpc" id="L429" title="1 of 2 branches missed.">        if (!isEditMode) {</span>
+<span class="fc" id="L430">          stack.push(roll);</span>
+        }
+      }
+<span class="fc" id="L433">    }</span>
+  }
+
+  private boolean isDamageFromBombingDoneToUnitsInsteadOfTerritories() {
+<span class="fc" id="L437">    return games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(m_data);</span>
+  }
+
+  private boolean isWW2V2() {
+<span class="fc" id="L441">    return games.strategy.triplea.Properties.getWW2V2(m_data);</span>
+  }
+
+  private boolean isLimitSBRDamageToProduction() {
+<span class="nc" id="L445">    return games.strategy.triplea.Properties.getLimitRocketAndSBRDamageToProduction(m_data);</span>
+  }
+
+  private boolean isLimitSBRDamagePerTurn(final GameData data) {
+<span class="fc" id="L449">    return games.strategy.triplea.Properties.getLimitSBRDamagePerTurn(data);</span>
+  }
+
+  private boolean isPUCap(final GameData data) {
+<span class="fc" id="L453">    return games.strategy.triplea.Properties.getPUCap(data);</span>
+  }
+
+  private boolean isSBRVictoryPoints() {
+<span class="fc" id="L457">    return games.strategy.triplea.Properties.getSBRVictoryPoint(m_data);</span>
+  }
+
+  private boolean isPacificTheater() {
+<span class="fc" id="L461">    return games.strategy.triplea.Properties.getPacificTheater(m_data);</span>
+  }
+
+  private CasualtyDetails calculateCasualties(final Collection&lt;Unit&gt; validAttackingUnitsForThisRoll,
+      final Collection&lt;Unit&gt; defendingAA, final IDelegateBridge bridge, final DiceRoll dice,
+      final String currentTypeAA) {
+<span class="fc" id="L467">    getDisplay(bridge).notifyDice(dice, SELECT_PREFIX + currentTypeAA + CASUALTIES_SUFFIX);</span>
+<span class="fc" id="L468">    final boolean isEditMode = BaseEditDelegate.getEditMode(m_data);</span>
+<span class="fc" id="L469">    final boolean allowMultipleHitsPerUnit =</span>
+<span class="fc" id="L470">        Match.allMatch(defendingAA, Matches.UnitAAShotDamageableInsteadOfKillingInstantly);</span>
+<span class="pc bpc" id="L471" title="1 of 2 branches missed.">    if (isEditMode) {</span>
+<span class="nc" id="L472">      final String text = currentTypeAA + AA_GUNS_FIRE_SUFFIX;</span>
+<span class="nc" id="L473">      final CasualtyDetails casualtySelection = BattleCalculator.selectCasualties(RAID, m_attacker,</span>
+<span class="nc" id="L474">          validAttackingUnitsForThisRoll, m_attackingUnits, m_defender, m_defendingUnits, m_isAmphibious,</span>
+<span class="nc" id="L475">          m_amphibiousLandAttackers, m_battleSite, m_territoryEffects, bridge, text, /* dice */null,</span>
+<span class="nc" id="L476">          /* defending */false, m_battleID, /* head-less */false, 0, allowMultipleHitsPerUnit);</span>
+<span class="nc" id="L477">      return casualtySelection;</span>
+    }
+<span class="fc" id="L479">    final CasualtyDetails casualties = BattleCalculator.getAACasualties(false, validAttackingUnitsForThisRoll,</span>
+<span class="fc" id="L480">        m_attackingUnits, defendingAA, m_defendingUnits, dice, bridge, m_defender, m_attacker, m_battleID, m_battleSite,</span>
+<span class="fc" id="L481">        m_territoryEffects, m_isAmphibious, m_amphibiousLandAttackers);</span>
+<span class="fc" id="L482">    final int totalExpectingHits =</span>
+<span class="pc bpc" id="L483" title="1 of 2 branches missed.">        dice.getHits() &gt; validAttackingUnitsForThisRoll.size() ? validAttackingUnitsForThisRoll.size() : dice.getHits();</span>
+<span class="pc bpc" id="L484" title="1 of 2 branches missed.">    if (casualties.size() != totalExpectingHits) {</span>
+<span class="nc" id="L485">      throw new IllegalStateException(</span>
+<span class="nc" id="L486">          &quot;Wrong number of casualties, expecting:&quot; + totalExpectingHits + &quot; but got:&quot; + casualties.size());</span>
+    }
+<span class="fc" id="L488">    return casualties;</span>
+  }
+
+  private void notifyAAHits(final IDelegateBridge bridge, final DiceRoll dice, final CasualtyDetails casualties,
+      final String currentTypeAA) {
+<span class="fc" id="L493">    getDisplay(bridge).casualtyNotification(m_battleID, REMOVE_PREFIX + currentTypeAA + CASUALTIES_SUFFIX, dice,</span>
+<span class="fc" id="L494">        m_attacker, new ArrayList&lt;&gt;(casualties.getKilled()), new ArrayList&lt;&gt;(casualties.getDamaged()),</span>
+<span class="fc" id="L495">        Collections.emptyMap());</span>
+<span class="fc" id="L496">    final Runnable r = () -&gt; {</span>
+      try {
+<span class="fc" id="L498">        final ITripleAPlayer defender = (ITripleAPlayer) bridge.getRemotePlayer(m_defender);</span>
+<span class="fc" id="L499">        defender.confirmEnemyCasualties(m_battleID, &quot;Press space to continue&quot;, m_attacker);</span>
+<span class="pc" id="L500">      } catch (final ConnectionLostException cle) {</span>
+        // somone else will deal with this
+        // System.out.println(cle.getMessage());
+        // cle.printStackTrace(System.out);
+<span class="nc" id="L504">      } catch (final Exception e) {</span>
+        // ignore
+      }
+<span class="fc" id="L507">    };</span>
+<span class="fc" id="L508">    final Thread t = new Thread(r, &quot;click to continue waiter&quot;);</span>
+<span class="fc" id="L509">    t.start();</span>
+<span class="fc" id="L510">    final ITripleAPlayer attacker = (ITripleAPlayer) bridge.getRemotePlayer(m_attacker);</span>
+<span class="fc" id="L511">    attacker.confirmOwnCasualties(m_battleID, &quot;Press space to continue&quot;);</span>
+    try {
+<span class="fc" id="L513">      bridge.leaveDelegateExecution();</span>
+<span class="fc" id="L514">      t.join();</span>
+<span class="pc" id="L515">    } catch (final InterruptedException e) {</span>
+      // ignore
+<span class="nc" id="L517">    } finally {</span>
+<span class="pc" id="L518">      bridge.enterDelegateExecution();</span>
+<span class="nc" id="L519">    }</span>
+<span class="fc" id="L520">  }</span>
+
+  private void removeAAHits(final IDelegateBridge bridge, final DiceRoll dice, final CasualtyDetails casualties,
+      final String currentTypeAA) {
+<span class="fc" id="L524">    final List&lt;Unit&gt; killed = casualties.getKilled();</span>
+<span class="fc bfc" id="L525" title="All 2 branches covered.">    if (!killed.isEmpty()) {</span>
+<span class="fc" id="L526">      bridge.getHistoryWriter().addChildToEvent(MyFormatter.unitsToTextNoOwner(killed) + &quot; killed by &quot; + currentTypeAA,</span>
+<span class="fc" id="L527">          new ArrayList&lt;&gt;(killed));</span>
+<span class="fc" id="L528">      final IntegerMap&lt;UnitType&gt; costs = BattleCalculator.getCostsForTUV(m_attacker, m_data);</span>
+<span class="fc" id="L529">      final int tuvLostAttacker = BattleCalculator.getTUV(killed, m_attacker, costs, m_data);</span>
+<span class="fc" id="L530">      m_attackerLostTUV += tuvLostAttacker;</span>
+      // m_attackingUnits.removeAll(casualties);
+<span class="fc" id="L532">      removeAttackers(killed, false);</span>
+<span class="fc" id="L533">      final Change remove = ChangeFactory.removeUnits(m_battleSite, killed);</span>
+<span class="fc" id="L534">      bridge.addChange(remove);</span>
+    }
+<span class="fc" id="L536">  }</span>
+
+<span class="fc" id="L538">  class ConductBombing implements IExecutable {</span>
+    private static final long serialVersionUID = 5579796391988452213L;
+    private int[] m_dice;
+
+    @Override
+    public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L544">      final IExecutable rollDice = new IExecutable() {</span>
+        private static final long serialVersionUID = -4097858758514452368L;
+
+        @Override
+        public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L549">          rollDice(bridge);</span>
+<span class="fc" id="L550">        }</span>
+      };
+<span class="fc" id="L552">      final IExecutable findCost = new IExecutable() {</span>
+        private static final long serialVersionUID = 8573539936364094095L;
+
+        @Override
+        public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L557">          findCost(bridge);</span>
+<span class="fc" id="L558">        }</span>
+      };
+      // push in reverse order of execution
+<span class="fc" id="L561">      m_stack.push(findCost);</span>
+<span class="fc" id="L562">      m_stack.push(rollDice);</span>
+<span class="fc" id="L563">    }</span>
+
+    private void rollDice(final IDelegateBridge bridge) {
+      {
+<span class="fc" id="L567">        final Set&lt;Unit&gt; duplicatesCheckSet1 = new HashSet&lt;&gt;(m_attackingUnits);</span>
+<span class="pc bpc" id="L568" title="1 of 2 branches missed.">        if (m_attackingUnits.size() != duplicatesCheckSet1.size()) {</span>
+<span class="nc" id="L569">          throw new IllegalStateException(</span>
+<span class="nc" id="L570">              &quot;Duplicate Units Detected: Original List:&quot; + m_attackingUnits + &quot;  HashSet:&quot; + duplicatesCheckSet1);</span>
+        }
+      }
+<span class="fc" id="L573">      final int rollCount =</span>
+<span class="fc" id="L574">          BattleCalculator.getRolls(m_attackingUnits, m_attacker, false, true, m_territoryEffects);</span>
+<span class="fc bfc" id="L575" title="All 2 branches covered.">      if (rollCount == 0) {</span>
+<span class="fc" id="L576">        m_dice = null;</span>
+<span class="fc" id="L577">        return;</span>
+      }
+<span class="fc" id="L579">      m_dice = new int[rollCount];</span>
+<span class="fc" id="L580">      final boolean isEditMode = BaseEditDelegate.getEditMode(m_data);</span>
+<span class="pc bpc" id="L581" title="1 of 2 branches missed.">      if (isEditMode) {</span>
+<span class="nc" id="L582">        final String annotation =</span>
+<span class="nc" id="L583">            m_attacker.getName() + &quot; fixing dice to allocate cost of strategic bombing raid against &quot;</span>
+<span class="nc" id="L584">                + m_defender.getName() + &quot; in &quot; + m_battleSite.getName();</span>
+<span class="nc" id="L585">        final ITripleAPlayer attacker = (ITripleAPlayer) bridge.getRemotePlayer(m_attacker);</span>
+        // does not take into account bombers with dice sides higher than getDiceSides
+<span class="nc" id="L587">        m_dice = attacker.selectFixedDice(rollCount, 0, true, annotation, m_data.getDiceSides());</span>
+<span class="nc" id="L588">      } else {</span>
+<span class="fc" id="L589">        final boolean doNotUseBombingBonus =</span>
+<span class="pc bpc" id="L590" title="1 of 2 branches missed.">            !games.strategy.triplea.Properties.getUseBombingMaxDiceSidesAndBonus(m_data);</span>
+<span class="fc" id="L591">        final String annotation = m_attacker.getName() + &quot; rolling to allocate cost of strategic bombing raid against &quot;</span>
+<span class="fc" id="L592">            + m_defender.getName() + &quot; in &quot; + m_battleSite.getName();</span>
+<span class="pc bpc" id="L593" title="1 of 2 branches missed.">        if (!games.strategy.triplea.Properties.getLL_DAMAGE_ONLY(m_data)) {</span>
+<span class="pc bpc" id="L594" title="1 of 2 branches missed.">          if (doNotUseBombingBonus) {</span>
+            // no low luck, and no bonus, so just roll based on the map's dice sides
+<span class="fc" id="L596">            m_dice = bridge.getRandom(m_data.getDiceSides(), rollCount, m_attacker, DiceType.BOMBING, annotation);</span>
+<span class="fc" id="L597">          } else {</span>
+            // we must use bombing bonus
+<span class="nc" id="L599">            int i = 0;</span>
+<span class="nc" id="L600">            final int diceSides = m_data.getDiceSides();</span>
+<span class="nc bnc" id="L601" title="All 2 branches missed.">            for (final Unit u : m_attackingUnits) {</span>
+<span class="nc" id="L602">              final int rolls = BattleCalculator.getRolls(u, m_attacker, false, true, m_territoryEffects);</span>
+<span class="nc bnc" id="L603" title="All 2 branches missed.">              if (rolls &lt; 1) {</span>
+<span class="nc" id="L604">                continue;</span>
+              }
+<span class="nc" id="L606">              final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L607">              int maxDice = ua.getBombingMaxDieSides();</span>
+<span class="nc" id="L608">              int bonus = ua.getBombingBonus();</span>
+              // both could be -1, meaning they were not set. if they were not set, then we use default dice sides for
+              // the map, and zero for the bonus.
+<span class="nc bnc" id="L611" title="All 2 branches missed.">              if (maxDice &lt; 0) {</span>
+<span class="nc" id="L612">                maxDice = diceSides;</span>
+              }
+<span class="nc bnc" id="L614" title="All 2 branches missed.">              if (bonus &lt; 0) {</span>
+<span class="nc" id="L615">                bonus = 0;</span>
+              }
+              // now we roll, or don't if there is nothing to roll.
+<span class="nc bnc" id="L618" title="All 2 branches missed.">              if (maxDice &gt; 0) {</span>
+<span class="nc" id="L619">                final int[] dicerolls = bridge.getRandom(maxDice, rolls, m_attacker, DiceType.BOMBING, annotation);</span>
+<span class="nc bnc" id="L620" title="All 2 branches missed.">                for (final int die : dicerolls) {</span>
+<span class="nc" id="L621">                  m_dice[i] = die + bonus;</span>
+<span class="nc" id="L622">                  i++;</span>
+                }
+<span class="nc" id="L624">              } else {</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">                for (int j = 0; j &lt; rolls; j++) {</span>
+<span class="nc" id="L626">                  m_dice[i] = bonus;</span>
+<span class="nc" id="L627">                  i++;</span>
+                }
+              }
+            }
+          }
+<span class="nc" id="L632">        } else {</span>
+<span class="nc" id="L633">          int i = 0;</span>
+<span class="nc" id="L634">          final int diceSides = m_data.getDiceSides();</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">          for (final Unit u : m_attackingUnits) {</span>
+<span class="nc" id="L636">            final int rolls = BattleCalculator.getRolls(u, m_attacker, false, true, m_territoryEffects);</span>
+<span class="nc bnc" id="L637" title="All 2 branches missed.">            if (rolls &lt; 1) {</span>
+<span class="nc" id="L638">              continue;</span>
+            }
+<span class="nc" id="L640">            final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L641">            int maxDice = ua.getBombingMaxDieSides();</span>
+<span class="nc" id="L642">            int bonus = ua.getBombingBonus();</span>
+            // both could be -1, meaning they were not set. if they were not set, then we use default dice sides for the
+            // map, and zero for
+            // the bonus.
+<span class="nc bnc" id="L646" title="All 4 branches missed.">            if (maxDice &lt; 0 || doNotUseBombingBonus) {</span>
+<span class="nc" id="L647">              maxDice = diceSides;</span>
+            }
+<span class="nc bnc" id="L649" title="All 4 branches missed.">            if (bonus &lt; 0 || doNotUseBombingBonus) {</span>
+<span class="nc" id="L650">              bonus = 0;</span>
+            }
+            // now, regardless of whether they were set or not, we have to apply &quot;low luck&quot; to them, meaning in this
+            // case that we reduce the
+            // luck by 2/3.
+<span class="nc bnc" id="L655" title="All 2 branches missed.">            if (maxDice &gt;= 5) {</span>
+<span class="nc" id="L656">              bonus += (maxDice + 1) / 3;</span>
+<span class="nc" id="L657">              maxDice = (maxDice + 1) / 3;</span>
+            }
+            // now we roll, or don't if there is nothing to roll.
+<span class="nc bnc" id="L660" title="All 2 branches missed.">            if (maxDice &gt; 0) {</span>
+<span class="nc" id="L661">              final int[] dicerolls = bridge.getRandom(maxDice, rolls, m_attacker, DiceType.BOMBING, annotation);</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">              for (final int die : dicerolls) {</span>
+<span class="nc" id="L663">                m_dice[i] = die + bonus;</span>
+<span class="nc" id="L664">                i++;</span>
+              }
+<span class="nc" id="L666">            } else {</span>
+<span class="nc bnc" id="L667" title="All 2 branches missed.">              for (int j = 0; j &lt; rolls; j++) {</span>
+<span class="nc" id="L668">                m_dice[i] = bonus;</span>
+<span class="nc" id="L669">                i++;</span>
+              }
+            }
+          }
+        }
+      }
+<span class="fc" id="L675">    }</span>
+
+    private void addToTargetDiceMap(final Unit attackerUnit, final Die roll,
+        final HashMap&lt;Unit, List&lt;Die&gt;&gt; targetToDiceMap) {
+<span class="pc bpc" id="L679" title="2 of 4 branches missed.">      if (m_targets == null || m_targets.isEmpty()) {</span>
+<span class="fc" id="L680">        return;</span>
+      }
+<span class="nc" id="L682">      final Unit target = getTarget(attackerUnit);</span>
+<span class="nc" id="L683">      List&lt;Die&gt; current = targetToDiceMap.get(target);</span>
+<span class="nc bnc" id="L684" title="All 2 branches missed.">      if (current == null) {</span>
+<span class="nc" id="L685">        current = new ArrayList&lt;&gt;();</span>
+      }
+<span class="nc" id="L687">      current.add(roll);</span>
+<span class="nc" id="L688">      targetToDiceMap.put(target, current);</span>
+<span class="nc" id="L689">    }</span>
+
+    private void findCost(final IDelegateBridge bridge) {
+      // if no planes left after aa fires, this is possible
+<span class="fc bfc" id="L693" title="All 2 branches covered.">      if (m_attackingUnits.isEmpty()) {</span>
+<span class="fc" id="L694">        return;</span>
+      }
+<span class="fc" id="L696">      int damageLimit = TerritoryAttachment.getProduction(m_battleSite);</span>
+<span class="fc" id="L697">      int cost = 0;</span>
+<span class="fc" id="L698">      final boolean lhtrBombers = games.strategy.triplea.Properties.getLHTR_Heavy_Bombers(m_data);</span>
+<span class="fc" id="L699">      int index = 0;</span>
+<span class="pc bpc" id="L700" title="3 of 4 branches missed.">      final boolean limitDamage = isWW2V2() || isLimitSBRDamageToProduction();</span>
+<span class="fc" id="L701">      final List&lt;Die&gt; dice = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L702">      final HashMap&lt;Unit, List&lt;Die&gt;&gt; targetToDiceMap = new HashMap&lt;&gt;();</span>
+      // limit to maxDamage
+<span class="fc bfc" id="L704" title="All 2 branches covered.">      for (final Unit attacker : m_attackingUnits) {</span>
+<span class="fc" id="L705">        final UnitAttachment ua = UnitAttachment.get(attacker.getType());</span>
+        int rolls;
+<span class="fc" id="L707">        rolls = BattleCalculator.getRolls(attacker, m_attacker, false, true, m_territoryEffects);</span>
+<span class="fc" id="L708">        int costThisUnit = 0;</span>
+<span class="pc bpc" id="L709" title="1 of 6 branches missed.">        if (rolls &gt; 1 &amp;&amp; (lhtrBombers || ua.getChooseBestRoll())) {</span>
+          // LHTR means we select the best Dice roll for the unit
+<span class="fc" id="L711">          int max = 0;</span>
+<span class="fc" id="L712">          int maxIndex = index;</span>
+<span class="fc" id="L713">          int startIndex = index;</span>
+<span class="fc bfc" id="L714" title="All 2 branches covered.">          for (int i = 0; i &lt; rolls; i++) {</span>
+            // +1 since 0 based
+<span class="pc bpc" id="L716" title="1 of 2 branches missed.">            if (m_dice[index] + 1 &gt; max) {</span>
+<span class="fc" id="L717">              max = m_dice[index] + 1;</span>
+<span class="fc" id="L718">              maxIndex = index;</span>
+            }
+<span class="fc" id="L720">            index++;</span>
+          }
+<span class="fc" id="L722">          costThisUnit = max;</span>
+          // for show
+<span class="fc" id="L724">          final Die best = new Die(m_dice[maxIndex]);</span>
+<span class="fc" id="L725">          dice.add(best);</span>
+<span class="fc" id="L726">          addToTargetDiceMap(attacker, best, targetToDiceMap);</span>
+<span class="fc bfc" id="L727" title="All 2 branches covered.">          for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="fc bfc" id="L728" title="All 2 branches covered.">            if (startIndex != maxIndex) {</span>
+<span class="fc" id="L729">              final Die notBest = new Die(m_dice[startIndex], -1, DieType.IGNORED);</span>
+<span class="fc" id="L730">              dice.add(notBest);</span>
+<span class="fc" id="L731">              addToTargetDiceMap(attacker, notBest, targetToDiceMap);</span>
+            }
+<span class="fc" id="L733">            startIndex++;</span>
+          }
+<span class="fc" id="L735">        } else {</span>
+<span class="fc bfc" id="L736" title="All 2 branches covered.">          for (int i = 0; i &lt; rolls; i++) {</span>
+<span class="fc" id="L737">            costThisUnit += m_dice[index] + 1;</span>
+<span class="fc" id="L738">            final Die die = new Die(m_dice[index]);</span>
+<span class="fc" id="L739">            dice.add(die);</span>
+<span class="fc" id="L740">            addToTargetDiceMap(attacker, die, targetToDiceMap);</span>
+<span class="fc" id="L741">            index++;</span>
+          }
+        }
+<span class="fc" id="L744">        costThisUnit = Math.max(0,</span>
+<span class="fc" id="L745">            (costThisUnit + TechAbilityAttachment.getBombingBonus(attacker.getType(), attacker.getOwner(), m_data)));</span>
+<span class="pc bpc" id="L746" title="1 of 2 branches missed.">        if (limitDamage) {</span>
+<span class="fc" id="L747">          costThisUnit = Math.min(costThisUnit, damageLimit);</span>
+        }
+<span class="fc" id="L749">        cost += costThisUnit;</span>
+<span class="pc bpc" id="L750" title="1 of 2 branches missed.">        if (!m_targets.isEmpty()) {</span>
+<span class="nc" id="L751">          m_bombingRaidDamage.add(getTarget(attacker), costThisUnit);</span>
+        }
+      }
+      // Limit PUs lost if we would like to cap PUs lost at territory value
+<span class="pc bpc" id="L755" title="1 of 4 branches missed.">      if (isPUCap(m_data) || isLimitSBRDamagePerTurn(m_data)) {</span>
+<span class="fc" id="L756">        final int alreadyLost = DelegateFinder.moveDelegate(m_data).PUsAlreadyLost(m_battleSite);</span>
+<span class="fc" id="L757">        final int limit = Math.max(0, damageLimit - alreadyLost);</span>
+<span class="fc" id="L758">        cost = Math.min(cost, limit);</span>
+<span class="pc bpc" id="L759" title="1 of 2 branches missed.">        if (!m_targets.isEmpty()) {</span>
+<span class="nc bnc" id="L760" title="All 2 branches missed.">          for (final Unit u : m_bombingRaidDamage.keySet()) {</span>
+<span class="nc bnc" id="L761" title="All 2 branches missed.">            if (m_bombingRaidDamage.getInt(u) &gt; limit) {</span>
+<span class="nc" id="L762">              m_bombingRaidDamage.put(u, limit);</span>
+            }
+          }
+        }
+      }
+      // If we damage units instead of territories
+<span class="pc bpc" id="L768" title="1 of 2 branches missed.">      if (isDamageFromBombingDoneToUnitsInsteadOfTerritories()) {</span>
+        // at this point, m_bombingRaidDamage should contain all units that m_targets contains
+<span class="nc bnc" id="L770" title="All 2 branches missed.">        if (!m_targets.keySet().containsAll(m_bombingRaidDamage.keySet())) {</span>
+<span class="nc" id="L771">          throw new IllegalStateException(&quot;targets should contain all damaged units&quot;);</span>
+        }
+<span class="nc bnc" id="L773" title="All 2 branches missed.">        for (final Unit current : m_bombingRaidDamage.keySet()) {</span>
+<span class="nc" id="L774">          int currentUnitCost = m_bombingRaidDamage.getInt(current);</span>
+          // determine the max allowed damage
+          // UnitAttachment ua = UnitAttachment.get(current.getType());
+<span class="nc" id="L777">          final TripleAUnit taUnit = (TripleAUnit) current;</span>
+<span class="nc" id="L778">          damageLimit = taUnit.getHowMuchMoreDamageCanThisUnitTake(current, m_battleSite);</span>
+<span class="nc bnc" id="L779" title="All 2 branches missed.">          if (m_bombingRaidDamage.getInt(current) &gt; damageLimit) {</span>
+<span class="nc" id="L780">            m_bombingRaidDamage.put(current, damageLimit);</span>
+<span class="nc" id="L781">            cost = (cost - currentUnitCost) + damageLimit;</span>
+<span class="nc" id="L782">            currentUnitCost = m_bombingRaidDamage.getInt(current);</span>
+          }
+<span class="nc" id="L784">          final int totalDamage = taUnit.getUnitDamage() + currentUnitCost;</span>
+          // display the results
+<span class="nc" id="L786">          getDisplay(bridge).bombingResults(m_battleID, dice, currentUnitCost);</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">          if (currentUnitCost &gt; 0) {</span>
+<span class="nc" id="L788">            bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BOMBING_STRATEGIC, m_attacker);</span>
+          }
+          // Record production lost
+<span class="nc" id="L791">          DelegateFinder.moveDelegate(m_data).PUsLost(m_battleSite, currentUnitCost);</span>
+          // apply the hits to the targets
+<span class="nc" id="L793">          final IntegerMap&lt;Unit&gt; damageMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L794">          damageMap.put(current, totalDamage);</span>
+<span class="nc" id="L795">          bridge.addChange(ChangeFactory.bombingUnitDamage(damageMap));</span>
+<span class="nc" id="L796">          bridge.getHistoryWriter()</span>
+<span class="nc" id="L797">              .addChildToEvent(&quot;Bombing raid in &quot; + m_battleSite.getName() + &quot; rolls: &quot;</span>
+<span class="nc" id="L798">                  + MyFormatter.asDice(targetToDiceMap.get(current)) + &quot; and causes: &quot; + currentUnitCost</span>
+<span class="nc" id="L799">                  + &quot; damage to unit: &quot; + current.getType().getName());</span>
+<span class="nc" id="L800">          getRemote(bridge).reportMessage(</span>
+<span class="nc" id="L801">              &quot;Bombing raid in &quot; + m_battleSite.getName() + &quot; rolls: &quot;</span>
+<span class="nc" id="L802">                  + MyFormatter.asDice(targetToDiceMap.get(current)) + &quot; and causes: &quot; + currentUnitCost</span>
+<span class="nc" id="L803">                  + &quot; damage to unit: &quot; + current.getType().getName(),</span>
+<span class="nc" id="L804">              &quot;Bombing raid causes &quot; + currentUnitCost + &quot; damage to &quot; + current.getType().getName());</span>
+        }
+<span class="nc" id="L806">      } else {</span>
+        // Record PUs lost
+<span class="fc" id="L808">        DelegateFinder.moveDelegate(m_data).PUsLost(m_battleSite, cost);</span>
+<span class="fc" id="L809">        cost *= Properties.getPU_Multiplier(m_data);</span>
+<span class="fc" id="L810">        getDisplay(bridge).bombingResults(m_battleID, dice, cost);</span>
+<span class="pc bpc" id="L811" title="1 of 2 branches missed.">        if (cost &gt; 0) {</span>
+<span class="fc" id="L812">          bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_BOMBING_STRATEGIC, m_attacker);</span>
+        }
+        // get resources
+<span class="fc" id="L815">        final Resource PUs = m_data.getResourceList().getResource(Constants.PUS);</span>
+<span class="fc" id="L816">        final int have = m_defender.getResources().getQuantity(PUs);</span>
+<span class="fc" id="L817">        final int toRemove = Math.min(cost, have);</span>
+<span class="fc" id="L818">        final Change change = ChangeFactory.changeResourcesChange(m_defender, PUs, -toRemove);</span>
+<span class="fc" id="L819">        bridge.addChange(change);</span>
+<span class="fc" id="L820">        bridge.getHistoryWriter().addChildToEvent(&quot;Bombing raid in &quot; + m_battleSite.getName() + &quot; rolls: &quot;</span>
+<span class="fc" id="L821">            + MyFormatter.asDice(m_dice) + &quot; and costs: &quot; + cost + &quot; &quot; + MyFormatter.pluralize(&quot;PU&quot;, cost) + &quot;.&quot;);</span>
+      }
+<span class="fc" id="L823">      m_bombingRaidTotal = cost;</span>
+<span class="fc" id="L824">    }</span>
+  }
+
+  @Override
+  public void unitsLostInPrecedingBattle(final IBattle battle, final Collection&lt;Unit&gt; units,
+      final IDelegateBridge bridge, final boolean withdrawn) {
+    // should never happen
+<span class="nc" id="L831">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

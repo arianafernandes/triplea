@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EndTurnDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">EndTurnDelegate.java</span></div><h1>EndTurnDelegate.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.ResourceCollection;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.AutoSave;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.attachments.AbstractConditionsAttachment;
+import games.strategy.triplea.attachments.AbstractTriggerAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.RulesAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.ThreadUtil;
+
+/**
+ * At the end of the turn collect income.
+ */
+@MapSupport
+@AutoSave(afterStepEnd = true)
+<span class="fc" id="L47">public class EndTurnDelegate extends AbstractEndTurnDelegate {</span>
+  @Override
+  protected String doNationalObjectivesAndOtherEndTurnEffects(final IDelegateBridge bridge) {
+<span class="nc" id="L50">    final StringBuilder endTurnReport = new StringBuilder();</span>
+    // do national objectives
+<span class="nc bnc" id="L52" title="All 2 branches missed.">    if (isNationalObjectives()) {</span>
+<span class="nc" id="L53">      final String nationalObjectivesText = determineNationalObjectives(bridge);</span>
+<span class="nc bnc" id="L54" title="All 2 branches missed.">      if (nationalObjectivesText.trim().length() &gt; 0) {</span>
+<span class="nc" id="L55">        endTurnReport.append(nationalObjectivesText).append(&quot;&lt;br /&gt;&quot;);</span>
+      }
+    }
+    // create resources if any owned units have the ability
+<span class="nc" id="L59">    final String createsResourcesPositiveText = createResources(bridge, false);</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    if (createsResourcesPositiveText.trim().length() &gt; 0) {</span>
+<span class="nc" id="L61">      endTurnReport.append(createsResourcesPositiveText).append(&quot;&lt;br /&gt;&quot;);</span>
+    }
+<span class="nc" id="L63">    final String createsResourcesNegativeText = createResources(bridge, true);</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">    if (createsResourcesNegativeText.trim().length() &gt; 0) {</span>
+<span class="nc" id="L65">      endTurnReport.append(createsResourcesNegativeText).append(&quot;&lt;br /&gt;&quot;);</span>
+    }
+    // create units if any owned units have the ability
+<span class="nc" id="L68">    final String createsUnitsText = createUnits(bridge);</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">    if (createsUnitsText.trim().length() &gt; 0) {</span>
+<span class="nc" id="L70">      endTurnReport.append(createsUnitsText).append(&quot;&lt;br /&gt;&quot;);</span>
+    }
+<span class="nc" id="L72">    return endTurnReport.toString();</span>
+  }
+
+  private String createUnits(final IDelegateBridge bridge) {
+<span class="nc" id="L76">    final StringBuilder endTurnReport = new StringBuilder();</span>
+<span class="nc" id="L77">    final GameData data = getData();</span>
+<span class="nc" id="L78">    final PlayerID player = data.getSequence().getStep().getPlayerID();</span>
+<span class="nc" id="L79">    final Match&lt;Unit&gt; myCreatorsMatch =</span>
+<span class="nc" id="L80">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.UnitCreatesUnits);</span>
+<span class="nc" id="L81">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L83">      final Collection&lt;Unit&gt; myCreators = Match.getMatches(t.getUnits().getUnits(), myCreatorsMatch);</span>
+<span class="nc bnc" id="L84" title="All 4 branches missed.">      if (myCreators != null &amp;&amp; !myCreators.isEmpty()) {</span>
+<span class="nc" id="L85">        final Collection&lt;Unit&gt; toAdd = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L86">        final Collection&lt;Unit&gt; toAddSea = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L87">        final Collection&lt;Unit&gt; toAddLand = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        for (final Unit u : myCreators) {</span>
+<span class="nc" id="L89">          final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L90">          final IntegerMap&lt;UnitType&gt; createsUnitsMap = ua.getCreatesUnitsList();</span>
+<span class="nc" id="L91">          final Collection&lt;UnitType&gt; willBeCreated = createsUnitsMap.keySet();</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">          for (final UnitType ut : willBeCreated) {</span>
+<span class="nc bnc" id="L93" title="All 4 branches missed.">            if (UnitAttachment.get(ut).getIsSea() &amp;&amp; Matches.TerritoryIsLand.match(t)) {</span>
+<span class="nc" id="L94">              toAddSea.addAll(ut.create(createsUnitsMap.getInt(ut), player));</span>
+<span class="nc bnc" id="L95" title="All 4 branches missed.">            } else if (!UnitAttachment.get(ut).getIsSea() &amp;&amp; !UnitAttachment.get(ut).getIsAir()</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">                &amp;&amp; Matches.TerritoryIsWater.match(t)) {</span>
+<span class="nc" id="L97">              toAddLand.addAll(ut.create(createsUnitsMap.getInt(ut), player));</span>
+<span class="nc" id="L98">            } else {</span>
+<span class="nc" id="L99">              toAdd.addAll(ut.create(createsUnitsMap.getInt(ut), player));</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (!toAdd.isEmpty()) {</span>
+<span class="nc" id="L104">          final String transcriptText =</span>
+<span class="nc" id="L105">              player.getName() + &quot; creates &quot; + MyFormatter.unitsToTextNoOwner(toAdd) + &quot; in &quot; + t.getName();</span>
+<span class="nc" id="L106">          bridge.getHistoryWriter().startEvent(transcriptText, toAdd);</span>
+<span class="nc" id="L107">          endTurnReport.append(transcriptText).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L108">          final Change place = ChangeFactory.addUnits(t, toAdd);</span>
+<span class="nc" id="L109">          change.add(place);</span>
+        }
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        if (!toAddSea.isEmpty()) {</span>
+<span class="nc" id="L112">          final Match&lt;Territory&gt; myTerrs = new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsWater);</span>
+<span class="nc" id="L113">          final Collection&lt;Territory&gt; waterNeighbors = data.getMap().getNeighbors(t, myTerrs);</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">          if (waterNeighbors != null &amp;&amp; !waterNeighbors.isEmpty()) {</span>
+<span class="nc" id="L115">            final Territory tw = getRandomTerritory(waterNeighbors, bridge);</span>
+<span class="nc" id="L116">            final String transcriptText =</span>
+<span class="nc" id="L117">                player.getName() + &quot; creates &quot; + MyFormatter.unitsToTextNoOwner(toAddSea) + &quot; in &quot; + tw.getName();</span>
+<span class="nc" id="L118">            bridge.getHistoryWriter().startEvent(transcriptText, toAddSea);</span>
+<span class="nc" id="L119">            endTurnReport.append(transcriptText).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L120">            final Change place = ChangeFactory.addUnits(tw, toAddSea);</span>
+<span class="nc" id="L121">            change.add(place);</span>
+          }
+        }
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        if (!toAddLand.isEmpty()) {</span>
+<span class="nc" id="L125">          final Match&lt;Territory&gt; myTerrs =</span>
+<span class="nc" id="L126">              new CompositeMatchAnd&lt;&gt;(Matches.isTerritoryOwnedBy(player), Matches.TerritoryIsLand);</span>
+<span class="nc" id="L127">          final Collection&lt;Territory&gt; landNeighbors = data.getMap().getNeighbors(t, myTerrs);</span>
+<span class="nc bnc" id="L128" title="All 4 branches missed.">          if (landNeighbors != null &amp;&amp; !landNeighbors.isEmpty()) {</span>
+<span class="nc" id="L129">            final Territory tl = getRandomTerritory(landNeighbors, bridge);</span>
+<span class="nc" id="L130">            final String transcriptText =</span>
+<span class="nc" id="L131">                player.getName() + &quot; creates &quot; + MyFormatter.unitsToTextNoOwner(toAddLand) + &quot; in &quot; + tl.getName();</span>
+<span class="nc" id="L132">            bridge.getHistoryWriter().startEvent(transcriptText, toAddLand);</span>
+<span class="nc" id="L133">            endTurnReport.append(transcriptText).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L134">            final Change place = ChangeFactory.addUnits(tl, toAddLand);</span>
+<span class="nc" id="L135">            change.add(place);</span>
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L140" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L141">      bridge.addChange(change);</span>
+    }
+<span class="nc" id="L143">    return endTurnReport.toString();</span>
+  }
+
+  private static Territory getRandomTerritory(final Collection&lt;Territory&gt; territories, final IDelegateBridge bridge) {
+<span class="nc bnc" id="L147" title="All 4 branches missed.">    if (territories == null || territories.isEmpty()) {</span>
+<span class="nc" id="L148">      return null;</span>
+    }
+<span class="nc bnc" id="L150" title="All 2 branches missed.">    if (territories.size() == 1) {</span>
+<span class="nc" id="L151">      return territories.iterator().next();</span>
+    }
+    // there is an issue with maps that have lots of rolls without any pause between them: they are causing the cypted
+    // random source (ie:
+    // live and pbem games) to lock up or error out
+    // so we need to slow them down a bit, until we come up with a better solution (like aggregating all the chances
+    // together, then getting
+    // a ton of random numbers at once instead of one at a time)
+<span class="nc" id="L159">    ThreadUtil.sleep(100);</span>
+<span class="nc" id="L160">    final List&lt;Territory&gt; list = new ArrayList&lt;&gt;(territories);</span>
+<span class="nc" id="L161">    final int random =</span>
+        // ZERO BASED
+<span class="nc" id="L163">        bridge.getRandom(list.size(), null, DiceType.ENGINE, &quot;Random territory selection for creating units&quot;);</span>
+<span class="nc" id="L164">    return list.get(random);</span>
+  }
+
+  /**
+   * @param data
+   * @param bridge
+   */
+  private String createResources(final IDelegateBridge bridge, final boolean negativeResources) {
+<span class="nc" id="L172">    final StringBuilder endTurnReport = new StringBuilder();</span>
+<span class="nc" id="L173">    final GameData data = getData();</span>
+<span class="nc" id="L174">    final PlayerID player = data.getSequence().getStep().getPlayerID();</span>
+<span class="nc" id="L175">    final Match&lt;Unit&gt; myCreatorsMatch = new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player),</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        negativeResources ? Matches.UnitCreatesResourcesNegative : Matches.UnitCreatesResourcesPositive);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L178">      final Collection&lt;Unit&gt; myCreators = Match.getMatches(t.getUnits().getUnits(), myCreatorsMatch);</span>
+<span class="nc bnc" id="L179" title="All 4 branches missed.">      if (myCreators != null &amp;&amp; !myCreators.isEmpty()) {</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        for (final Unit u : myCreators) {</span>
+<span class="nc" id="L181">          final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L182">          final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L183">          final IntegerMap&lt;Resource&gt; createsResourcesMap = ua.getCreatesResourcesList();</span>
+<span class="nc" id="L184">          final Collection&lt;Resource&gt; willBeCreated = createsResourcesMap.keySet();</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">          for (final Resource r : willBeCreated) {</span>
+<span class="nc" id="L186">            int toAdd = createsResourcesMap.getInt(r);</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">            if (r.getName().equals(Constants.PUS)) {</span>
+<span class="nc" id="L188">              toAdd *= Properties.getPU_Multiplier(data);</span>
+            }
+<span class="nc" id="L190">            int total = player.getResources().getQuantity(r) + toAdd;</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">            if (total &lt; 0) {</span>
+<span class="nc" id="L192">              toAdd -= total;</span>
+<span class="nc" id="L193">              total = 0;</span>
+            }
+<span class="nc" id="L195">            final String transcriptText = u.getUnitType().getName() + &quot; in &quot; + t.getName() + &quot; creates &quot; + toAdd + &quot; &quot;</span>
+<span class="nc" id="L196">                + r.getName() + &quot;; &quot; + player.getName() + &quot; end with &quot; + total + &quot; &quot; + r.getName();</span>
+<span class="nc" id="L197">            bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L198">            endTurnReport.append(transcriptText).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L199">            final Change resources = ChangeFactory.changeResourcesChange(player, r, toAdd);</span>
+<span class="nc" id="L200">            change.add(resources);</span>
+          }
+<span class="nc bnc" id="L202" title="All 2 branches missed.">          if (!change.isEmpty()) {</span>
+<span class="nc" id="L203">            bridge.addChange(change);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L208">    return endTurnReport.toString();</span>
+  }
+
+  /**
+   * Determine if National Objectives have been met, and then do them.
+   *
+   * @param data
+   */
+  private String determineNationalObjectives(final IDelegateBridge bridge) {
+<span class="nc" id="L217">    final GameData data = getData();</span>
+<span class="nc" id="L218">    final PlayerID player = data.getSequence().getStep().getPlayerID();</span>
+    // First figure out all the conditions that will be tested, so we can test them all at the same time.
+<span class="nc" id="L220">    final HashSet&lt;TriggerAttachment&gt; toFirePossible = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L221">    final HashSet&lt;ICondition&gt; allConditionsNeeded = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L222">    final boolean useTriggers = games.strategy.triplea.Properties.getTriggers(data);</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">    if (useTriggers) {</span>
+      // add conditions required for triggers
+<span class="nc" id="L225">      final Match&lt;TriggerAttachment&gt; endTurnDelegateTriggerMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L226">          AbstractTriggerAttachment.availableUses, AbstractTriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="nc" id="L227">          new CompositeMatchOr&lt;TriggerAttachment&gt;(TriggerAttachment.resourceMatch()));</span>
+<span class="nc" id="L228">      toFirePossible.addAll(TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="nc" id="L229">          new HashSet&lt;&gt;(Collections.singleton(player)), endTurnDelegateTriggerMatch, bridge));</span>
+<span class="nc" id="L230">      allConditionsNeeded.addAll(</span>
+<span class="nc" id="L231">          AbstractConditionsAttachment.getAllConditionsRecursive(new HashSet&lt;&gt;(toFirePossible), null));</span>
+    }
+    // add conditions required for national objectives (nat objs that have uses left)
+<span class="nc" id="L234">    final List&lt;RulesAttachment&gt; natObjs =</span>
+<span class="nc" id="L235">        Match.getMatches(RulesAttachment.getNationalObjectives(player), availableUses);</span>
+<span class="nc" id="L236">    allConditionsNeeded</span>
+<span class="nc" id="L237">        .addAll(AbstractConditionsAttachment.getAllConditionsRecursive(new HashSet&lt;&gt;(natObjs), null));</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">    if (allConditionsNeeded.isEmpty()) {</span>
+<span class="nc" id="L239">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L241">    final StringBuilder endTurnReport = new StringBuilder();</span>
+    // now test all the conditions
+<span class="nc" id="L243">    final HashMap&lt;ICondition, Boolean&gt; testedConditions =</span>
+<span class="nc" id="L244">        AbstractConditionsAttachment.testAllConditionsRecursive(allConditionsNeeded, null, bridge);</span>
+    // now that we have all testedConditions, may as well do triggers first.
+<span class="nc bnc" id="L246" title="All 2 branches missed.">    if (useTriggers) {</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">      if (!toFirePossible.isEmpty()) {</span>
+        // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L249">        final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L250">            Match.getMatches(toFirePossible, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+        // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L252">        endTurnReport.append(TriggerAttachment.triggerResourceChange(toFireTestedAndSatisfied, bridge, null, null, true,</span>
+<span class="nc" id="L253">            true, true, true)).append(&quot;&lt;br /&gt;&quot;);</span>
+      }
+    }
+    // now do all the national objectives
+<span class="nc bnc" id="L257" title="All 2 branches missed.">    for (final RulesAttachment rule : natObjs) {</span>
+<span class="nc" id="L258">      int uses = rule.getUses();</span>
+<span class="nc bnc" id="L259" title="All 4 branches missed.">      if (uses == 0 || !rule.isSatisfied(testedConditions)) {</span>
+<span class="nc" id="L260">        continue;</span>
+      }
+<span class="nc" id="L262">      int toAdd = rule.getObjectiveValue();</span>
+<span class="nc" id="L263">      toAdd *= Properties.getPU_Multiplier(data);</span>
+<span class="nc" id="L264">      toAdd *= rule.getEachMultiple();</span>
+<span class="nc" id="L265">      int total = player.getResources().getQuantity(Constants.PUS) + toAdd;</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">      if (total &lt; 0) {</span>
+<span class="nc" id="L267">        toAdd -= total;</span>
+<span class="nc" id="L268">        total = 0;</span>
+      }
+<span class="nc" id="L270">      final Change change =</span>
+<span class="nc" id="L271">          ChangeFactory.changeResourcesChange(player, data.getResourceList().getResource(Constants.PUS), toAdd);</span>
+<span class="nc" id="L272">      bridge.addChange(change);</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">      if (uses &gt; 0) {</span>
+<span class="nc" id="L274">        uses--;</span>
+<span class="nc" id="L275">        final Change use = ChangeFactory.attachmentPropertyChange(rule, Integer.toString(uses), &quot;uses&quot;);</span>
+<span class="nc" id="L276">        bridge.addChange(use);</span>
+      }
+<span class="nc" id="L278">      final String PUMessage = MyFormatter.attachmentNameToText(rule.getName()) + &quot;: &quot; + player.getName()</span>
+<span class="nc" id="L279">          + &quot; met a national objective for an additional &quot; + toAdd + MyFormatter.pluralize(&quot; PU&quot;, toAdd) + &quot;; end with &quot;</span>
+<span class="nc" id="L280">          + total + MyFormatter.pluralize(&quot; PU&quot;, total);</span>
+<span class="nc" id="L281">      bridge.getHistoryWriter().startEvent(PUMessage);</span>
+<span class="nc" id="L282">      endTurnReport.append(PUMessage).append(&quot;&lt;br /&gt;&quot;);</span>
+    }
+<span class="nc" id="L284">    return endTurnReport.toString();</span>
+  }
+
+  private boolean isNationalObjectives() {
+<span class="nc" id="L288">    return games.strategy.triplea.Properties.getNationalObjectives(getData());</span>
+  }
+
+<span class="fc" id="L291">  private static Match&lt;RulesAttachment&gt; availableUses = new Match&lt;RulesAttachment&gt;() {</span>
+    @Override
+    public boolean match(final RulesAttachment ra) {
+<span class="nc bnc" id="L294" title="All 2 branches missed.">      return ra.getUses() != 0;</span>
+    }
+<span class="fc" id="L296">  };</span>
+
+  @Override
+  protected String addOtherResources(final IDelegateBridge aBridge) {
+<span class="nc" id="L300">    final StringBuilder endTurnReport = new StringBuilder();</span>
+<span class="nc" id="L301">    final GameData data = aBridge.getData();</span>
+<span class="nc" id="L302">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L303">    final Collection&lt;Territory&gt; territories = data.getMap().getTerritoriesOwnedBy(m_player);</span>
+<span class="nc" id="L304">    final ResourceCollection productionCollection = getResourceProduction(territories, data);</span>
+<span class="nc" id="L305">    final IntegerMap&lt;Resource&gt; production = productionCollection.getResourcesCopy();</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">    for (final Entry&lt;Resource, Integer&gt; resource : production.entrySet()) {</span>
+<span class="nc" id="L307">      final Resource r = resource.getKey();</span>
+<span class="nc" id="L308">      int toAdd = resource.getValue();</span>
+<span class="nc" id="L309">      int total = m_player.getResources().getQuantity(r) + toAdd;</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">      if (total &lt; 0) {</span>
+<span class="nc" id="L311">        toAdd -= total;</span>
+<span class="nc" id="L312">        total = 0;</span>
+      }
+<span class="nc" id="L314">      final String resourceText =</span>
+<span class="nc" id="L315">          m_player.getName() + &quot; collects &quot; + toAdd + &quot; &quot; + MyFormatter.pluralize(r.getName(), toAdd) + &quot;; ends with &quot;</span>
+<span class="nc" id="L316">              + total + &quot; &quot; + MyFormatter.pluralize(r.getName(), total) + &quot; total&quot;;</span>
+<span class="nc" id="L317">      aBridge.getHistoryWriter().startEvent(resourceText);</span>
+<span class="nc" id="L318">      endTurnReport.append(resourceText).append(&quot;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L319">      change.add(ChangeFactory.changeResourcesChange(m_player, r, toAdd));</span>
+    }
+<span class="nc bnc" id="L321" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L322">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L324">    return endTurnReport.toString();</span>
+  }
+
+  /**
+   * Since territory resource may contain any resource except PUs (PUs use &quot;getProduction&quot; instead),
+   * we will now figure out the total production of non-PUs resources.
+   *
+   * @param territories
+   * @param data
+   */
+  private static ResourceCollection getResourceProduction(final Collection&lt;Territory&gt; territories,
+      final GameData data) {
+<span class="nc" id="L336">    final ResourceCollection rVal = new ResourceCollection(data);</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">    for (final Territory current : territories) {</span>
+<span class="nc" id="L338">      final TerritoryAttachment attachment = TerritoryAttachment.get(current);</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">      if (attachment == null) {</span>
+<span class="nc" id="L340">        throw new IllegalStateException(&quot;No attachment for owned territory:&quot; + current.getName());</span>
+      }
+<span class="nc" id="L342">      final ResourceCollection toAdd = attachment.getResources();</span>
+<span class="nc bnc" id="L343" title="All 2 branches missed.">      if (toAdd == null) {</span>
+<span class="nc" id="L344">        continue;</span>
+      }
+      // Match will Check if territory is originally owned convoy center, or if contested
+<span class="nc bnc" id="L347" title="All 2 branches missed.">      if (Matches.territoryCanCollectIncomeFrom(current.getOwner(), data).match(current)) {</span>
+<span class="nc" id="L348">        rVal.add(toAdd);</span>
+      }
+    }
+<span class="nc" id="L351">    return rVal;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

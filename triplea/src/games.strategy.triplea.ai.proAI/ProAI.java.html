@@ -1,0 +1,473 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI</a> &gt; <span class="el_source">ProAI.java</span></div><h1>ProAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameStep;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.framework.GameDataUtils;
+import games.strategy.net.GUID;
+import games.strategy.triplea.ai.AbstractAI;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseTerritory;
+import games.strategy.triplea.ai.proAI.data.ProTerritory;
+import games.strategy.triplea.ai.proAI.logging.ProLogUI;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.simulate.ProDummyDelegateBridge;
+import games.strategy.triplea.ai.proAI.simulate.ProSimulateTurnUtils;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.ai.proAI.util.ProPurchaseUtils;
+import games.strategy.triplea.ai.proAI.util.ProTransportUtils;
+import games.strategy.triplea.attachments.PoliticalActionAttachment;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.BattleDelegate;
+import games.strategy.triplea.delegate.DelegateFinder;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.IBattle;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.PoliticsDelegate;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.triplea.oddsCalculator.ta.ConcurrentOddsCalculator;
+import games.strategy.triplea.oddsCalculator.ta.IOddsCalculator;
+import games.strategy.triplea.ui.TripleAFrame;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Pro AI.
+ */
+public class ProAI extends AbstractAI {
+
+<span class="nc" id="L60">  private final static Logger s_logger = Logger.getLogger(ProAI.class.getName());</span>
+
+  // Odds calculator
+<span class="nc" id="L63">  private final static IOddsCalculator concurrentCalc = new ConcurrentOddsCalculator(&quot;ProAI&quot;);</span>
+  protected ProOddsCalculator calc;
+
+  // Phases
+  private final ProCombatMoveAI combatMoveAI;
+  private final ProNonCombatMoveAI nonCombatMoveAI;
+  private final ProPurchaseAI purchaseAI;
+  private final ProRetreatAI retreatAI;
+  private final ProScrambleAI scrambleAI;
+  private final ProPoliticsAI politicsAI;
+  private final ProBidAI bidAI;
+
+  // Data shared across phases
+  private Map&lt;Territory, ProTerritory&gt; storedCombatMoveMap;
+  private Map&lt;Territory, ProTerritory&gt; storedFactoryMoveMap;
+  private Map&lt;Territory, ProPurchaseTerritory&gt; storedPurchaseTerritories;
+  private List&lt;PoliticalActionAttachment&gt; storedPoliticalActions;
+  private List&lt;Territory&gt; storedStrafingTerritories;
+
+  public ProAI(final String name, final String type) {
+<span class="nc" id="L83">    super(name, type);</span>
+<span class="nc" id="L84">    initializeCalc();</span>
+<span class="nc" id="L85">    combatMoveAI = new ProCombatMoveAI(this);</span>
+<span class="nc" id="L86">    nonCombatMoveAI = new ProNonCombatMoveAI(this);</span>
+<span class="nc" id="L87">    purchaseAI = new ProPurchaseAI(this);</span>
+<span class="nc" id="L88">    retreatAI = new ProRetreatAI(this);</span>
+<span class="nc" id="L89">    scrambleAI = new ProScrambleAI(this);</span>
+<span class="nc" id="L90">    politicsAI = new ProPoliticsAI(this);</span>
+<span class="nc" id="L91">    bidAI = new ProBidAI();</span>
+<span class="nc" id="L92">    storedCombatMoveMap = null;</span>
+<span class="nc" id="L93">    storedFactoryMoveMap = null;</span>
+<span class="nc" id="L94">    storedPurchaseTerritories = null;</span>
+<span class="nc" id="L95">    storedPoliticalActions = null;</span>
+<span class="nc" id="L96">    storedStrafingTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L97">  }</span>
+
+  protected void initializeCalc() {
+<span class="nc" id="L100">    calc = new ProOddsCalculator(concurrentCalc);</span>
+<span class="nc" id="L101">  }</span>
+
+  public ProOddsCalculator getCalc() {
+<span class="nc" id="L104">    return calc;</span>
+  }
+
+  public static void initialize(final TripleAFrame frame) {
+<span class="nc" id="L108">    ProLogUI.initialize(frame);</span>
+<span class="nc" id="L109">    ProLogger.info(&quot;Initialized Hard AI&quot;);</span>
+<span class="nc" id="L110">  }</span>
+
+  public static void showSettingsWindow() {
+<span class="nc" id="L113">    ProLogger.info(&quot;Showing Hard AI settings window&quot;);</span>
+<span class="nc" id="L114">    ProLogUI.showSettingsWindow();</span>
+<span class="nc" id="L115">  }</span>
+
+  public static Logger getLogger() {
+<span class="nc" id="L118">    return s_logger;</span>
+  }
+
+  public static void gameOverClearCache() {
+    // Are static, clear so that we don't keep the data around after a game is exited
+<span class="nc" id="L123">    concurrentCalc.setGameData(null);</span>
+<span class="nc" id="L124">    ProLogUI.clearCachedInstances();</span>
+<span class="nc" id="L125">  }</span>
+
+  @Override
+  public void stopGame() {
+<span class="nc" id="L129">    super.stopGame(); // absolutely MUST call super.stopGame() first</span>
+<span class="nc" id="L130">    calc.cancelCalcs();</span>
+<span class="nc" id="L131">  }</span>
+
+  private void initializeData() {
+<span class="nc" id="L134">    ProData.initialize(this);</span>
+<span class="nc" id="L135">  }</span>
+
+  public void setStoredStrafingTerritories(final List&lt;Territory&gt; strafingTerritories) {
+<span class="nc" id="L138">    storedStrafingTerritories = strafingTerritories;</span>
+<span class="nc" id="L139">  }</span>
+
+  @Override
+  protected void move(final boolean nonCombat, final IMoveDelegate moveDel, final GameData data,
+      final PlayerID player) {
+<span class="nc" id="L144">    final long start = System.currentTimeMillis();</span>
+<span class="nc" id="L145">    BattleCalculator.clearOOLCache();</span>
+<span class="nc" id="L146">    ProLogUI.notifyStartOfRound(data.getSequence().getRound(), player.getName());</span>
+<span class="nc" id="L147">    initializeData();</span>
+<span class="nc" id="L148">    calc.setData(data);</span>
+<span class="nc bnc" id="L149" title="All 2 branches missed.">    if (nonCombat) {</span>
+<span class="nc" id="L150">      nonCombatMoveAI.doNonCombatMove(storedFactoryMoveMap, storedPurchaseTerritories, moveDel);</span>
+<span class="nc" id="L151">      storedFactoryMoveMap = null;</span>
+<span class="nc" id="L152">    } else {</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">      if (storedCombatMoveMap == null) {</span>
+<span class="nc" id="L154">        combatMoveAI.doCombatMove(moveDel);</span>
+<span class="nc" id="L155">      } else {</span>
+<span class="nc" id="L156">        combatMoveAI.doMove(storedCombatMoveMap, moveDel, data, player);</span>
+<span class="nc" id="L157">        storedCombatMoveMap = null;</span>
+      }
+    }
+    ProLogger
+<span class="nc" id="L161">        .info(player.getName() + &quot; time for nonCombat=&quot; + nonCombat + &quot; time=&quot; + (System.currentTimeMillis() - start));</span>
+<span class="nc" id="L162">  }</span>
+
+  @Override
+  protected void purchase(final boolean purchaseForBid, int PUsToSpend, final IPurchaseDelegate purchaseDelegate,
+      final GameData data, final PlayerID player) {
+<span class="nc" id="L167">    final long start = System.currentTimeMillis();</span>
+<span class="nc" id="L168">    BattleCalculator.clearOOLCache();</span>
+<span class="nc" id="L169">    ProLogUI.notifyStartOfRound(data.getSequence().getRound(), player.getName());</span>
+<span class="nc" id="L170">    initializeData();</span>
+<span class="nc bnc" id="L171" title="All 2 branches missed.">    if (PUsToSpend &lt;= 0) {</span>
+<span class="nc" id="L172">      return;</span>
+    }
+<span class="nc bnc" id="L174" title="All 2 branches missed.">    if (purchaseForBid) {</span>
+<span class="nc" id="L175">      bidAI.bid(PUsToSpend, purchaseDelegate, data, player);</span>
+<span class="nc" id="L176">    } else {</span>
+
+      // Repair factories
+<span class="nc" id="L179">      PUsToSpend = purchaseAI.repair(PUsToSpend, purchaseDelegate, data, player);</span>
+
+      // Check if any place territories exist
+<span class="nc" id="L182">      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories = ProPurchaseUtils.findPurchaseTerritories(player);</span>
+<span class="nc" id="L183">      final List&lt;Territory&gt; possibleFactoryTerritories = Match.getMatches(data.getMap().getTerritories(),</span>
+<span class="nc" id="L184">          ProMatches.territoryHasNoInfraFactoryAndIsNotConqueredOwnedLand(player, data));</span>
+<span class="nc bnc" id="L185" title="All 4 branches missed.">      if (purchaseTerritories.isEmpty() &amp;&amp; possibleFactoryTerritories.isEmpty()) {</span>
+<span class="nc" id="L186">        ProLogger.info(&quot;No possible place or factory territories owned so exiting purchase logic&quot;);</span>
+<span class="nc" id="L187">        return;</span>
+      }
+<span class="nc" id="L189">      ProLogger.info(&quot;Starting simulation for purchase phase&quot;);</span>
+
+      // Setup data copy and delegates
+      GameData dataCopy;
+      try {
+<span class="nc" id="L194">        data.acquireReadLock();</span>
+<span class="nc" id="L195">        dataCopy = GameDataUtils.cloneGameData(data, true);</span>
+<span class="nc" id="L196">      } catch (final Throwable t) {</span>
+<span class="nc" id="L197">        ProLogger.log(Level.WARNING, &quot;Error trying to clone game data for simulating phases&quot;, t);</span>
+<span class="nc" id="L198">        return;</span>
+<span class="nc" id="L199">      } finally {</span>
+<span class="nc" id="L200">        data.releaseReadLock();</span>
+<span class="nc" id="L201">      }</span>
+<span class="nc" id="L202">      calc.setData(dataCopy);</span>
+<span class="nc" id="L203">      final PlayerID playerCopy = dataCopy.getPlayerList().getPlayerID(player.getName());</span>
+<span class="nc" id="L204">      final IMoveDelegate moveDel = DelegateFinder.moveDelegate(dataCopy);</span>
+<span class="nc" id="L205">      final IDelegateBridge bridge = new ProDummyDelegateBridge(this, playerCopy, dataCopy);</span>
+<span class="nc" id="L206">      moveDel.setDelegateBridgeAndPlayer(bridge);</span>
+
+      // Determine turn sequence
+<span class="nc" id="L209">      final List&lt;GameStep&gt; gameSteps = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">      for (final GameStep gameStep : dataCopy.getSequence()) {</span>
+<span class="nc" id="L211">        gameSteps.add(gameStep);</span>
+      }
+
+      // Simulate the next phases until place/end of turn is reached then use simulated data for purchase
+<span class="nc" id="L215">      final int nextStepIndex = dataCopy.getSequence().getStepIndex() + 1;</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">      for (int i = nextStepIndex; i &lt; gameSteps.size(); i++) {</span>
+<span class="nc" id="L217">        final GameStep step = gameSteps.get(i);</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">        if (!playerCopy.equals(step.getPlayerID())) {</span>
+<span class="nc" id="L219">          continue;</span>
+        }
+<span class="nc" id="L221">        dataCopy.getSequence().setRoundAndStep(dataCopy.getSequence().getRound(), step.getDisplayName(),</span>
+<span class="nc" id="L222">            step.getPlayerID());</span>
+<span class="nc" id="L223">        final String stepName = step.getName();</span>
+<span class="nc" id="L224">        ProLogger.info(&quot;Simulating phase: &quot; + stepName);</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (stepName.endsWith(&quot;NonCombatMove&quot;)) {</span>
+<span class="nc" id="L226">          ProData.initializeSimulation(this, dataCopy, playerCopy);</span>
+<span class="nc" id="L227">          final Map&lt;Territory, ProTerritory&gt; factoryMoveMap = nonCombatMoveAI.simulateNonCombatMove(moveDel);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">          if (storedFactoryMoveMap == null) {</span>
+<span class="nc" id="L229">            storedFactoryMoveMap = ProSimulateTurnUtils.transferMoveMap(factoryMoveMap, data, player);</span>
+          }
+<span class="nc bnc" id="L231" title="All 4 branches missed.">        } else if (stepName.endsWith(&quot;CombatMove&quot;) &amp;&amp; !stepName.endsWith(&quot;AirborneCombatMove&quot;)) {</span>
+<span class="nc" id="L232">          ProData.initializeSimulation(this, dataCopy, playerCopy);</span>
+<span class="nc" id="L233">          final Map&lt;Territory, ProTerritory&gt; moveMap = combatMoveAI.doCombatMove(moveDel);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">          if (storedCombatMoveMap == null) {</span>
+<span class="nc" id="L235">            storedCombatMoveMap = ProSimulateTurnUtils.transferMoveMap(moveMap, data, player);</span>
+          }
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Battle&quot;)) {</span>
+<span class="nc" id="L238">          ProData.initializeSimulation(this, dataCopy, playerCopy);</span>
+<span class="nc" id="L239">          ProSimulateTurnUtils.simulateBattles(dataCopy, playerCopy, bridge, calc);</span>
+<span class="nc bnc" id="L240" title="All 4 branches missed.">        } else if (stepName.endsWith(&quot;Place&quot;) || stepName.endsWith(&quot;EndTurn&quot;)) {</span>
+<span class="nc" id="L241">          ProData.initializeSimulation(this, dataCopy, player);</span>
+<span class="nc" id="L242">          storedPurchaseTerritories = purchaseAI.purchase(purchaseDelegate, data);</span>
+<span class="nc" id="L243">          break;</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">        } else if (stepName.endsWith(&quot;Politics&quot;)) {</span>
+<span class="nc" id="L245">          ProData.initializeSimulation(this, dataCopy, player);</span>
+<span class="nc" id="L246">          final PoliticsDelegate politicsDelegate = DelegateFinder.politicsDelegate(dataCopy);</span>
+<span class="nc" id="L247">          politicsDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="nc" id="L248">          final List&lt;PoliticalActionAttachment&gt; actions = politicsAI.politicalActions();</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">          if (storedPoliticalActions == null) {</span>
+<span class="nc" id="L250">            storedPoliticalActions = actions;</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L255">    ProLogger.info(player.getName() + &quot; time for purchase=&quot; + (System.currentTimeMillis() - start));</span>
+<span class="nc" id="L256">  }</span>
+
+  @Override
+  protected void place(final boolean bid, final IAbstractPlaceDelegate placeDelegate, final GameData data,
+      final PlayerID player) {
+<span class="nc" id="L261">    final long start = System.currentTimeMillis();</span>
+<span class="nc" id="L262">    BattleCalculator.clearOOLCache();</span>
+<span class="nc" id="L263">    ProLogUI.notifyStartOfRound(data.getSequence().getRound(), player.getName());</span>
+<span class="nc" id="L264">    initializeData();</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">    if (bid) {</span>
+<span class="nc" id="L266">      bidAI.bidPlace(placeDelegate, data, player);</span>
+<span class="nc" id="L267">    } else {</span>
+<span class="nc" id="L268">      purchaseAI.place(storedPurchaseTerritories, placeDelegate);</span>
+<span class="nc" id="L269">      storedPurchaseTerritories = null;</span>
+    }
+<span class="nc" id="L271">    ProLogger.info(player.getName() + &quot; time for place=&quot; + (System.currentTimeMillis() - start));</span>
+<span class="nc" id="L272">  }</span>
+
+  @Override
+  protected void tech(final ITechDelegate techDelegate, final GameData data, final PlayerID player) {
+<span class="nc" id="L276">    ProTechAI.tech(techDelegate, data, player);</span>
+<span class="nc" id="L277">  }</span>
+
+  @Override
+  public Territory retreatQuery(final GUID battleID, final boolean submerge, final Territory battleTerritory,
+      final Collection&lt;Territory&gt; possibleTerritories, final String message) {
+<span class="nc" id="L282">    initializeData();</span>
+
+    // Get battle data
+<span class="nc" id="L285">    final GameData data = getGameData();</span>
+<span class="nc" id="L286">    final PlayerID player = getPlayerID();</span>
+<span class="nc" id="L287">    final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L288">    final IBattle battle = delegate.getBattleTracker().getPendingBattle(battleID);</span>
+
+    // If battle is null or amphibious then don't retreat
+<span class="nc bnc" id="L291" title="All 6 branches missed.">    if (battle == null || battleTerritory == null || battle.isAmphibious()) {</span>
+<span class="nc" id="L292">      return null;</span>
+    }
+
+    // If attacker with more unit strength or strafing and isn't land battle with only air left then don't retreat
+<span class="nc" id="L296">    final boolean isAttacker = player.equals(battle.getAttacker());</span>
+<span class="nc" id="L297">    final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L298">    final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L299">    final double strengthDifference = ProBattleUtils.estimateStrengthDifference(battleTerritory, attackers, defenders);</span>
+<span class="nc bnc" id="L300" title="All 4 branches missed.">    final boolean isStrafing = isAttacker &amp;&amp; storedStrafingTerritories.contains(battleTerritory);</span>
+<span class="nc" id="L301">    ProLogger.info(player.getName() + &quot; checking retreat from territory &quot; + battleTerritory + &quot;, attackers=&quot;</span>
+<span class="nc" id="L302">        + attackers.size() + &quot;, defenders=&quot; + defenders.size() + &quot;, submerge=&quot; + submerge + &quot;, attacker=&quot; + isAttacker</span>
+<span class="nc" id="L303">        + &quot;, isStrafing=&quot; + isStrafing);</span>
+<span class="nc bnc" id="L304" title="All 6 branches missed.">    if ((isStrafing || (isAttacker &amp;&amp; strengthDifference &gt; 50))</span>
+<span class="nc bnc" id="L305" title="All 4 branches missed.">        &amp;&amp; (battleTerritory.isWater() || Match.someMatch(attackers, Matches.UnitIsLand))) {</span>
+<span class="nc" id="L306">      return null;</span>
+    }
+<span class="nc" id="L308">    calc.setData(getGameData());</span>
+<span class="nc" id="L309">    return retreatAI.retreatQuery(battleID, submerge, battleTerritory, possibleTerritories, message);</span>
+  }
+
+  @Override
+  public boolean shouldBomberBomb(final Territory territory) {
+<span class="nc" id="L314">    return combatMoveAI.isBombing();</span>
+  }
+
+  @Override
+  public Collection&lt;Unit&gt; getNumberOfFightersToMoveToNewCarrier(final Collection&lt;Unit&gt; fightersThatCanBeMoved,
+      final Territory from) {
+<span class="nc" id="L320">    final List&lt;Unit&gt; rVal = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L322">    return rVal;</span>
+  }
+
+  @Override
+  public CasualtyDetails selectCasualties(final Collection&lt;Unit&gt; selectFrom,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents, final int count, final String message, final DiceRoll dice,
+      final PlayerID hit, final Collection&lt;Unit&gt; friendlyUnits, final PlayerID enemyPlayer,
+      final Collection&lt;Unit&gt; enemyUnits, final boolean amphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers,
+      final CasualtyList defaultCasualties, final GUID battleID, final Territory battlesite,
+      final boolean allowMultipleHitsPerUnit) {
+<span class="nc" id="L332">    initializeData();</span>
+
+<span class="nc bnc" id="L334" title="All 2 branches missed.">    if (defaultCasualties.size() != count) {</span>
+<span class="nc" id="L335">      throw new IllegalStateException(</span>
+<span class="nc" id="L336">          &quot;Select Casualties showing different numbers for number of hits to take vs total size of default casualty selections&quot;);</span>
+    }
+<span class="nc bnc" id="L338" title="All 2 branches missed.">    if (defaultCasualties.getKilled().size() &lt;= 0) {</span>
+<span class="nc" id="L339">      return new CasualtyDetails(defaultCasualties, false);</span>
+    }
+
+    // Consider unit cost
+<span class="nc" id="L343">    final CasualtyDetails myCasualties = new CasualtyDetails(false);</span>
+<span class="nc" id="L344">    myCasualties.addToDamaged(defaultCasualties.getDamaged());</span>
+<span class="nc" id="L345">    final List&lt;Unit&gt; selectFromSorted = new ArrayList&lt;&gt;(selectFrom);</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">    if (enemyUnits.isEmpty()) {</span>
+<span class="nc" id="L347">      Collections.sort(selectFromSorted, ProPurchaseUtils.getCostComparator());</span>
+<span class="nc" id="L348">    } else {</span>
+
+      // Get battle data
+<span class="nc" id="L351">      final GameData data = getGameData();</span>
+<span class="nc" id="L352">      final PlayerID player = getPlayerID();</span>
+<span class="nc" id="L353">      final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L354">      final IBattle battle = delegate.getBattleTracker().getPendingBattle(battleID);</span>
+
+      // If defender and could lose battle then don't consider unit cost as just trying to survive
+<span class="nc" id="L357">      boolean needToCheck = true;</span>
+<span class="nc" id="L358">      final boolean isAttacker = player.equals(battle.getAttacker());</span>
+<span class="nc bnc" id="L359" title="All 2 branches missed.">      if (!isAttacker) {</span>
+<span class="nc" id="L360">        final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L361">        final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L362">        defenders.removeAll(defaultCasualties.getKilled());</span>
+<span class="nc" id="L363">        final double strengthDifference = ProBattleUtils.estimateStrengthDifference(battlesite, attackers, defenders);</span>
+<span class="nc" id="L364">        int minStrengthDifference = 60;</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">        if (!games.strategy.triplea.Properties.getLow_Luck(data)) {</span>
+<span class="nc" id="L366">          minStrengthDifference = 55;</span>
+        }
+<span class="nc bnc" id="L368" title="All 2 branches missed.">        if (strengthDifference &gt; minStrengthDifference) {</span>
+<span class="nc" id="L369">          needToCheck = false;</span>
+        }
+      }
+
+      // Use bubble sort to save expensive units
+<span class="nc bnc" id="L374" title="All 2 branches missed.">      while (needToCheck) {</span>
+<span class="nc" id="L375">        needToCheck = false;</span>
+<span class="nc bnc" id="L376" title="All 2 branches missed.">        for (int i = 0; i &lt; selectFromSorted.size() - 1; i++) {</span>
+<span class="nc" id="L377">          final Unit unit1 = selectFromSorted.get(i);</span>
+<span class="nc" id="L378">          final Unit unit2 = selectFromSorted.get(i + 1);</span>
+<span class="nc" id="L379">          final double unitCost1 = ProPurchaseUtils.getCost(unit1);</span>
+<span class="nc" id="L380">          final double unitCost2 = ProPurchaseUtils.getCost(unit2);</span>
+<span class="nc bnc" id="L381" title="All 2 branches missed.">          if (unitCost1 &gt; 1.5 * unitCost2) {</span>
+<span class="nc" id="L382">            selectFromSorted.set(i, unit2);</span>
+<span class="nc" id="L383">            selectFromSorted.set(i + 1, unit1);</span>
+<span class="nc" id="L384">            needToCheck = true;</span>
+          }
+        }
+      }
+    }
+
+    // Interleave carriers and planes
+<span class="nc" id="L391">    final List&lt;Unit&gt; interleavedTargetList =</span>
+<span class="nc" id="L392">        new ArrayList&lt;&gt;(ProTransportUtils.InterleaveUnits_CarriersAndPlanes(selectFromSorted, 0));</span>
+<span class="nc bnc" id="L393" title="All 2 branches missed.">    for (int i = 0; i &lt; defaultCasualties.getKilled().size(); ++i) {</span>
+<span class="nc" id="L394">      myCasualties.addToKilled(interleavedTargetList.get(i));</span>
+    }
+<span class="nc bnc" id="L396" title="All 2 branches missed.">    if (count != myCasualties.size()) {</span>
+<span class="nc" id="L397">      throw new IllegalStateException(&quot;AI chose wrong number of casualties&quot;);</span>
+    }
+<span class="nc" id="L399">    return myCasualties;</span>
+  }
+
+  /**
+   * Ask the player which units, if any, they want to scramble to defend against the attacker.
+   *
+   * @param scrambleTo
+   *        - the territory we are scrambling to defend in, where the units will end up if scrambled
+   * @param possibleScramblers
+   *        - possible units which we could scramble, with where they are from and how many allowed from that location
+   * @return a list of units to scramble mapped to where they are coming from
+   */
+  @Override
+  public HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; scrambleUnitsQuery(final Territory scrambleTo,
+      final Map&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; possibleScramblers) {
+<span class="nc" id="L414">    initializeData();</span>
+
+    // Get battle data
+<span class="nc" id="L417">    final GameData data = getGameData();</span>
+<span class="nc" id="L418">    final PlayerID player = getPlayerID();</span>
+<span class="nc" id="L419">    final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L420">    final IBattle battle = delegate.getBattleTracker().getPendingBattle(scrambleTo, false, BattleType.NORMAL);</span>
+
+    // If battle is null then don't scramble
+<span class="nc bnc" id="L423" title="All 2 branches missed.">    if (battle == null) {</span>
+<span class="nc" id="L424">      return null;</span>
+    }
+<span class="nc" id="L426">    final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L427">    final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L428">    ProLogger.info(player.getName() + &quot; checking scramble to &quot; + scrambleTo + &quot;, attackers=&quot; + attackers.size()</span>
+<span class="nc" id="L429">        + &quot;, defenders=&quot; + defenders.size() + &quot;, possibleScramblers=&quot; + possibleScramblers);</span>
+<span class="nc" id="L430">    calc.setData(getGameData());</span>
+<span class="nc" id="L431">    return scrambleAI.scrambleUnitsQuery(scrambleTo, possibleScramblers);</span>
+  }
+
+  @Override
+  public boolean selectAttackSubs(final Territory unitTerritory) {
+<span class="nc" id="L436">    initializeData();</span>
+
+    // Get battle data
+<span class="nc" id="L439">    final GameData data = getGameData();</span>
+<span class="nc" id="L440">    final PlayerID player = getPlayerID();</span>
+<span class="nc" id="L441">    final BattleDelegate delegate = DelegateFinder.battleDelegate(data);</span>
+<span class="nc" id="L442">    final IBattle battle = delegate.getBattleTracker().getPendingBattle(unitTerritory, false, BattleType.NORMAL);</span>
+
+    // If battle is null then don't attack
+<span class="nc bnc" id="L445" title="All 2 branches missed.">    if (battle == null) {</span>
+<span class="nc" id="L446">      return false;</span>
+    }
+<span class="nc" id="L448">    final List&lt;Unit&gt; attackers = (List&lt;Unit&gt;) battle.getAttackingUnits();</span>
+<span class="nc" id="L449">    final List&lt;Unit&gt; defenders = (List&lt;Unit&gt;) battle.getDefendingUnits();</span>
+<span class="nc" id="L450">    ProLogger.info(player.getName() + &quot; checking sub attack in &quot; + unitTerritory + &quot;, attackers=&quot; + attackers</span>
+<span class="nc" id="L451">        + &quot;, defenders=&quot; + defenders);</span>
+<span class="nc" id="L452">    calc.setData(getGameData());</span>
+
+    // Calculate battle results
+<span class="nc" id="L455">    final ProBattleResult result =</span>
+<span class="nc" id="L456">        calc.calculateBattleResults(player, unitTerritory, attackers, defenders, new HashSet&lt;&gt;(), true);</span>
+<span class="nc" id="L457">    ProLogger.debug(player.getName() + &quot; sub attack TUVSwing=&quot; + result.getTUVSwing());</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">    return result.getTUVSwing() &gt; 0;</span>
+  }
+
+  @Override
+  public void politicalActions() {
+<span class="nc" id="L463">    initializeData();</span>
+
+<span class="nc bnc" id="L465" title="All 2 branches missed.">    if (storedPoliticalActions == null) {</span>
+<span class="nc" id="L466">      politicsAI.politicalActions();</span>
+<span class="nc" id="L467">    } else {</span>
+<span class="nc" id="L468">      politicsAI.doActions(storedPoliticalActions);</span>
+<span class="nc" id="L469">      storedPoliticalActions = null;</span>
+    }
+<span class="nc" id="L471">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

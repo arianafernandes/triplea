@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BaseTripleADelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">BaseTripleADelegate.java</span></div><h1>BaseTripleADelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.HashSet;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.TripleA;
+import games.strategy.triplea.ai.weakAI.WeakAI;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.ui.display.ITripleADisplay;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.Match;
+
+/**
+ * Base class designed to make writing custom TripleA delegates simpler.
+ * Code common to all TripleA delegates is implemented here.
+ */
+public abstract class BaseTripleADelegate extends AbstractDelegate {
+<span class="fc" id="L22">  private boolean m_startBaseStepsFinished = false;</span>
+<span class="fc" id="L23">  private boolean m_endBaseStepsFinished = false;</span>
+
+  /**
+   * Creates a new instance of the Delegate
+   */
+  public BaseTripleADelegate() {
+<span class="fc" id="L29">    super();</span>
+<span class="fc" id="L30">  }</span>
+
+  /**
+   * Called before the delegate will run.
+   * All classes should call super.start if they override this.
+   * Persistent delegates like Edit Delegate should not extend BaseDelegate, because we do not want to fire triggers in
+   * the edit delegate.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L40">    super.start();</span>
+<span class="fc bfc" id="L41" title="All 2 branches covered.">    if (!m_startBaseStepsFinished) {</span>
+<span class="fc" id="L42">      m_startBaseStepsFinished = true;</span>
+<span class="fc" id="L43">      triggerWhenTriggerAttachments(TriggerAttachment.BEFORE);</span>
+    }
+<span class="fc" id="L45">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   * All classes should call super.end if they override this.
+   * Persistent delegates like Edit Delegate should not extend BaseDelegate, because we do not want to fire triggers in
+   * the edit delegate.
+   */
+  @Override
+  public void end() {
+<span class="fc" id="L55">    super.end();</span>
+    // we are firing triggers, for maps that include them
+<span class="pc bpc" id="L57" title="1 of 2 branches missed.">    if (!m_endBaseStepsFinished) {</span>
+<span class="fc" id="L58">      m_endBaseStepsFinished = true;</span>
+<span class="fc" id="L59">      triggerWhenTriggerAttachments(TriggerAttachment.AFTER);</span>
+    }
+    // these should probably be somewhere else, but we are relying on the fact that reloading a save go into the start
+    // step,
+    // but nothing goes into the end step, and therefore there is no way to save then have the end step repeat itself
+<span class="fc" id="L64">    m_startBaseStepsFinished = false;</span>
+<span class="fc" id="L65">    m_endBaseStepsFinished = false;</span>
+<span class="fc" id="L66">  }</span>
+
+  /**
+   * Returns the state of the Delegate.
+   * All classes should super.saveState if they override this.
+   */
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L74">    final BaseDelegateState state = new BaseDelegateState();</span>
+<span class="nc" id="L75">    state.m_startBaseStepsFinished = m_startBaseStepsFinished;</span>
+<span class="nc" id="L76">    state.m_endBaseStepsFinished = m_endBaseStepsFinished;</span>
+<span class="nc" id="L77">    return state;</span>
+  }
+
+  /**
+   * Loads the delegates state
+   */
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L85">    final BaseDelegateState s = (BaseDelegateState) state;</span>
+<span class="nc" id="L86">    m_startBaseStepsFinished = s.m_startBaseStepsFinished;</span>
+<span class="nc" id="L87">    m_endBaseStepsFinished = s.m_endBaseStepsFinished;</span>
+<span class="nc" id="L88">  }</span>
+
+  private void triggerWhenTriggerAttachments(final String beforeOrAfter) {
+<span class="fc" id="L91">    final GameData data = getData();</span>
+<span class="fc bfc" id="L92" title="All 2 branches covered.">    if (games.strategy.triplea.Properties.getTriggers(data)) {</span>
+<span class="fc" id="L93">      final String stepName = data.getSequence().getStep().getName();</span>
+      // we use AND in order to make sure there are uses and when is set correctly.
+<span class="fc" id="L95">      final Match&lt;TriggerAttachment&gt; baseDelegateWhenTriggerMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L96">          TriggerAttachment.availableUses, TriggerAttachment.whenOrDefaultMatch(beforeOrAfter, stepName));</span>
+<span class="fc" id="L97">      TriggerAttachment.collectAndFireTriggers(new HashSet&lt;&gt;(data.getPlayerList().getPlayers()),</span>
+<span class="fc" id="L98">          baseDelegateWhenTriggerMatch, m_bridge, beforeOrAfter, stepName);</span>
+    }
+<span class="fc" id="L100">    PoliticsDelegate.chainAlliancesTogether(m_bridge);</span>
+<span class="fc" id="L101">  }</span>
+
+  @Override
+  protected ITripleADisplay getDisplay() {
+<span class="nc" id="L105">    return getDisplay(m_bridge);</span>
+  }
+
+  protected static ITripleADisplay getDisplay(final IDelegateBridge bridge) {
+<span class="nc" id="L109">    return (ITripleADisplay) bridge.getDisplayChannelBroadcaster();</span>
+  }
+
+  @Override
+  protected ITripleAPlayer getRemotePlayer() {
+<span class="fc" id="L114">    return getRemotePlayer(m_bridge);</span>
+  }
+
+  protected static ITripleAPlayer getRemotePlayer(final IDelegateBridge bridge) {
+<span class="fc" id="L118">    return (ITripleAPlayer) bridge.getRemotePlayer();</span>
+  }
+
+  @Override
+  protected ITripleAPlayer getRemotePlayer(final PlayerID player) {
+<span class="fc" id="L123">    return getRemotePlayer(player, m_bridge);</span>
+  }
+
+  protected static ITripleAPlayer getRemotePlayer(final PlayerID player, final IDelegateBridge bridge) {
+    // if its the null player, return a do nothing proxy
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">    if (player.isNull()) {</span>
+<span class="nc" id="L129">      return new WeakAI(player.getName(), TripleA.WEAK_COMPUTER_PLAYER_TYPE);</span>
+    }
+<span class="fc" id="L131">    return (ITripleAPlayer) bridge.getRemotePlayer(player);</span>
+  }
+}
+
+
+<span class="nc" id="L136">class BaseDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 7130686697155151908L;
+<span class="nc" id="L138">  public boolean m_startBaseStepsFinished = false;</span>
+<span class="nc" id="L139">  public boolean m_endBaseStepsFinished = false;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

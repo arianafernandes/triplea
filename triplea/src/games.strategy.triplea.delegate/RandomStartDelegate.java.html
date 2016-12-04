@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>RandomStartDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">RandomStartDelegate.java</span></div><h1>RandomStartDelegate.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.message.IRemote;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.ThreadUtil;
+import games.strategy.util.Tuple;
+
+/**
+ * This delegate sets up the game according to Risk rules, with a few allowed customizations.
+ * Either divide all neutral territories between players randomly, or let them pick one by one.
+ * After that, any remaining units get placed one by one.
+ * (Note that m_player may not be used here, because this delegate is not run by any player [it is null])
+ */
+@MapSupport
+<span class="nc" id="L36">public class RandomStartDelegate extends BaseTripleADelegate {</span>
+  private static final int UNITS_PER_PICK = 1;
+<span class="nc" id="L38">  protected PlayerID m_currentPickingPlayer = null;</span>
+
+  @Override
+  public void start() {
+<span class="nc" id="L42">    super.start();</span>
+<span class="nc" id="L43">    setupBoard();</span>
+<span class="nc" id="L44">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   */
+  @Override
+  public void end() {
+<span class="nc" id="L51">    super.end();</span>
+<span class="nc" id="L52">    m_currentPickingPlayer = null;</span>
+<span class="nc" id="L53">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc bnc" id="L57" title="All 2 branches missed.">    return !(Match.noneMatch(getData().getMap().getTerritories(), getTerritoryPickableMatch())</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">        &amp;&amp; Match.noneMatch(getData().getPlayerList().getPlayers(), getPlayerCanPickMatch()));</span>
+  }
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L63">    final RandomStartExtendedDelegateState state = new RandomStartExtendedDelegateState();</span>
+<span class="nc" id="L64">    state.superState = super.saveState();</span>
+<span class="nc" id="L65">    state.m_currentPickingPlayer = this.m_currentPickingPlayer;</span>
+<span class="nc" id="L66">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L71">    final RandomStartExtendedDelegateState s = (RandomStartExtendedDelegateState) state;</span>
+<span class="nc" id="L72">    super.loadState(s.superState);</span>
+<span class="nc" id="L73">    this.m_currentPickingPlayer = s.m_currentPickingPlayer;</span>
+<span class="nc" id="L74">  }</span>
+
+  protected void setupBoard() {
+<span class="nc" id="L77">    final GameData data = getData();</span>
+<span class="nc" id="L78">    final boolean randomTerritories = games.strategy.triplea.Properties.getTerritoriesAreAssignedRandomly(data);</span>
+<span class="nc" id="L79">    final Match&lt;Territory&gt; pickableTerritoryMatch = getTerritoryPickableMatch();</span>
+<span class="nc" id="L80">    final Match&lt;PlayerID&gt; playerCanPickMatch = getPlayerCanPickMatch();</span>
+<span class="nc" id="L81">    final List&lt;Territory&gt; allPickableTerritories =</span>
+<span class="nc" id="L82">        Match.getMatches(data.getMap().getTerritories(), pickableTerritoryMatch);</span>
+<span class="nc" id="L83">    final List&lt;PlayerID&gt; playersCanPick = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L84">    playersCanPick.addAll(Match.getMatches(data.getPlayerList().getPlayers(), playerCanPickMatch));</span>
+    // we need a main event
+<span class="nc bnc" id="L86" title="All 2 branches missed.">    if (!playersCanPick.isEmpty()) {</span>
+<span class="nc" id="L87">      m_bridge.getHistoryWriter().startEvent(&quot;Assigning Territories&quot;);</span>
+    }
+    // for random:
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    final int[] hitRandom = (!randomTerritories ? new int[0]</span>
+<span class="nc" id="L91">        : m_bridge.getRandom(allPickableTerritories.size(), allPickableTerritories.size(), null, DiceType.ENGINE,</span>
+<span class="nc" id="L92">            &quot;Picking random territories&quot;));</span>
+<span class="nc" id="L93">    int i = 0;</span>
+<span class="nc" id="L94">    int pos = 0;</span>
+    // divvy up territories
+<span class="nc bnc" id="L96" title="All 4 branches missed.">    while (!allPickableTerritories.isEmpty() &amp;&amp; !playersCanPick.isEmpty()) {</span>
+<span class="nc bnc" id="L97" title="All 4 branches missed.">      if (m_currentPickingPlayer == null || !playersCanPick.contains(m_currentPickingPlayer)) {</span>
+<span class="nc" id="L98">        m_currentPickingPlayer = playersCanPick.get(0);</span>
+      }
+<span class="nc" id="L100">      ThreadUtil.sleep(250);</span>
+      Territory picked;
+<span class="nc bnc" id="L102" title="All 2 branches missed.">      if (randomTerritories) {</span>
+<span class="nc" id="L103">        pos += hitRandom[i];</span>
+<span class="nc" id="L104">        i++;</span>
+<span class="nc" id="L105">        final IntegerMap&lt;UnitType&gt; costs = BattleCalculator.getCostsForTUV(m_currentPickingPlayer, data);</span>
+<span class="nc" id="L106">        final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(m_currentPickingPlayer.getUnits().getUnits());</span>
+<span class="nc" id="L107">        Collections.sort(units, new UnitCostComparator(costs));</span>
+<span class="nc" id="L108">        final Set&lt;Unit&gt; unitsToPlace = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L109">        unitsToPlace.add(units.get(0));</span>
+<span class="nc" id="L110">        picked = allPickableTerritories.get(pos % allPickableTerritories.size());</span>
+<span class="nc" id="L111">        final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L112">        change.add(ChangeFactory.changeOwner(picked, m_currentPickingPlayer));</span>
+<span class="nc" id="L113">        final Collection&lt;Unit&gt; factoryAndInfrastructure = Match.getMatches(unitsToPlace, Matches.UnitIsInfrastructure);</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">        if (!factoryAndInfrastructure.isEmpty()) {</span>
+<span class="nc" id="L115">          change.add(OriginalOwnerTracker.addOriginalOwnerChange(factoryAndInfrastructure, m_currentPickingPlayer));</span>
+        }
+<span class="nc" id="L117">        change.add(ChangeFactory.removeUnits(m_currentPickingPlayer, unitsToPlace));</span>
+<span class="nc" id="L118">        change.add(ChangeFactory.addUnits(picked, unitsToPlace));</span>
+<span class="nc" id="L119">        m_bridge.getHistoryWriter().addChildToEvent(m_currentPickingPlayer.getName() + &quot; receives territory &quot;</span>
+<span class="nc" id="L120">            + picked.getName() + &quot; with units &quot; + MyFormatter.unitsToTextNoOwner(unitsToPlace), picked);</span>
+<span class="nc" id="L121">        m_bridge.addChange(change);</span>
+<span class="nc" id="L122">      } else {</span>
+        Tuple&lt;Territory, Set&lt;Unit&gt;&gt; pick;
+        Set&lt;Unit&gt; unitsToPlace;
+<span class="nc" id="L125">        while (true) {</span>
+<span class="nc" id="L126">          pick = getRemotePlayer(m_currentPickingPlayer).pickTerritoryAndUnits(</span>
+<span class="nc" id="L127">              new ArrayList&lt;&gt;(allPickableTerritories),</span>
+<span class="nc" id="L128">              new ArrayList&lt;&gt;(m_currentPickingPlayer.getUnits().getUnits()), UNITS_PER_PICK);</span>
+<span class="nc" id="L129">          picked = pick.getFirst();</span>
+<span class="nc" id="L130">          unitsToPlace = pick.getSecond();</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">          if (!allPickableTerritories.contains(picked)</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">              || !m_currentPickingPlayer.getUnits().getUnits().containsAll(unitsToPlace)</span>
+<span class="nc bnc" id="L133" title="All 4 branches missed.">              || unitsToPlace.size() &gt; UNITS_PER_PICK || (unitsToPlace.size() &lt; UNITS_PER_PICK</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">                  &amp;&amp; unitsToPlace.size() &lt; m_currentPickingPlayer.getUnits().getUnits().size())) {</span>
+<span class="nc" id="L135">            getRemotePlayer(m_currentPickingPlayer).reportMessage(&quot;Chosen territory or units invalid!&quot;,</span>
+<span class="nc" id="L136">                &quot;Chosen territory or units invalid!&quot;);</span>
+          } else {
+            break;
+          }
+        }
+<span class="nc" id="L141">        final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L142">        change.add(ChangeFactory.changeOwner(picked, m_currentPickingPlayer));</span>
+<span class="nc" id="L143">        final Collection&lt;Unit&gt; factoryAndInfrastructure = Match.getMatches(unitsToPlace, Matches.UnitIsInfrastructure);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (!factoryAndInfrastructure.isEmpty()) {</span>
+<span class="nc" id="L145">          change.add(OriginalOwnerTracker.addOriginalOwnerChange(factoryAndInfrastructure, m_currentPickingPlayer));</span>
+        }
+<span class="nc" id="L147">        change.add(ChangeFactory.removeUnits(m_currentPickingPlayer, unitsToPlace));</span>
+<span class="nc" id="L148">        change.add(ChangeFactory.addUnits(picked, unitsToPlace));</span>
+<span class="nc" id="L149">        m_bridge.getHistoryWriter().addChildToEvent(m_currentPickingPlayer.getName() + &quot; picks territory &quot;</span>
+<span class="nc" id="L150">            + picked.getName() + &quot; and places in it &quot; + MyFormatter.unitsToTextNoOwner(unitsToPlace), unitsToPlace);</span>
+<span class="nc" id="L151">        m_bridge.addChange(change);</span>
+      }
+<span class="nc" id="L153">      allPickableTerritories.remove(picked);</span>
+<span class="nc" id="L154">      final PlayerID lastPlayer = m_currentPickingPlayer;</span>
+<span class="nc" id="L155">      m_currentPickingPlayer = getNextPlayer(playersCanPick, m_currentPickingPlayer);</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">      if (!playerCanPickMatch.match(lastPlayer)) {</span>
+<span class="nc" id="L157">        playersCanPick.remove(lastPlayer);</span>
+      }
+<span class="nc bnc" id="L159" title="All 2 branches missed.">      if (playersCanPick.isEmpty()) {</span>
+<span class="nc" id="L160">        m_currentPickingPlayer = null;</span>
+      }
+    }
+    // place any remaining units
+<span class="nc bnc" id="L164" title="All 2 branches missed.">    while (!playersCanPick.isEmpty()) {</span>
+<span class="nc bnc" id="L165" title="All 4 branches missed.">      if (m_currentPickingPlayer == null || !playersCanPick.contains(m_currentPickingPlayer)) {</span>
+<span class="nc" id="L166">        m_currentPickingPlayer = playersCanPick.get(0);</span>
+      }
+<span class="nc" id="L168">      final List&lt;Territory&gt; territoriesToPickFrom = data.getMap().getTerritoriesOwnedBy(m_currentPickingPlayer);</span>
+      Tuple&lt;Territory, Set&lt;Unit&gt;&gt; pick;
+      Territory picked;
+      Set&lt;Unit&gt; unitsToPlace;
+<span class="nc" id="L172">      while (true) {</span>
+<span class="nc" id="L173">        pick = getRemotePlayer(m_currentPickingPlayer).pickTerritoryAndUnits(</span>
+<span class="nc" id="L174">            new ArrayList&lt;&gt;(territoriesToPickFrom),</span>
+<span class="nc" id="L175">            new ArrayList&lt;&gt;(m_currentPickingPlayer.getUnits().getUnits()), UNITS_PER_PICK);</span>
+<span class="nc" id="L176">        picked = pick.getFirst();</span>
+<span class="nc" id="L177">        unitsToPlace = pick.getSecond();</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        if (!territoriesToPickFrom.contains(picked)</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">            || !m_currentPickingPlayer.getUnits().getUnits().containsAll(unitsToPlace)</span>
+<span class="nc bnc" id="L180" title="All 4 branches missed.">            || unitsToPlace.size() &gt; UNITS_PER_PICK || (unitsToPlace.size() &lt; UNITS_PER_PICK</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">                &amp;&amp; unitsToPlace.size() &lt; m_currentPickingPlayer.getUnits().getUnits().size())) {</span>
+<span class="nc" id="L182">          getRemotePlayer(m_currentPickingPlayer).reportMessage(&quot;Chosen territory or units invalid!&quot;,</span>
+<span class="nc" id="L183">              &quot;Chosen territory or units invalid!&quot;);</span>
+        } else {
+          break;
+        }
+      }
+<span class="nc" id="L188">      final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L189">      final Collection&lt;Unit&gt; factoryAndInfrastructure = Match.getMatches(unitsToPlace, Matches.UnitIsInfrastructure);</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">      if (!factoryAndInfrastructure.isEmpty()) {</span>
+<span class="nc" id="L191">        change.add(OriginalOwnerTracker.addOriginalOwnerChange(factoryAndInfrastructure, m_currentPickingPlayer));</span>
+      }
+<span class="nc" id="L193">      change.add(ChangeFactory.removeUnits(m_currentPickingPlayer, unitsToPlace));</span>
+<span class="nc" id="L194">      change.add(ChangeFactory.addUnits(picked, unitsToPlace));</span>
+<span class="nc" id="L195">      m_bridge.getHistoryWriter().addChildToEvent(m_currentPickingPlayer.getName() + &quot; places &quot;</span>
+<span class="nc" id="L196">          + MyFormatter.unitsToTextNoOwner(unitsToPlace) + &quot; in territory &quot; + picked.getName(), unitsToPlace);</span>
+<span class="nc" id="L197">      m_bridge.addChange(change);</span>
+<span class="nc" id="L198">      final PlayerID lastPlayer = m_currentPickingPlayer;</span>
+<span class="nc" id="L199">      m_currentPickingPlayer = getNextPlayer(playersCanPick, m_currentPickingPlayer);</span>
+<span class="nc bnc" id="L200" title="All 2 branches missed.">      if (!playerCanPickMatch.match(lastPlayer)) {</span>
+<span class="nc" id="L201">        playersCanPick.remove(lastPlayer);</span>
+      }
+<span class="nc bnc" id="L203" title="All 2 branches missed.">      if (playersCanPick.isEmpty()) {</span>
+<span class="nc" id="L204">        m_currentPickingPlayer = null;</span>
+      }
+    }
+<span class="nc" id="L207">  }</span>
+
+  protected PlayerID getNextPlayer(final List&lt;PlayerID&gt; playersCanPick, final PlayerID currentPlayer) {
+<span class="nc" id="L210">    int index = playersCanPick.indexOf(currentPlayer);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L212">      return null;</span>
+    }
+<span class="nc" id="L214">    index++;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (index &gt;= playersCanPick.size()) {</span>
+<span class="nc" id="L216">      index = 0;</span>
+    }
+<span class="nc" id="L218">    return playersCanPick.get(index);</span>
+  }
+
+  public Match&lt;Territory&gt; getTerritoryPickableMatch() {
+<span class="nc" id="L222">    return new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsLand, Matches.TerritoryIsNotImpassable,</span>
+<span class="nc" id="L223">        Matches.isTerritoryOwnedBy(PlayerID.NULL_PLAYERID), Matches.TerritoryIsEmpty);</span>
+  }
+
+  public Match&lt;PlayerID&gt; getPlayerCanPickMatch() {
+<span class="nc" id="L227">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player) {
+<span class="nc bnc" id="L230" title="All 4 branches missed.">        if (player == null || player.equals(PlayerID.NULL_PLAYERID)) {</span>
+<span class="nc" id="L231">          return false;</span>
+        }
+<span class="nc bnc" id="L233" title="All 2 branches missed.">        if (player.getUnits().isEmpty()) {</span>
+<span class="nc" id="L234">          return false;</span>
+        }
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        return !player.getIsDisabled();</span>
+      }
+    };
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L243">    return null;</span>
+  }
+}
+
+
+<span class="nc" id="L248">class RandomStartExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 607794506772555083L;
+  Serializable superState;
+  // add other variables here:
+  public PlayerID m_currentPickingPlayer;
+}
+
+
+class UnitCostComparator implements Comparator&lt;Unit&gt; {
+  private final IntegerMap&lt;UnitType&gt; m_costs;
+
+<span class="nc" id="L259">  public UnitCostComparator(final IntegerMap&lt;UnitType&gt; costs) {</span>
+<span class="nc" id="L260">    m_costs = costs;</span>
+<span class="nc" id="L261">  }</span>
+
+<span class="nc" id="L263">  public UnitCostComparator(final PlayerID player, final GameData data) {</span>
+<span class="nc" id="L264">    m_costs = BattleCalculator.getCostsForTUV(player, data);</span>
+<span class="nc" id="L265">  }</span>
+
+  @Override
+  public int compare(final Unit u1, final Unit u2) {
+<span class="nc" id="L269">    return m_costs.getInt(u1.getType()) - m_costs.getInt(u2.getType());</span>
+  }
+}
+
+
+class UnitTypeCostComparator implements Comparator&lt;UnitType&gt; {
+  private final IntegerMap&lt;UnitType&gt; m_costs;
+
+<span class="nc" id="L277">  public UnitTypeCostComparator(final IntegerMap&lt;UnitType&gt; costs) {</span>
+<span class="nc" id="L278">    m_costs = costs;</span>
+<span class="nc" id="L279">  }</span>
+
+<span class="nc" id="L281">  public UnitTypeCostComparator(final PlayerID player, final GameData data) {</span>
+<span class="nc" id="L282">    m_costs = BattleCalculator.getCostsForTUV(player, data);</span>
+<span class="nc" id="L283">  }</span>
+
+  @Override
+  public int compare(final UnitType u1, final UnitType u2) {
+<span class="nc" id="L287">    return m_costs.getInt(u1) - m_costs.getInt(u2);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

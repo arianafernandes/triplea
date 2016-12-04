@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TerritoryConnectionsPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.map.xml.creator</a> &gt; <span class="el_source">TerritoryConnectionsPanel.java</span></div><h1>TerritoryConnectionsPanel.java</h1><pre class="source lang-java linenums">package tools.map.xml.creator;
+
+import java.awt.Color;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Shape;
+import java.awt.event.MouseEvent;
+import java.awt.geom.Area;
+import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import games.strategy.util.AlphanumComparator;
+import tools.map.making.ConnectionFinder;
+
+
+public class TerritoryConnectionsPanel extends ImageScrollPanePanel {
+
+<span class="nc" id="L37">  private Optional&lt;String&gt; selectedTerritory = Optional.empty();</span>
+
+<span class="nc" id="L39">  private TerritoryConnectionsPanel() {}</span>
+
+  public static void layout(final MapXmlCreator mapXmlCreator) {
+<span class="nc" id="L42">    setMapXmlCreator(mapXmlCreator);</span>
+<span class="nc" id="L43">    final TerritoryConnectionsPanel panel = new TerritoryConnectionsPanel();</span>
+<span class="nc" id="L44">    panel.layout(mapXmlCreator.getStepActionPanel());</span>
+<span class="nc" id="L45">    mapXmlCreator.setAutoFillAction(SwingAction.of(e -&gt; {</span>
+<span class="nc" id="L46">      panel.paintPreparation(null);</span>
+<span class="nc" id="L47">      panel.repaint();</span>
+<span class="nc" id="L48">    }));</span>
+<span class="nc" id="L49">  }</span>
+
+  @Override
+  protected void paintCenterSpecifics(final Graphics g, final String centerName, final FontMetrics fontMetrics,
+      final Point item, final int x_text_start) {
+<span class="nc bnc" id="L54" title="All 2 branches missed.">    if (centerName.equals(selectedTerritory.orElse(&quot;&quot;))) {</span>
+<span class="nc" id="L55">      final Rectangle2D stringBounds = fontMetrics.getStringBounds(centerName, g);</span>
+<span class="nc" id="L56">      g.setColor(Color.yellow);</span>
+<span class="nc" id="L57">      final int xRectPadding = 2;</span>
+<span class="nc" id="L58">      final int yDiffCenterToRectTop = -6;</span>
+<span class="nc" id="L59">      final int yDiffCenterToStringBottom = 5;</span>
+<span class="nc" id="L60">      g.fillRect(Math.max(0, x_text_start - xRectPadding), Math.max(0, item.y + yDiffCenterToRectTop),</span>
+<span class="nc" id="L61">          (int) stringBounds.getWidth() + 2 * xRectPadding,</span>
+<span class="nc" id="L62">          (int) stringBounds.getHeight());</span>
+<span class="nc" id="L63">      g.setColor(Color.red);</span>
+<span class="nc" id="L64">      g.drawString(centerName, Math.max(0, x_text_start), item.y + yDiffCenterToStringBottom);</span>
+    }
+<span class="nc" id="L66">    g.setColor(Color.red);</span>
+<span class="nc" id="L67">  }</span>
+
+  @Override
+  protected void paintPreparation(final Map&lt;String, Point&gt; centers) {
+<span class="nc bnc" id="L71" title="All 4 branches missed.">    if (centers != null &amp;&amp; !MapXmlHelper.getTerritoryConnectionsMap().isEmpty()) {</span>
+<span class="nc" id="L72">      return;</span>
+    }
+<span class="nc" id="L74">    final Map&lt;String, List&lt;Area&gt;&gt; territoryAreas = getTerritoryAreasFromPolygons();</span>
+<span class="nc" id="L75">    final int lineThickness = showInputDialogForPositiveIntegerInput(</span>
+<span class="nc" id="L76">        &quot;Enter the width of territory border lines on your map? \r(eg: 1, or 2, etc.)&quot;, &quot;1&quot;);</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">    if (lineThickness == 0) {</span>
+<span class="nc" id="L78">      return;</span>
+    }
+<span class="nc" id="L80">    int scalePixels = 8;</span>
+<span class="nc" id="L81">    double minOverlap = 32;</span>
+<span class="nc" id="L82">    scalePixels = lineThickness * 4;</span>
+<span class="nc" id="L83">    minOverlap = scalePixels * 4;</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (JOptionPane.showConfirmDialog(null,</span>
+<span class="nc" id="L85">        &quot;Scale set to &quot; + scalePixels + &quot; pixels larger, and minimum overlap set to &quot; + minOverlap + &quot; pixels. \r&quot;</span>
+<span class="nc" id="L86">            + &quot;Do you wish to continue with this? \rSelect Yes to continue, Select No to override and change the size.&quot;,</span>
+<span class="nc" id="L87">        &quot;Scale and Overlap Size&quot;, JOptionPane.YES_NO_OPTION) == 1) {</span>
+<span class="nc" id="L88">      scalePixels = showInputDialogForPositiveIntegerInput(</span>
+<span class="nc" id="L89">          &quot;Enter the number of pixels larger each territory should become? \r(Normally 4x bigger than the border line width. eg: 4, or 8, etc)&quot;,</span>
+<span class="nc" id="L90">          &quot;4&quot;);</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">      if (scalePixels == 0) {</span>
+<span class="nc" id="L92">        return;</span>
+      }
+<span class="nc" id="L94">      minOverlap = showInputDialogForPositiveIntegerInput(</span>
+<span class="nc" id="L95">          &quot;Enter the minimum number of overlapping pixels for a connection? \r(Normally 16x bigger than the border line width. eg: 16, or 32, etc.)&quot;,</span>
+<span class="nc" id="L96">          &quot;16&quot;);</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">      if (minOverlap == 0) {</span>
+<span class="nc" id="L98">        return;</span>
+      }
+    }
+
+<span class="nc" id="L102">    setTerritoryConnections(territoryAreas, scalePixels, minOverlap);</span>
+
+<span class="nc" id="L104">  }</span>
+
+  private void setTerritoryConnections(final Map&lt;String, List&lt;Area&gt;&gt; territoryAreas, final int scalePixels,
+      final double minOverlap) {
+<span class="nc" id="L108">    MapXmlHelper.clearTerritoryConnections();</span>
+<span class="nc" id="L109">    Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.FINE,</span>
+<span class="nc" id="L110">        &quot;Now scanning for connections ... &quot;);</span>
+    // sort so that they are in alphabetic order (makes xml's prettier and easier to update in future)
+<span class="nc" id="L112">    final List&lt;String&gt; allTerritories =</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        polygons == null ? new ArrayList&lt;&gt;() : new ArrayList&lt;&gt;(polygons.keySet());</span>
+<span class="nc" id="L114">    Collections.sort(allTerritories, new AlphanumComparator());</span>
+<span class="nc" id="L115">    final List&lt;String&gt; allAreas = new ArrayList&lt;&gt;(territoryAreas.keySet());</span>
+<span class="nc" id="L116">    Collections.sort(allAreas, new AlphanumComparator());</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">    for (final String territory : allTerritories) {</span>
+<span class="nc" id="L118">      final Set&lt;String&gt; thisTerritoryConnections = Sets.newLinkedHashSet();</span>
+<span class="nc" id="L119">      final List&lt;Polygon&gt; currentPolygons = polygons.get(territory);</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">      for (final Polygon currentPolygon : currentPolygons) {</span>
+
+<span class="nc" id="L122">        final Shape scaledShape = ConnectionFinder.scale(currentPolygon, scalePixels);</span>
+
+<span class="nc bnc" id="L124" title="All 2 branches missed.">        for (final String otherTerritory : allAreas) {</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">          if (otherTerritory.equals(territory)) {</span>
+<span class="nc" id="L126">            continue;</span>
+          }
+<span class="nc bnc" id="L128" title="All 2 branches missed.">          if (thisTerritoryConnections.contains(otherTerritory)) {</span>
+<span class="nc" id="L129">            continue;</span>
+          }
+<span class="nc bnc" id="L131" title="All 2 branches missed.">          if (MapXmlHelper.getTerritoryConnectionsMap().get(otherTerritory) != null</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">              &amp;&amp; MapXmlHelper.getTerritoryConnectionsMap().get(otherTerritory).contains(territory)) {</span>
+<span class="nc" id="L133">            continue;</span>
+          }
+<span class="nc bnc" id="L135" title="All 2 branches missed.">          for (final Area otherArea : territoryAreas.get(otherTerritory)) {</span>
+<span class="nc" id="L136">            final Area testArea = new Area(scaledShape);</span>
+<span class="nc" id="L137">            testArea.intersect(otherArea);</span>
+<span class="nc bnc" id="L138" title="All 4 branches missed.">            if (!testArea.isEmpty() &amp;&amp; ConnectionFinder.sizeOfArea(testArea) &gt; minOverlap) {</span>
+<span class="nc" id="L139">              thisTerritoryConnections.add(otherTerritory);</span>
+            }
+          }
+        }
+<span class="nc" id="L143">        MapXmlHelper.putTerritoryConnections(territory, thisTerritoryConnections);</span>
+      }
+    }
+<span class="nc" id="L146">    Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.FINE,</span>
+<span class="nc" id="L147">        &quot;finished scanning&quot;);</span>
+<span class="nc" id="L148">  }</span>
+
+  private Map&lt;String, List&lt;Area&gt;&gt; getTerritoryAreasFromPolygons() {
+<span class="nc" id="L151">    final Map&lt;String, List&lt;Area&gt;&gt; territoryAreas = Maps.newHashMap();</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">    for (final String territoryName : polygons.keySet()) {</span>
+<span class="nc" id="L153">      final List&lt;Polygon&gt; listOfPolygons = polygons.get(territoryName);</span>
+<span class="nc" id="L154">      final List&lt;Area&gt; listOfAreas = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">      for (final Polygon p : listOfPolygons) {</span>
+<span class="nc" id="L156">        listOfAreas.add(new Area(p));</span>
+      }
+<span class="nc" id="L158">      territoryAreas.put(territoryName, listOfAreas);</span>
+
+    }
+<span class="nc" id="L161">    return territoryAreas;</span>
+  }
+
+  /**
+   * Forces the user to either enter nothing or a positive integer
+   *
+   * @return input value or 0 if nothing has been entered
+   */
+  public int showInputDialogForPositiveIntegerInput(final String message, final String suggestedInput) {
+<span class="nc" id="L170">    String lineWidth = suggestedInput;</span>
+<span class="nc" id="L171">    while (1 &gt; 0) {</span>
+<span class="nc" id="L172">      lineWidth = JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L173">          message, lineWidth);</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">      if (lineWidth == null) {</span>
+<span class="nc" id="L175">        return 0;</span>
+      }
+      try {
+<span class="nc" id="L178">        return Integer.parseInt(lineWidth);</span>
+<span class="nc" id="L179">      } catch (final NumberFormatException ex) {</span>
+<span class="nc" id="L180">        JOptionPane.showMessageDialog(null, &quot;'&quot; + lineWidth + &quot;' is not a valid positive integer value.&quot;,</span>
+<span class="nc" id="L181">            &quot;Invalid Input&quot;,</span>
+<span class="nc" id="L182">            JOptionPane.ERROR_MESSAGE);</span>
+        // do-loop again
+      }
+    }
+  }
+
+  @Override
+  protected void paintOwnSpecifics(final Graphics g, final Map&lt;String, Point&gt; centers) {
+<span class="nc" id="L190">    g.setColor(Color.GREEN);</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">    for (final Entry&lt;String, Set&lt;String&gt;&gt; territoryConnection : MapXmlHelper.getTerritoryConnectionsMap()</span>
+<span class="nc" id="L192">        .entrySet()) {</span>
+<span class="nc" id="L193">      final Point center1 = centers.get(territoryConnection.getKey());</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">      for (final String territory2 : territoryConnection.getValue()) {</span>
+<span class="nc" id="L195">        final Point center2 = centers.get(territory2);</span>
+<span class="nc" id="L196">        g.drawLine(center1.x, center1.y, center2.x, center2.y);</span>
+      }
+    }
+<span class="nc" id="L199">  }</span>
+
+  @Override
+  protected void mouseClickedOnImage(final Map&lt;String, Point&gt; centers, final MouseEvent e) {
+<span class="nc bnc" id="L203" title="All 2 branches missed.">    if (SwingUtilities.isRightMouseButton(e)) {</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">      if (selectedTerritory.isPresent()) {</span>
+<span class="nc" id="L205">        selectedTerritory = Optional.empty();</span>
+<span class="nc" id="L206">        repaint();</span>
+      }
+<span class="nc" id="L208">      return;</span>
+    }
+
+<span class="nc" id="L211">    final Point point = e.getPoint();</span>
+<span class="nc" id="L212">    final Optional&lt;String&gt; territoryName = Util.findTerritoryName(point, polygons);</span>
+
+<span class="nc bnc" id="L214" title="All 2 branches missed.">    if (!territoryName.isPresent()) {</span>
+<span class="nc" id="L215">      return;</span>
+    }
+
+<span class="nc bnc" id="L218" title="All 2 branches missed.">    if (needToBeRepainted(territoryName.get())) {</span>
+<span class="nc" id="L219">      repaint();</span>
+    }
+<span class="nc" id="L221">  }</span>
+
+  private boolean needToBeRepainted(final String territoryName) {
+<span class="nc" id="L224">    boolean repaint = false;</span>
+<span class="nc bnc" id="L225" title="All 4 branches missed.">    if (!selectedTerritory.isPresent() || selectedTerritory.orElse(&quot;&quot;).equals(territoryName)) {</span>
+<span class="nc" id="L226">      selectedTerritory = Optional.of(territoryName);</span>
+<span class="nc" id="L227">      repaint = true;</span>
+<span class="nc" id="L228">    } else {</span>
+      Collection&lt;String&gt; firstTerritoryConnections;
+      String secondterritory;
+<span class="nc bnc" id="L231" title="All 2 branches missed.">      if (territoryName.compareTo(selectedTerritory.get()) &lt; 0) {</span>
+<span class="nc" id="L232">        firstTerritoryConnections = MapXmlHelper.getTerritoryConnectionsMap().get(territoryName);</span>
+<span class="nc" id="L233">        secondterritory = selectedTerritory.get();</span>
+<span class="nc" id="L234">      } else {</span>
+<span class="nc" id="L235">        firstTerritoryConnections = MapXmlHelper.getTerritoryConnectionsMap().get(selectedTerritory.get());</span>
+<span class="nc" id="L236">        secondterritory = territoryName;</span>
+      }
+<span class="nc bnc" id="L238" title="All 2 branches missed.">      if (firstTerritoryConnections.contains(secondterritory)) {</span>
+<span class="nc" id="L239">        firstTerritoryConnections.remove(secondterritory);</span>
+<span class="nc" id="L240">      } else {</span>
+<span class="nc" id="L241">        firstTerritoryConnections.add(secondterritory);</span>
+      }
+<span class="nc" id="L243">      selectedTerritory = Optional.empty();</span>
+<span class="nc" id="L244">      repaint = true;</span>
+    }
+<span class="nc" id="L246">    return repaint;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

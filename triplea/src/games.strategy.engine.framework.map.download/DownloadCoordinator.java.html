@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DownloadCoordinator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.map.download</a> &gt; <span class="el_source">DownloadCoordinator.java</span></div><h1>DownloadCoordinator.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework.map.download;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.util.ThreadUtil;
+
+import javax.swing.JProgressBar;
+import javax.swing.SwingUtilities;
+
+/**
+ * Class that accepts and queues download requests. Download requests are started in background
+ * thread, this class ensures N are in progress until all are done.
+ */
+public class DownloadCoordinator {
+
+  private static final int MAX_CONCURRENT_DOWNLOAD = 3;
+
+<span class="nc" id="L25">  private final Map&lt;DownloadFile, Runnable&gt; downloadMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L26">  private final Set&lt;DownloadFileDescription&gt; downloadSet = new HashSet&lt;&gt;();</span>
+
+<span class="nc" id="L28">  private volatile boolean cancelled = false;</span>
+
+<span class="nc" id="L30">  DownloadCoordinator() {</span>
+<span class="nc" id="L31">    new Thread(() -&gt; {</span>
+<span class="nc bnc" id="L32" title="All 2 branches missed.">      while (!cancelled) {</span>
+        try {
+<span class="nc" id="L34">          startNextDownloads();</span>
+          // pause for a brief while before the next iteration, helps avoid a Github too many requests error
+<span class="nc" id="L36">          ThreadUtil.sleep(250);</span>
+<span class="nc" id="L37">        } catch (final Exception e) {</span>
+<span class="nc" id="L38">          ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L39">          throw e;</span>
+        }
+      }
+<span class="nc" id="L42">    }).start();</span>
+<span class="nc" id="L43">  }</span>
+
+  private void startNextDownloads() {
+<span class="nc" id="L46">    final long downloadingCount = countDownloadsInProgress();</span>
+<span class="nc bnc" id="L47" title="All 4 branches missed.">    if (downloadMap != null &amp;&amp; downloadingCount &lt; MAX_CONCURRENT_DOWNLOAD) {</span>
+<span class="nc" id="L48">      startNextDownload();</span>
+    }
+<span class="nc" id="L50">  }</span>
+
+
+  private long countDownloadsInProgress() {
+<span class="nc" id="L54">    return count(download -&gt; download.isInProgress());</span>
+  }
+
+
+  private long count(final Predicate&lt;DownloadFile&gt; filter) {
+<span class="nc" id="L59">    return downloadMap.keySet().stream().filter(filter).count();</span>
+  }
+
+  private void startNextDownload() {
+<span class="nc bnc" id="L63" title="All 2 branches missed.">    for (final Map.Entry&lt;DownloadFile, Runnable&gt; download : downloadMap.entrySet()) {</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">      if (download.getKey().isWaiting()) {</span>
+<span class="nc" id="L65">        new Thread(download.getValue()).start();</span>
+<span class="nc" id="L66">        download.getKey().startAsyncDownload();</span>
+<span class="nc" id="L67">        break;</span>
+      }
+    }
+<span class="nc" id="L70">  }</span>
+
+  /**
+   * Queues up a download request, sending notification to a progress listener and a final notification
+   * to a download complete listener.
+   *
+   * @param download A single map download to queue, may or may not be started immediately.
+   * @param progressUpdateListener A listener for progress updates, the value passed to the progress listener will be
+   *        the size of the downloaded file in bytes.
+   * @param completionListener A listener that is called when this specific download finishes.
+   */
+  public void accept(final DownloadFileDescription download, final Consumer&lt;Integer&gt; progressUpdateListener,
+      final Runnable completionListener, final JProgressBar progressBar) {
+    // To avoid double acceptance, hold a lock while we check the 'downloadSet'
+<span class="nc" id="L84">    synchronized (this) {</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">      if (downloadSet.contains(download)) {</span>
+<span class="nc" id="L86">        return;</span>
+      } else {
+<span class="nc" id="L88">        downloadSet.add(download);</span>
+      }
+    }
+<span class="nc" id="L91">    DownloadFile downloadFile = new DownloadFile(download, progressUpdateListener, completionListener);</span>
+<span class="nc" id="L92">    Runnable progressBarStarter = () -&gt; {</span>
+<span class="nc" id="L93">      final Optional&lt;Integer&gt; length = DownloadUtils.getDownloadLength(download.newURL());</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">      if (length.isPresent()) {</span>
+<span class="nc" id="L95">        SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L96">          progressBar.setMinimum(0);</span>
+<span class="nc" id="L97">          progressBar.setMaximum(length.get());</span>
+<span class="nc" id="L98">        });</span>
+      }
+<span class="nc" id="L100">    };</span>
+<span class="nc" id="L101">    downloadMap.put(downloadFile, progressBarStarter);</span>
+
+<span class="nc" id="L103">  }</span>
+
+  /**
+   * Will prevent any new downloads from starting. Downloads in progress will continue, but they
+   * are downloaded to a temp file which will not be moved after cancel.
+   */
+  public void cancelDownloads() {
+<span class="nc" id="L110">    cancelled = true;</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">    for (final DownloadFile download : downloadMap.keySet()) {</span>
+<span class="nc" id="L112">      download.cancelDownload();</span>
+    }
+<span class="nc" id="L114">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

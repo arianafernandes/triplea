@@ -1,0 +1,1497 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>RevisedTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">RevisedTest.java</span></div><h1>RevisedTest.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import static games.strategy.triplea.delegate.BattleStepStrings.ATTACKER_WITHDRAW;
+import static games.strategy.triplea.delegate.BattleStepStrings.FIRE;
+import static games.strategy.triplea.delegate.BattleStepStrings.REMOVE_CASUALTIES;
+import static games.strategy.triplea.delegate.BattleStepStrings.REMOVE_SNEAK_ATTACK_CASUALTIES;
+import static games.strategy.triplea.delegate.BattleStepStrings.SELECT_CASUALTIES;
+import static games.strategy.triplea.delegate.BattleStepStrings.SELECT_SUB_CASUALTIES;
+import static games.strategy.triplea.delegate.BattleStepStrings.SUBS_FIRE;
+import static games.strategy.triplea.delegate.BattleStepStrings.SUBS_SUBMERGE;
+import static games.strategy.triplea.delegate.GameDataTestUtil.aaGun;
+import static games.strategy.triplea.delegate.GameDataTestUtil.addTo;
+import static games.strategy.triplea.delegate.GameDataTestUtil.americans;
+import static games.strategy.triplea.delegate.GameDataTestUtil.armour;
+import static games.strategy.triplea.delegate.GameDataTestUtil.assertError;
+import static games.strategy.triplea.delegate.GameDataTestUtil.assertMoveError;
+import static games.strategy.triplea.delegate.GameDataTestUtil.assertValid;
+import static games.strategy.triplea.delegate.GameDataTestUtil.battleDelegate;
+import static games.strategy.triplea.delegate.GameDataTestUtil.battleship;
+import static games.strategy.triplea.delegate.GameDataTestUtil.bidPlaceDelegate;
+import static games.strategy.triplea.delegate.GameDataTestUtil.bomber;
+import static games.strategy.triplea.delegate.GameDataTestUtil.british;
+import static games.strategy.triplea.delegate.GameDataTestUtil.destroyer;
+import static games.strategy.triplea.delegate.GameDataTestUtil.germans;
+import static games.strategy.triplea.delegate.GameDataTestUtil.getIndex;
+import static games.strategy.triplea.delegate.GameDataTestUtil.infantry;
+import static games.strategy.triplea.delegate.GameDataTestUtil.japanese;
+import static games.strategy.triplea.delegate.GameDataTestUtil.load;
+import static games.strategy.triplea.delegate.GameDataTestUtil.makeGameLowLuck;
+import static games.strategy.triplea.delegate.GameDataTestUtil.move;
+import static games.strategy.triplea.delegate.GameDataTestUtil.moveDelegate;
+import static games.strategy.triplea.delegate.GameDataTestUtil.placeDelegate;
+import static games.strategy.triplea.delegate.GameDataTestUtil.removeFrom;
+import static games.strategy.triplea.delegate.GameDataTestUtil.submarine;
+import static games.strategy.triplea.delegate.GameDataTestUtil.techDelegate;
+import static games.strategy.triplea.delegate.GameDataTestUtil.territory;
+import static games.strategy.triplea.delegate.GameDataTestUtil.transport;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyBoolean;
+import static org.mockito.Matchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.ITestDelegateBridge;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.TechnologyFrontier;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.random.ScriptedRandomSource;
+import games.strategy.test.TestUtil;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TechAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.delegate.dataObjects.PlaceableUnits;
+import games.strategy.triplea.delegate.dataObjects.TechResults;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.xml.LoadGameUtil;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+
+<span class="fc" id="L92">public class RevisedTest {</span>
+  private GameData m_data;
+<span class="fc" id="L94">  private final ITripleAPlayer dummyPlayer = mock(ITripleAPlayer.class);</span>
+
+  @Before
+  public void setUp() throws Exception {
+<span class="fc" id="L98">    when(dummyPlayer.selectCasualties(any(), any(), anyInt(), any(), any(), any(), any(), any(), any(),</span>
+<span class="fc" id="L99">        anyBoolean(), any(), any(), any(), any(), anyBoolean())).thenAnswer(new Answer&lt;CasualtyDetails&gt;() {</span>
+          @Override
+          public CasualtyDetails answer(final InvocationOnMock invocation) throws Throwable {
+<span class="fc" id="L102">            final CasualtyList defaultCasualties = invocation.getArgument(11);</span>
+<span class="fc bfc" id="L103" title="All 2 branches covered.">            if (defaultCasualties != null) {</span>
+<span class="fc" id="L104">              return new CasualtyDetails(defaultCasualties.getKilled(), defaultCasualties.getDamaged(), true);</span>
+            }
+<span class="fc" id="L106">            return null;</span>
+          }
+        });
+<span class="fc" id="L109">    m_data = LoadGameUtil.loadTestGame(LoadGameUtil.TestMapXml.REVISED);</span>
+<span class="fc" id="L110">  }</span>
+
+  private ITestDelegateBridge getDelegateBridge(final PlayerID player) {
+<span class="fc" id="L113">    return GameDataTestUtil.getDelegateBridge(player, m_data);</span>
+  }
+
+  public static String fight(final BattleDelegate battle, final Territory territory, final boolean bombing) {
+<span class="pc bpc" id="L117" title="1 of 2 branches missed.">    for (final Entry&lt;BattleType, Collection&lt;Territory&gt;&gt; entry : battle.getBattles().getBattles().entrySet()) {</span>
+<span class="pc bpc" id="L118" title="1 of 2 branches missed.">      if (entry.getKey().isBombingRun() == bombing) {</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">        if (entry.getValue().contains(territory)) {</span>
+<span class="fc" id="L120">          return battle.fightBattle(territory, bombing, entry.getKey());</span>
+        }
+      }
+    }
+<span class="nc" id="L124">    throw new IllegalStateException(</span>
+<span class="nc bnc" id="L125" title="All 2 branches missed.">        &quot;Could not find &quot; + (bombing ? &quot;bombing&quot; : &quot;normal&quot;) + &quot; battle in: &quot; + territory.getName());</span>
+  }
+
+  @Test
+  public void testMoveBadRoute() {
+<span class="fc" id="L130">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L131">    final Territory sz1 = m_data.getMap().getTerritory(&quot;1 Sea Zone&quot;);</span>
+<span class="fc" id="L132">    final Territory sz11 = m_data.getMap().getTerritory(&quot;11 Sea Zone&quot;);</span>
+<span class="fc" id="L133">    final Territory sz9 = m_data.getMap().getTerritory(&quot;9 Sea Zone&quot;);</span>
+<span class="fc" id="L134">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L135">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L136">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L137">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L138">    final String error = moveDelegate(m_data).move(sz1.getUnits().getUnits(), new Route(sz1, sz11, sz9));</span>
+<span class="pc bpc" id="L139" title="1 of 2 branches missed.">    assertTrue(error != null);</span>
+<span class="fc" id="L140">  }</span>
+
+  @Test
+  public void testAlliedNeighbors() {
+<span class="fc" id="L144">    final PlayerID americans = americans(m_data);</span>
+<span class="fc" id="L145">    final Territory centralUs = territory(&quot;Central United States&quot;, m_data);</span>
+<span class="fc" id="L146">    final Set&lt;Territory&gt; enemyNeighbors =</span>
+<span class="fc" id="L147">        m_data.getMap().getNeighbors(centralUs, Matches.isTerritoryEnemy(americans, m_data));</span>
+<span class="fc" id="L148">    assertTrue(enemyNeighbors.isEmpty());</span>
+<span class="fc" id="L149">  }</span>
+
+  @Test
+  public void testSubAdvance() {
+<span class="fc" id="L153">    final UnitType sub = GameDataTestUtil.submarine(m_data);</span>
+<span class="fc" id="L154">    final UnitAttachment attachment = UnitAttachment.get(sub);</span>
+<span class="fc" id="L155">    final PlayerID japanese = GameDataTestUtil.japanese(m_data);</span>
+    // before the advance, subs defend and attack at 2
+<span class="fc" id="L157">    assertEquals(2, attachment.getDefense(japanese));</span>
+<span class="fc" id="L158">    assertEquals(2, attachment.getAttack(japanese));</span>
+<span class="fc" id="L159">    final ITestDelegateBridge bridge = getDelegateBridge(japanese);</span>
+<span class="fc" id="L160">    TechTracker.addAdvance(japanese, bridge,</span>
+<span class="fc" id="L161">        TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_SUPER_SUBS, m_data, japanese));</span>
+    // after tech advance, this is now 3
+<span class="fc" id="L163">    assertEquals(2, attachment.getDefense(japanese));</span>
+<span class="fc" id="L164">    assertEquals(3, attachment.getAttack(japanese));</span>
+<span class="fc" id="L165">  }</span>
+
+  @Test
+  public void testMoveThroughSubmergedSubs() {
+<span class="fc" id="L169">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L170">    final Territory sz1 = m_data.getMap().getTerritory(&quot;1 Sea Zone&quot;);</span>
+<span class="fc" id="L171">    final Territory sz7 = m_data.getMap().getTerritory(&quot;7 Sea Zone&quot;);</span>
+<span class="fc" id="L172">    final Territory sz8 = m_data.getMap().getTerritory(&quot;8 Sea Zone&quot;);</span>
+<span class="fc" id="L173">    final TripleAUnit sub = (TripleAUnit) sz8.getUnits().iterator().next();</span>
+<span class="fc" id="L174">    sub.setSubmerged(true);</span>
+    // now move to attack it
+<span class="fc" id="L176">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L177">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L178">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L179">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L180">    moveDelegate.start();</span>
+    // the transport can enter sz 8
+    // since the sub is submerged
+<span class="fc" id="L183">    final Route m1 = new Route(sz1, sz8);</span>
+<span class="fc" id="L184">    assertNull(moveDelegate.move(sz1.getUnits().getUnits(), m1));</span>
+    // the transport can now leave sz8
+<span class="fc" id="L186">    final Route m2 = new Route(sz8, sz7);</span>
+<span class="fc" id="L187">    final String error = moveDelegate.move(sz8.getUnits().getMatches(Matches.unitIsOwnedBy(british)), m2);</span>
+<span class="fc" id="L188">    assertNull(error, error);</span>
+<span class="fc" id="L189">  }</span>
+
+  @Test
+  public void testRetreatBug() {
+<span class="fc" id="L193">    final PlayerID russians = GameDataTestUtil.russians(m_data);</span>
+<span class="fc" id="L194">    final PlayerID americans = GameDataTestUtil.americans(m_data);</span>
+<span class="fc" id="L195">    final ITestDelegateBridge bridge = getDelegateBridge(russians);</span>
+    // we need to initialize the original owner
+<span class="fc" id="L197">    final InitializationDelegate initDel =</span>
+<span class="fc" id="L198">        (InitializationDelegate) m_data.getDelegateList().getDelegate(&quot;initDelegate&quot;);</span>
+<span class="fc" id="L199">    initDel.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L200">    initDel.start();</span>
+<span class="fc" id="L201">    initDel.end();</span>
+    // make sinkian japanese owned, put one infantry in it
+<span class="fc" id="L203">    final Territory sinkiang = m_data.getMap().getTerritory(&quot;Sinkiang&quot;);</span>
+<span class="fc" id="L204">    m_data.performChange(ChangeFactory.removeUnits(sinkiang, sinkiang.getUnits().getUnits()));</span>
+<span class="fc" id="L205">    final PlayerID japanese = GameDataTestUtil.japanese(m_data);</span>
+<span class="fc" id="L206">    sinkiang.setOwner(japanese);</span>
+<span class="fc" id="L207">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L208">    m_data.performChange(ChangeFactory.addUnits(sinkiang, infantryType.create(1, japanese)));</span>
+    // now move to attack it
+<span class="fc" id="L210">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L211">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L212">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L213">    moveDelegate.start();</span>
+<span class="fc" id="L214">    final Territory novo = m_data.getMap().getTerritory(&quot;Novosibirsk&quot;);</span>
+<span class="fc" id="L215">    moveDelegate.move(novo.getUnits().getUnits(), m_data.getMap().getRoute(novo, sinkiang));</span>
+<span class="fc" id="L216">    moveDelegate.end();</span>
+<span class="fc" id="L217">    final BattleDelegate battle = (BattleDelegate) m_data.getDelegateList().getDelegate(&quot;battle&quot;);</span>
+<span class="fc" id="L218">    battle.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L219">    battle.start();</span>
+    // fight the battle
+<span class="fc" id="L221">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {0, 0, 0}));</span>
+<span class="fc" id="L222">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L223">    fight(battle, sinkiang, false);</span>
+<span class="fc" id="L224">    battle.end();</span>
+<span class="fc" id="L225">    assertEquals(sinkiang.getOwner(), americans);</span>
+<span class="fc" id="L226">    assertTrue(battle.getBattleTracker().wasConquered(sinkiang));</span>
+<span class="fc" id="L227">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L228">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L229">    moveDelegate.start();</span>
+<span class="fc" id="L230">    final Territory russia = m_data.getMap().getTerritory(&quot;Russia&quot;);</span>
+    // move two tanks from russia, then undo
+<span class="fc" id="L232">    final Route r = new Route();</span>
+<span class="fc" id="L233">    r.setStart(russia);</span>
+<span class="fc" id="L234">    r.add(novo);</span>
+<span class="fc" id="L235">    r.add(sinkiang);</span>
+<span class="fc" id="L236">    assertNull(moveDelegate.move(russia.getUnits().getMatches(Matches.UnitCanBlitz), r));</span>
+<span class="fc" id="L237">    moveDelegate.undoMove(0);</span>
+<span class="fc" id="L238">    assertTrue(battle.getBattleTracker().wasConquered(sinkiang));</span>
+    // now move the planes into the territory
+<span class="fc" id="L240">    assertNull(moveDelegate.move(russia.getUnits().getMatches(Matches.UnitIsAir), r));</span>
+    // make sure they can't land, they can't because the territory was conquered
+<span class="fc" id="L242">    assertEquals(1, moveDelegate.getTerritoriesWhereAirCantLand().size());</span>
+<span class="fc" id="L243">  }</span>
+
+  @Test
+  public void testContinuedBattles() {
+<span class="fc" id="L247">    final PlayerID russians = GameDataTestUtil.russians(m_data);</span>
+<span class="fc" id="L248">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L249">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L250">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L251">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L252">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L253">    moveDelegate.start();</span>
+    // set up battle
+<span class="fc" id="L255">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L256">    final Territory karelia = m_data.getMap().getTerritory(&quot;Karelia S.S.R.&quot;);</span>
+<span class="fc" id="L257">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L258">    m_data.performChange(ChangeFactory.removeUnits(sz5, sz5.getUnits().getUnits()));</span>
+<span class="fc" id="L259">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L260">    final UnitType subType = GameDataTestUtil.submarine(m_data);</span>
+<span class="fc" id="L261">    final UnitType trnType = GameDataTestUtil.transport(m_data);</span>
+<span class="fc" id="L262">    m_data.performChange(ChangeFactory.addUnits(sz5, subType.create(1, germans)));</span>
+<span class="fc" id="L263">    m_data.performChange(ChangeFactory.addUnits(sz5, trnType.create(1, germans)));</span>
+<span class="fc" id="L264">    m_data.performChange(ChangeFactory.addUnits(sz5, subType.create(1, russians)));</span>
+    // submerge the russian sub
+<span class="fc" id="L266">    final TripleAUnit sub =</span>
+<span class="fc" id="L267">        (TripleAUnit) Match.getMatches(sz5.getUnits().getUnits(), Matches.unitIsOwnedBy(russians)).iterator().next();</span>
+<span class="fc" id="L268">    sub.setSubmerged(true);</span>
+    // now move an infantry through the sz
+<span class="fc" id="L270">    String results =</span>
+<span class="fc" id="L271">        moveDelegate.move(Match.getNMatches(germany.getUnits().getUnits(), 1, Matches.unitIsOfType(infantryType)),</span>
+<span class="fc" id="L272">            m_data.getMap().getRoute(germany, sz5),</span>
+<span class="fc" id="L273">            Match.getMatches(sz5.getUnits().getUnits(), Matches.unitIsOfType(trnType)));</span>
+<span class="fc" id="L274">    assertNull(results);</span>
+<span class="fc" id="L275">    results = moveDelegate.move(Match.getNMatches(sz5.getUnits().getUnits(), 1, Matches.unitIsOfType(infantryType)),</span>
+<span class="fc" id="L276">        m_data.getMap().getRoute(sz5, karelia));</span>
+<span class="fc" id="L277">    assertNull(results);</span>
+<span class="fc" id="L278">    moveDelegate.end();</span>
+<span class="fc" id="L279">    final BattleDelegate battle = (BattleDelegate) m_data.getDelegateList().getDelegate(&quot;battle&quot;);</span>
+<span class="fc" id="L280">    battle.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L281">    battle.start();</span>
+<span class="fc" id="L282">    final BattleTracker tracker = AbstractMoveDelegate.getBattleTracker(m_data);</span>
+    // The battle should NOT be empty
+<span class="fc" id="L284">    assertTrue(tracker.hasPendingBattle(sz5, false));</span>
+<span class="fc" id="L285">    assertFalse(tracker.getPendingBattle(sz5, false, null).isEmpty());</span>
+<span class="fc" id="L286">    battle.end();</span>
+<span class="fc" id="L287">  }</span>
+
+  @Test
+  public void testLoadAlliedTransports() {
+<span class="fc" id="L291">    final PlayerID british = british(m_data);</span>
+<span class="fc" id="L292">    final PlayerID americans = americans(m_data);</span>
+<span class="fc" id="L293">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L294">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L295">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L296">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L297">    moveDelegate(m_data).start();</span>
+    // create 2 us infantry
+<span class="fc" id="L299">    addTo(uk, infantry(m_data).create(2, americans));</span>
+    // try to load them on the british players turn
+<span class="fc" id="L301">    final Territory sz2 = territory(&quot;2 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L302">    final String error = moveDelegate(m_data).move(uk.getUnits().getMatches(Matches.unitIsOwnedBy(americans)),</span>
+<span class="fc" id="L303">        new Route(uk, sz2), sz2.getUnits().getMatches(Matches.UnitIsTransport));</span>
+    // should not be able to load on british turn, only on american turn
+<span class="pc bpc" id="L305" title="1 of 2 branches missed.">    assertFalse(error == null);</span>
+<span class="fc" id="L306">  }</span>
+
+  @Test
+  public void testBidPlace() {
+<span class="fc" id="L310">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L311">    bridge.setStepName(&quot;BidPlace&quot;);</span>
+<span class="fc" id="L312">    bidPlaceDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L313">    bidPlaceDelegate(m_data).start();</span>
+    // create 20 british infantry
+<span class="fc" id="L315">    addTo(british(m_data), infantry(m_data).create(20, british(m_data)), m_data);</span>
+<span class="fc" id="L316">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L317">    final Collection&lt;Unit&gt; units = british(m_data).getUnits().getUnits();</span>
+<span class="fc" id="L318">    final PlaceableUnits placeable = bidPlaceDelegate(m_data).getPlaceableUnits(units, uk);</span>
+<span class="fc" id="L319">    assertEquals(20, placeable.getMaxUnits());</span>
+<span class="fc" id="L320">    assertNull(placeable.getErrorMessage());</span>
+<span class="fc" id="L321">    final String error = bidPlaceDelegate(m_data).placeUnits(units, uk);</span>
+<span class="fc" id="L322">    assertNull(error);</span>
+<span class="fc" id="L323">  }</span>
+
+  @Test
+  public void testBombingRaid() {
+<span class="fc" id="L327">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L328">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L329">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L330">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L331">    moveDelegate.start();</span>
+<span class="fc" id="L332">    when(dummyPlayer.shouldBomberBomb(any())).thenReturn(true);</span>
+<span class="fc" id="L333">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L334">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L335">    final Territory germany = territory(&quot;Germany&quot;, m_data);</span>
+<span class="fc" id="L336">    final Route route = new Route(uk, territory(&quot;6 Sea Zone&quot;, m_data), territory(&quot;5 Sea Zone&quot;, m_data), germany);</span>
+<span class="fc" id="L337">    final String error = moveDelegate.move(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), route);</span>
+<span class="fc" id="L338">    assertNull(error);</span>
+<span class="fc" id="L339">    final BattleTracker tracker = AbstractMoveDelegate.getBattleTracker(m_data);</span>
+    // there should be a bombing battle
+<span class="fc" id="L341">    assertTrue(tracker.hasPendingBattle(germany, true));</span>
+    // there should not be a normal battle
+<span class="fc" id="L343">    assertFalse(tracker.hasPendingBattle(germany, false));</span>
+    // start the battle phase, this should not add a new battle
+<span class="fc" id="L345">    moveDelegate.end();</span>
+<span class="fc" id="L346">    battleDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L347">    battleDelegate(m_data).start();</span>
+    // there should be a bombing battle
+<span class="fc" id="L349">    assertTrue(tracker.hasPendingBattle(germany, true));</span>
+    // there should not be a normal battle
+<span class="fc" id="L351">    assertFalse(tracker.hasPendingBattle(germany, false));</span>
+<span class="fc" id="L352">  }</span>
+
+  @Test
+  public void testOverFlyBombersDies() {
+<span class="fc" id="L356">    final PlayerID british = british(m_data);</span>
+<span class="fc" id="L357">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L358">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L359">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L360">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L361">    moveDelegate.start();</span>
+<span class="fc" id="L362">    when(dummyPlayer.confirmMoveInFaceOfAA(any())).thenReturn(true);</span>
+<span class="fc" id="L363">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L364">    bridge.setRandomSource(new ScriptedRandomSource(0));</span>
+<span class="fc" id="L365">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L366">    final Territory we = territory(&quot;Western Europe&quot;, m_data);</span>
+<span class="fc" id="L367">    final Territory se = territory(&quot;Southern Europe&quot;, m_data);</span>
+<span class="fc" id="L368">    final Route route = new Route(uk, territory(&quot;7 Sea Zone&quot;, m_data), we, se);</span>
+<span class="fc" id="L369">    move(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), route);</span>
+    // the aa gun should have fired. the bomber no longer exists
+<span class="fc" id="L371">    assertTrue(se.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L372">    assertTrue(we.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L373">    assertTrue(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L374">  }</span>
+
+  @Test
+  public void testMultipleOverFlyBombersDies() {
+<span class="fc" id="L378">    final PlayerID british = british(m_data);</span>
+<span class="fc" id="L379">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L380">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L381">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L382">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L383">    moveDelegate.start();</span>
+<span class="fc" id="L384">    when(dummyPlayer.confirmMoveInFaceOfAA(any())).thenReturn(true);</span>
+<span class="fc" id="L385">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L386">    bridge.setRandomSource(new ScriptedRandomSource(0, 4));</span>
+<span class="fc" id="L387">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L388">    final Territory sz7 = territory(&quot;7 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L389">    final Territory we = territory(&quot;Western Europe&quot;, m_data);</span>
+<span class="fc" id="L390">    final Territory se = territory(&quot;Southern Europe&quot;, m_data);</span>
+<span class="fc" id="L391">    final Territory balk = territory(&quot;Balkans&quot;, m_data);</span>
+<span class="fc" id="L392">    addTo(uk, bomber(m_data).create(1, british));</span>
+<span class="fc" id="L393">    final Route route = new Route(uk, sz7, we, se, balk);</span>
+<span class="fc" id="L394">    move(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), route);</span>
+    // the aa gun should have fired (one hit, one miss in each territory overflown). the bombers no longer exists
+<span class="fc" id="L396">    assertTrue(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L397">    assertTrue(we.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L398">    assertTrue(se.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L399">    assertTrue(balk.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L400">  }</span>
+
+  @Test
+  public void testOverFlyBombersJoiningBattleDie() {
+    // a bomber flies over aa to join a battle, gets hit,
+    // it should not appear in the battle
+<span class="fc" id="L406">    final PlayerID british = british(m_data);</span>
+<span class="fc" id="L407">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L408">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L409">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L410">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L411">    moveDelegate.start();</span>
+<span class="fc" id="L412">    when(dummyPlayer.confirmMoveInFaceOfAA(any())).thenReturn(true);</span>
+<span class="fc" id="L413">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L414">    bridge.setRandomSource(new ScriptedRandomSource(0));</span>
+<span class="fc" id="L415">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L416">    final Territory we = territory(&quot;Western Europe&quot;, m_data);</span>
+<span class="fc" id="L417">    final Territory se = territory(&quot;Southern Europe&quot;, m_data);</span>
+<span class="fc" id="L418">    final Territory sz14 = territory(&quot;14 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L419">    final Territory sz15 = territory(&quot;15 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L420">    final Territory egypt = territory(&quot;Anglo Egypt&quot;, m_data);</span>
+    // start a battle in se
+<span class="fc" id="L422">    removeFrom(sz14, sz14.getUnits().getUnits());</span>
+<span class="fc" id="L423">    addTo(sz15, transport(m_data).create(1, british));</span>
+<span class="fc" id="L424">    load(egypt.getUnits().getMatches(Matches.UnitIsInfantry), new Route(egypt, sz15));</span>
+<span class="fc" id="L425">    move(sz15.getUnits().getUnits(), new Route(sz15, sz14));</span>
+<span class="fc" id="L426">    move(sz14.getUnits().getMatches(Matches.UnitIsInfantry), new Route(sz14, se));</span>
+<span class="fc" id="L427">    final Route route = new Route(uk, territory(&quot;7 Sea Zone&quot;, m_data), we, se);</span>
+<span class="fc" id="L428">    move(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), route);</span>
+    // the aa gun should have fired and hit
+<span class="fc" id="L430">    assertTrue(se.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L431">    assertTrue(we.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L432">    assertTrue(uk.getUnits().getMatches(Matches.UnitIsStrategicBomber).isEmpty());</span>
+<span class="fc" id="L433">  }</span>
+
+  @Test
+  public void testTransportAttack() {
+<span class="fc" id="L437">    final Territory sz14 = m_data.getMap().getTerritory(&quot;14 Sea Zone&quot;);</span>
+<span class="fc" id="L438">    final Territory sz13 = m_data.getMap().getTerritory(&quot;13 Sea Zone&quot;);</span>
+<span class="fc" id="L439">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L440">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L441">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L442">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L443">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L444">    moveDelegate.start();</span>
+<span class="fc" id="L445">    final Route sz14To13 = new Route();</span>
+<span class="fc" id="L446">    sz14To13.setStart(sz14);</span>
+<span class="fc" id="L447">    sz14To13.add(sz13);</span>
+<span class="fc" id="L448">    final List&lt;Unit&gt; transports = sz14.getUnits().getMatches(Matches.UnitIsTransport);</span>
+<span class="fc" id="L449">    assertEquals(1, transports.size());</span>
+<span class="fc" id="L450">    final String error = moveDelegate.move(transports, sz14To13);</span>
+<span class="fc" id="L451">    assertNull(error, error);</span>
+<span class="fc" id="L452">  }</span>
+
+  @Test
+  public void testLoadUndo() {
+<span class="fc" id="L456">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L457">    final Territory eastEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+<span class="fc" id="L458">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L459">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L460">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L461">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L462">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L463">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L464">    moveDelegate.start();</span>
+<span class="fc" id="L465">    final Route eeToSz5 = new Route();</span>
+<span class="fc" id="L466">    eeToSz5.setStart(eastEurope);</span>
+<span class="fc" id="L467">    eeToSz5.add(sz5);</span>
+    // load the transport in the baltic
+<span class="fc" id="L469">    final List&lt;Unit&gt; infantry = eastEurope.getUnits().getMatches(Matches.unitIsOfType(infantryType));</span>
+<span class="fc" id="L470">    assertEquals(2, infantry.size());</span>
+<span class="fc" id="L471">    final TripleAUnit transport = (TripleAUnit) sz5.getUnits().getMatches(Matches.UnitIsTransport).get(0);</span>
+<span class="fc" id="L472">    final String error = moveDelegate.move(infantry, eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L473">    assertNull(error, error);</span>
+    // make sure the transport was loaded
+<span class="fc" id="L475">    assertTrue(moveDelegate.getMovesMade().get(0).wasTransportLoaded(transport));</span>
+    // make sure it was laoded
+<span class="fc" id="L477">    assertTrue(transport.getTransporting().containsAll(infantry));</span>
+<span class="fc" id="L478">    assertTrue(((TripleAUnit) infantry.get(0)).getWasLoadedThisTurn());</span>
+    // udo the move
+<span class="fc" id="L480">    moveDelegate.undoMove(0);</span>
+    // make sure that loaded is not set
+<span class="fc" id="L482">    assertTrue(transport.getTransporting().isEmpty());</span>
+<span class="fc" id="L483">    assertFalse(((TripleAUnit) infantry.get(0)).getWasLoadedThisTurn());</span>
+<span class="fc" id="L484">  }</span>
+
+  @Test
+  public void testLoadDependencies() {
+<span class="fc" id="L488">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L489">    final Territory eastEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+<span class="fc" id="L490">    final Territory norway = m_data.getMap().getTerritory(&quot;Norway&quot;);</span>
+<span class="fc" id="L491">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L492">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L493">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L494">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L495">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L496">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L497">    moveDelegate.start();</span>
+<span class="fc" id="L498">    final Route eeToSz5 = new Route();</span>
+<span class="fc" id="L499">    eeToSz5.setStart(eastEurope);</span>
+<span class="fc" id="L500">    eeToSz5.add(sz5);</span>
+    // load the transport in the baltic
+<span class="fc" id="L502">    final List&lt;Unit&gt; infantry = eastEurope.getUnits().getMatches(Matches.unitIsOfType(infantryType));</span>
+<span class="fc" id="L503">    assertEquals(2, infantry.size());</span>
+<span class="fc" id="L504">    final TripleAUnit transport = (TripleAUnit) sz5.getUnits().getMatches(Matches.UnitIsTransport).get(0);</span>
+    // load the transport
+<span class="fc" id="L506">    String error = moveDelegate.move(infantry, eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L507">    assertNull(error, error);</span>
+<span class="fc" id="L508">    final Route sz5ToNorway = new Route();</span>
+<span class="fc" id="L509">    sz5ToNorway.setStart(sz5);</span>
+<span class="fc" id="L510">    sz5ToNorway.add(norway);</span>
+    // move the infantry in two steps
+<span class="fc" id="L512">    error = moveDelegate.move(infantry.subList(0, 1), sz5ToNorway);</span>
+<span class="fc" id="L513">    assertNull(error);</span>
+<span class="fc" id="L514">    error = moveDelegate.move(infantry.subList(1, 2), sz5ToNorway);</span>
+<span class="fc" id="L515">    assertNull(error);</span>
+<span class="fc" id="L516">    assertEquals(3, moveDelegate.getMovesMade().size());</span>
+    // the load
+<span class="fc" id="L518">    final UndoableMove move1 = moveDelegate.getMovesMade().get(0);</span>
+    // the first unload
+    // AbstractUndoableMove move2 = moveDelegate.getMovesMade().get(0);
+    // the second unload must be done first
+<span class="fc" id="L522">    assertFalse(move1.getcanUndo());</span>
+<span class="fc" id="L523">    error = moveDelegate.undoMove(2);</span>
+<span class="fc" id="L524">    assertNull(error);</span>
+    // the second unload must be done first
+<span class="fc" id="L526">    assertFalse(move1.getcanUndo());</span>
+<span class="fc" id="L527">    error = moveDelegate.undoMove(1);</span>
+<span class="fc" id="L528">    assertNull(error);</span>
+    // we can now be undone
+<span class="fc" id="L530">    assertTrue(move1.getcanUndo());</span>
+<span class="fc" id="L531">  }</span>
+
+  @Test
+  public void testLoadUndoInWrongOrder() {
+<span class="fc" id="L535">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L536">    final Territory eastEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+<span class="fc" id="L537">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L538">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L539">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L540">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L541">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L542">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L543">    moveDelegate.start();</span>
+<span class="fc" id="L544">    final Route eeToSz5 = new Route();</span>
+<span class="fc" id="L545">    eeToSz5.setStart(eastEurope);</span>
+<span class="fc" id="L546">    eeToSz5.add(sz5);</span>
+    // load the transport in the baltic
+<span class="fc" id="L548">    final List&lt;Unit&gt; infantry = eastEurope.getUnits().getMatches(Matches.unitIsOfType(infantryType));</span>
+<span class="fc" id="L549">    assertEquals(2, infantry.size());</span>
+<span class="fc" id="L550">    final TripleAUnit transport = (TripleAUnit) sz5.getUnits().getMatches(Matches.UnitIsTransport).get(0);</span>
+    // load the transports
+    // in two moves
+<span class="fc" id="L553">    String error = moveDelegate.move(infantry.subList(0, 1), eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L554">    assertNull(error, error);</span>
+<span class="fc" id="L555">    error = moveDelegate.move(infantry.subList(1, 2), eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L556">    assertNull(error, error);</span>
+    // make sure the transport was loaded
+<span class="fc" id="L558">    assertTrue(moveDelegate.getMovesMade().get(0).wasTransportLoaded(transport));</span>
+<span class="fc" id="L559">    assertTrue(moveDelegate.getMovesMade().get(1).wasTransportLoaded(transport));</span>
+    // udo the moves in reverse order
+<span class="fc" id="L561">    moveDelegate.undoMove(0);</span>
+<span class="fc" id="L562">    moveDelegate.undoMove(0);</span>
+    // make sure that loaded is not set
+<span class="fc" id="L564">    assertTrue(transport.getTransporting().isEmpty());</span>
+<span class="fc" id="L565">    assertFalse(((TripleAUnit) infantry.get(0)).getWasLoadedThisTurn());</span>
+<span class="fc" id="L566">  }</span>
+
+  @Test
+  public void testLoadUnloadAlliedTransport() {
+    // you cant load and unload an allied transport the same turn
+<span class="fc" id="L571">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L572">    final Territory eastEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+    // add japanese infantry to eastern europe
+<span class="fc" id="L574">    final PlayerID japanese = GameDataTestUtil.japanese(m_data);</span>
+<span class="fc" id="L575">    final Change change = ChangeFactory.addUnits(eastEurope, infantryType.create(1, japanese));</span>
+<span class="fc" id="L576">    m_data.performChange(change);</span>
+<span class="fc" id="L577">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L578">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L579">    final ITestDelegateBridge bridge = getDelegateBridge(japanese);</span>
+<span class="fc" id="L580">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L581">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L582">    moveDelegate.start();</span>
+<span class="fc" id="L583">    final Route eeToSz5 = new Route();</span>
+<span class="fc" id="L584">    eeToSz5.setStart(eastEurope);</span>
+<span class="fc" id="L585">    eeToSz5.add(sz5);</span>
+    // load the transport in the baltic
+<span class="fc" id="L587">    final List&lt;Unit&gt; infantry = eastEurope.getUnits()</span>
+<span class="fc" id="L588">        .getMatches(new CompositeMatchAnd&lt;&gt;(Matches.unitIsOfType(infantryType), Matches.unitIsOwnedBy(japanese)));</span>
+<span class="fc" id="L589">    assertEquals(1, infantry.size());</span>
+<span class="fc" id="L590">    final TripleAUnit transport = (TripleAUnit) sz5.getUnits().getMatches(Matches.UnitIsTransport).get(0);</span>
+<span class="fc" id="L591">    String error = moveDelegate.move(infantry, eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L592">    assertNull(error, error);</span>
+    // try to unload
+<span class="fc" id="L594">    final Route sz5ToEee = new Route();</span>
+<span class="fc" id="L595">    sz5ToEee.setStart(sz5);</span>
+<span class="fc" id="L596">    sz5ToEee.add(eastEurope);</span>
+<span class="fc" id="L597">    error = moveDelegate.move(infantry, sz5ToEee);</span>
+<span class="fc" id="L598">    assertEquals(MoveValidator.CANNOT_LOAD_AND_UNLOAD_AN_ALLIED_TRANSPORT_IN_THE_SAME_ROUND, error);</span>
+<span class="fc" id="L599">  }</span>
+
+  @Test
+  public void testUnloadMultipleTerritories() {
+    // in revised a transport may only unload to 1 territory.
+<span class="fc" id="L604">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L605">    final Territory eastEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+<span class="fc" id="L606">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L607">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L608">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L609">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L610">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L611">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L612">    moveDelegate.start();</span>
+<span class="fc" id="L613">    final Route eeToSz5 = new Route();</span>
+<span class="fc" id="L614">    eeToSz5.setStart(eastEurope);</span>
+<span class="fc" id="L615">    eeToSz5.add(sz5);</span>
+    // load the transport in the baltic
+<span class="fc" id="L617">    final List&lt;Unit&gt; infantry = eastEurope.getUnits().getMatches(Matches.unitIsOfType(infantryType));</span>
+<span class="fc" id="L618">    assertEquals(2, infantry.size());</span>
+<span class="fc" id="L619">    final TripleAUnit transport = (TripleAUnit) sz5.getUnits().getMatches(Matches.UnitIsTransport).get(0);</span>
+<span class="fc" id="L620">    String error = moveDelegate.move(infantry, eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L621">    assertNull(error, error);</span>
+    // unload one infantry to Norway
+<span class="fc" id="L623">    final Territory norway = m_data.getMap().getTerritory(&quot;Norway&quot;);</span>
+<span class="fc" id="L624">    final Route sz5ToNorway = new Route();</span>
+<span class="fc" id="L625">    sz5ToNorway.setStart(sz5);</span>
+<span class="fc" id="L626">    sz5ToNorway.add(norway);</span>
+<span class="fc" id="L627">    error = moveDelegate.move(infantry.subList(0, 1), sz5ToNorway);</span>
+<span class="fc" id="L628">    assertNull(error, error);</span>
+    // make sure the transport was unloaded
+<span class="fc" id="L630">    assertTrue(moveDelegate.getMovesMade().get(1).wasTransportUnloaded(transport));</span>
+    // try to unload the other infantry somewhere else, an error occurs
+<span class="fc" id="L632">    final Route sz5ToEE = new Route();</span>
+<span class="fc" id="L633">    sz5ToEE.setStart(sz5);</span>
+<span class="fc" id="L634">    sz5ToEE.add(eastEurope);</span>
+<span class="fc" id="L635">    error = moveDelegate.move(infantry.subList(1, 2), sz5ToEE);</span>
+<span class="fc" id="L636">    assertNotNull(error, error);</span>
+<span class="fc" id="L637">    assertTrue(error.startsWith(MoveValidator.TRANSPORT_HAS_ALREADY_UNLOADED_UNITS_TO));</span>
+    // end the round
+<span class="fc" id="L639">    moveDelegate.end();</span>
+<span class="fc" id="L640">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L641">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L642">    moveDelegate.start();</span>
+<span class="fc" id="L643">    moveDelegate.end();</span>
+<span class="fc" id="L644">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L645">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L646">    moveDelegate.start();</span>
+    // a new round, the move should work
+<span class="fc" id="L648">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L649">    moveDelegate.start();</span>
+<span class="fc" id="L650">    error = moveDelegate.move(infantry.subList(1, 2), sz5ToEE);</span>
+<span class="fc" id="L651">    assertNull(error);</span>
+<span class="fc" id="L652">  }</span>
+
+  @Test
+  public void testUnloadInPreviousPhase() {
+    // a transport may not unload in both combat and non combat
+<span class="fc" id="L657">    final Territory sz5 = m_data.getMap().getTerritory(&quot;5 Sea Zone&quot;);</span>
+<span class="fc" id="L658">    final Territory eastEurope = m_data.getMap().getTerritory(&quot;Eastern Europe&quot;);</span>
+<span class="fc" id="L659">    final UnitType infantryType = GameDataTestUtil.infantry(m_data);</span>
+<span class="fc" id="L660">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L661">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L662">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L663">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L664">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L665">    moveDelegate.start();</span>
+<span class="fc" id="L666">    final Route eeToSz5 = new Route();</span>
+<span class="fc" id="L667">    eeToSz5.setStart(eastEurope);</span>
+<span class="fc" id="L668">    eeToSz5.add(sz5);</span>
+    // load the transport in the baltic
+<span class="fc" id="L670">    final List&lt;Unit&gt; infantry = eastEurope.getUnits().getMatches(Matches.unitIsOfType(infantryType));</span>
+<span class="fc" id="L671">    assertEquals(2, infantry.size());</span>
+<span class="fc" id="L672">    final TripleAUnit transport = (TripleAUnit) sz5.getUnits().getMatches(Matches.UnitIsTransport).get(0);</span>
+<span class="fc" id="L673">    String error = moveDelegate.move(infantry, eeToSz5, Collections.&lt;Unit&gt;singletonList(transport));</span>
+<span class="fc" id="L674">    assertNull(error, error);</span>
+    // unload one infantry to Norway
+<span class="fc" id="L676">    final Territory norway = m_data.getMap().getTerritory(&quot;Norway&quot;);</span>
+<span class="fc" id="L677">    final Route sz5ToNorway = new Route();</span>
+<span class="fc" id="L678">    sz5ToNorway.setStart(sz5);</span>
+<span class="fc" id="L679">    sz5ToNorway.add(norway);</span>
+<span class="fc" id="L680">    error = moveDelegate.move(infantry.subList(0, 1), sz5ToNorway);</span>
+<span class="fc" id="L681">    assertNull(error, error);</span>
+<span class="fc" id="L682">    assertTrue(((TripleAUnit) infantry.get(0)).getWasUnloadedInCombatPhase());</span>
+    // start non combat
+<span class="fc" id="L684">    moveDelegate.end();</span>
+<span class="fc" id="L685">    bridge.setStepName(&quot;germanNonCombatMove&quot;);</span>
+    // the transport tracker relies on the step name
+<span class="pc bpc" id="L687" title="1 of 2 branches missed.">    while (!m_data.getSequence().getStep().getName().equals(&quot;germanNonCombatMove&quot;)) {</span>
+<span class="nc" id="L688">      m_data.getSequence().next();</span>
+    }
+<span class="fc" id="L690">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L691">    moveDelegate.start();</span>
+    // try to unload the other infantry somewhere else, an error occurs
+<span class="fc" id="L693">    error = moveDelegate.move(infantry.subList(1, 2), sz5ToNorway);</span>
+<span class="fc" id="L694">    assertNotNull(error, error);</span>
+<span class="fc" id="L695">    assertTrue(error.startsWith(MoveValidator.TRANSPORT_HAS_ALREADY_UNLOADED_UNITS_IN_A_PREVIOUS_PHASE));</span>
+<span class="fc" id="L696">  }</span>
+
+  @Test
+  public void testSubAttackTransportNonCombat() {
+<span class="fc" id="L700">    final Territory sz1 = territory(&quot;1 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L701">    final Territory sz8 = territory(&quot;8 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L702">    final PlayerID germans = germans(m_data);</span>
+    // german sub tries to attack a transport in non combat
+    // should be an error
+<span class="fc" id="L705">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L706">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L707">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L708">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L709">    moveDelegate.start();</span>
+<span class="fc" id="L710">    final String error = moveDelegate(m_data).move(sz8.getUnits().getUnits(), new Route(sz8, sz1));</span>
+<span class="fc" id="L711">    assertError(error);</span>
+<span class="fc" id="L712">  }</span>
+
+  @Test
+  public void testSubAttackNonCombat() {
+<span class="fc" id="L716">    final Territory sz2 = territory(&quot;2 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L717">    final Territory sz8 = territory(&quot;8 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L718">    final PlayerID germans = germans(m_data);</span>
+    // german sub tries to attack a transport in non combat
+    // should be an error
+<span class="fc" id="L721">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L722">    final ITestDelegateBridge bridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L723">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L724">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L725">    moveDelegate.start();</span>
+<span class="fc" id="L726">    final String error = moveDelegate(m_data).move(sz8.getUnits().getUnits(), new Route(sz8, sz2));</span>
+<span class="fc" id="L727">    assertError(error);</span>
+<span class="fc" id="L728">  }</span>
+
+  @Test
+  public void testTransportAttackSubNonCombat() {
+<span class="fc" id="L732">    final Territory sz1 = territory(&quot;1 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L733">    final Territory sz8 = territory(&quot;8 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L734">    final PlayerID british = british(m_data);</span>
+    // german sub tries to attack a transport in non combat
+    // should be an error
+<span class="fc" id="L737">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L738">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L739">    bridge.setStepName(&quot;NonCombatMove&quot;);</span>
+<span class="fc" id="L740">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L741">    moveDelegate.start();</span>
+<span class="fc" id="L742">    final String error = moveDelegate(m_data).move(sz8.getUnits().getUnits(), new Route(sz1, sz8));</span>
+<span class="fc" id="L743">    assertError(error);</span>
+<span class="fc" id="L744">  }</span>
+
+  @Test
+  public void testMoveSubAwayFromSubmergedSubsInBattleZone() {
+<span class="fc" id="L748">    final Territory sz45 = m_data.getMap().getTerritory(&quot;45 Sea Zone&quot;);</span>
+<span class="fc" id="L749">    final Territory sz50 = m_data.getMap().getTerritory(&quot;50 Sea Zone&quot;);</span>
+<span class="fc" id="L750">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L751">    final PlayerID japanese = GameDataTestUtil.japanese(m_data);</span>
+    // put 1 british sub in sz 45, this simulates a submerged enemy sub
+<span class="fc" id="L753">    final UnitType sub = GameDataTestUtil.submarine(m_data);</span>
+<span class="fc" id="L754">    final Change c = ChangeFactory.addUnits(sz45, sub.create(1, british));</span>
+<span class="fc" id="L755">    m_data.performChange(c);</span>
+    // new move delegate
+<span class="fc" id="L757">    final MoveDelegate moveDelegate = (MoveDelegate) m_data.getDelegateList().getDelegate(&quot;move&quot;);</span>
+<span class="fc" id="L758">    final ITestDelegateBridge bridge = getDelegateBridge(japanese);</span>
+<span class="fc" id="L759">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L760">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L761">    moveDelegate.start();</span>
+    // move a fighter into the sea zone, this will cause a battle
+<span class="fc" id="L763">    final Route sz50To45 = new Route();</span>
+<span class="fc" id="L764">    sz50To45.setStart(sz50);</span>
+<span class="fc" id="L765">    sz50To45.add(sz45);</span>
+<span class="fc" id="L766">    String error = moveDelegate.move(sz50.getUnits().getMatches(Matches.UnitIsAir), sz50To45);</span>
+<span class="fc" id="L767">    assertNull(error);</span>
+<span class="fc" id="L768">    assertEquals(1, AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattleSites(false).size());</span>
+    // we should be able to move the sub out of the sz
+<span class="fc" id="L770">    final Route sz45To50 = new Route();</span>
+<span class="fc" id="L771">    sz45To50.setStart(sz45);</span>
+<span class="fc" id="L772">    sz45To50.add(sz50);</span>
+<span class="fc" id="L773">    final List&lt;Unit&gt; japSub =</span>
+<span class="fc" id="L774">        sz45.getUnits().getMatches(new CompositeMatchAnd&lt;&gt;(Matches.UnitIsSub, Matches.unitIsOwnedBy(japanese)));</span>
+<span class="fc" id="L775">    error = moveDelegate.move(japSub, sz45To50);</span>
+    // make sure no error
+<span class="fc" id="L777">    assertNull(error);</span>
+    // make sure the battle is still there
+<span class="fc" id="L779">    assertEquals(1, AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattleSites(false).size());</span>
+    // we should be able to undo the move of the sub
+<span class="fc" id="L781">    error = moveDelegate.undoMove(1);</span>
+<span class="fc" id="L782">    assertNull(error);</span>
+    // undo the move of the fighter, should be no battles now
+<span class="fc" id="L784">    error = moveDelegate.undoMove(0);</span>
+<span class="fc" id="L785">    assertNull(error);</span>
+<span class="fc" id="L786">    assertEquals(0, AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattleSites(false).size());</span>
+<span class="fc" id="L787">  }</span>
+
+  @Test
+  public void testAAOwnership() {
+    // Set up players
+    // PlayerID british = GameDataTestUtil.british(m_data);
+<span class="fc" id="L793">    final PlayerID japanese = GameDataTestUtil.japanese(m_data);</span>
+    // PlayerID americans = GameDataTestUtil.americans(m_data);
+    // Set up the territories
+<span class="fc" id="L796">    final Territory india = territory(&quot;India&quot;, m_data);</span>
+<span class="fc" id="L797">    final Territory fic = territory(&quot;French Indochina&quot;, m_data);</span>
+<span class="fc" id="L798">    final Territory china = territory(&quot;China&quot;, m_data);</span>
+<span class="fc" id="L799">    final Territory kwang = territory(&quot;Kwantung&quot;, m_data);</span>
+    // Preset units in FIC
+<span class="fc" id="L801">    final UnitType infType = GameDataTestUtil.infantry(m_data);</span>
+    // UnitType aaType = GameDataTestUtil.aaGun(m_data);
+<span class="fc" id="L803">    removeFrom(fic, fic.getUnits().getUnits());</span>
+<span class="fc" id="L804">    addTo(fic, aaGun(m_data).create(1, japanese));</span>
+<span class="fc" id="L805">    addTo(fic, infantry(m_data).create(1, japanese));</span>
+<span class="fc" id="L806">    assertEquals(2, fic.getUnits().getUnitCount());</span>
+    // Get attacking units
+<span class="fc" id="L808">    final Collection&lt;Unit&gt; britishUnits = india.getUnits().getUnits(infType, 1);</span>
+<span class="fc" id="L809">    final Collection&lt;Unit&gt; japaneseUnits = kwang.getUnits().getUnits(infType, 1);</span>
+<span class="fc" id="L810">    final Collection&lt;Unit&gt; americanUnits = china.getUnits().getUnits(infType, 1);</span>
+    // Get Owner prior to battle
+<span class="fc" id="L812">    assertTrue(fic.getUnits().allMatch(Matches.unitIsOwnedBy(japanese(m_data))));</span>
+<span class="fc" id="L813">    final String preOwner = fic.getOwner().getName();</span>
+<span class="fc" id="L814">    assertEquals(preOwner, Constants.PLAYER_NAME_JAPANESE);</span>
+    // Set up the move delegate
+<span class="fc" id="L816">    ITestDelegateBridge delegateBridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L817">    final MoveDelegate moveDelegate = moveDelegate(m_data);</span>
+<span class="fc" id="L818">    delegateBridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L819">    moveDelegate.setDelegateBridgeAndPlayer(delegateBridge);</span>
+<span class="fc" id="L820">    moveDelegate.start();</span>
+    /*
+     * add a VALID BRITISH attack
+     */
+<span class="fc" id="L824">    String validResults = moveDelegate.move(britishUnits, new Route(india, fic));</span>
+<span class="fc" id="L825">    assertValid(validResults);</span>
+<span class="fc" id="L826">    moveDelegate(m_data).end();</span>
+    // Set up battle
+<span class="fc" id="L828">    MustFightBattle battle =</span>
+<span class="fc" id="L829">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(fic, false, null);</span>
+<span class="fc" id="L830">    delegateBridge.setRemote(dummyPlayer);</span>
+    // fight
+<span class="fc" id="L832">    ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 5);</span>
+<span class="fc" id="L833">    delegateBridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L834">    battle.fight(delegateBridge);</span>
+    // Get Owner after to battle
+<span class="fc" id="L836">    assertTrue(fic.getUnits().allMatch(Matches.unitIsOwnedBy(british(m_data))));</span>
+<span class="fc" id="L837">    final String postOwner = fic.getOwner().getName();</span>
+<span class="fc" id="L838">    assertEquals(postOwner, Constants.PLAYER_NAME_BRITISH);</span>
+    /*
+     * add a VALID JAPANESE attack
+     */
+    // Set up battle
+<span class="fc" id="L843">    delegateBridge = getDelegateBridge(japanese(m_data));</span>
+<span class="fc" id="L844">    delegateBridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L845">    moveDelegate.setDelegateBridgeAndPlayer(delegateBridge);</span>
+<span class="fc" id="L846">    moveDelegate.start();</span>
+    // Move to battle
+<span class="fc" id="L848">    validResults = moveDelegate.move(japaneseUnits, new Route(kwang, fic));</span>
+<span class="fc" id="L849">    assertValid(validResults);</span>
+<span class="fc" id="L850">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L851">    battle = (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(fic, false, null);</span>
+<span class="fc" id="L852">    delegateBridge.setRemote(dummyPlayer);</span>
+    // fight
+<span class="fc" id="L854">    randomSource = new ScriptedRandomSource(0, 5);</span>
+<span class="fc" id="L855">    delegateBridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L856">    battle.fight(delegateBridge);</span>
+    // Get Owner after to battle
+<span class="fc" id="L858">    assertTrue(fic.getUnits().allMatch(Matches.unitIsOwnedBy(japanese(m_data))));</span>
+<span class="fc" id="L859">    final String midOwner = fic.getOwner().getName();</span>
+<span class="fc" id="L860">    assertEquals(midOwner, Constants.PLAYER_NAME_JAPANESE);</span>
+    /*
+     * add a VALID AMERICAN attack
+     */
+    // Set up battle
+<span class="fc" id="L865">    delegateBridge = getDelegateBridge(americans(m_data));</span>
+<span class="fc" id="L866">    delegateBridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L867">    moveDelegate.setDelegateBridgeAndPlayer(delegateBridge);</span>
+<span class="fc" id="L868">    moveDelegate.start();</span>
+    // Move to battle
+<span class="fc" id="L870">    validResults = moveDelegate.move(americanUnits, new Route(china, fic));</span>
+<span class="fc" id="L871">    assertValid(validResults);</span>
+<span class="fc" id="L872">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L873">    battle = (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(fic, false, null);</span>
+<span class="fc" id="L874">    delegateBridge.setRemote(dummyPlayer);</span>
+    // fight
+<span class="fc" id="L876">    randomSource = new ScriptedRandomSource(0, 5);</span>
+<span class="fc" id="L877">    delegateBridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L878">    battle.fight(delegateBridge);</span>
+    // Get Owner after to battle
+<span class="fc" id="L880">    assertTrue(fic.getUnits().allMatch(Matches.unitIsOwnedBy(americans(m_data))));</span>
+<span class="fc" id="L881">    final String endOwner = fic.getOwner().getName();</span>
+<span class="fc" id="L882">    assertEquals(endOwner, Constants.PLAYER_NAME_AMERICANS);</span>
+<span class="fc" id="L883">  }</span>
+
+  @Test
+  public void testStratBombCasualties() {
+<span class="fc" id="L887">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L888">    final Territory uk = m_data.getMap().getTerritory(&quot;United Kingdom&quot;);</span>
+<span class="fc" id="L889">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L890">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L891">    final BattleTracker tracker = new BattleTracker();</span>
+<span class="fc" id="L892">    final StrategicBombingRaidBattle battle = new StrategicBombingRaidBattle(germany, m_data, british, tracker);</span>
+<span class="fc" id="L893">    final List&lt;Unit&gt; bombers = uk.getUnits().getMatches(Matches.UnitIsStrategicBomber);</span>
+<span class="fc" id="L894">    addTo(germany, bombers);</span>
+<span class="fc" id="L895">    battle.addAttackChange(m_data.getMap().getRoute(uk, germany), bombers, null);</span>
+<span class="fc" id="L896">    tracker.getBattleRecords().addBattle(british, battle.getBattleID(), germany, battle.getBattleType());</span>
+<span class="fc" id="L897">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L898">    bridge.setRemote(dummyPlayer);</span>
+    // aa guns rolls 0 and hits
+<span class="fc" id="L900">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {0, ScriptedRandomSource.ERROR}));</span>
+    // int PUsBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));
+<span class="fc" id="L902">    final int pusBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L903">    battle.fight(bridge);</span>
+    // int PUsAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));
+<span class="fc" id="L905">    final int pusAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L906">    assertEquals(pusBeforeRaid, pusAfterRaid);</span>
+<span class="fc" id="L907">    assertEquals(0, germany.getUnits().getMatches(Matches.unitIsOwnedBy(british)).size());</span>
+<span class="fc" id="L908">  }</span>
+
+  @Test
+  public void testStratBombCasualtiesLowLuck() {
+<span class="fc" id="L912">    makeGameLowLuck(m_data);</span>
+<span class="fc" id="L913">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L914">    final Territory uk = m_data.getMap().getTerritory(&quot;United Kingdom&quot;);</span>
+<span class="fc" id="L915">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L916">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L917">    final BattleTracker tracker = new BattleTracker();</span>
+<span class="fc" id="L918">    final StrategicBombingRaidBattle battle = new StrategicBombingRaidBattle(germany, m_data, british, tracker);</span>
+<span class="fc" id="L919">    final List&lt;Unit&gt; bombers = bomber(m_data).create(2, british);</span>
+<span class="fc" id="L920">    addTo(germany, bombers);</span>
+<span class="fc" id="L921">    battle.addAttackChange(m_data.getMap().getRoute(uk, germany), bombers, null);</span>
+<span class="fc" id="L922">    tracker.getBattleRecords().addBattle(british, battle.getBattleID(), germany, battle.getBattleType());</span>
+<span class="fc" id="L923">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L924">    bridge.setRemote(dummyPlayer);</span>
+    // should be exactly 3 rolls total. would be exactly 2 rolls if the number of units being shot at = max dice side of
+    // the AA gun, because
+    // the casualty selection roll would not happen in LL
+    // first 0 is the AA gun rolling 1@2 and getting a 1, which is a hit
+    // second 0 is the LL AA casualty selection randomly picking the first unit to die
+    // third 0 is the single remaining bomber dealing 1 damage to the enemy's PUs
+<span class="fc" id="L931">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {0, 0, 0, ScriptedRandomSource.ERROR}));</span>
+<span class="fc" id="L932">    final int pusBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L933">    battle.fight(bridge);</span>
+<span class="fc" id="L934">    final int pusAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L935">    assertEquals(pusBeforeRaid - 1, pusAfterRaid);</span>
+<span class="fc" id="L936">    assertEquals(1, germany.getUnits().getMatches(Matches.unitIsOwnedBy(british)).size());</span>
+<span class="fc" id="L937">  }</span>
+
+  @Test
+  public void testStratBombCasualtiesLowLuckManyBombers() {
+<span class="fc" id="L941">    makeGameLowLuck(m_data);</span>
+<span class="fc" id="L942">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L943">    final Territory uk = m_data.getMap().getTerritory(&quot;United Kingdom&quot;);</span>
+<span class="fc" id="L944">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L945">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L946">    final BattleTracker tracker = new BattleTracker();</span>
+<span class="fc" id="L947">    final StrategicBombingRaidBattle battle = new StrategicBombingRaidBattle(germany, m_data, british, tracker);</span>
+<span class="fc" id="L948">    final List&lt;Unit&gt; bombers = bomber(m_data).create(7, british);</span>
+<span class="fc" id="L949">    addTo(germany, bombers);</span>
+<span class="fc" id="L950">    battle.addAttackChange(m_data.getMap().getRoute(uk, germany), bombers, null);</span>
+<span class="fc" id="L951">    tracker.getBattleRecords().addBattle(british, battle.getBattleID(), germany, battle.getBattleType());</span>
+<span class="fc" id="L952">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L953">    bridge.setRemote(dummyPlayer);</span>
+    // aa guns rolls 0 and hits, next 5 dice are for the bombing raid cost for the
+    // surviving bombers
+<span class="fc" id="L956">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {0, 0, 0, 0, 0, 0, ScriptedRandomSource.ERROR}));</span>
+<span class="fc" id="L957">    final int pusBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L958">    battle.fight(bridge);</span>
+<span class="fc" id="L959">    final int pusAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L960">    assertEquals(pusBeforeRaid - 5, pusAfterRaid);</span>
+    // 2 bombers get hit
+<span class="fc" id="L962">    assertEquals(5, germany.getUnits().getMatches(Matches.unitIsOwnedBy(british)).size());</span>
+<span class="fc" id="L963">  }</span>
+
+  @Test
+  public void testStratBombRaidWithHeavyBombers() {
+<span class="fc" id="L967">    final Territory germany = m_data.getMap().getTerritory(&quot;Germany&quot;);</span>
+<span class="fc" id="L968">    final Territory uk = m_data.getMap().getTerritory(&quot;United Kingdom&quot;);</span>
+<span class="fc" id="L969">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L970">    final PlayerID british = GameDataTestUtil.british(m_data);</span>
+<span class="fc" id="L971">    final BattleTracker tracker = new BattleTracker();</span>
+<span class="fc" id="L972">    final StrategicBombingRaidBattle battle = new StrategicBombingRaidBattle(germany, m_data, british, tracker);</span>
+<span class="fc" id="L973">    battle.addAttackChange(m_data.getMap().getRoute(uk, germany),</span>
+<span class="fc" id="L974">        uk.getUnits().getMatches(Matches.UnitIsStrategicBomber), null);</span>
+<span class="fc" id="L975">    addTo(germany, uk.getUnits().getMatches(Matches.UnitIsStrategicBomber));</span>
+<span class="fc" id="L976">    tracker.getBattleRecords().addBattle(british, battle.getBattleID(), germany, battle.getBattleType());</span>
+<span class="fc" id="L977">    final ITestDelegateBridge bridge = getDelegateBridge(british);</span>
+<span class="fc" id="L978">    TechTracker.addAdvance(british, bridge,</span>
+<span class="fc" id="L979">        TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_HEAVY_BOMBER, m_data, british));</span>
+    // aa guns rolls 3, misses, bomber rolls 2 dice at 3
+<span class="fc" id="L981">    bridge.setRandomSource(new ScriptedRandomSource(new int[] {3, 2, 2}));</span>
+    // if we try to move aa, then the game will ask us if we want to move
+    // fail if we are called
+<span class="fc" id="L984">    final InvocationHandler handler = new InvocationHandler() {</span>
+      @Override
+      public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+<span class="fc" id="L987">        return null;</span>
+      }
+    };
+<span class="fc" id="L990">    final ITripleAPlayer player = (ITripleAPlayer) Proxy</span>
+<span class="fc" id="L991">        .newProxyInstance(Thread.currentThread().getContextClassLoader(),</span>
+<span class="fc" id="L992">            TestUtil.getClassArrayFrom(ITripleAPlayer.class), handler);</span>
+<span class="fc" id="L993">    bridge.setRemote(player);</span>
+    // int PUsBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));
+<span class="fc" id="L995">    final int pusBeforeRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L996">    battle.fight(bridge);</span>
+    // int PUsAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));
+<span class="fc" id="L998">    final int pusAfterRaid = germans.getResources().getQuantity(m_data.getResourceList().getResource(Constants.PUS));</span>
+<span class="fc" id="L999">    assertEquals(pusBeforeRaid - 6, pusAfterRaid);</span>
+<span class="fc" id="L1000">  }</span>
+
+  @Test
+  public void testLandBattleNoSneakAttack() {
+<span class="fc" id="L1004">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1005">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1006">    final Territory attacked = territory(&quot;Libya&quot;, m_data);</span>
+<span class="fc" id="L1007">    final Territory from = territory(&quot;Anglo Egypt&quot;, m_data);</span>
+<span class="fc" id="L1008">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1009">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1010">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1011">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1012">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1013">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1014">    final MustFightBattle battle =</span>
+<span class="fc" id="L1015">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1016">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+<span class="fc" id="L1017">    assertEquals(Arrays.asList(attacker + FIRE, defender + SELECT_CASUALTIES, defender + FIRE,</span>
+<span class="fc" id="L1018">        attacker + SELECT_CASUALTIES, REMOVE_CASUALTIES, attacker + ATTACKER_WITHDRAW).toString(), steps.toString());</span>
+<span class="fc" id="L1019">  }</span>
+
+  @Test
+  public void testSeaBattleNoSneakAttack() {
+<span class="fc" id="L1023">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1024">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1025">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1026">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 1 destroyer attacks 1 destroyer
+<span class="fc" id="L1028">    addTo(from, destroyer(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1029">    addTo(attacked, destroyer(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1030">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1031">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1032">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1033">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1034">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1035">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1036">    final MustFightBattle battle =</span>
+<span class="fc" id="L1037">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1038">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+<span class="fc" id="L1039">    assertEquals(Arrays.asList(attacker + FIRE, defender + SELECT_CASUALTIES, defender + FIRE,</span>
+<span class="fc" id="L1040">        attacker + SELECT_CASUALTIES, REMOVE_CASUALTIES, attacker + ATTACKER_WITHDRAW).toString(), steps.toString());</span>
+<span class="fc" id="L1041">  }</span>
+
+  @Test
+  public void testAttackSubsOnSubs() {
+<span class="fc" id="L1045">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1046">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1047">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1048">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 1 sub attacks 1 sub
+<span class="fc" id="L1050">    addTo(from, submarine(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1051">    addTo(attacked, submarine(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1052">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1053">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1054">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1055">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1056">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1057">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1058">    final MustFightBattle battle =</span>
+<span class="fc" id="L1059">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1060">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+<span class="fc" id="L1061">    assertEquals(</span>
+<span class="fc" id="L1062">        Arrays.asList(attacker + SUBS_FIRE, defender + SELECT_SUB_CASUALTIES, defender + SUBS_FIRE,</span>
+<span class="fc" id="L1063">            attacker + SELECT_SUB_CASUALTIES, REMOVE_SNEAK_ATTACK_CASUALTIES, REMOVE_CASUALTIES,</span>
+<span class="fc" id="L1064">            attacker + SUBS_SUBMERGE, defender + SUBS_SUBMERGE, attacker + ATTACKER_WITHDRAW).toString(),</span>
+<span class="fc" id="L1065">        steps.toString());</span>
+<span class="fc" id="L1066">    final List&lt;IExecutable&gt; execs = battle.getBattleExecutables(false);</span>
+<span class="fc" id="L1067">    final int attackSubs = getIndex(execs, MustFightBattle.AttackSubs.class);</span>
+<span class="fc" id="L1068">    final int defendSubs = getIndex(execs, MustFightBattle.DefendSubs.class);</span>
+<span class="pc bpc" id="L1069" title="1 of 2 branches missed.">    assertTrue(attackSubs &lt; defendSubs);</span>
+<span class="fc" id="L1070">    bridge.setRemote(dummyPlayer);</span>
+    // fight, each sub should fire
+    // and hit
+<span class="fc" id="L1073">    final ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 0, ScriptedRandomSource.ERROR);</span>
+<span class="fc" id="L1074">    bridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L1075">    battle.fight(bridge);</span>
+<span class="fc" id="L1076">    assertEquals(2, randomSource.getTotalRolled());</span>
+<span class="fc" id="L1077">    assertTrue(attacked.getUnits().isEmpty());</span>
+<span class="fc" id="L1078">  }</span>
+
+  @Test
+  public void testAttackSubsOnDestroyer() {
+<span class="fc" id="L1082">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1083">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1084">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1085">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 2 sub attacks 1 sub and 1 destroyer
+<span class="fc" id="L1087">    addTo(from, submarine(m_data).create(2, british(m_data)));</span>
+<span class="fc" id="L1088">    addTo(attacked, submarine(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1089">    addTo(attacked, destroyer(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1090">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1091">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1092">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1093">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1094">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1095">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1096">    final MustFightBattle battle =</span>
+<span class="fc" id="L1097">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1098">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+    /*
+     * Here are the exact errata clarifications on how REVISED rules subs work:
+     * Every sub, regardless of whether it is on the attacking or defending side, fires in the Opening Fire step of
+     * combat. That is the only
+     * time a sub ever fires.
+     * Losses caused by attacking or defending subs are removed at the end of the Opening Fire step, before normal
+     * attack and defense rolls,
+     * unless the enemy has a destroyer present.
+     * If the enemy (attacker or defender) has a destroyer, then hits caused by your subs are not removed until the
+     * Remove Casualties step
+     * (step 6) of combat.
+     * In other words, subs work exactly the same for the attacker and the defender. Nothing, not even a destroyer, ever
+     * stops a sub from
+     * rolling its die (attack or defense) in the Opening Fire step.
+     * What a destroyer does do is let you keep your units that were sunk by enemy subs on the battle board until step
+     * 6, allowing them to
+     * fire back before going to the scrap heap.
+     */
+<span class="fc" id="L1117">    assertEquals(Arrays.asList(attacker + SUBS_FIRE, defender + SELECT_SUB_CASUALTIES, defender + SUBS_FIRE,</span>
+<span class="fc" id="L1118">        attacker + SELECT_SUB_CASUALTIES, REMOVE_SNEAK_ATTACK_CASUALTIES, defender + FIRE, attacker + SELECT_CASUALTIES,</span>
+<span class="fc" id="L1119">        REMOVE_CASUALTIES, attacker + SUBS_SUBMERGE, defender + SUBS_SUBMERGE, attacker + ATTACKER_WITHDRAW).toString(),</span>
+<span class="fc" id="L1120">        steps.toString());</span>
+<span class="fc" id="L1121">    final List&lt;IExecutable&gt; execs = battle.getBattleExecutables(false);</span>
+<span class="fc" id="L1122">    final int attackSubs = getIndex(execs, MustFightBattle.AttackSubs.class);</span>
+<span class="fc" id="L1123">    final int defendSubs = getIndex(execs, MustFightBattle.DefendSubs.class);</span>
+<span class="pc bpc" id="L1124" title="1 of 2 branches missed.">    assertTrue(attackSubs &lt; defendSubs);</span>
+<span class="fc" id="L1125">    bridge.setRemote(dummyPlayer);</span>
+    // attacking subs fires, defending destroyer and sub still gets to fire
+    // attacking subs still gets to fire even if defending sub hits
+<span class="fc" id="L1128">    final ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 2, 0, 0, ScriptedRandomSource.ERROR);</span>
+<span class="fc" id="L1129">    bridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L1130">    battle.fight(bridge);</span>
+<span class="fc" id="L1131">    assertEquals(4, randomSource.getTotalRolled());</span>
+<span class="fc" id="L1132">    assertTrue(attacked.getUnits().getMatches(Matches.unitIsOwnedBy(british(m_data))).isEmpty());</span>
+<span class="fc" id="L1133">    assertEquals(1, attacked.getUnits().size());</span>
+<span class="fc" id="L1134">  }</span>
+
+  @Test
+  public void testAttackSubsAndBBOnDestroyerAndSubs() {
+<span class="fc" id="L1138">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1139">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1140">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1141">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 1 sub and 1 BB (two hp) attacks 3 subs and 1 destroyer
+<span class="fc" id="L1143">    addTo(from, submarine(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1144">    addTo(from, battleship(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1145">    addTo(attacked, submarine(m_data).create(3, germans(m_data)));</span>
+<span class="fc" id="L1146">    addTo(attacked, destroyer(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1147">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1148">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1149">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1150">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1151">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1152">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1153">    final MustFightBattle battle =</span>
+<span class="fc" id="L1154">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1155">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+    /*
+     * Here are the exact errata clarifications on how REVISED rules subs work:
+     * Every sub, regardless of whether it is on the attacking or defending side, fires in the Opening Fire step of
+     * combat. That is the only
+     * time a sub ever fires.
+     * Losses caused by attacking or defending subs are removed at the end of the Opening Fire step, before normal
+     * attack and defense rolls,
+     * unless the enemy has a destroyer present.
+     * If the enemy (attacker or defender) has a destroyer, then hits caused by your subs are not removed until the
+     * Remove Casualties step
+     * (step 6) of combat.
+     * In other words, subs work exactly the same for the attacker and the defender. Nothing, not even a destroyer, ever
+     * stops a sub from
+     * rolling its die (attack or defense) in the Opening Fire step.
+     * What a destroyer does do is let you keep your units that were sunk by enemy subs on the battle board until step
+     * 6, allowing them to
+     * fire back before going to the scrap heap.
+     */
+<span class="fc" id="L1174">    assertEquals(</span>
+<span class="fc" id="L1175">        Arrays.asList(attacker + SUBS_FIRE, defender + SELECT_SUB_CASUALTIES, defender + SUBS_FIRE,</span>
+<span class="fc" id="L1176">            attacker + SELECT_SUB_CASUALTIES, REMOVE_SNEAK_ATTACK_CASUALTIES, attacker + FIRE,</span>
+<span class="fc" id="L1177">            defender + SELECT_CASUALTIES, defender + FIRE, attacker + SELECT_CASUALTIES, REMOVE_CASUALTIES,</span>
+<span class="fc" id="L1178">            attacker + SUBS_SUBMERGE, defender + SUBS_SUBMERGE, attacker + ATTACKER_WITHDRAW).toString(),</span>
+<span class="fc" id="L1179">        steps.toString());</span>
+<span class="fc" id="L1180">    final List&lt;IExecutable&gt; execs = battle.getBattleExecutables(false);</span>
+<span class="fc" id="L1181">    final int attackSubs = getIndex(execs, MustFightBattle.AttackSubs.class);</span>
+<span class="fc" id="L1182">    final int defendSubs = getIndex(execs, MustFightBattle.DefendSubs.class);</span>
+<span class="pc bpc" id="L1183" title="1 of 2 branches missed.">    assertTrue(attackSubs &lt; defendSubs);</span>
+<span class="fc" id="L1184">    bridge.setRemote(dummyPlayer);</span>
+    // attacking subs fires, defending destroyer and sub still gets to fire
+    // attacking subs still gets to fire even if defending sub hits
+    // battleship will not get to fire since it is killed by defending sub's sneak attack
+<span class="fc" id="L1188">    final ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 0, 0, 0, ScriptedRandomSource.ERROR);</span>
+<span class="fc" id="L1189">    bridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L1190">    battle.fight(bridge);</span>
+<span class="fc" id="L1191">    assertEquals(4, randomSource.getTotalRolled());</span>
+<span class="fc" id="L1192">    assertTrue(attacked.getUnits().getMatches(Matches.unitIsOwnedBy(british(m_data))).isEmpty());</span>
+<span class="fc" id="L1193">    assertEquals(3, attacked.getUnits().size());</span>
+<span class="fc" id="L1194">  }</span>
+
+  @Test
+  public void testAttackDestroyerAndSubsAgainstSub() {
+<span class="fc" id="L1198">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1199">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1200">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1201">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 1 sub and 1 destroyer attack 1 sub
+    // defender sneak attacks, not attacker
+<span class="fc" id="L1204">    addTo(from, submarine(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1205">    addTo(from, destroyer(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1206">    addTo(attacked, submarine(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1207">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1208">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1209">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1210">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1211">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1212">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1213">    final MustFightBattle battle =</span>
+<span class="fc" id="L1214">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1215">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+<span class="fc" id="L1216">    assertEquals(Arrays.asList(attacker + SUBS_FIRE, defender + SELECT_SUB_CASUALTIES, defender + SUBS_FIRE,</span>
+<span class="fc" id="L1217">        attacker + SELECT_SUB_CASUALTIES, REMOVE_SNEAK_ATTACK_CASUALTIES, attacker + FIRE, defender + SELECT_CASUALTIES,</span>
+<span class="fc" id="L1218">        REMOVE_CASUALTIES, attacker + SUBS_SUBMERGE, defender + SUBS_SUBMERGE, attacker + ATTACKER_WITHDRAW).toString(),</span>
+<span class="fc" id="L1219">        steps.toString());</span>
+<span class="fc" id="L1220">    final List&lt;IExecutable&gt; execs = battle.getBattleExecutables(false);</span>
+<span class="fc" id="L1221">    final int attackSubs = getIndex(execs, MustFightBattle.AttackSubs.class);</span>
+<span class="fc" id="L1222">    final int defendSubs = getIndex(execs, MustFightBattle.DefendSubs.class);</span>
+<span class="pc bpc" id="L1223" title="1 of 2 branches missed.">    assertTrue(attackSubs &lt; defendSubs);</span>
+<span class="fc" id="L1224">    bridge.setRemote(dummyPlayer);</span>
+    // attacking sub hits with sneak attack, but defending sub gets to return fire because it is a sub and this is
+    // revised rules
+<span class="fc" id="L1227">    final ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 0, ScriptedRandomSource.ERROR);</span>
+<span class="fc" id="L1228">    bridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L1229">    battle.fight(bridge);</span>
+<span class="fc" id="L1230">    assertEquals(2, randomSource.getTotalRolled());</span>
+<span class="fc" id="L1231">    assertTrue(attacked.getUnits().getMatches(Matches.unitIsOwnedBy(germans(m_data))).isEmpty());</span>
+<span class="fc" id="L1232">    assertEquals(1, attacked.getUnits().size());</span>
+<span class="fc" id="L1233">  }</span>
+
+  @Test
+  public void testAttackSubsAndDestroyerOnBBAndSubs() {
+<span class="fc" id="L1237">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1238">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1239">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1240">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 1 sub and 1 BB (two hp) attacks 3 subs and 1 destroyer
+<span class="fc" id="L1242">    addTo(from, submarine(m_data).create(3, british(m_data)));</span>
+<span class="fc" id="L1243">    addTo(from, destroyer(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1244">    addTo(attacked, submarine(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1245">    addTo(attacked, battleship(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1246">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1247">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1248">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1249">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1250">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1251">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1252">    final MustFightBattle battle =</span>
+<span class="fc" id="L1253">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1254">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+    /*
+     * Here are the exact errata clarifications on how REVISED rules subs work:
+     * Every sub, regardless of whether it is on the attacking or defending side, fires in the Opening Fire step of
+     * combat. That is the only
+     * time a sub ever fires.
+     * Losses caused by attacking or defending subs are removed at the end of the Opening Fire step, before normal
+     * attack and defense rolls,
+     * unless the enemy has a destroyer present.
+     * If the enemy (attacker or defender) has a destroyer, then hits caused by your subs are not removed until the
+     * Remove Casualties step
+     * (step 6) of combat.
+     * In other words, subs work exactly the same for the attacker and the defender. Nothing, not even a destroyer, ever
+     * stops a sub from
+     * rolling its die (attack or defense) in the Opening Fire step.
+     * What a destroyer does do is let you keep your units that were sunk by enemy subs on the battle board until step
+     * 6, allowing them to
+     * fire back before going to the scrap heap.
+     */
+<span class="fc" id="L1273">    assertEquals(</span>
+<span class="fc" id="L1274">        Arrays.asList(attacker + SUBS_FIRE, defender + SELECT_SUB_CASUALTIES, defender + SUBS_FIRE,</span>
+<span class="fc" id="L1275">            attacker + SELECT_SUB_CASUALTIES, REMOVE_SNEAK_ATTACK_CASUALTIES, attacker + FIRE,</span>
+<span class="fc" id="L1276">            defender + SELECT_CASUALTIES, defender + FIRE, attacker + SELECT_CASUALTIES, REMOVE_CASUALTIES,</span>
+<span class="fc" id="L1277">            attacker + SUBS_SUBMERGE, defender + SUBS_SUBMERGE, attacker + ATTACKER_WITHDRAW).toString(),</span>
+<span class="fc" id="L1278">        steps.toString());</span>
+<span class="fc" id="L1279">    final List&lt;IExecutable&gt; execs = battle.getBattleExecutables(false);</span>
+<span class="fc" id="L1280">    final int attackSubs = getIndex(execs, MustFightBattle.AttackSubs.class);</span>
+<span class="fc" id="L1281">    final int defendSubs = getIndex(execs, MustFightBattle.DefendSubs.class);</span>
+<span class="pc bpc" id="L1282" title="1 of 2 branches missed.">    assertTrue(attackSubs &lt; defendSubs);</span>
+<span class="fc" id="L1283">    bridge.setRemote(dummyPlayer);</span>
+    // attacking subs fires, defending destroyer and sub still gets to fire
+    // attacking subs still gets to fire even if defending sub hits
+    // battleship will not get to fire since it is killed by defending sub's sneak attack
+<span class="fc" id="L1287">    final ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 0, 0, 0, ScriptedRandomSource.ERROR);</span>
+<span class="fc" id="L1288">    bridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L1289">    battle.fight(bridge);</span>
+<span class="fc" id="L1290">    assertEquals(4, randomSource.getTotalRolled());</span>
+<span class="fc" id="L1291">    assertTrue(attacked.getUnits().getMatches(Matches.unitIsOwnedBy(germans(m_data))).isEmpty());</span>
+<span class="fc" id="L1292">    assertEquals(3, attacked.getUnits().size());</span>
+<span class="fc" id="L1293">  }</span>
+
+  @Test
+  public void testAttackDestroyerAndSubsAgainstSubAndDestroyer() {
+<span class="fc" id="L1297">    final String defender = &quot;Germans&quot;;</span>
+<span class="fc" id="L1298">    final String attacker = &quot;British&quot;;</span>
+<span class="fc" id="L1299">    final Territory attacked = territory(&quot;31 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1300">    final Territory from = territory(&quot;32 Sea Zone&quot;, m_data);</span>
+    // 1 sub and 1 destroyer attack 1 sub and 1 destroyer
+    // defender sneak attacks, not attacker
+<span class="fc" id="L1303">    addTo(from, submarine(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1304">    addTo(from, destroyer(m_data).create(1, british(m_data)));</span>
+<span class="fc" id="L1305">    addTo(attacked, submarine(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1306">    addTo(attacked, destroyer(m_data).create(1, germans(m_data)));</span>
+<span class="fc" id="L1307">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1308">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1309">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1310">    moveDelegate(m_data).start();</span>
+<span class="fc" id="L1311">    move(from.getUnits().getUnits(), new Route(from, attacked));</span>
+<span class="fc" id="L1312">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1313">    final MustFightBattle battle =</span>
+<span class="fc" id="L1314">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(attacked, false, null);</span>
+<span class="fc" id="L1315">    final List&lt;String&gt; steps = battle.determineStepStrings(true, bridge);</span>
+<span class="fc" id="L1316">    assertEquals(Arrays.asList(attacker + SUBS_FIRE, defender + SELECT_SUB_CASUALTIES, defender + SUBS_FIRE,</span>
+<span class="fc" id="L1317">        attacker + SELECT_SUB_CASUALTIES, attacker + FIRE, defender + SELECT_CASUALTIES, defender + FIRE,</span>
+<span class="fc" id="L1318">        attacker + SELECT_CASUALTIES, REMOVE_CASUALTIES, attacker + SUBS_SUBMERGE, defender + SUBS_SUBMERGE,</span>
+<span class="fc" id="L1319">        attacker + ATTACKER_WITHDRAW).toString(), steps.toString());</span>
+<span class="fc" id="L1320">    final List&lt;IExecutable&gt; execs = battle.getBattleExecutables(false);</span>
+<span class="fc" id="L1321">    final int attackSubs = getIndex(execs, MustFightBattle.AttackSubs.class);</span>
+<span class="fc" id="L1322">    final int defendSubs = getIndex(execs, MustFightBattle.DefendSubs.class);</span>
+<span class="pc bpc" id="L1323" title="1 of 2 branches missed.">    assertTrue(attackSubs &lt; defendSubs);</span>
+<span class="fc" id="L1324">    when(dummyPlayer.selectCasualties(any(), any(), anyInt(), any(),</span>
+<span class="fc" id="L1325">        any(), any(), any(), any(), any(),</span>
+<span class="fc" id="L1326">        anyBoolean(), any(),</span>
+<span class="fc" id="L1327">        any(), any(), any(), anyBoolean()))</span>
+<span class="fc" id="L1328">            .thenAnswer(new Answer&lt;CasualtyDetails&gt;() {</span>
+              @Override
+              public CasualtyDetails answer(final InvocationOnMock invocation) throws Throwable {
+<span class="fc" id="L1331">                final Collection&lt;Unit&gt; selectFrom = invocation.getArgument(0);</span>
+<span class="fc" id="L1332">                return new CasualtyDetails(Arrays.asList(selectFrom.iterator().next()), new ArrayList&lt;&gt;(), false);</span>
+              }
+            });
+<span class="fc" id="L1335">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L1336">    final ScriptedRandomSource randomSource = new ScriptedRandomSource(0, 0, 0, 0, ScriptedRandomSource.ERROR);</span>
+<span class="fc" id="L1337">    bridge.setRandomSource(randomSource);</span>
+<span class="fc" id="L1338">    battle.fight(bridge);</span>
+<span class="fc" id="L1339">    assertEquals(4, randomSource.getTotalRolled());</span>
+<span class="fc" id="L1340">    assertEquals(0, attacked.getUnits().size());</span>
+<span class="fc" id="L1341">  }</span>
+
+  @Test
+  public void testUnplacedDie() {
+<span class="fc" id="L1345">    final PlaceDelegate del = placeDelegate(m_data);</span>
+<span class="fc" id="L1346">    del.setDelegateBridgeAndPlayer(getDelegateBridge(british(m_data)));</span>
+<span class="fc" id="L1347">    del.start();</span>
+<span class="fc" id="L1348">    addTo(british(m_data), transport(m_data).create(1, british(m_data)), m_data);</span>
+<span class="fc" id="L1349">    del.end();</span>
+    // unplaced units die
+<span class="fc" id="L1351">    assertTrue(british(m_data).getUnits().isEmpty());</span>
+<span class="fc" id="L1352">  }</span>
+
+  @Test
+  public void testRocketsDontFireInConquered() {
+<span class="fc" id="L1356">    final MoveDelegate move = moveDelegate(m_data);</span>
+<span class="fc" id="L1357">    final ITestDelegateBridge bridge = getDelegateBridge(germans(m_data));</span>
+<span class="fc" id="L1358">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1359">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L1360">    move.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1361">    move.start();</span>
+    // remove the russians units in caucasus so we can blitz
+<span class="fc" id="L1363">    final Territory cauc = territory(&quot;Caucasus&quot;, m_data);</span>
+<span class="fc" id="L1364">    removeFrom(cauc, cauc.getUnits().getMatches(Matches.UnitIsNotAA));</span>
+    // blitz
+<span class="fc" id="L1366">    final Territory wr = territory(&quot;West Russia&quot;, m_data);</span>
+<span class="fc" id="L1367">    move(wr.getUnits().getMatches(Matches.UnitCanBlitz), new Route(wr, cauc));</span>
+<span class="fc" id="L1368">    final Set&lt;Territory&gt; fire = new RocketsFireHelper().getTerritoriesWithRockets(m_data, germans(m_data));</span>
+    // germany, WE, SE, but not caucusus
+<span class="fc" id="L1370">    assertEquals(fire.size(), 3);</span>
+<span class="fc" id="L1371">  }</span>
+
+  @Test
+  public void testTechRolls() {
+    // Set up the test
+<span class="fc" id="L1376">    final PlayerID germans = GameDataTestUtil.germans(m_data);</span>
+<span class="fc" id="L1377">    final ITestDelegateBridge delegateBridge = getDelegateBridge(germans);</span>
+<span class="fc" id="L1378">    delegateBridge.setStepName(&quot;germanTech&quot;);</span>
+<span class="fc" id="L1379">    final TechnologyDelegate techDelegate = techDelegate(m_data);</span>
+<span class="fc" id="L1380">    techDelegate.setDelegateBridgeAndPlayer(delegateBridge);</span>
+<span class="fc" id="L1381">    techDelegate.start();</span>
+<span class="fc" id="L1382">    final TechAttachment ta = TechAttachment.get(germans);</span>
+    // PlayerAttachment pa = PlayerAttachment.get(germans);
+<span class="fc" id="L1384">    final TechnologyFrontier rockets = new TechnologyFrontier(&quot;&quot;, m_data);</span>
+<span class="fc" id="L1385">    rockets.addAdvance(TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_ROCKETS, m_data, null));</span>
+<span class="fc" id="L1386">    final TechnologyFrontier jet = new TechnologyFrontier(&quot;&quot;, m_data);</span>
+<span class="fc" id="L1387">    jet.addAdvance(TechAdvance.findAdvance(TechAdvance.TECH_PROPERTY_JET_POWER, m_data, null));</span>
+    // Check to make sure it was successful
+<span class="fc" id="L1389">    final int initPUs = germans.getResources().getQuantity(&quot;PUs&quot;);</span>
+    // Fail the roll
+<span class="fc" id="L1391">    delegateBridge.setRandomSource(new ScriptedRandomSource(new int[] {3, 4}));</span>
+<span class="fc" id="L1392">    final TechResults roll = techDelegate.rollTech(2, rockets, 0, null);</span>
+    // Check to make sure it failed
+<span class="fc" id="L1394">    assertEquals(0, roll.getHits());</span>
+<span class="fc" id="L1395">    final int midPUs = germans.getResources().getQuantity(&quot;PUs&quot;);</span>
+<span class="fc" id="L1396">    assertEquals(initPUs - 10, midPUs);</span>
+    // Make a Successful roll
+<span class="fc" id="L1398">    delegateBridge.setRandomSource(new ScriptedRandomSource(new int[] {5}));</span>
+<span class="fc" id="L1399">    final TechResults roll2 = techDelegate.rollTech(1, rockets, 0, null);</span>
+    // Check to make sure it succeeded
+<span class="fc" id="L1401">    assertEquals(1, roll2.getHits());</span>
+<span class="fc" id="L1402">    final int finalPUs = germans.getResources().getQuantity(&quot;PUs&quot;);</span>
+<span class="fc" id="L1403">    assertEquals(midPUs - 5, finalPUs);</span>
+    // Test the variable tech cost
+    // Make a Successful roll
+<span class="fc" id="L1406">    ta.setTechCost(&quot;6&quot;);</span>
+<span class="fc" id="L1407">    delegateBridge.setRandomSource(new ScriptedRandomSource(new int[] {5}));</span>
+<span class="fc" id="L1408">    final TechResults roll3 = techDelegate.rollTech(1, jet, 0, null);</span>
+    // Check to make sure it succeeded
+<span class="fc" id="L1410">    assertEquals(1, roll3.getHits());</span>
+<span class="fc" id="L1411">    final int VariablePUs = germans.getResources().getQuantity(&quot;PUs&quot;);</span>
+<span class="fc" id="L1412">    assertEquals(finalPUs - 6, VariablePUs);</span>
+<span class="fc" id="L1413">  }</span>
+
+  @Test
+  public void testTransportsUnloadingToMultipleTerritoriesDie() {
+    // two transports enter a battle, but drop off
+    // their units to two allied territories before
+    // the begin the battle
+    // the units they drop off should die with the transports
+<span class="fc" id="L1421">    final PlayerID germans = germans(m_data);</span>
+<span class="fc" id="L1422">    final PlayerID british = british(m_data);</span>
+<span class="fc" id="L1423">    final Territory sz6 = territory(&quot;6 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1424">    final Territory sz5 = territory(&quot;5 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1425">    final Territory germany = territory(&quot;Germany&quot;, m_data);</span>
+<span class="fc" id="L1426">    final Territory norway = territory(&quot;Norway&quot;, m_data);</span>
+<span class="fc" id="L1427">    final Territory we = territory(&quot;Western Europe&quot;, m_data);</span>
+<span class="fc" id="L1428">    final Territory uk = territory(&quot;United Kingdom&quot;, m_data);</span>
+<span class="fc" id="L1429">    addTo(sz6, destroyer(m_data).create(2, british));</span>
+<span class="fc" id="L1430">    addTo(sz5, transport(m_data).create(3, germans));</span>
+<span class="fc" id="L1431">    addTo(germany, armour(m_data).create(3, germans));</span>
+<span class="fc" id="L1432">    final ITestDelegateBridge bridge = getDelegateBridge(germans(m_data));</span>
+<span class="fc" id="L1433">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1434">    bridge.setRemote(dummyPlayer);</span>
+<span class="fc" id="L1435">    moveDelegate(m_data).setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1436">    moveDelegate(m_data).start();</span>
+    // load two transports, 1 tank each
+<span class="fc" id="L1438">    load(germany.getUnits().getMatches(Matches.UnitCanBlitz).subList(0, 1), new Route(germany, sz5));</span>
+<span class="fc" id="L1439">    load(germany.getUnits().getMatches(Matches.UnitCanBlitz).subList(0, 1), new Route(germany, sz5));</span>
+<span class="fc" id="L1440">    load(germany.getUnits().getMatches(Matches.UnitCanBlitz).subList(0, 1), new Route(germany, sz5));</span>
+    // attack sz 6
+<span class="fc" id="L1442">    move(sz5.getUnits().getMatches(new CompositeMatchOr&lt;&gt;(Matches.UnitCanBlitz, Matches.UnitIsTransport)),</span>
+<span class="fc" id="L1443">        new Route(sz5, sz6));</span>
+    // unload transports, 1 each to a different country
+    // this move is illegal now
+<span class="fc" id="L1446">    assertMoveError(sz6.getUnits().getMatches(Matches.UnitCanBlitz).subList(0, 1), new Route(sz6, norway));</span>
+    // this move is illegal now
+<span class="fc" id="L1448">    assertMoveError(sz6.getUnits().getMatches(Matches.UnitCanBlitz).subList(0, 1), new Route(sz6, we));</span>
+<span class="fc" id="L1449">    move(sz6.getUnits().getMatches(Matches.UnitCanBlitz).subList(0, 1), new Route(sz6, uk));</span>
+    // fight the battle
+<span class="fc" id="L1451">    moveDelegate(m_data).end();</span>
+<span class="fc" id="L1452">    final MustFightBattle battle =</span>
+<span class="fc" id="L1453">        (MustFightBattle) AbstractMoveDelegate.getBattleTracker(m_data).getPendingBattle(sz6, false, null);</span>
+    // everything hits, this will kill both transports
+<span class="fc" id="L1455">    bridge.setRandomSource(new ScriptedRandomSource(0));</span>
+<span class="fc" id="L1456">    battle.fight(bridge);</span>
+    // the armour should have died
+<span class="fc" id="L1458">    assertEquals(0, norway.getUnits().countMatches(Matches.UnitCanBlitz));</span>
+<span class="fc" id="L1459">    assertEquals(2, we.getUnits().countMatches(Matches.UnitCanBlitz));</span>
+<span class="fc" id="L1460">    assertEquals(0, uk.getUnits().countMatches(Matches.unitIsOwnedBy(germans)));</span>
+<span class="fc" id="L1461">  }</span>
+
+  @Test
+  public void testCanalMovePass() {
+<span class="fc" id="L1465">    final Territory sz15 = territory(&quot;15 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1466">    final Territory sz34 = territory(&quot;34 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1467">    final ITestDelegateBridge bridge = getDelegateBridge(british(m_data));</span>
+<span class="fc" id="L1468">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1469">    final MoveDelegate moveDelegate = moveDelegate(m_data);</span>
+<span class="fc" id="L1470">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1471">    moveDelegate.start();</span>
+<span class="fc" id="L1472">    final String error = moveDelegate.move(sz15.getUnits().getUnits(), new Route(sz15, sz34));</span>
+<span class="fc" id="L1473">    assertValid(error);</span>
+<span class="fc" id="L1474">  }</span>
+
+  @Test
+  public void testCanalMovementFail() {
+<span class="fc" id="L1478">    final Territory sz14 = territory(&quot;14 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1479">    final Territory sz15 = territory(&quot;15 Sea Zone&quot;, m_data);</span>
+<span class="fc" id="L1480">    final Territory sz34 = territory(&quot;34 Sea Zone&quot;, m_data);</span>
+    // clear the british in sz 15
+<span class="fc" id="L1482">    removeFrom(sz15, sz15.getUnits().getUnits());</span>
+<span class="fc" id="L1483">    final ITestDelegateBridge bridge = getDelegateBridge(germans(m_data));</span>
+<span class="fc" id="L1484">    bridge.setStepName(&quot;CombatMove&quot;);</span>
+<span class="fc" id="L1485">    final MoveDelegate moveDelegate = moveDelegate(m_data);</span>
+<span class="fc" id="L1486">    moveDelegate.setDelegateBridgeAndPlayer(bridge);</span>
+<span class="fc" id="L1487">    moveDelegate.start();</span>
+<span class="fc" id="L1488">    final String error = moveDelegate.move(sz14.getUnits().getUnits(), new Route(sz14, sz15, sz34));</span>
+<span class="fc" id="L1489">    assertError(error);</span>
+<span class="fc" id="L1490">  }</span>
+
+  public void testTransportIsTransport() {
+<span class="nc" id="L1493">    assertTrue(Matches.UnitIsTransport.match(transport(m_data).create(british(m_data))));</span>
+<span class="nc" id="L1494">    assertFalse(Matches.UnitIsTransport.match(infantry(m_data).create(british(m_data))));</span>
+<span class="nc" id="L1495">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

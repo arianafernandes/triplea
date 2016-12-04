@@ -1,0 +1,539 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MapCreator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.map.making</a> &gt; <span class="el_source">MapCreator.java</span></div><h1>MapCreator.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package tools.map.making;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.swing.Action;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.framework.ProcessRunnerUtil;
+import games.strategy.engine.framework.lookandfeel.LookAndFeel;
+import games.strategy.net.OpenFileUtility;
+import games.strategy.triplea.image.UnitImageFactory;
+import games.strategy.ui.SwingAction;
+import tools.image.AutoPlacementFinder;
+import tools.image.CenterPicker;
+import tools.image.DecorationPlacer;
+import tools.image.FileSave;
+import tools.image.PolygonGrabber;
+import tools.image.ReliefImageBreaker;
+import tools.image.TileImageBreaker;
+import tools.image.TileImageReconstructor;
+
+/**
+ * A frame that will run the different map making utilities we have.
+ */
+public class MapCreator extends JFrame {
+  private static final long serialVersionUID = 3593102638082774498L;
+  private static final String TRIPLEA_MAP_FOLDER = &quot;triplea.map.folder&quot;;
+  private static final String TRIPLEA_UNIT_ZOOM = &quot;triplea.unit.zoom&quot;;
+  private static final String TRIPLEA_UNIT_WIDTH = &quot;triplea.unit.width&quot;;
+  private static final String TRIPLEA_UNIT_HEIGHT = &quot;triplea.unit.height&quot;;
+<span class="nc" id="L55">  private static long s_memory = Runtime.getRuntime().maxMemory();</span>
+<span class="nc" id="L56">  private static File s_mapFolderLocation = null;</span>
+<span class="nc" id="L57">  private static double s_unit_zoom = 0.75;</span>
+<span class="nc" id="L58">  private static int s_unit_width = UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+<span class="nc" id="L59">  private static int s_unit_height = UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+<span class="nc" id="L60">  private static boolean s_runUtilitiesAsSeperateProcesses = true;</span>
+  final JPanel m_mainPanel;
+  final JPanel m_sidePanel;
+  final JButton m_part1;
+  final JButton m_part2;
+  final JButton m_part3;
+  final JButton m_part4;
+<span class="nc" id="L67">  final JPanel m_panel1 = new JPanel();</span>
+<span class="nc" id="L68">  final JPanel m_panel2 = new JPanel();</span>
+<span class="nc" id="L69">  final JPanel m_panel3 = new JPanel();</span>
+<span class="nc" id="L70">  final JPanel m_panel4 = new JPanel();</span>
+
+  public static String[] getProperties() {
+<span class="nc" id="L73">    return new String[] {TRIPLEA_MAP_FOLDER, TRIPLEA_UNIT_ZOOM, TRIPLEA_UNIT_WIDTH, TRIPLEA_UNIT_HEIGHT};</span>
+  }
+
+  public static void main(final String[] args) {
+<span class="nc" id="L77">    LookAndFeel.setupLookAndFeel();</span>
+<span class="nc" id="L78">    final MapCreator creator = new MapCreator();</span>
+<span class="nc" id="L79">    creator.setSize(800, 600);</span>
+<span class="nc" id="L80">    creator.setLocationRelativeTo(null);</span>
+<span class="nc" id="L81">    creator.setVisible(true);</span>
+<span class="nc" id="L82">  }</span>
+
+  public MapCreator() {
+<span class="nc" id="L85">    super(&quot;TripleA Map Creator&quot;);</span>
+<span class="nc" id="L86">    setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);</span>
+    // components
+<span class="nc" id="L88">    m_mainPanel = new JPanel();</span>
+<span class="nc" id="L89">    m_sidePanel = new JPanel();</span>
+<span class="nc" id="L90">    m_part1 = new JButton(&quot;Step 1: Map Properties&quot;);</span>
+<span class="nc" id="L91">    m_part2 = new JButton(&quot;Step 2: Map Utilities&quot;);</span>
+<span class="nc" id="L92">    m_part3 = new JButton(&quot;Step 3: Game XML&quot;);</span>
+<span class="nc" id="L93">    m_part4 = new JButton(&quot;Other: Optional Things&quot;);</span>
+<span class="nc" id="L94">    m_sidePanel.setLayout(new BoxLayout(m_sidePanel, BoxLayout.PAGE_AXIS));</span>
+<span class="nc" id="L95">    m_sidePanel.add(Box.createVerticalGlue());</span>
+<span class="nc" id="L96">    m_sidePanel.add(m_part1);</span>
+<span class="nc" id="L97">    m_part1.setAlignmentX(Component.CENTER_ALIGNMENT);</span>
+<span class="nc" id="L98">    m_sidePanel.add(Box.createVerticalGlue());</span>
+<span class="nc" id="L99">    m_sidePanel.add(m_part2);</span>
+<span class="nc" id="L100">    m_part2.setAlignmentX(Component.CENTER_ALIGNMENT);</span>
+<span class="nc" id="L101">    m_sidePanel.add(Box.createVerticalGlue());</span>
+<span class="nc" id="L102">    m_sidePanel.add(m_part3);</span>
+<span class="nc" id="L103">    m_part3.setAlignmentX(Component.CENTER_ALIGNMENT);</span>
+<span class="nc" id="L104">    m_sidePanel.add(Box.createVerticalGlue());</span>
+<span class="nc" id="L105">    m_sidePanel.add(m_part4);</span>
+<span class="nc" id="L106">    m_part4.setAlignmentX(Component.CENTER_ALIGNMENT);</span>
+<span class="nc" id="L107">    m_sidePanel.add(Box.createVerticalGlue());</span>
+<span class="nc" id="L108">    createPart1Panel();</span>
+<span class="nc" id="L109">    createPart2Panel();</span>
+<span class="nc" id="L110">    createPart3Panel();</span>
+<span class="nc" id="L111">    createPart4Panel();</span>
+<span class="nc" id="L112">    m_part1.addActionListener(SwingAction.of(&quot;Part 1&quot;, e -&gt; setupMainPanel(m_panel1)));</span>
+<span class="nc" id="L113">    m_part2.addActionListener(SwingAction.of(&quot;Part 2&quot;, e -&gt; setupMainPanel(m_panel2)));</span>
+<span class="nc" id="L114">    m_part3.addActionListener(SwingAction.of(&quot;Part 3&quot;, e -&gt; setupMainPanel(m_panel3)));</span>
+<span class="nc" id="L115">    m_part4.addActionListener(SwingAction.of(&quot;Part 4&quot;, e -&gt; setupMainPanel(m_panel4)));</span>
+    // set up the menu actions
+<span class="nc" id="L117">    final Action exitAction = SwingAction.of(&quot;Exit&quot;, e -&gt; System.exit(0));</span>
+<span class="nc" id="L118">    exitAction.putValue(Action.SHORT_DESCRIPTION, &quot;Exit The Program&quot;);</span>
+    // set up the menu items
+<span class="nc" id="L120">    final JMenuItem exitItem = new JMenuItem(exitAction);</span>
+    // set up the menu bar
+<span class="nc" id="L122">    final JMenuBar menuBar = new JMenuBar();</span>
+<span class="nc" id="L123">    setJMenuBar(menuBar);</span>
+<span class="nc" id="L124">    final JMenu fileMenu = new JMenu(&quot;File&quot;);</span>
+<span class="nc" id="L125">    fileMenu.setMnemonic('F');</span>
+<span class="nc" id="L126">    fileMenu.addSeparator();</span>
+<span class="nc" id="L127">    fileMenu.add(exitItem);</span>
+<span class="nc" id="L128">    menuBar.add(fileMenu);</span>
+    // set up the layout manager
+<span class="nc" id="L130">    this.getContentPane().setLayout(new BorderLayout());</span>
+<span class="nc" id="L131">    this.getContentPane().add(new JScrollPane(m_sidePanel), BorderLayout.WEST);</span>
+<span class="nc" id="L132">    this.getContentPane().add(new JScrollPane(m_mainPanel), BorderLayout.CENTER);</span>
+    // now set up the main screen
+<span class="nc" id="L134">    setupMainPanel(m_panel1);</span>
+<span class="nc" id="L135">  }</span>
+
+  private void setupMainPanel(final JPanel panel) {
+<span class="nc" id="L138">    m_mainPanel.removeAll();</span>
+<span class="nc" id="L139">    m_mainPanel.add(panel);</span>
+<span class="nc" id="L140">    setWidgetActivation();</span>
+<span class="nc" id="L141">  }</span>
+
+  private void setWidgetActivation() {
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    if (!SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L145">      SwingUtilities.invokeLater(new Runnable() {</span>
+        @Override
+        public void run() {
+<span class="nc" id="L148">          setWidgetActivation();</span>
+<span class="nc" id="L149">        }</span>
+      });
+<span class="nc" id="L151">      return;</span>
+    }
+<span class="nc" id="L153">    m_mainPanel.validate();</span>
+<span class="nc" id="L154">    m_mainPanel.repaint();</span>
+<span class="nc" id="L155">    this.validate();</span>
+<span class="nc" id="L156">    this.repaint();</span>
+<span class="nc" id="L157">  }</span>
+
+  private void createPart1Panel() {
+<span class="nc" id="L160">    m_panel1.removeAll();</span>
+<span class="nc" id="L161">    m_panel1.setLayout(new BoxLayout(m_panel1, BoxLayout.PAGE_AXIS));</span>
+<span class="nc" id="L162">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L163">    final JTextArea text = new JTextArea(12, 10);</span>
+<span class="nc" id="L164">    text.setWrapStyleWord(true);</span>
+<span class="nc" id="L165">    text.setLineWrap(true);</span>
+<span class="nc" id="L166">    text.setText(&quot;Welcome to Veqryn's map creator program for TripleA.&quot;</span>
+        + &quot;\r\nThis program just runs utilities inside the triplea.jar file for you, and you could easily &quot;
+        + &quot;run them yourself from the command line by reading the docs/developer_documentation.html&quot;
+        + &quot;\r\n\r\nBefore you begin, go create a folder in your directory: Users\\yourname\\triplea\\maps&quot;
+        + &quot;\r\nName the folder with a short name of your map, do not use any special characters in the name.&quot;
+        + &quot;\r\nNext, create 5 folders inside your map folder, with these names: &quot;
+        + &quot;flags, units, baseTiles, reliefTiles, games&quot;
+        + &quot;\r\nThen, create a text file and rename it \&quot;map.properties\&quot; or use one created by this utility.&quot;
+        + &quot;\r\n\r\nTo start the Map Utilities, have a png image of your map with just the territory borders &quot;
+        + &quot;and nothing else. The borders must be in black (hex: 000000) and there should not be any &quot;
+        + &quot;anti-aliasing (smoothing) of the lines or edges that stick out.&quot;
+        + &quot;\r\nCreate a small image of the map (approx 250 pixels wide) and name it \&quot;smallMap.jpeg\&quot;.&quot;
+        + &quot;\r\nPut these in the map's root folder. You can now start the map maker by clicking and filling &quot;
+        + &quot;in the details below, before moving on to 'Step 2' and running the map utilities.&quot;);
+<span class="nc" id="L180">    final JScrollPane scrollText = new JScrollPane(text);</span>
+<span class="nc" id="L181">    m_panel1.add(scrollText);</span>
+<span class="nc" id="L182">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L183">    m_panel1.add(new JLabel(&quot;Click button open up the readme file on how to make maps:&quot;));</span>
+<span class="nc" id="L184">    final JButton helpButton = new JButton(&quot;Start Tutorial  /  Show Help Document&quot;);</span>
+<span class="nc" id="L185">    helpButton.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent e) {
+        try {
+<span class="nc" id="L189">          OpenFileUtility.openFile(</span>
+<span class="nc" id="L190">              new File(ClientFileSystemHelper.getRootFolder(),</span>
+<span class="nc" id="L191">                  &quot;doc&quot; + File.separator + &quot;map_and_map_skin_making_overview.html&quot;));</span>
+          // DesktopUtilityBrowserLauncher.openURL(GameRunner.getRootFolder().getAbsoluteFile() + File.separator + &quot;doc&quot;
+          // + File.separator +
+          // &quot;map_and_map_skin_making_overview.html&quot;);
+<span class="nc" id="L195">        } catch (final Exception e1) {</span>
+<span class="nc" id="L196">          e1.printStackTrace();</span>
+        }
+<span class="nc" id="L198">      }</span>
+    });
+<span class="nc" id="L200">    m_panel1.add(helpButton);</span>
+<span class="nc" id="L201">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L202">    m_panel1.add(new JLabel(&quot;Click button to select where your map folder is:&quot;));</span>
+<span class="nc" id="L203">    final JButton mapFolderButton = new JButton(&quot;Select Map Folder&quot;);</span>
+<span class="nc" id="L204">    mapFolderButton.addActionListener(SwingAction.of(&quot;Select Map Folder&quot;, e -&gt; {</span>
+<span class="nc" id="L205">      final String path = new FileSave(&quot;Where is your map's folder?&quot;, null, s_mapFolderLocation).getPathString();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">      if (path != null) {</span>
+<span class="nc" id="L207">        final File mapFolder = new File(path);</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        if (mapFolder.exists()) {</span>
+<span class="nc" id="L209">          s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L210">          System.setProperty(TRIPLEA_MAP_FOLDER, s_mapFolderLocation.getPath());</span>
+        }
+      }
+<span class="nc" id="L213">    }));</span>
+<span class="nc" id="L214">    m_panel1.add(mapFolderButton);</span>
+<span class="nc" id="L215">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L216">    m_panel1.add(new JLabel(&quot;Set the unit scaling (unit image zoom): &quot;));</span>
+<span class="nc" id="L217">    m_panel1.add(new JLabel(&quot;Choose one of: 1.25, 1, 0.875, 0.8333, 0.75, 0.6666, 0.5625, 0.5&quot;));</span>
+<span class="nc" id="L218">    final JTextField unitZoomText = new JTextField(&quot;&quot; + s_unit_zoom);</span>
+<span class="nc" id="L219">    unitZoomText.setMaximumSize(new Dimension(100, 20));</span>
+<span class="nc" id="L220">    unitZoomText.addFocusListener(new FocusListener() {</span>
+      @Override
+<span class="nc" id="L222">      public void focusGained(final FocusEvent e) {}</span>
+
+      @Override
+      public void focusLost(final FocusEvent e) {
+        try {
+<span class="nc" id="L227">          s_unit_zoom = Math.min(4.0, Math.max(0.1, Double.parseDouble(unitZoomText.getText())));</span>
+<span class="nc" id="L228">          System.setProperty(TRIPLEA_UNIT_ZOOM, &quot;&quot; + s_unit_zoom);</span>
+<span class="nc" id="L229">        } catch (final Exception ex) {</span>
+        }
+<span class="nc" id="L231">        unitZoomText.setText(&quot;&quot; + s_unit_zoom);</span>
+<span class="nc" id="L232">      }</span>
+    });
+<span class="nc" id="L234">    m_panel1.add(unitZoomText);</span>
+<span class="nc" id="L235">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L236">    m_panel1.add(new JLabel(&quot;Set the width of the unit images: &quot;));</span>
+<span class="nc" id="L237">    final JTextField unitWidthText = new JTextField(&quot;&quot; + s_unit_width);</span>
+<span class="nc" id="L238">    unitWidthText.setMaximumSize(new Dimension(100, 20));</span>
+<span class="nc" id="L239">    unitWidthText.addFocusListener(new FocusListener() {</span>
+      @Override
+<span class="nc" id="L241">      public void focusGained(final FocusEvent e) {}</span>
+
+      @Override
+      public void focusLost(final FocusEvent e) {
+        try {
+<span class="nc" id="L246">          s_unit_width = Math.min(400, Math.max(1, Integer.parseInt(unitWidthText.getText())));</span>
+<span class="nc" id="L247">          System.setProperty(TRIPLEA_UNIT_WIDTH, &quot;&quot; + s_unit_width);</span>
+<span class="nc" id="L248">        } catch (final Exception ex) {</span>
+        }
+<span class="nc" id="L250">        unitWidthText.setText(&quot;&quot; + s_unit_width);</span>
+<span class="nc" id="L251">      }</span>
+    });
+<span class="nc" id="L253">    m_panel1.add(unitWidthText);</span>
+<span class="nc" id="L254">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L255">    m_panel1.add(new JLabel(&quot;Set the height of the unit images: &quot;));</span>
+<span class="nc" id="L256">    final JTextField unitHeightText = new JTextField(&quot;&quot; + s_unit_height);</span>
+<span class="nc" id="L257">    unitHeightText.setMaximumSize(new Dimension(100, 20));</span>
+<span class="nc" id="L258">    unitHeightText.addFocusListener(new FocusListener() {</span>
+      @Override
+<span class="nc" id="L260">      public void focusGained(final FocusEvent e) {}</span>
+
+      @Override
+      public void focusLost(final FocusEvent e) {
+        try {
+<span class="nc" id="L265">          s_unit_height = Math.min(400, Math.max(1, Integer.parseInt(unitHeightText.getText())));</span>
+<span class="nc" id="L266">          System.setProperty(TRIPLEA_UNIT_HEIGHT, &quot;&quot; + s_unit_height);</span>
+<span class="nc" id="L267">        } catch (final Exception ex) {</span>
+        }
+<span class="nc" id="L269">        unitHeightText.setText(&quot;&quot; + s_unit_height);</span>
+<span class="nc" id="L270">      }</span>
+    });
+<span class="nc" id="L272">    m_panel1.add(unitHeightText);</span>
+<span class="nc" id="L273">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L274">    m_panel1</span>
+<span class="nc" id="L275">        .add(new JLabel(&quot;&lt;html&gt;Here you can set the 'max memory' that utilities like the Polygon Grabber will use.&lt;br&gt;&quot;</span>
+            + &quot;This is useful is you have a very large map, or ever get any Java Heap Space errors.&lt;/html&gt;&quot;));
+<span class="nc" id="L277">    m_panel1.add(new JLabel(&quot;Set the amount of memory to use when running new processes (in megabytes [mb]):&quot;));</span>
+<span class="nc" id="L278">    final JTextField memoryText = new JTextField(&quot;&quot; + (s_memory / (1024 * 1024)));</span>
+<span class="nc" id="L279">    memoryText.setMaximumSize(new Dimension(100, 20));</span>
+<span class="nc" id="L280">    memoryText.addFocusListener(new FocusListener() {</span>
+      @Override
+<span class="nc" id="L282">      public void focusGained(final FocusEvent e) {}</span>
+
+      @Override
+      public void focusLost(final FocusEvent e) {
+        try {
+<span class="nc" id="L287">          s_memory = (long) 1024 * 1024 * Math.min(4096, Math.max(256, Integer.parseInt(memoryText.getText())));</span>
+<span class="nc" id="L288">        } catch (final Exception ex) {</span>
+        }
+<span class="nc" id="L290">        memoryText.setText(&quot;&quot; + (s_memory / (1024 * 1024)));</span>
+<span class="nc" id="L291">      }</span>
+    });
+<span class="nc" id="L293">    m_panel1.add(memoryText);</span>
+<span class="nc" id="L294">    final JCheckBox runTypeBox = new JCheckBox(&quot;Run All Utilities as Separate Processes&quot;);</span>
+<span class="nc" id="L295">    runTypeBox.setSelected(s_runUtilitiesAsSeperateProcesses);</span>
+<span class="nc" id="L296">    runTypeBox.addActionListener(SwingAction.of(&quot;Run All Utilities as Separate Processes&quot;,</span>
+<span class="nc" id="L297">        e -&gt; s_runUtilitiesAsSeperateProcesses = runTypeBox.isSelected()));</span>
+<span class="nc" id="L298">    m_panel1.add(runTypeBox);</span>
+<span class="nc" id="L299">    m_panel1.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L300">    m_panel1.validate();</span>
+<span class="nc" id="L301">  }</span>
+
+  private void createPart2Panel() {
+<span class="nc" id="L304">    m_panel2.removeAll();</span>
+<span class="nc" id="L305">    m_panel2.setLayout(new BoxLayout(m_panel2, BoxLayout.PAGE_AXIS));</span>
+<span class="nc" id="L306">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L307">    m_panel2.add(new JLabel(&quot;Map Skin Utilities:&quot;));</span>
+<span class="nc" id="L308">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L309">    final JButton mapPropertiesMakerButton = new JButton(&quot;Run the Map Properties Maker&quot;);</span>
+<span class="nc" id="L310">    mapPropertiesMakerButton.addActionListener(SwingAction.of(&quot;Run the Map Properties Maker&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L312">        runUtility(MapPropertiesMaker.class);</span>
+<span class="nc" id="L313">      } else {</span>
+<span class="nc" id="L314">        (new Thread() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L317">            MapPropertiesMaker.main(new String[0]);</span>
+<span class="nc" id="L318">          }</span>
+<span class="nc" id="L319">        }).start();</span>
+      }
+<span class="nc" id="L321">    }));</span>
+<span class="nc" id="L322">    m_panel2.add(mapPropertiesMakerButton);</span>
+<span class="nc" id="L323">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L324">    final JButton centerPickerButton = new JButton(&quot;Run the Center Picker&quot;);</span>
+<span class="nc" id="L325">    centerPickerButton.addActionListener(SwingAction.of(&quot;Run the Center Picker&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L327">        runUtility(CenterPicker.class);</span>
+<span class="nc" id="L328">      } else {</span>
+<span class="nc" id="L329">        (new Thread() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L332">            CenterPicker.main(new String[0]);</span>
+<span class="nc" id="L333">          }</span>
+<span class="nc" id="L334">        }).start();</span>
+      }
+<span class="nc" id="L336">    }));</span>
+<span class="nc" id="L337">    m_panel2.add(centerPickerButton);</span>
+<span class="nc" id="L338">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L339">    final JButton polygonGrabberButton = new JButton(&quot;Run the Polygon Grabber&quot;);</span>
+<span class="nc" id="L340">    polygonGrabberButton.addActionListener(SwingAction.of(&quot;Run the Polygon Grabber&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L342">        runUtility(PolygonGrabber.class);</span>
+<span class="nc" id="L343">      } else {</span>
+<span class="nc" id="L344">        (new Thread() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L347">            PolygonGrabber.main(new String[0]);</span>
+<span class="nc" id="L348">          }</span>
+<span class="nc" id="L349">        }).start();</span>
+      }
+
+<span class="nc" id="L352">    }));</span>
+<span class="nc" id="L353">    m_panel2.add(polygonGrabberButton);</span>
+<span class="nc" id="L354">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L355">    final JButton autoPlacerButton = new JButton(&quot;Run the Automatic Placement Finder&quot;);</span>
+<span class="nc" id="L356">    autoPlacerButton.addActionListener(SwingAction.of(&quot;Run the Automatic Placement Finder&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L358">        runUtility(AutoPlacementFinder.class);</span>
+<span class="nc" id="L359">      } else {</span>
+<span class="nc" id="L360">        (new Thread() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L363">            AutoPlacementFinder.main(new String[0]);</span>
+<span class="nc" id="L364">          }</span>
+<span class="nc" id="L365">        }).start();</span>
+      }
+
+<span class="nc" id="L368">    }));</span>
+<span class="nc" id="L369">    m_panel2.add(autoPlacerButton);</span>
+<span class="nc" id="L370">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L371">    final JButton placementPickerButton = new JButton(&quot;Run the Placement Picker&quot;);</span>
+<span class="nc" id="L372">    placementPickerButton.addActionListener(SwingAction.of(&quot;Run the Placement Picker&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L373" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L374">        runUtility(PlacementPicker.class);</span>
+<span class="nc" id="L375">      } else {</span>
+<span class="nc" id="L376">        (new Thread() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L379">            PlacementPicker.main(new String[0]);</span>
+<span class="nc" id="L380">          }</span>
+<span class="nc" id="L381">        }).start();</span>
+      }
+<span class="nc" id="L383">    }));</span>
+<span class="nc" id="L384">    m_panel2.add(placementPickerButton);</span>
+<span class="nc" id="L385">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L386">    final JButton tileBreakerButton = new JButton(&quot;Run the Tile Image Breaker&quot;);</span>
+<span class="nc" id="L387">    tileBreakerButton.addActionListener(SwingAction.of(&quot;Run the Tile Image Breaker&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L389">        runUtility(TileImageBreaker.class);</span>
+<span class="nc" id="L390">      } else {</span>
+<span class="nc" id="L391">        (new Thread() {</span>
+          @Override
+          public void run() {
+            try {
+<span class="nc" id="L395">              TileImageBreaker.main(new String[0]);</span>
+<span class="nc" id="L396">            } catch (final Exception e) {</span>
+<span class="nc" id="L397">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L399">          }</span>
+<span class="nc" id="L400">        }).start();</span>
+      }
+<span class="nc" id="L402">    }));</span>
+<span class="nc" id="L403">    m_panel2.add(tileBreakerButton);</span>
+<span class="nc" id="L404">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L405">    final JButton decorationPlacerButton = new JButton(&quot;Run the Decoration Placer&quot;);</span>
+<span class="nc" id="L406">    decorationPlacerButton.addActionListener(SwingAction.of(&quot;Run the Decoration Placer&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L407" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L408">        runUtility(DecorationPlacer.class);</span>
+<span class="nc" id="L409">      } else {</span>
+<span class="nc" id="L410">        (new Thread() {</span>
+          @Override
+          public void run() {
+            try {
+<span class="nc" id="L414">              DecorationPlacer.main(new String[0]);</span>
+<span class="nc" id="L415">            } catch (final Exception e) {</span>
+<span class="nc" id="L416">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L418">          }</span>
+<span class="nc" id="L419">        }).start();</span>
+      }
+<span class="nc" id="L421">    }));</span>
+<span class="nc" id="L422">    m_panel2.add(decorationPlacerButton);</span>
+<span class="nc" id="L423">    m_panel2.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L424">    m_panel2.validate();</span>
+<span class="nc" id="L425">  }</span>
+
+  private void createPart3Panel() {
+<span class="nc" id="L428">    m_panel3.removeAll();</span>
+<span class="nc" id="L429">    m_panel3.setLayout(new BoxLayout(m_panel3, BoxLayout.PAGE_AXIS));</span>
+<span class="nc" id="L430">    m_panel3.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L431">    m_panel3.add(new JLabel(&quot;Game XML Utilities:&quot;));</span>
+<span class="nc" id="L432">    m_panel3.add(new JLabel(&quot;Sorry but for now the only XML creator is Wisconsin's 'Part 2' of his map maker.&quot;));</span>
+<span class="nc" id="L433">    m_panel3.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L434">    final JButton connectionFinderButton = new JButton(&quot;Run the Connection Finder&quot;);</span>
+<span class="nc" id="L435">    connectionFinderButton.addActionListener(SwingAction.of(&quot;Run the Connection Finder&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L437">        runUtility(ConnectionFinder.class);</span>
+<span class="nc" id="L438">      } else {</span>
+<span class="nc" id="L439">        (new Thread() {</span>
+          @Override
+          public void run() {
+            try {
+<span class="nc" id="L443">              ConnectionFinder.main(new String[0]);</span>
+<span class="nc" id="L444">            } catch (final Exception e) {</span>
+<span class="nc" id="L445">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L447">          }</span>
+<span class="nc" id="L448">        }).start();</span>
+      }
+<span class="nc" id="L450">    }));</span>
+<span class="nc" id="L451">    m_panel3.add(connectionFinderButton);</span>
+<span class="nc" id="L452">    m_panel3.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L453">    m_panel3.validate();</span>
+<span class="nc" id="L454">  }</span>
+
+  private void createPart4Panel() {
+<span class="nc" id="L457">    m_panel4.removeAll();</span>
+<span class="nc" id="L458">    m_panel4.setLayout(new BoxLayout(m_panel4, BoxLayout.PAGE_AXIS));</span>
+<span class="nc" id="L459">    m_panel4.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L460">    m_panel4.add(new JLabel(&quot;Other or Optional Utilities:&quot;));</span>
+<span class="nc" id="L461">    m_panel4.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L462">    final JButton reliefBreakerButton = new JButton(&quot;Run the Relief Image Breaker&quot;);</span>
+<span class="nc" id="L463">    reliefBreakerButton.addActionListener(SwingAction.of(&quot;Run the Relief Image Breaker&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L465">        runUtility(ReliefImageBreaker.class);</span>
+<span class="nc" id="L466">      } else {</span>
+<span class="nc" id="L467">        (new Thread() {</span>
+          @Override
+          public void run() {
+            try {
+<span class="nc" id="L471">              ReliefImageBreaker.main(new String[0]);</span>
+<span class="nc" id="L472">            } catch (final Exception e) {</span>
+<span class="nc" id="L473">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L475">          }</span>
+<span class="nc" id="L476">        }).start();</span>
+      }
+<span class="nc" id="L478">    }));</span>
+<span class="nc" id="L479">    m_panel4.add(reliefBreakerButton);</span>
+<span class="nc" id="L480">    m_panel4.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L481">    final JButton imageShrinkerButton = new JButton(&quot;Run the Image Shrinker&quot;);</span>
+<span class="nc" id="L482">    imageShrinkerButton.addActionListener(SwingAction.of(&quot;Run the Image Shrinker&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L483" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L484">        runUtility(ImageShrinker.class);</span>
+<span class="nc" id="L485">      } else {</span>
+<span class="nc" id="L486">        (new Thread() {</span>
+          @Override
+          public void run() {
+            try {
+<span class="nc" id="L490">              ImageShrinker.main(new String[0]);</span>
+<span class="nc" id="L491">            } catch (final Exception e) {</span>
+<span class="nc" id="L492">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L494">          }</span>
+<span class="nc" id="L495">        }).start();</span>
+      }
+<span class="nc" id="L497">    }));</span>
+<span class="nc" id="L498">    m_panel4.add(imageShrinkerButton);</span>
+<span class="nc" id="L499">    m_panel4.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L500">    final JButton tileImageReconstructorButton = new JButton(&quot;Run the Tile Image Reconstructor&quot;);</span>
+<span class="nc" id="L501">    tileImageReconstructorButton.addActionListener(SwingAction.of(&quot;Run the Tile Image Reconstructor&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L502" title="All 2 branches missed.">      if (s_runUtilitiesAsSeperateProcesses) {</span>
+<span class="nc" id="L503">        runUtility(TileImageReconstructor.class);</span>
+<span class="nc" id="L504">      } else {</span>
+<span class="nc" id="L505">        (new Thread() {</span>
+          @Override
+          public void run() {
+            try {
+<span class="nc" id="L509">              TileImageReconstructor.main(new String[0]);</span>
+<span class="nc" id="L510">            } catch (final Exception e) {</span>
+<span class="nc" id="L511">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L513">          }</span>
+<span class="nc" id="L514">        }).start();</span>
+      }
+
+<span class="nc" id="L517">    }));</span>
+<span class="nc" id="L518">    m_panel4.add(tileImageReconstructorButton);</span>
+<span class="nc" id="L519">    m_panel4.add(Box.createVerticalStrut(30));</span>
+<span class="nc" id="L520">    m_panel4.validate();</span>
+<span class="nc" id="L521">  }</span>
+
+  private static void runUtility(final Class&lt;?&gt; javaClass) {
+<span class="nc" id="L524">    final List&lt;String&gt; commands = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L525">    ProcessRunnerUtil.populateBasicJavaArgs(commands, s_memory);</span>
+<span class="nc bnc" id="L526" title="All 4 branches missed.">    if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+      // no need for quotes, that will just screw up the process builder
+<span class="nc" id="L528">      commands.add(&quot;-D&quot; + TRIPLEA_MAP_FOLDER + &quot;=&quot; + s_mapFolderLocation.getAbsolutePath());</span>
+    }
+<span class="nc" id="L530">    commands.add(&quot;-D&quot; + TRIPLEA_UNIT_ZOOM + &quot;=&quot; + s_unit_zoom);</span>
+<span class="nc" id="L531">    commands.add(&quot;-D&quot; + TRIPLEA_UNIT_WIDTH + &quot;=&quot; + s_unit_width);</span>
+<span class="nc" id="L532">    commands.add(&quot;-D&quot; + TRIPLEA_UNIT_HEIGHT + &quot;=&quot; + s_unit_height);</span>
+<span class="nc" id="L533">    commands.add(javaClass.getName());</span>
+<span class="nc" id="L534">    ProcessRunnerUtil.exec(commands);</span>
+    // example: java -classpath triplea.jar -Dtriplea.map.folder=&quot;C:/Users&quot; tools/image/CenterPicker
+<span class="nc" id="L536">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

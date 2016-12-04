@@ -1,0 +1,649 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>GameMap.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.data</a> &gt; <span class="el_source">GameMap.java</span></div><h1>GameMap.java</h1><pre class="source lang-java linenums">package games.strategy.engine.data;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * Holds a collection of territories, and the links between them.
+ * Utility methods for finding routes and distances between different territories.
+ */
+public class GameMap extends GameDataComponent implements Iterable&lt;Territory&gt; {
+  private static final long serialVersionUID = -4606700588396439283L;
+<span class="fc" id="L27">  private final List&lt;Territory&gt; m_territories = new ArrayList&lt;&gt;();</span>
+  // note that all entries are unmodifiable
+<span class="fc" id="L29">  private final Map&lt;Territory, Set&lt;Territory&gt;&gt; m_connections = new HashMap&lt;&gt;();</span>
+  // for fast lookup based on the string name of the territory
+<span class="fc" id="L31">  private final Map&lt;String, Territory&gt; m_territoryLookup = new HashMap&lt;&gt;();</span>
+  // nil if the map is not grid-based
+  // otherwise, m_gridDimensions.length is the number of dimensions,
+  // and each element is the size of a dimension
+<span class="fc" id="L35">  private int[] m_gridDimensions = null;</span>
+
+  GameMap(final GameData data) {
+<span class="fc" id="L38">    super(data);</span>
+<span class="fc" id="L39">  }</span>
+
+  public void setGridDimensions(final int... gridDimensions) {
+<span class="nc" id="L42">    m_gridDimensions = gridDimensions;</span>
+<span class="nc" id="L43">  }</span>
+
+  public int getXDimension() {
+<span class="nc bnc" id="L46" title="All 4 branches missed.">    if (m_gridDimensions == null || m_gridDimensions.length &lt; 1) {</span>
+<span class="nc" id="L47">      return 0;</span>
+    }
+<span class="nc" id="L49">    return m_gridDimensions[0];</span>
+  }
+
+  public int getYDimension() {
+<span class="nc bnc" id="L53" title="All 4 branches missed.">    if (m_gridDimensions == null || m_gridDimensions.length &lt; 2) {</span>
+<span class="nc" id="L54">      return 0;</span>
+    }
+<span class="nc" id="L56">    return m_gridDimensions[1];</span>
+  }
+
+  public Territory getTerritoryFromCoordinates(final int... coordinate) {
+<span class="nc" id="L60">    return getTerritoryFromCoordinates(true, coordinate);</span>
+  }
+
+  // public Territory getTerritoryFromCoordinates(int xCoordinate, int yCoordinate)
+  public Territory getTerritoryFromCoordinates(final boolean allowNull, final int... coordinate) {
+<span class="nc bnc" id="L65" title="All 2 branches missed.">    if (m_gridDimensions == null) {</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">      if (allowNull) {</span>
+<span class="nc" id="L67">        return null;</span>
+      }
+<span class="nc" id="L69">      throw new IllegalStateException(&quot;No Grid Dimensions&quot;);</span>
+    }
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (!isCoordinateValid(coordinate)) {</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">      if (allowNull) {</span>
+<span class="nc" id="L73">        return null;</span>
+      }
+<span class="nc" id="L75">      final StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L76" title="All 2 branches missed.">      for (int i = 0; i &lt; coordinate.length; i++) {</span>
+<span class="nc" id="L77">        sb.append(coordinate[i]);</span>
+<span class="nc bnc" id="L78" title="All 2 branches missed.">        if (i + 1 &lt; coordinate.length) {</span>
+<span class="nc" id="L79">          sb.append(&quot;, &quot;);</span>
+        }
+      }
+<span class="nc" id="L82">      throw new IllegalStateException(&quot;No Territory at coordinates: &quot; + sb.toString());</span>
+    }
+<span class="nc" id="L84">    int listIndex = coordinate[0];</span>
+<span class="nc" id="L85">    int multiplier = 1;</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">    for (int i = 1; i &lt; m_gridDimensions.length; i++) {</span>
+<span class="nc" id="L87">      multiplier *= m_gridDimensions[i - 1];</span>
+      // m_gridDimensions[i];
+<span class="nc" id="L89">      listIndex += coordinate[i] * multiplier;</span>
+    }
+<span class="nc" id="L91">    return m_territories.get(listIndex);</span>
+  }
+
+  protected void reorderTerritoryList() {
+<span class="nc" id="L95">    Collections.sort(m_territories, TERRITORY_GRID_ORDERING);</span>
+<span class="nc" id="L96">  }</span>
+
+<span class="fc" id="L98">  private static Comparator&lt;Territory&gt; TERRITORY_GRID_ORDERING = (t1, t2) -&gt; {</span>
+<span class="nc bnc" id="L99" title="All 6 branches missed.">    if ((t1 == null &amp;&amp; t2 == null) || t1 == t2) {</span>
+<span class="nc" id="L100">      return 0;</span>
+    }
+<span class="nc bnc" id="L102" title="All 4 branches missed.">    if (t1 == null &amp;&amp; t2 != null) {</span>
+<span class="nc" id="L103">      return 1;</span>
+    }
+<span class="nc bnc" id="L105" title="All 4 branches missed.">    if (t1 != null &amp;&amp; t2 == null) {</span>
+<span class="nc" id="L106">      return -1;</span>
+    }
+<span class="nc bnc" id="L108" title="All 2 branches missed.">    if (t1.equals(t2)) {</span>
+<span class="nc" id="L109">      return 0;</span>
+    }
+<span class="nc" id="L111">    final int t1index = t1.getName().indexOf(&quot;_&quot;);</span>
+<span class="nc" id="L112">    final int t2index = t2.getName().indexOf(&quot;_&quot;);</span>
+<span class="nc bnc" id="L113" title="All 4 branches missed.">    if (t1index == -1 &amp;&amp; t2index == -1) {</span>
+<span class="nc" id="L114">      return 0;</span>
+    }
+<span class="nc bnc" id="L116" title="All 4 branches missed.">    if (t1index == -1 &amp;&amp; t2index != -1) {</span>
+<span class="nc" id="L117">      return 1;</span>
+    }
+<span class="nc bnc" id="L119" title="All 4 branches missed.">    if (t1index != -1 &amp;&amp; t2index == -1) {</span>
+<span class="nc" id="L120">      return -1;</span>
+    }
+<span class="nc" id="L122">    final String name1 = t1.getName().substring(0, t1index);</span>
+<span class="nc" id="L123">    final String name2 = t1.getName().substring(0, t2index);</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">    if (!name1.equals(name2)) {</span>
+<span class="nc" id="L125">      return name1.compareTo(name2);</span>
+    }
+<span class="nc" id="L127">    String tname1y = t1.getName().replaceFirst(name1 + &quot;_&quot;, &quot;&quot;);</span>
+<span class="nc" id="L128">    tname1y = tname1y.substring(tname1y.indexOf(&quot;_&quot;) + 1, tname1y.length());</span>
+<span class="nc" id="L129">    final int ty1 = Integer.parseInt(tname1y);</span>
+<span class="nc" id="L130">    String tname2y = t2.getName().replaceFirst(name2 + &quot;_&quot;, &quot;&quot;);</span>
+<span class="nc" id="L131">    tname2y = tname2y.substring(tname2y.indexOf(&quot;_&quot;) + 1, tname2y.length());</span>
+<span class="nc" id="L132">    final int ty2 = Integer.parseInt(tname2y);</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">    if (ty1 &lt; ty2) {</span>
+<span class="nc" id="L134">      return -1;</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">    } else if (ty1 &gt; ty2) {</span>
+<span class="nc" id="L136">      return 1;</span>
+    }
+<span class="nc" id="L138">    String tname1x = t1.getName().replaceFirst(name1 + &quot;_&quot;, &quot;&quot;);</span>
+<span class="nc" id="L139">    tname1x = tname1x.substring(0, tname1x.indexOf(&quot;_&quot;));</span>
+<span class="nc" id="L140">    final int tx1 = Integer.parseInt(tname1x);</span>
+<span class="nc" id="L141">    String tname2x = t2.getName().replaceFirst(name2 + &quot;_&quot;, &quot;&quot;);</span>
+<span class="nc" id="L142">    tname2x = tname2x.substring(0, tname2x.indexOf(&quot;_&quot;));</span>
+<span class="nc" id="L143">    final int tx2 = Integer.parseInt(tname2x);</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    if (tx1 &lt; tx2) {</span>
+<span class="nc" id="L145">      return -1;</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">    } else if (tx1 &gt; tx2) {</span>
+<span class="nc" id="L147">      return 1;</span>
+    }
+<span class="nc" id="L149">    return 0;</span>
+<span class="fc" id="L150">  };</span>
+
+  public boolean isCoordinateValid(final int... coordinate) {
+<span class="nc bnc" id="L153" title="All 2 branches missed.">    if (coordinate.length != m_gridDimensions.length) {</span>
+<span class="nc" id="L154">      return false;</span>
+    }
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    for (int i = 0; i &lt; m_gridDimensions.length; i++) {</span>
+<span class="nc bnc" id="L157" title="All 4 branches missed.">      if (coordinate[i] &gt;= m_gridDimensions[i] || coordinate[i] &lt; 0) {</span>
+<span class="nc" id="L158">        return false;</span>
+      }
+    }
+<span class="nc" id="L161">    return true;</span>
+  }
+
+  protected void addTerritory(final Territory t1) {
+<span class="pc bpc" id="L165" title="1 of 2 branches missed.">    if (m_territories.contains(t1)) {</span>
+<span class="nc" id="L166">      throw new IllegalArgumentException(&quot;Map already contains &quot; + t1.getName());</span>
+    }
+<span class="fc" id="L168">    m_territories.add(t1);</span>
+<span class="fc" id="L169">    m_connections.put(t1, Collections.emptySet());</span>
+<span class="fc" id="L170">    m_territoryLookup.put(t1.getName(), t1);</span>
+<span class="fc" id="L171">  }</span>
+
+  public void removeTerritory(final Territory t1) {
+<span class="nc bnc" id="L174" title="All 2 branches missed.">    if (!m_territories.contains(t1)) {</span>
+<span class="nc" id="L175">      throw new IllegalArgumentException(&quot;Map does not contain &quot; + t1.getName());</span>
+    }
+<span class="nc" id="L177">    m_territories.remove(t1);</span>
+<span class="nc" id="L178">    m_connections.remove(t1);</span>
+<span class="nc" id="L179">    m_territoryLookup.remove(t1.getName());</span>
+    // remove territory from other connections
+<span class="nc" id="L181">    final Map&lt;Territory, Set&lt;Territory&gt;&gt; tempConnections = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">    for (final Entry&lt;Territory, Set&lt;Territory&gt;&gt; entry : m_connections.entrySet()) {</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">      if (entry.getValue().contains(t1)) {</span>
+<span class="nc" id="L184">        final Set&lt;Territory&gt; current = entry.getValue();</span>
+<span class="nc" id="L185">        final Set&lt;Territory&gt; modified = new HashSet&lt;&gt;(current);</span>
+<span class="nc" id="L186">        modified.remove(t1);</span>
+<span class="nc" id="L187">        tempConnections.put(entry.getKey(), modified);</span>
+      }
+    }
+    // preserve unmodifiable nature
+<span class="nc bnc" id="L191" title="All 2 branches missed.">    for (final Entry&lt;Territory, Set&lt;Territory&gt;&gt; entry : tempConnections.entrySet()) {</span>
+<span class="nc" id="L192">      m_connections.put(entry.getKey(), Collections.unmodifiableSet(entry.getValue()));</span>
+    }
+<span class="nc" id="L194">  }</span>
+
+  /**
+   * Bi-directional. T1 connects to T2, and T2 connects to T1.
+   *
+   * @param t1
+   * @param t2
+   */
+  protected void addConnection(final Territory t1, final Territory t2) {
+<span class="pc bpc" id="L203" title="1 of 2 branches missed.">    if (t1.equals(t2)) {</span>
+<span class="nc" id="L204">      throw new IllegalArgumentException(&quot;Cannot connect a territory to itself&quot;);</span>
+    }
+<span class="pc bpc" id="L206" title="2 of 4 branches missed.">    if (!m_territories.contains(t1) || !m_territories.contains(t2)) {</span>
+<span class="nc" id="L207">      throw new IllegalArgumentException(&quot;Map doesnt know about one of &quot; + t1 + &quot; &quot; + t2);</span>
+    }
+    // connect t1 to t2
+<span class="fc" id="L210">    setConnection(t1, t2);</span>
+<span class="fc" id="L211">    setConnection(t2, t1);</span>
+<span class="fc" id="L212">  }</span>
+
+  /**
+   * Uni-directional. T1 connects to T2, while T2 does NOT connect to T1.
+   *
+   * @param t1
+   * @param t2
+   */
+  protected void addOneWayConnection(final Territory t1, final Territory t2) {
+<span class="nc bnc" id="L221" title="All 2 branches missed.">    if (t1.equals(t2)) {</span>
+<span class="nc" id="L222">      throw new IllegalArgumentException(&quot;Cannot connect a territory to itself&quot;);</span>
+    }
+<span class="nc bnc" id="L224" title="All 4 branches missed.">    if (!m_territories.contains(t1) || !m_territories.contains(t2)) {</span>
+<span class="nc" id="L225">      throw new IllegalArgumentException(&quot;Map doesnt know about one of &quot; + t1 + &quot; &quot; + t2);</span>
+    }
+    // connect t1 to t2
+<span class="nc" id="L228">    setConnection(t1, t2);</span>
+<span class="nc" id="L229">  }</span>
+
+  private void setConnection(final Territory from, final Territory to) {
+    // preserves the unmodifiable nature of the entries
+<span class="fc" id="L233">    final Set&lt;Territory&gt; current = m_connections.get(from);</span>
+<span class="fc" id="L234">    final Set&lt;Territory&gt; modified = new HashSet&lt;&gt;(current);</span>
+<span class="fc" id="L235">    modified.add(to);</span>
+<span class="fc" id="L236">    m_connections.put(from, Collections.unmodifiableSet(modified));</span>
+<span class="fc" id="L237">  }</span>
+
+  /**
+   * @param s
+   *        name of the searched territory (case sensitive)
+   * @return the territory with the given name, or null if no territory can be found (case sensitive)
+   */
+  public Territory getTerritory(final String s) {
+<span class="fc" id="L245">    return m_territoryLookup.get(s);</span>
+  }
+
+  /**
+   * @param t
+   *        referring territory
+   * @return All adjacent neighbors of the starting territory.
+   *         Does NOT include the original/starting territory in the returned Set.
+   */
+  public Set&lt;Territory&gt; getNeighbors(final Territory t) {
+    // ok since all entries in connections are already unmodifiable
+<span class="fc" id="L256">    final Set&lt;Territory&gt; neighbors = m_connections.get(t);</span>
+<span class="pc bpc" id="L257" title="1 of 2 branches missed.">    if (neighbors == null) {</span>
+<span class="nc" id="L258">      throw new IllegalArgumentException(&quot;No neighbors for:&quot; + t);</span>
+    }
+<span class="fc" id="L260">    return neighbors;</span>
+  }
+
+  /**
+   * @param t
+   *        referring territory
+   * @param cond
+   *        condition the neighboring territories have to match
+   * @return All adjacent neighbors of the starting territory that match the condition.
+   *         Does NOT include the original/starting territory in the returned Set.
+   */
+  public Set&lt;Territory&gt; getNeighbors(final Territory t, final Match&lt;Territory&gt; cond) {
+<span class="pc bpc" id="L272" title="1 of 2 branches missed.">    if (cond == null) {</span>
+<span class="nc" id="L273">      return getNeighbors(t);</span>
+    }
+<span class="fc" id="L275">    final Set&lt;Territory&gt; possible = m_connections.get(t);</span>
+<span class="fc" id="L276">    final Set&lt;Territory&gt; passed = new HashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L277" title="1 of 2 branches missed.">    if (possible == null) {</span>
+<span class="nc" id="L278">      return passed;</span>
+    }
+<span class="fc bfc" id="L280" title="All 2 branches covered.">    for (final Territory current : possible) {</span>
+<span class="fc bfc" id="L281" title="All 2 branches covered.">      if (cond.match(current)) {</span>
+<span class="fc" id="L282">        passed.add(current);</span>
+      }
+    }
+<span class="fc" id="L285">    return passed;</span>
+  }
+
+  /**
+   * @param territory
+   *        referring territory
+   * @param distance
+   *        maximal distance of the neighboring territories
+   * @return All neighbors within a certain distance of the starting territory that match the condition.
+   *         Does NOT include the original/starting territory in the returned Set.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public Set&lt;Territory&gt; getNeighbors(final Territory territory, int distance) {
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">    if (distance &lt; 0) {</span>
+<span class="nc" id="L299">      throw new IllegalArgumentException(&quot;Distance must be positive not:&quot; + distance);</span>
+    }
+<span class="fc bfc" id="L301" title="All 2 branches covered.">    if (distance == 0) {</span>
+<span class="fc" id="L302">      return Collections.EMPTY_SET;</span>
+    }
+<span class="fc" id="L304">    final Set&lt;Territory&gt; start = getNeighbors(territory);</span>
+<span class="fc bfc" id="L305" title="All 2 branches covered.">    if (distance == 1) {</span>
+<span class="fc" id="L306">      return start;</span>
+    }
+<span class="fc" id="L308">    final Set&lt;Territory&gt; neighbors = getNeighbors(start, new HashSet&lt;&gt;(start), --distance);</span>
+<span class="fc" id="L309">    neighbors.remove(territory);</span>
+<span class="fc" id="L310">    return neighbors;</span>
+  }
+
+  /**
+   * @param territory
+   * @param distance
+   * @param cond
+   * @return All neighbors within a certain distance of the starting territory that match the condition.
+   *         Does NOT include the original/starting territory in the returned Set.
+   */
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public Set&lt;Territory&gt; getNeighbors(final Territory territory, int distance, final Match&lt;Territory&gt; cond) {
+<span class="pc bpc" id="L322" title="1 of 2 branches missed.">    if (distance &lt; 0) {</span>
+<span class="nc" id="L323">      throw new IllegalArgumentException(&quot;Distance must be positive not:&quot; + distance);</span>
+    }
+<span class="fc bfc" id="L325" title="All 2 branches covered.">    if (distance == 0) {</span>
+<span class="fc" id="L326">      return Collections.EMPTY_SET;</span>
+    }
+<span class="fc" id="L328">    final Set&lt;Territory&gt; start = getNeighbors(territory, cond);</span>
+<span class="fc bfc" id="L329" title="All 2 branches covered.">    if (distance == 1) {</span>
+<span class="fc" id="L330">      return start;</span>
+    }
+<span class="fc" id="L332">    final Set&lt;Territory&gt; neighbors = getNeighbors(start, new HashSet&lt;&gt;(start), --distance, cond);</span>
+<span class="fc" id="L333">    neighbors.remove(territory);</span>
+<span class="fc" id="L334">    return neighbors;</span>
+  }
+
+  /**
+   * @param frontier
+   * @param distance
+   * @param cond
+   * @return All neighbors within a certain distance of the starting territory set that match the condition.
+   *         Does NOT include the original/starting territories in the returned Set, even if they are neighbors of each
+   *         other.
+   */
+  public Set&lt;Territory&gt; getNeighbors(final Set&lt;Territory&gt; frontier, final int distance, final Match&lt;Territory&gt; cond) {
+<span class="fc" id="L346">    final Set&lt;Territory&gt; rVal = getNeighbors(frontier, new HashSet&lt;&gt;(frontier), distance, cond);</span>
+<span class="fc" id="L347">    rVal.removeAll(frontier);</span>
+<span class="fc" id="L348">    return rVal;</span>
+  }
+
+  /**
+   * @param frontier
+   * @param distance
+   * @return All neighbors within a certain distance of the starting territory set.
+   *         Does NOT include the original/starting territories in the returned Set, even if they are neighbors of each
+   *         other.
+   */
+  public Set&lt;Territory&gt; getNeighbors(final Set&lt;Territory&gt; frontier, final int distance) {
+<span class="nc" id="L359">    final Set&lt;Territory&gt; rVal = getNeighbors(frontier, new HashSet&lt;&gt;(frontier), distance);</span>
+<span class="nc" id="L360">    rVal.removeAll(frontier);</span>
+<span class="nc" id="L361">    return rVal;</span>
+  }
+
+  private Set&lt;Territory&gt; getNeighbors(final Set&lt;Territory&gt; frontier, final Set&lt;Territory&gt; searched, int distance,
+      final Match&lt;Territory&gt; cond) {
+<span class="fc bfc" id="L366" title="All 2 branches covered.">    if (distance == 0) {</span>
+<span class="fc" id="L367">      return searched;</span>
+    }
+<span class="fc" id="L369">    final Iterator&lt;Territory&gt; iter = frontier.iterator();</span>
+<span class="fc" id="L370">    final Set&lt;Territory&gt; newFrontier = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L371" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L372">      final Territory t = iter.next();</span>
+<span class="fc" id="L373">      newFrontier.addAll(getNeighbors(t, cond));</span>
+    }
+<span class="fc" id="L375">    newFrontier.removeAll(searched);</span>
+<span class="fc" id="L376">    searched.addAll(newFrontier);</span>
+<span class="fc" id="L377">    return getNeighbors(newFrontier, searched, --distance, cond);</span>
+  }
+
+  private Set&lt;Territory&gt; getNeighbors(final Set&lt;Territory&gt; frontier, final Set&lt;Territory&gt; searched, int distance) {
+<span class="fc bfc" id="L381" title="All 2 branches covered.">    if (distance == 0) {</span>
+<span class="fc" id="L382">      return searched;</span>
+    }
+<span class="fc" id="L384">    final Iterator&lt;Territory&gt; iter = frontier.iterator();</span>
+<span class="fc" id="L385">    final Set&lt;Territory&gt; newFrontier = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L386" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L387">      final Territory t = iter.next();</span>
+<span class="fc" id="L388">      newFrontier.addAll(getNeighbors(t));</span>
+    }
+<span class="fc" id="L390">    newFrontier.removeAll(searched);</span>
+<span class="fc" id="L391">    searched.addAll(newFrontier);</span>
+<span class="fc" id="L392">    return getNeighbors(newFrontier, searched, --distance);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @return the shortest route between two territories or null if no route exists
+   */
+  public Route getRoute(final Territory t1, final Territory t2) {
+<span class="fc" id="L403">    return getRoute(t1, t2, Matches.TerritoryIsLandOrWater);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @return the shortest land route between two territories or null if no route exists
+   */
+  public Route getLandRoute(final Territory t1, final Territory t2) {
+<span class="fc" id="L414">    return getRoute(t1, t2, Matches.TerritoryIsLand);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @return the shortest water route between two territories or null if no route exists
+   */
+  public Route getWaterRoute(final Territory t1, final Territory t2) {
+<span class="fc" id="L425">    return getRoute(t1, t2, Matches.TerritoryIsWater);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @param cond
+   *        condition that covered territories of the route must match
+   * @return the shortest route between two territories so that covered territories match the condition
+   *         or null if no route exists
+   */
+  public Route getRoute(final Territory t1, final Territory t2, final Match&lt;Territory&gt; cond) {
+<span class="fc bfc" id="L439" title="All 2 branches covered.">    if (t1 == t2) {</span>
+<span class="fc" id="L440">      return new Route(t1);</span>
+    }
+<span class="fc bfc" id="L442" title="All 2 branches covered.">    if (getNeighbors(t1, cond).contains(t2)) {</span>
+<span class="fc" id="L443">      return new Route(t1, t2);</span>
+    }
+<span class="fc" id="L445">    final RouteFinder engine = new RouteFinder(this, cond);</span>
+<span class="fc" id="L446">    return engine.findRoute(t1, t2);</span>
+  }
+
+  public Route getRoute_IgnoreEnd(final Territory t1, final Territory t2, final Match&lt;Territory&gt; match) {
+<span class="nc" id="L450">    return getRoute(t1, t2, new CompositeMatchOr&lt;&gt;(Matches.territoryIs(t2), match));</span>
+  }
+
+  /**
+   * A composite route between two territories
+   * Example set of matches: [Friendly Land, score: 1] [Enemy Land, score: 2] [Neutral Land, score = 4]
+   * With this example set, an 8 length friendly route is considered equal in score to a 4 length enemy route and a 2
+   * length neutral route.
+   * This is because the friendly route score is 1/2 of the enemy route score and 1/4 of the neutral route score.
+   * Note that you can choose whatever scores you want, and that the matches can mix and match with each other in any
+   * way.
+   * (Recommended that you use 2,3,4 as scores, unless you will allow routes to be much longer under certain conditions)
+   * Returns null if there is no route that exists that matches any of the matches.
+   *
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @param matches
+   *        HashMap of territory matches for covered territories
+   * @return a composite route between two territories
+   */
+  public Route getCompositeRoute(final Territory t1, final Territory t2,
+      final HashMap&lt;Match&lt;Territory&gt;, Integer&gt; matches) {
+<span class="nc bnc" id="L474" title="All 2 branches missed.">    if (t1 == t2) {</span>
+<span class="nc" id="L475">      return new Route(t1);</span>
+    }
+<span class="nc" id="L477">    final CompositeMatch&lt;Territory&gt; allCond = new CompositeMatchOr&lt;&gt;(matches.keySet());</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">    if (getNeighbors(t1, allCond).contains(t2)) {</span>
+<span class="nc" id="L479">      return new Route(t1, t2);</span>
+    }
+<span class="nc" id="L481">    final CompositeRouteFinder engine = new CompositeRouteFinder(this, matches);</span>
+<span class="nc" id="L482">    return engine.findRoute(t1, t2);</span>
+  }
+
+  public Route getCompositeRoute_IgnoreEnd(final Territory t1, final Territory t2,
+      final HashMap&lt;Match&lt;Territory&gt;, Integer&gt; matches) {
+<span class="nc" id="L487">    matches.put(Matches.territoryIs(t2), 0);</span>
+<span class="nc" id="L488">    return getCompositeRoute(t1, t2, matches);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @return the distance between two territories or -1 if they are not connected
+   */
+  public int getDistance(final Territory t1, final Territory t2) {
+<span class="fc" id="L499">    return getDistance(t1, t2, Matches.TerritoryIsLandOrWater);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @return the land distance between two territories or -1 if they are not connected
+   */
+  public int getLandDistance(final Territory t1, final Territory t2) {
+<span class="fc" id="L510">    return getDistance(t1, t2, Matches.TerritoryIsLand);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @return the water distance between two territories or -1 if they are not connected
+   */
+  public int getWaterDistance(final Territory t1, final Territory t2) {
+<span class="fc" id="L521">    return getDistance(t1, t2, Matches.TerritoryIsWater);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @param cond
+   *        condition that covered territories of the route must match
+   * @return the distance between two territories where the covered territories of the route satisfy the condition
+   *         or -1 if they are not connected
+   */
+  public int getDistance(final Territory t1, final Territory t2, final Match&lt;Territory&gt; cond) {
+<span class="fc bfc" id="L535" title="All 2 branches covered.">    if (t1.equals(t2)) {</span>
+<span class="fc" id="L536">      return 0;</span>
+    }
+<span class="fc" id="L538">    final Set&lt;Territory&gt; frontier = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L539">    frontier.add(t1);</span>
+<span class="fc" id="L540">    return getDistance(0, new HashSet&lt;&gt;(), frontier, t2, cond);</span>
+  }
+
+  /**
+   * @param t1
+   *        start territory of the route
+   * @param t2
+   *        end territory of the route
+   * @param cond
+   *        condition that covered territories of the route must match EXCEPT FOR THE END
+   * @return the distance between two territories where the covered territories of the route (except the end) satisfy
+   *         the condition
+   *         or -1 if they are not connected. (Distance includes to the end)
+   */
+  public int getDistance_IgnoreEndForCondition(final Territory t1, final Territory t2, final Match&lt;Territory&gt; cond) {
+<span class="nc" id="L555">    return getDistance(t1, t2, new CompositeMatchOr&lt;&gt;(Matches.territoryIs(t2), cond));</span>
+  }
+
+  /**
+   * Guaranteed that frontier doesn't contain target.
+   * Territories on the frontier are not target. They represent the extent of paths already searched.
+   * Territories in searched have already been on the frontier.
+   */
+  private int getDistance(final int distance, final Set&lt;Territory&gt; searched, final Set&lt;Territory&gt; frontier,
+      final Territory target, final Match&lt;Territory&gt; cond) {
+    // add the frontier to the searched
+<span class="fc" id="L566">    searched.addAll(frontier);</span>
+    // find the new frontier
+<span class="fc" id="L568">    final Set&lt;Territory&gt; newFrontier = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L569">    final Iterator&lt;Territory&gt; frontierIterator = frontier.iterator();</span>
+<span class="fc bfc" id="L570" title="All 2 branches covered.">    while (frontierIterator.hasNext()) {</span>
+<span class="fc" id="L571">      final Territory onFrontier = frontierIterator.next();</span>
+<span class="fc" id="L572">      final Set&lt;Territory&gt; connections = m_connections.get(onFrontier);</span>
+<span class="fc" id="L573">      final Iterator&lt;Territory&gt; connectionIterator = connections.iterator();</span>
+<span class="fc bfc" id="L574" title="All 2 branches covered.">      while (connectionIterator.hasNext()) {</span>
+<span class="fc" id="L575">        final Territory nextFrontier = connectionIterator.next();</span>
+<span class="pc bpc" id="L576" title="1 of 4 branches missed.">        if (cond == null || cond.match(nextFrontier)) {</span>
+<span class="fc" id="L577">          newFrontier.add(nextFrontier);</span>
+        }
+      }
+    }
+<span class="fc bfc" id="L581" title="All 2 branches covered.">    if (newFrontier.contains(target)) {</span>
+<span class="fc" id="L582">      return distance + 1;</span>
+    }
+<span class="fc" id="L584">    newFrontier.removeAll(searched);</span>
+<span class="fc bfc" id="L585" title="All 2 branches covered.">    if (newFrontier.isEmpty()) {</span>
+<span class="fc" id="L586">      return -1;</span>
+    }
+<span class="fc" id="L588">    return getDistance(distance + 1, searched, newFrontier, target, cond);</span>
+  }
+
+  public IntegerMap&lt;Territory&gt; getDistance(final Territory target, final Collection&lt;Territory&gt; territories,
+      final Match&lt;Territory&gt; condition) {
+<span class="nc" id="L593">    final IntegerMap&lt;Territory&gt; rVal = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L594" title="All 6 branches missed.">    if (target == null || territories == null || territories.isEmpty()) {</span>
+<span class="nc" id="L595">      return rVal;</span>
+    }
+<span class="nc bnc" id="L597" title="All 2 branches missed.">    for (final Territory t : territories) {</span>
+<span class="nc" id="L598">      rVal.put(t, getDistance(target, t, condition));</span>
+    }
+<span class="nc" id="L600">    return rVal;</span>
+  }
+
+  public List&lt;Territory&gt; getTerritories() {
+<span class="fc" id="L604">    return Collections.unmodifiableList(m_territories);</span>
+  }
+
+  @Override
+  public Iterator&lt;Territory&gt; iterator() {
+<span class="fc" id="L609">    return m_territories.iterator();</span>
+  }
+
+  public List&lt;Territory&gt; getTerritoriesOwnedBy(final PlayerID player) {
+<span class="nc" id="L613">    final Iterator&lt;Territory&gt; iter = m_territories.iterator();</span>
+<span class="nc" id="L614">    final List&lt;Territory&gt; owner = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">    while (iter.hasNext()) {</span>
+<span class="nc" id="L616">      final Territory territory = iter.next();</span>
+<span class="nc bnc" id="L617" title="All 2 branches missed.">      if (territory.getOwner().equals(player)) {</span>
+<span class="nc" id="L618">        owner.add(territory);</span>
+      }
+    }
+<span class="nc" id="L621">    return owner;</span>
+  }
+
+  /**
+   * @param route
+   *        route containing the territories in question
+   * @return whether each territory is connected to the preceding territory
+   */
+  public boolean isValidRoute(final Route route) {
+<span class="fc" id="L630">    Territory previous = null;</span>
+<span class="fc bfc" id="L631" title="All 2 branches covered.">    for (final Territory t : route) {</span>
+<span class="fc bfc" id="L632" title="All 2 branches covered.">      if (previous != null) {</span>
+<span class="fc bfc" id="L633" title="All 2 branches covered.">        if (!getNeighbors(previous).contains(t)) {</span>
+<span class="fc" id="L634">          return false;</span>
+        }
+      }
+<span class="fc" id="L637">      previous = t;</span>
+    }
+<span class="fc" id="L639">    return true;</span>
+  }
+
+  /**
+   * If the actual territories in the map are deleted, or new ones added, call this.
+   */
+  public void notifyChanged() {
+<span class="nc" id="L646">    getData().notifyMapDataChanged();</span>
+<span class="nc" id="L647">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

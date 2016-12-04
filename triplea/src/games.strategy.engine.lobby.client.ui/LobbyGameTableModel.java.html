@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>LobbyGameTableModel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.client.ui</a> &gt; <span class="el_source">LobbyGameTableModel.java</span></div><h1>LobbyGameTableModel.java</h1><pre class="source lang-java linenums"><span class="pc" id="L1">package games.strategy.engine.lobby.client.ui;</span>
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import javax.swing.SwingUtilities;
+import javax.swing.table.AbstractTableModel;
+
+import games.strategy.engine.lobby.server.GameDescription;
+import games.strategy.engine.lobby.server.ILobbyGameBroadcaster;
+import games.strategy.engine.lobby.server.ILobbyGameController;
+import games.strategy.engine.message.IChannelMessenger;
+import games.strategy.engine.message.IRemoteMessenger;
+import games.strategy.engine.message.MessageContext;
+import games.strategy.net.GUID;
+import games.strategy.net.IMessenger;
+import games.strategy.util.Tuple;
+
+public class LobbyGameTableModel extends AbstractTableModel {
+  private static final long serialVersionUID = 6399458368730633993L;
+
+<span class="fc" id="L24">  enum Column {</span>
+<span class="fc" id="L25">    Host, Name, GV, Round, Players, P, B, EV, Started, Status, Comments, GUID</span>
+  }
+
+  private final IMessenger m_messenger;
+
+  // these must only be accessed in the swing event thread
+  private final List&lt;Tuple&lt;GUID, GameDescription&gt;&gt; gameList;
+  private final ILobbyGameBroadcaster lobbyGameBroadcaster;
+
+<span class="fc" id="L34">  public LobbyGameTableModel(final IMessenger messenger, final IChannelMessenger channelMessenger,</span>
+      final IRemoteMessenger remoteMessenger) {
+
+<span class="fc" id="L37">    gameList = new ArrayList&lt;&gt;();</span>
+
+<span class="fc" id="L39">    m_messenger = messenger;</span>
+<span class="fc" id="L40">    final IChannelMessenger m_channelMessenger = channelMessenger;</span>
+<span class="fc" id="L41">    final IRemoteMessenger m_remoteMessenger = remoteMessenger;</span>
+<span class="fc" id="L42">    lobbyGameBroadcaster = new ILobbyGameBroadcaster() {</span>
+      @Override
+      public void gameUpdated(final GUID gameId, final GameDescription description) {
+<span class="fc" id="L45">        assertSentFromServer();</span>
+<span class="fc" id="L46">        updateGame(gameId, description);</span>
+<span class="fc" id="L47">      }</span>
+
+      @Override
+      public void gameRemoved(final GUID gameId) {
+<span class="fc" id="L51">        assertSentFromServer();</span>
+<span class="fc" id="L52">        removeGame(gameId);</span>
+<span class="fc" id="L53">      }</span>
+    };
+<span class="fc" id="L55">    m_channelMessenger.registerChannelSubscriber(lobbyGameBroadcaster, ILobbyGameBroadcaster.GAME_BROADCASTER_CHANNEL);</span>
+
+<span class="fc" id="L57">    final Map&lt;GUID, GameDescription&gt; games =</span>
+<span class="fc" id="L58">        ((ILobbyGameController) m_remoteMessenger.getRemote(ILobbyGameController.GAME_CONTROLLER_REMOTE)).listGames();</span>
+<span class="fc bfc" id="L59" title="All 2 branches covered.">    for (final GUID id : games.keySet()) {</span>
+<span class="fc" id="L60">      updateGame(id, games.get(id));</span>
+    }
+<span class="fc" id="L62">  }</span>
+
+  private void removeGame(final GUID gameId) {
+<span class="fc" id="L65">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">      if (gameId == null) {</span>
+<span class="nc" id="L67">        return;</span>
+      }
+
+<span class="fc" id="L70">      final Tuple&lt;GUID, GameDescription&gt; gameToRemove = findGame(gameId);</span>
+<span class="fc bfc" id="L71" title="All 2 branches covered.">      if (gameToRemove != null) {</span>
+<span class="fc" id="L72">        final int index = gameList.indexOf(gameToRemove);</span>
+<span class="fc" id="L73">        gameList.remove(gameToRemove);</span>
+<span class="fc" id="L74">        fireTableRowsDeleted(index, index);</span>
+      }
+<span class="fc" id="L76">    });</span>
+<span class="fc" id="L77">  }</span>
+
+  private Tuple&lt;GUID, GameDescription&gt; findGame(final GUID gameId) {
+<span class="fc bfc" id="L80" title="All 2 branches covered.">    for (final Tuple&lt;GUID, GameDescription&gt; game : gameList) {</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">      if (game.getFirst().equals(gameId)) {</span>
+<span class="fc" id="L82">        return game;</span>
+      }
+    }
+<span class="fc" id="L85">    return null;</span>
+  }
+
+
+  protected ILobbyGameBroadcaster getLobbyGameBroadcaster() {
+<span class="fc" id="L90">    return lobbyGameBroadcaster;</span>
+  }
+
+  public GameDescription get(final int i) {
+<span class="nc" id="L94">    return gameList.get(i).getSecond();</span>
+  }
+
+  @Override
+  public Class&lt;?&gt; getColumnClass(final int columnIndex) {
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    if (columnIndex == getColumnIndex(Column.Started)) {</span>
+<span class="nc" id="L100">      return Date.class;</span>
+    }
+<span class="nc" id="L102">    return Object.class;</span>
+  }
+
+  private void assertSentFromServer() {
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">    if (!MessageContext.getSender().equals(m_messenger.getServerNode())) {</span>
+<span class="nc" id="L107">      throw new IllegalStateException(&quot;Invalid sender&quot;);</span>
+    }
+<span class="fc" id="L109">  }</span>
+
+  private void updateGame(final GUID gameId, final GameDescription description) {
+<span class="fc" id="L112">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="fc bfc" id="L113" title="All 2 branches covered.">      if (gameId == null) {</span>
+<span class="fc" id="L114">        return;</span>
+      }
+
+<span class="fc" id="L117">      final Tuple&lt;GUID, GameDescription&gt; toReplace = findGame(gameId);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">      if (toReplace == null) {</span>
+<span class="fc" id="L119">        gameList.add(Tuple.of(gameId, description));</span>
+<span class="fc" id="L120">      } else {</span>
+<span class="fc" id="L121">        final int replaceIndex = gameList.indexOf(toReplace);</span>
+<span class="fc" id="L122">        gameList.set(replaceIndex, Tuple.of(gameId, description));</span>
+<span class="fc" id="L123">        fireTableRowsUpdated(replaceIndex, replaceIndex);</span>
+      }
+<span class="fc" id="L125">    });</span>
+<span class="fc" id="L126">  }</span>
+
+  @Override
+  public String getColumnName(final int column) {
+<span class="nc" id="L130">    return Column.values()[column].toString();</span>
+  }
+
+  public int getColumnIndex(final Column column) {
+<span class="fc" id="L134">    return column.ordinal();</span>
+  }
+
+  @Override
+  public int getColumnCount() {
+    // -1 so we don't display the guid
+<span class="nc" id="L140">    return Column.values().length - 1;</span>
+  }
+
+  @Override
+  public int getRowCount() {
+<span class="fc" id="L145">    return gameList.size();</span>
+  }
+
+  @Override
+  public Object getValueAt(final int rowIndex, final int columnIndex) {
+<span class="fc" id="L150">    final Column column = Column.values()[columnIndex];</span>
+<span class="fc" id="L151">    final GameDescription description = gameList.get(rowIndex).getSecond();</span>
+<span class="pc bpc" id="L152" title="12 of 13 branches missed.">    switch (column) {</span>
+      case Host:
+<span class="nc" id="L154">        return description.getHostName();</span>
+      case Round:
+<span class="nc" id="L156">        return description.getRound();</span>
+      case Name:
+<span class="nc" id="L158">        return description.getGameName();</span>
+      case Players:
+<span class="nc" id="L160">        return description.getPlayerCount();</span>
+      case P:
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        return (description.getPassworded() ? &quot;*&quot; : &quot;&quot;);</span>
+      case B:
+<span class="nc bnc" id="L164" title="All 4 branches missed.">        return (description.getBotSupportEmail() != null &amp;&amp; description.getBotSupportEmail().length() &gt; 0 ? &quot;-&quot; : &quot;&quot;);</span>
+      case GV:
+<span class="nc" id="L166">        return description.getGameVersion();</span>
+      case EV:
+<span class="nc" id="L168">        return description.getEngineVersion();</span>
+      case Status:
+<span class="nc" id="L170">        return description.getStatus();</span>
+      case Comments:
+<span class="fc" id="L172">        return description.getComment();</span>
+      case Started:
+<span class="nc" id="L174">        return description.getStartDateTime();</span>
+      case GUID:
+<span class="nc" id="L176">        return gameList.get(rowIndex).getFirst();</span>
+      default:
+<span class="nc" id="L178">        throw new IllegalStateException(&quot;Unknown column:&quot; + column);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AxisAndAlliesForumPoster.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.pbem</a> &gt; <span class="el_source">AxisAndAlliesForumPoster.java</span></div><h1>AxisAndAlliesForumPoster.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.pbem;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.apache.commons.httpclient.Header;
+import org.apache.commons.httpclient.HostConfiguration;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.HttpState;
+import org.apache.commons.httpclient.NameValuePair;
+import org.apache.commons.httpclient.methods.GetMethod;
+import org.apache.commons.httpclient.methods.PostMethod;
+import org.apache.commons.httpclient.methods.multipart.FilePart;
+import org.apache.commons.httpclient.methods.multipart.MultipartRequestEntity;
+import org.apache.commons.httpclient.methods.multipart.Part;
+import org.apache.commons.httpclient.methods.multipart.StringPart;
+import org.apache.commons.httpclient.params.HttpMethodParams;
+
+import games.strategy.engine.framework.system.HttpProxy;
+import games.strategy.engine.pbem.AbstractForumPoster;
+import games.strategy.engine.pbem.IForumPoster;
+import games.strategy.net.OpenFileUtility;
+import games.strategy.triplea.help.HelpSupport;
+import games.strategy.util.ThreadUtil;
+
+/**
+ * Post turn summary to www.axisandallies.org to the thread identified by the forumId
+ * URL format: http://www.axisandallies.org/forums/index.php?topic=[forumId],
+ * like http://www.axisandallies.org/forums/index.php?topic=25878
+ * The poster logs in, and out every time it posts, this way we don't nee to manage any state between posts
+ */
+<span class="nc" id="L34">public class AxisAndAlliesForumPoster extends AbstractForumPoster {</span>
+  private static final long serialVersionUID = 8896923978584346664L;
+  // the patterns used to extract values from hidden form fields posted to the server
+<span class="nc" id="L37">  public static final Pattern NUM_REPLIES_PATTERN =</span>
+<span class="nc" id="L38">      Pattern.compile(&quot;.*name=\&quot;num_replies\&quot; value=\&quot;(\\d+)\&quot;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+<span class="nc" id="L39">  public static final Pattern SEQ_NUM_PATTERN =</span>
+<span class="nc" id="L40">      Pattern.compile(&quot;.*name=\&quot;seqnum\&quot;\\svalue=\&quot;(\\d+)\&quot;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+<span class="nc" id="L41">  public static final Pattern SC_PATTERN =</span>
+<span class="nc" id="L42">      Pattern.compile(&quot;.*name=\&quot;sc\&quot;\\svalue=\&quot;(\\w+)\&quot;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+  // Pattern that matches if the &quot;Notify me of replies&quot; checkbox is checked
+<span class="nc" id="L44">  public static final Pattern NOTIFY_PATTERN =</span>
+<span class="nc" id="L45">      Pattern.compile(&quot;.*id=\&quot;check_notify\&quot;\\schecked=\&quot;checked\&quot;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+  // 3 patterns used for error handling
+<span class="nc" id="L47">  public static final Pattern AN_ERROR_OCCURRED_PATTERN =</span>
+<span class="nc" id="L48">      Pattern.compile(&quot;.*An Error Has Occurred.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+<span class="nc" id="L49">  public static final Pattern ERROR_TEXT_PATTERN = Pattern</span>
+<span class="nc" id="L50">      .compile(&quot;.*&lt;tr\\s+class=\&quot;windowbg\&quot;&gt;\\s*&lt;td[^&gt;]*&gt;([^&lt;]*)&lt;/td&gt;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+<span class="nc" id="L51">  public static final Pattern ERROR_LIST_PATTERN =</span>
+<span class="nc" id="L52">      Pattern.compile(&quot;.*id=\&quot;error_list[^&gt;]*&gt;\\s+([^&lt;]*)\\s+&lt;.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+  private transient HttpState m_httpState;
+  private transient HostConfiguration m_hostConfiguration;
+  private transient HttpClient m_client;
+
+  /**
+   * Logs into axisandallies.org
+   * nb: Username and password are posted in clear text
+   *
+   * @throws Exception
+   *         if login fails
+   */
+  private void login() throws Exception {
+    // creates and configures a new http client
+<span class="nc" id="L66">    m_client = new HttpClient();</span>
+<span class="nc" id="L67">    m_client.getParams().setParameter(&quot;http.protocol.single-cookie-header&quot;, true);</span>
+<span class="nc" id="L68">    m_client.getParams().setParameter(&quot;http.useragent&quot;,</span>
+<span class="nc" id="L69">        &quot;Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; Trident/4.0)&quot;);</span>
+<span class="nc" id="L70">    m_httpState = new HttpState();</span>
+<span class="nc" id="L71">    m_hostConfiguration = new HostConfiguration();</span>
+    // add the proxy
+<span class="nc" id="L73">    HttpProxy.addProxy(m_hostConfiguration);</span>
+<span class="nc" id="L74">    m_hostConfiguration.setHost(&quot;www.axisandallies.org&quot;);</span>
+<span class="nc" id="L75">    final PostMethod post = new PostMethod(&quot;http://www.axisandallies.org/forums/index.php?action=login2&quot;);</span>
+    try {
+<span class="nc" id="L77">      post.addRequestHeader(&quot;Accept&quot;, &quot;*/*&quot;);</span>
+<span class="nc" id="L78">      post.addRequestHeader(&quot;Accept-Language&quot;, &quot;en-us&quot;);</span>
+<span class="nc" id="L79">      post.addRequestHeader(&quot;Cache-Control&quot;, &quot;no-cache&quot;);</span>
+<span class="nc" id="L80">      post.addRequestHeader(&quot;Content-Type&quot;, &quot;application/x-www-form-urlencoded&quot;);</span>
+<span class="nc" id="L81">      final List&lt;NameValuePair&gt; parameters = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L82">      parameters.add(new NameValuePair(&quot;user&quot;, getUsername()));</span>
+<span class="nc" id="L83">      parameters.add(new NameValuePair(&quot;passwrd&quot;, getPassword()));</span>
+<span class="nc" id="L84">      post.setRequestBody(parameters.toArray(new NameValuePair[parameters.size()]));</span>
+<span class="nc" id="L85">      int status = m_client.executeMethod(m_hostConfiguration, post, m_httpState);</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">      if (status == 200) {</span>
+<span class="nc" id="L87">        final String body = post.getResponseBodyAsString();</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">        if (body.toLowerCase().contains(&quot;password incorrect&quot;)) {</span>
+<span class="nc" id="L89">          throw new Exception(&quot;Incorrect Password&quot;);</span>
+        }
+        // site responds with 200, and a refresh header
+<span class="nc" id="L92">        final Header refreshHeader = post.getResponseHeader(&quot;Refresh&quot;);</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">        if (refreshHeader == null) {</span>
+<span class="nc" id="L94">          throw new Exception(&quot;Missing refresh header after login&quot;);</span>
+        }
+        // refresh: 0; URL=http://...
+<span class="nc" id="L97">        final String value = refreshHeader.getValue();</span>
+<span class="nc" id="L98">        final Pattern p = Pattern.compile(&quot;[^;]*;\\s*url=(.*)&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+<span class="nc" id="L99">        final Matcher m = p.matcher(value);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (m.matches()) {</span>
+<span class="nc" id="L101">          final String url = m.group(1);</span>
+<span class="nc" id="L102">          final GetMethod getRefreshPage = new GetMethod(url);</span>
+          try {
+<span class="nc" id="L104">            status = m_client.executeMethod(m_hostConfiguration, getRefreshPage, m_httpState);</span>
+            if (status != 200) {
+              // something is probably wrong, but there is not much we can do about it, we handle errors when we post
+            }
+<span class="nc" id="L108">          } finally {</span>
+<span class="nc" id="L109">            getRefreshPage.releaseConnection();</span>
+<span class="nc" id="L110">          }</span>
+<span class="nc" id="L111">        } else {</span>
+<span class="nc" id="L112">          throw new Exception(&quot;The refresh header didn't contain a URL&quot;);</span>
+        }
+      } else {
+<span class="nc" id="L115">        throw new Exception(&quot;Failed to login to forum, server responded with status code: &quot; + status);</span>
+      }
+<span class="nc" id="L117">    } finally {</span>
+<span class="nc" id="L118">      post.releaseConnection();</span>
+<span class="nc" id="L119">    }</span>
+<span class="nc" id="L120">  }</span>
+
+  @Override
+  public boolean postTurnSummary(final String message, final String subject) {
+    try {
+<span class="nc" id="L125">      login();</span>
+      // Now we load the post page, and find the hidden fields needed to post
+<span class="nc" id="L127">      final GetMethod get =</span>
+<span class="nc" id="L128">          new GetMethod(&quot;http://www.axisandallies.org/forums/index.php?action=post;topic=&quot; + m_topicId + &quot;.0&quot;);</span>
+<span class="nc" id="L129">      int status = m_client.executeMethod(m_hostConfiguration, get, m_httpState);</span>
+<span class="nc" id="L130">      String body = get.getResponseBodyAsString();</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">      if (status == 200) {</span>
+        String numReplies;
+        String seqNum;
+        String sc;
+<span class="nc" id="L135">        Matcher m = NUM_REPLIES_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">        if (m.matches()) {</span>
+<span class="nc" id="L137">          numReplies = m.group(1);</span>
+<span class="nc" id="L138">        } else {</span>
+<span class="nc" id="L139">          throw new Exception(&quot;Hidden field 'num_replies' not found on page&quot;);</span>
+        }
+<span class="nc" id="L141">        m = SEQ_NUM_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (m.matches()) {</span>
+<span class="nc" id="L143">          seqNum = m.group(1);</span>
+<span class="nc" id="L144">        } else {</span>
+<span class="nc" id="L145">          throw new Exception(&quot;Hidden field 'seqnum' not found on page&quot;);</span>
+        }
+<span class="nc" id="L147">        m = SC_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">        if (m.matches()) {</span>
+<span class="nc" id="L149">          sc = m.group(1);</span>
+<span class="nc" id="L150">        } else {</span>
+<span class="nc" id="L151">          throw new Exception(&quot;Hidden field 'sc' not found on page&quot;);</span>
+        }
+        // now we have the required hidden fields to reply to
+<span class="nc" id="L154">        final PostMethod post =</span>
+<span class="nc" id="L155">            new PostMethod(&quot;http://www.axisandallies.org/forums/index.php?action=post2;start=0;board=40&quot;);</span>
+        try {
+          // Construct the multi part post
+<span class="nc" id="L158">          final List&lt;Part&gt; parts = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L159">          parts.add(createStringPart(&quot;topic&quot;, m_topicId));</span>
+<span class="nc" id="L160">          parts.add(createStringPart(&quot;subject&quot;, subject));</span>
+<span class="nc" id="L161">          parts.add(createStringPart(&quot;icon&quot;, &quot;xx&quot;));</span>
+<span class="nc" id="L162">          parts.add(createStringPart(&quot;message&quot;, message));</span>
+          // If the user has chosen to receive notifications, ensure this setting is passed on
+<span class="nc bnc" id="L164" title="All 2 branches missed.">          parts.add(createStringPart(&quot;notify&quot;, NOTIFY_PATTERN.matcher(body).matches() ? &quot;1&quot; : &quot;0&quot;));</span>
+<span class="nc bnc" id="L165" title="All 4 branches missed.">          if (m_includeSaveGame &amp;&amp; m_saveGameFile != null) {</span>
+<span class="nc" id="L166">            final FilePart part = new FilePart(&quot;attachment[]&quot;, m_saveGameFileName, m_saveGameFile);</span>
+<span class="nc" id="L167">            part.setContentType(&quot;application/octet-stream&quot;);</span>
+<span class="nc" id="L168">            part.setTransferEncoding(null);</span>
+<span class="nc" id="L169">            part.setCharSet(null);</span>
+<span class="nc" id="L170">            parts.add(part);</span>
+          }
+<span class="nc" id="L172">          parts.add(createStringPart(&quot;post&quot;, &quot;Post&quot;));</span>
+<span class="nc" id="L173">          parts.add(createStringPart(&quot;num_replies&quot;, numReplies));</span>
+<span class="nc" id="L174">          parts.add(createStringPart(&quot;additional_options&quot;, &quot;1&quot;));</span>
+<span class="nc" id="L175">          parts.add(createStringPart(&quot;sc&quot;, sc));</span>
+<span class="nc" id="L176">          parts.add(createStringPart(&quot;seqnum&quot;, seqNum));</span>
+<span class="nc" id="L177">          final MultipartRequestEntity entity =</span>
+<span class="nc" id="L178">              new MultipartRequestEntity(parts.toArray(new Part[parts.size()]), new HttpMethodParams());</span>
+<span class="nc" id="L179">          post.setRequestEntity(entity);</span>
+          // add headers
+<span class="nc" id="L181">          post.addRequestHeader(&quot;Referer&quot;, &quot;http://www.axisandallies.org/forums/index.php?action=post;topic=&quot;</span>
+<span class="nc" id="L182">              + m_topicId + &quot;.0;num_replies=&quot; + numReplies);</span>
+<span class="nc" id="L183">          post.addRequestHeader(&quot;Accept&quot;, &quot;*/*&quot;);</span>
+          // the site has spam prevention which means you can't post until 15 seconds after login
+<span class="nc" id="L185">          ThreadUtil.sleep(15 * 1000);</span>
+<span class="nc" id="L186">          post.setFollowRedirects(false);</span>
+<span class="nc" id="L187">          status = m_client.executeMethod(m_hostConfiguration, post, m_httpState);</span>
+<span class="nc" id="L188">          body = post.getResponseBodyAsString();</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">          if (status == 302) {</span>
+            // site responds with a 302 redirect back to the forum index (board=40)
+            // The syntax for post is &quot;.....topic=xx.yy&quot; where xx is the thread id, and yy is the post number in the
+            // given thread
+            // since the site is lenient we can just give a high post_number to go to the last post in the thread
+<span class="nc" id="L194">            m_turnSummaryRef = &quot;http://www.axisandallies.org/forums/index.php?topic=&quot; + m_topicId + &quot;.10000&quot;;</span>
+<span class="nc" id="L195">          } else {</span>
+            // these two patterns find general errors, where the first pattern checks if the error text appears,
+            // the second pattern extracts the error message. This could be the &quot;The last posting from your IP was less
+            // than 15 seconds
+            // ago.Please try again later&quot;
+            // this patter finds errors that are marked in red (for instance &quot;You are not allowed to post URLs&quot;, or
+            // &quot;Some one else has posted while you vere reading&quot;
+<span class="nc" id="L202">            Matcher matcher = ERROR_LIST_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            if (matcher.matches()) {</span>
+<span class="nc" id="L204">              throw new Exception(&quot;The site gave an error: '&quot; + matcher.group(1) + &quot;'&quot;);</span>
+            }
+<span class="nc" id="L206">            matcher = AN_ERROR_OCCURRED_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">            if (matcher.matches()) {</span>
+<span class="nc" id="L208">              matcher = ERROR_TEXT_PATTERN.matcher(body);</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">              if (matcher.matches()) {</span>
+<span class="nc" id="L210">                throw new Exception(&quot;The site gave an error: '&quot; + matcher.group(1) + &quot;'&quot;);</span>
+              }
+            }
+<span class="nc" id="L213">            final Header refreshHeader = post.getResponseHeader(&quot;Refresh&quot;);</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">            if (refreshHeader != null) {</span>
+              // sometimes the message will be flagged as spam, and a refresh url is given
+              // refresh: 0; URL=http://...topic=26114.new%3bspam=true#new
+<span class="nc" id="L217">              final String value = refreshHeader.getValue();</span>
+<span class="nc" id="L218">              final Pattern p =</span>
+<span class="nc" id="L219">                  Pattern.compile(&quot;[^;]*;\\s*url=.*spam=true.*&quot;, Pattern.DOTALL | Pattern.CASE_INSENSITIVE);</span>
+<span class="nc" id="L220">              m = p.matcher(value);</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">              if (m.matches()) {</span>
+<span class="nc" id="L222">                throw new Exception(&quot;The summary was posted but was flagged as spam&quot;);</span>
+              }
+            }
+<span class="nc" id="L225">            throw new Exception(</span>
+<span class="nc" id="L226">                &quot;Unknown error, please contact the forum owner and also post a bug to the tripleA development team&quot;);</span>
+          }
+<span class="nc" id="L228">        } finally {</span>
+<span class="nc" id="L229">          post.releaseConnection();</span>
+<span class="nc" id="L230">        }</span>
+<span class="nc" id="L231">      } else {</span>
+<span class="nc" id="L232">        throw new Exception(&quot;Unable to load forum post &quot; + m_topicId);</span>
+      }
+<span class="nc" id="L234">    } catch (final Exception e) {</span>
+<span class="nc" id="L235">      m_turnSummaryRef = e.getMessage();</span>
+<span class="nc" id="L236">      return false;</span>
+    }
+<span class="nc" id="L238">    return true;</span>
+  }
+
+  /**
+   * Utility method for creating string parts, since we need to remove transferEncoding and content type to behave like
+   * a browser
+   *
+   * @param name
+   *        the form field name
+   * @param value
+   *        the for field value
+   * @return return the created StringPart
+   */
+  private StringPart createStringPart(final String name, final String value) {
+<span class="nc" id="L252">    final StringPart stringPart = new StringPart(name, value);</span>
+<span class="nc" id="L253">    stringPart.setTransferEncoding(null);</span>
+<span class="nc" id="L254">    stringPart.setContentType(null);</span>
+<span class="nc" id="L255">    return stringPart;</span>
+  }
+
+  @Override
+  public String getDisplayName() {
+<span class="nc" id="L260">    return &quot;AxisAndAllies.org&quot;;</span>
+  }
+
+  /**
+   * Create a clone of the poster
+   *
+   * @return a copy
+   */
+  @Override
+  public IForumPoster doClone() {
+<span class="nc" id="L270">    final AxisAndAlliesForumPoster clone = new AxisAndAlliesForumPoster();</span>
+<span class="nc" id="L271">    clone.setTopicId(getTopicId());</span>
+<span class="nc" id="L272">    clone.setIncludeSaveGame(getIncludeSaveGame());</span>
+<span class="nc" id="L273">    clone.setAlsoPostAfterCombatMove(getAlsoPostAfterCombatMove());</span>
+<span class="nc" id="L274">    clone.setPassword(getPassword());</span>
+<span class="nc" id="L275">    clone.setUsername(getUsername());</span>
+<span class="nc" id="L276">    return clone;</span>
+  }
+
+  @Override
+  public boolean supportsSaveGame() {
+<span class="nc" id="L281">    return true;</span>
+  }
+
+  @Override
+  public void viewPosted() {
+<span class="nc" id="L286">    final String url = &quot;http://www.axisandallies.org/forums/index.php?topic=&quot; + m_topicId + &quot;.10000&quot;;</span>
+<span class="nc" id="L287">    OpenFileUtility.openURL(url);</span>
+<span class="nc" id="L288">  }</span>
+
+  @Override
+  public String getTestMessage() {
+<span class="nc" id="L292">    return &quot;Testing, this will take about 20 seconds...&quot;;</span>
+  }
+
+  @Override
+  public String getHelpText() {
+<span class="nc" id="L297">    return HelpSupport.loadHelp(&quot;axisAndAlliesForum.html&quot;);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

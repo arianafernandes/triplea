@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MacFinder.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net</a> &gt; <span class="el_source">MacFinder.java</span></div><h1>MacFinder.java</h1><pre class="source lang-java linenums">package games.strategy.net;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.FluentIterable;
+import com.google.common.primitives.Bytes;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.util.MD5Crypt;
+
+<span class="nc" id="L21">public class MacFinder {</span>
+
+  /**
+   * Should result in something like this: $1$MH$345ntXD4G3AKpAeHZdaGe3
+   */
+  public static String getHashedMacAddress() {
+<span class="fc" id="L27">    final String mac = getMacAddress();</span>
+<span class="pc bpc" id="L28" title="1 of 2 branches missed.">    if (mac == null) {</span>
+<span class="nc" id="L29">      throw new IllegalArgumentException(</span>
+<span class="nc" id="L30">          &quot;You have an invalid MAC address or TripleA can't find your mac address&quot;);</span>
+    }
+<span class="fc" id="L32">    return MD5Crypt.crypt(mac, &quot;MH&quot;);</span>
+  }
+
+  private static String getMacAddress() {
+    // We must try different methods of obtaining the mac address because not all the methods work on each system, and
+    // if we can't obtain
+    // the mac, we can't login to the lobby
+    // First, try to get the mac address of the local host network interface
+    try {
+<span class="fc" id="L41">      final InetAddress address = InetAddress.getLocalHost();</span>
+<span class="fc" id="L42">      final NetworkInterface localHostNI = NetworkInterface.getByInetAddress(address);</span>
+<span class="pc bpc" id="L43" title="1 of 2 branches missed.">      if (localHostNI != null) {</span>
+<span class="nc" id="L44">        final byte[] rawMac = localHostNI.getHardwareAddress();</span>
+<span class="nc" id="L45">        final String mac = convertMacBytesToString(rawMac);</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">        if (isMacValid(mac)) {</span>
+<span class="nc" id="L47">          return mac;</span>
+        }
+      }
+<span class="nc" id="L50">    } catch (final SocketException | UnknownHostException e) {</span>
+<span class="nc" id="L51">      ClientLogger.logError(&quot;Error while trying to get a valid MAC adress&quot;, e);</span>
+    }
+    // Next, try to get the mac address of the first network interfaces that has an accessible mac address
+    try {
+<span class="pc bpc" id="L55" title="1 of 2 branches missed.">      for (final NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {</span>
+<span class="fc" id="L56">        final byte[] rawMac = ni.getHardwareAddress();</span>
+<span class="fc" id="L57">        final String mac = convertMacBytesToString(rawMac);</span>
+<span class="pc bpc" id="L58" title="1 of 2 branches missed.">        if (isMacValid(mac)) {</span>
+<span class="fc" id="L59">          return mac;</span>
+        }
+      }
+<span class="nc" id="L62">    } catch (final SocketException e) {</span>
+<span class="nc" id="L63">      ClientLogger.logError(&quot;Error while trying to get a valid MAC adress&quot;, e);</span>
+    }
+    // Next, try to get the mac address by calling the 'getmac' app that exists in Windows, Mac, and possibly others.
+    /*
+     * Physical Address Transport Name
+     * =================== ==========================================================
+     * 00-1F-C6-F9-EC-E8 \Device\Tcpip_{99F55DF7-8C43-464C-A8A9-FA3F847467CB}
+     */
+    try {
+<span class="nc" id="L72">      final String results = executeCommandAndGetResults(&quot;getmac&quot;);</span>
+<span class="nc" id="L73">      final String mac = tryToParseMACFromOutput(results, Arrays.asList(&quot;-&quot;, &quot;:&quot;, &quot;.&quot;), false);</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">      if (isMacValid(mac)) {</span>
+<span class="nc" id="L75">        return mac;</span>
+      }
+<span class="nc" id="L77">    } catch (final Exception e) {</span>
+<span class="nc" id="L78">      ClientLogger.logQuietly(&quot;Error while trying to get mac address&quot;, e);</span>
+    }
+    // Next, try to get the mac address by calling the 'ipconfig -all' app that exists in Windows and possibly others.
+    /*
+     * ...
+     * Physical Address. . . . . . . . . : 00-1C-D3-F8-DC-E8
+     * ...
+     */
+    try {
+<span class="nc" id="L87">      final String results = executeCommandAndGetResults(&quot;ipconfig -all&quot;);</span>
+<span class="nc" id="L88">      final String mac = tryToParseMACFromOutput(results, Arrays.asList(&quot;-&quot;, &quot;:&quot;, &quot;.&quot;), false);</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">      if (isMacValid(mac)) {</span>
+<span class="nc" id="L90">        return mac;</span>
+      }
+<span class="nc" id="L92">    } catch (final Exception e) {</span>
+<span class="nc" id="L93">      ClientLogger.logQuietly(&quot;Error while trying to get mac address&quot;, e);</span>
+    }
+    try {
+      // ipconfig -all does not work on my computer, while ipconfig /all does not work on others computers
+<span class="nc" id="L97">      final String results = executeCommandAndGetResults(&quot;ipconfig /all&quot;);</span>
+<span class="nc" id="L98">      final String mac = tryToParseMACFromOutput(results, Arrays.asList(&quot;-&quot;, &quot;:&quot;, &quot;.&quot;), false);</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">      if (isMacValid(mac)) {</span>
+<span class="nc" id="L100">        return mac;</span>
+      }
+<span class="nc" id="L102">    } catch (final Exception e) {</span>
+<span class="nc" id="L103">      ClientLogger.logQuietly(&quot;Error while trying to get mac address&quot;, e);</span>
+    }
+    // Next, try to get the mac address by calling the 'ifconfig -a' app that exists in Linux and possibly others. May
+    // have 1 or 2 spaces
+    // between Ethernet and HWaddr, and may be wireless instead of ethernet.
+    /*
+     * ...
+     * eth0 Link encap:Ethernet HWaddr 00:08:C7:1B:8C:02
+     * ...
+     */
+    try {
+<span class="nc" id="L114">      final String results = executeCommandAndGetResults(&quot;ifconfig -a&quot;);</span>
+      // Allow the parser to try adding a zero to
+      // the beginning
+<span class="nc" id="L117">      final String mac = tryToParseMACFromOutput(results, Arrays.asList(&quot;:&quot;, &quot;-&quot;, &quot;.&quot;), true);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">      if (isMacValid(mac)) {</span>
+<span class="nc" id="L119">        return mac;</span>
+      }
+<span class="nc" id="L121">    } catch (final Exception e) {</span>
+<span class="nc" id="L122">      ClientLogger.logQuietly(&quot;Error while trying to get mac address&quot;, e);</span>
+    }
+    // Next, try to get the mac address by calling the '/sbin/ifconfig -a' app that exists in Linux and possibly others.
+    // May have 1 or 2
+    // spaces between Ethernet and HWaddr, and may be wireless instead of ethernet.
+    /*
+     * ...
+     * eth0 Link encap:Ethernet HWaddr 00:08:C7:1B:8C:02
+     * ...
+     */
+    try {
+<span class="nc" id="L133">      final String results = executeCommandAndGetResults(&quot;/sbin/ifconfig -a&quot;);</span>
+      // Allow the parser to try adding a zero to
+      // the beginning
+<span class="nc" id="L136">      final String mac = tryToParseMACFromOutput(results, Arrays.asList(&quot;:&quot;, &quot;-&quot;, &quot;.&quot;), true);</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">      if (isMacValid(mac)) {</span>
+<span class="nc" id="L138">        return mac;</span>
+      }
+<span class="nc" id="L140">    } catch (final Exception e) {</span>
+<span class="nc" id="L141">      ClientLogger.logQuietly(&quot;Error while trying to get mac address&quot;, e);</span>
+    }
+    // Next, try to get the mac address by calling the 'dmesg' app that exists in FreeBSD and possibly others.
+    /*
+     * ...
+     * [ 405.681688] wlan0_rename: associate with AP 00:16:f8:40:3e:bd
+     * [ 405.683255] wlan0_rename: RX ReassocResp from 00:16:f8:40:3e:bd (capab=0x411 status=0 aid=4)
+     * ...
+     */
+    try {
+<span class="nc" id="L151">      final String results = executeCommandAndGetResults(&quot;dmesg&quot;);</span>
+<span class="nc" id="L152">      final String mac = tryToParseMACFromOutput(results, Arrays.asList(&quot;:&quot;, &quot;-&quot;, &quot;.&quot;), false);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">      if (isMacValid(mac)) {</span>
+<span class="nc" id="L154">        return mac;</span>
+      }
+<span class="nc" id="L156">    } catch (final Exception e) {</span>
+<span class="nc" id="L157">      ClientLogger.logQuietly(&quot;Error while trying to get mac address&quot;, e);</span>
+    }
+<span class="nc" id="L159">    return null;</span>
+  }
+
+  private static String executeCommandAndGetResults(final String command) {
+<span class="nc" id="L163">    Process p = null;</span>
+    try {
+<span class="nc" id="L165">      p = new ProcessBuilder(command).start();</span>
+<span class="nc" id="L166">    } catch (final Exception e) {</span>
+      try {
+<span class="nc" id="L168">        p = Runtime.getRuntime().exec(command);</span>
+<span class="nc" id="L169">      } catch (final IOException e2) {</span>
+<span class="nc" id="L170">        ClientLogger.logQuietly(&quot;Ignoring error while executing command: &quot; + command, e);</span>
+      }
+    }
+<span class="nc bnc" id="L173" title="All 2 branches missed.">    if (p == null) {</span>
+<span class="nc" id="L174">      return null;</span>
+    }
+    try {
+<span class="nc" id="L177">      final StringBuilder builder = new StringBuilder();</span>
+<span class="nc" id="L178">      final BufferedReader in = new BufferedReader(new InputStreamReader(p.getInputStream()));</span>
+      while (true) {
+        try {
+<span class="nc" id="L181">          final String line = in.readLine();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">          if (line == null) {</span>
+<span class="nc" id="L183">            break;</span>
+          }
+<span class="nc" id="L185">          builder.append(line).append(&quot;\r\n&quot;);</span>
+<span class="nc" id="L186">        } catch (final IOException e) {</span>
+          break;
+        }
+      }
+<span class="nc" id="L190">      in.close();</span>
+<span class="nc" id="L191">      return builder.toString();</span>
+<span class="nc" id="L192">    } catch (final IOException e) {</span>
+<span class="nc" id="L193">      ClientLogger.logQuietly(&quot;IOException while executing command: &quot; + command, e);</span>
+<span class="nc" id="L194">      return null;</span>
+    }
+  }
+
+  private static String convertMacBytesToString(final byte[] mac) {
+<span class="pc bpc" id="L199" title="1 of 2 branches missed.">    if (mac == null) {</span>
+<span class="nc" id="L200">      return null;</span>
+    }
+<span class="fc" id="L202">    return Joiner.on('.')</span>
+<span class="fc" id="L203">        .join(FluentIterable.from(Bytes.asList(mac)).transform(macbyte -&gt; String.format(&quot;%02X&quot;, macbyte)));</span>
+  }
+
+  private static boolean isMacValid(final String mac) {
+<span class="pc bpc" id="L207" title="4 of 8 branches missed.">    if (mac == null || mac.length() != 17 || !mac.contains(&quot;.&quot;) || !mac.matches(&quot;[0-9A-Fa-f.]+&quot;)) {</span>
+<span class="nc" id="L208">      return false;</span>
+    }
+<span class="fc" id="L210">    final char[] chars = mac.toCharArray();</span>
+<span class="fc" id="L211">    int periodCount = 0;</span>
+<span class="fc" id="L212">    int nonZeroNumberCount = 0;</span>
+<span class="fc" id="L213">    int i = 1;</span>
+<span class="fc bfc" id="L214" title="All 2 branches covered.">    for (final char ch : chars) {</span>
+<span class="pc bpc" id="L215" title="1 of 4 branches missed.">      if (ch == '.' &amp;&amp; (i % 3 != 0)) {</span>
+<span class="nc" id="L216">        return false;</span>
+      }
+<span class="fc bfc" id="L218" title="All 2 branches covered.">      if (ch == '.') {</span>
+<span class="fc" id="L219">        periodCount++;</span>
+      }
+<span class="fc bfc" id="L221" title="All 4 branches covered.">      if (ch != '.' &amp;&amp; ch != '0') {</span>
+<span class="fc" id="L222">        nonZeroNumberCount++;</span>
+      }
+<span class="fc" id="L224">      i++;</span>
+    }
+<span class="pc bpc" id="L226" title="3 of 6 branches missed.">    if (periodCount != 5 || mac.equals(&quot;00.00.00.00.00.E0&quot;) || nonZeroNumberCount == 0) {</span>
+<span class="nc" id="L227">      return false;</span>
+    }
+<span class="fc" id="L229">    return true;</span>
+  }
+
+  private static String tryToParseMACFromOutput(final String output, final List&lt;String&gt; possibleSeparators,
+      final boolean allowAppendedZeroCheck) {
+<span class="nc bnc" id="L234" title="All 4 branches missed.">    if (output == null || output.trim().length() &lt; 6) {</span>
+<span class="nc" id="L235">      return null;</span>
+    }
+<span class="nc bnc" id="L237" title="All 2 branches missed.">    for (final String separator : possibleSeparators) {</span>
+<span class="nc" id="L238">      String leftToSearch = output;</span>
+<span class="nc bnc" id="L239" title="All 6 branches missed.">      while (leftToSearch != null &amp;&amp; leftToSearch.length() &gt; 0 &amp;&amp; leftToSearch.contains(separator)) {</span>
+<span class="nc" id="L240">        int macStartIndex = Math.max(0, leftToSearch.indexOf(separator) - 2);</span>
+<span class="nc" id="L241">        String rawMac = leftToSearch.substring(macStartIndex, Math.min(macStartIndex + 17, leftToSearch.length()));</span>
+<span class="nc bnc" id="L242" title="All 4 branches missed.">        if (rawMac != null &amp;&amp; rawMac.length() &gt; 0) {</span>
+<span class="nc" id="L243">          String mac = rawMac.replace(separator, &quot;.&quot;);</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">          if (isMacValid(mac)) {</span>
+<span class="nc" id="L245">            return mac;</span>
+<span class="nc bnc" id="L246" title="All 4 branches missed.">          } else if (allowAppendedZeroCheck &amp;&amp; rawMac.substring(2, 3).equals(separator)) {</span>
+            // If mac is invalid, see if it works after adding a zero to the front
+<span class="nc" id="L248">            macStartIndex = Math.max(0, leftToSearch.indexOf(separator) - 1);</span>
+<span class="nc" id="L249">            rawMac = &quot;0&quot; + leftToSearch.substring(macStartIndex, Math.min(macStartIndex + 16, leftToSearch.length()));</span>
+<span class="nc" id="L250">            mac = rawMac.replace(separator, &quot;.&quot;);</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">            if (isMacValid(mac)) {</span>
+<span class="nc" id="L252">              return mac;</span>
+            }
+          }
+        }
+        // We only invalidate the one separator char and what's before it, so that '-ether 89-94-19...' would not fail,
+        // then cause the -
+        // after 89 to get ignored (Not sure if this situation really occurs)
+<span class="nc" id="L259">        leftToSearch = leftToSearch.substring(Math.min(macStartIndex + 1, leftToSearch.length()));</span>
+      }
+    }
+<span class="nc" id="L262">    return null;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

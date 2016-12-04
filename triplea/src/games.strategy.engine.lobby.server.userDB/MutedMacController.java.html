@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MutedMacController.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.userDB</a> &gt; <span class="el_source">MutedMacController.java</span></div><h1>MutedMacController.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server.userDB;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Utilitiy class to create/read/delete muted macs (there is no update).
+ */
+<span class="nc" id="L17">public class MutedMacController {</span>
+<span class="nc" id="L18">  private static final Logger s_logger = Logger.getLogger(MutedMacController.class.getName());</span>
+
+  /**
+   * Mute the mac permanently
+   */
+  public void addMutedMac(final String mac) {
+<span class="nc" id="L24">    addMutedMac(mac, null);</span>
+<span class="nc" id="L25">  }</span>
+
+  /**
+   * Mute the given mac. If muteTill is not null, the mute will expire when muteTill is reached.
+   * &lt;p&gt;
+   * If this mac is already muted, this call will update the mute_end.
+   */
+  public void addMutedMac(final String mac, final Date muteTill) {
+<span class="nc bnc" id="L33" title="All 2 branches missed.">    if (isMacMuted(mac)) {</span>
+<span class="nc" id="L34">      removeMutedMac(mac);</span>
+    }
+<span class="nc" id="L36">    Timestamp muteTillTs = null;</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    if (muteTill != null) {</span>
+<span class="nc" id="L38">      muteTillTs = new Timestamp(muteTill.getTime());</span>
+    }
+<span class="nc" id="L40">    s_logger.fine(&quot;Muting mac:&quot; + mac);</span>
+<span class="nc" id="L41">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L43">      final PreparedStatement ps = con.prepareStatement(&quot;insert into muted_macs (mac, mute_till) values (?, ?)&quot;);</span>
+<span class="nc" id="L44">      ps.setString(1, mac);</span>
+<span class="nc" id="L45">      ps.setTimestamp(2, muteTillTs);</span>
+<span class="nc" id="L46">      ps.execute();</span>
+<span class="nc" id="L47">      ps.close();</span>
+<span class="nc" id="L48">      con.commit();</span>
+<span class="nc" id="L49">    } catch (final SQLException sqle) {</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">      if (sqle.getErrorCode() == 30000) {</span>
+        // this is ok
+        // the mac is muted as expected
+<span class="nc" id="L53">        s_logger.info(&quot;Tried to create duplicate muted mac:&quot; + mac + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L54">        return;</span>
+      }
+<span class="nc" id="L56">      s_logger.log(Level.SEVERE, &quot;Error inserting muted mac:&quot; + mac, sqle);</span>
+<span class="nc" id="L57">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L58">    } finally {</span>
+<span class="nc" id="L59">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L60">    }</span>
+<span class="nc" id="L61">  }</span>
+
+  public void removeMutedMac(final String mac) {
+<span class="nc" id="L64">    s_logger.fine(&quot;Removing muted mac:&quot; + mac);</span>
+<span class="nc" id="L65">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L67">      final PreparedStatement ps = con.prepareStatement(&quot;delete from muted_macs where mac = ?&quot;);</span>
+<span class="nc" id="L68">      ps.setString(1, mac);</span>
+<span class="nc" id="L69">      ps.execute();</span>
+<span class="nc" id="L70">      ps.close();</span>
+<span class="nc" id="L71">      con.commit();</span>
+<span class="nc" id="L72">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L73">      s_logger.log(Level.SEVERE, &quot;Error deleting muted mac:&quot; + mac, sqle);</span>
+<span class="nc" id="L74">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L75">    } finally {</span>
+<span class="nc" id="L76">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L77">    }</span>
+<span class="nc" id="L78">  }</span>
+
+  /**
+   * Is the given mac muted? This may have the side effect of removing from the
+   * database any mac's whose mute has expired
+   */
+  public boolean isMacMuted(final String mac) {
+<span class="nc" id="L85">    final long muteTill = getMacUnmuteTime(mac);</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">    return muteTill &gt; System.currentTimeMillis();</span>
+  }
+
+  public long getMacUnmuteTime(final String mac) {
+<span class="nc" id="L90">    long result = -1;</span>
+<span class="nc" id="L91">    boolean expired = false;</span>
+<span class="nc" id="L92">    final String sql = &quot;select mac, mute_till from muted_macs where mac = ?&quot;;</span>
+<span class="nc" id="L93">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L95">      final PreparedStatement ps = con.prepareStatement(sql);</span>
+<span class="nc" id="L96">      ps.setString(1, mac);</span>
+<span class="nc" id="L97">      final ResultSet rs = ps.executeQuery();</span>
+<span class="nc" id="L98">      final boolean found = rs.next();</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">      if (found) {</span>
+<span class="nc" id="L100">        final Timestamp muteTill = rs.getTimestamp(2);</span>
+<span class="nc" id="L101">        result = muteTill.getTime();</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">        if (result &lt; System.currentTimeMillis()) {</span>
+<span class="nc" id="L103">          s_logger.fine(&quot;Mute expired for:&quot; + mac);</span>
+<span class="nc" id="L104">          expired = true;</span>
+        }
+<span class="nc" id="L106">      } else {</span>
+<span class="nc" id="L107">        result = -1;</span>
+      }
+<span class="nc" id="L109">      rs.close();</span>
+<span class="nc" id="L110">      ps.close();</span>
+<span class="nc" id="L111">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L112">      s_logger.info(&quot;Error for testing muted mac existence:&quot; + mac + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L113">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L114">    } finally {</span>
+<span class="nc" id="L115">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L116">    }</span>
+    // If the mute has expired, allow the mac
+<span class="nc bnc" id="L118" title="All 2 branches missed.">    if (expired) {</span>
+<span class="nc" id="L119">      removeMutedMac(mac);</span>
+      // Signal as not-muted
+<span class="nc" id="L121">      result = -1;</span>
+    }
+<span class="nc" id="L123">    return result;</span>
+  }
+
+  public List&lt;String&gt; getMacsThatAreStillMuted(final List&lt;String&gt; macs) {
+<span class="nc" id="L127">    final List&lt;String&gt; results = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L128">    final String sql = &quot;select mac, mute_till from muted_macs where mac = ?&quot;;</span>
+<span class="nc" id="L129">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc bnc" id="L131" title="All 2 branches missed.">      for (final String mac : macs) {</span>
+<span class="nc" id="L132">        boolean found = false;</span>
+<span class="nc" id="L133">        boolean expired = false;</span>
+<span class="nc" id="L134">        final PreparedStatement ps = con.prepareStatement(sql);</span>
+<span class="nc" id="L135">        ps.setString(1, mac);</span>
+<span class="nc" id="L136">        final ResultSet rs = ps.executeQuery();</span>
+<span class="nc" id="L137">        found = rs.next();</span>
+        // If the mute has expired, allow the mac
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (found) {</span>
+<span class="nc" id="L140">          final Timestamp muteTill = rs.getTimestamp(2);</span>
+<span class="nc bnc" id="L141" title="All 4 branches missed.">          if (muteTill != null &amp;&amp; muteTill.getTime() &lt; System.currentTimeMillis()) {</span>
+<span class="nc" id="L142">            s_logger.fine(&quot;Mute expired for: &quot; + mac);</span>
+<span class="nc" id="L143">            expired = true;</span>
+          }
+        }
+<span class="nc" id="L146">        rs.close();</span>
+<span class="nc" id="L147">        ps.close();</span>
+<span class="nc bnc" id="L148" title="All 4 branches missed.">        if (found &amp;&amp; !expired) {</span>
+<span class="nc" id="L149">          results.add(mac);</span>
+        }
+      }
+<span class="nc" id="L152">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L153">      s_logger.info(&quot;Error testing whether macs were muted: &quot; + macs);</span>
+<span class="nc" id="L154">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L155">    } finally {</span>
+<span class="nc" id="L156">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L157">    }</span>
+<span class="nc" id="L158">    return results;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

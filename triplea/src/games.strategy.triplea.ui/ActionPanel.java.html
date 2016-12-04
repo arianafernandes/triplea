@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ActionPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">ActionPanel.java</span></div><h1>ActionPanel.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui;
+
+import java.util.concurrent.CountDownLatch;
+
+import javax.swing.BoxLayout;
+import javax.swing.JPanel;
+import javax.swing.border.EmptyBorder;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+
+/**
+ * Abstract superclass for all action panels. &lt;br&gt;
+ */
+public abstract class ActionPanel extends JPanel {
+  private static final long serialVersionUID = -5954576036704958641L;
+  private final GameData m_data;
+  private PlayerID m_currentPlayer;
+  private final MapPanel m_map;
+  private boolean m_active;
+  private CountDownLatch m_latch;
+<span class="nc" id="L22">  private final Object m_latchLock = new Object();</span>
+
+  /** Creates new ActionPanel */
+<span class="nc" id="L25">  public ActionPanel(final GameData data, final MapPanel map) {</span>
+<span class="nc" id="L26">    m_data = data;</span>
+<span class="nc" id="L27">    m_map = map;</span>
+<span class="nc" id="L28">    setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L29">    setBorder(new EmptyBorder(5, 5, 0, 0));</span>
+<span class="nc" id="L30">  }</span>
+
+  protected final boolean isWW2V2() {
+<span class="nc" id="L33">    return games.strategy.triplea.Properties.getWW2V2(m_data);</span>
+  }
+
+  protected final boolean isWW2V3TechModel() {
+<span class="nc" id="L37">    return games.strategy.triplea.Properties.getWW2V3TechModel(m_data);</span>
+  }
+
+  protected final boolean isRestrictedPurchase() {
+<span class="nc" id="L41">    return games.strategy.triplea.Properties.getPlacementRestrictedByFactory(m_data);</span>
+  }
+
+
+  protected final boolean isSelectableTechRoll() {
+<span class="nc" id="L46">    return games.strategy.triplea.Properties.getSelectableTechRoll(m_data);</span>
+  }
+
+  /**
+   * Waitfor another thread to call release.
+   * If the thread is interupted, we will return silently.
+   * &lt;p&gt;
+   * A memory barrier will be crossed both on entering and before exiting this method.
+   * &lt;p&gt;
+   * This method will return in the event of the game shutting down.
+   * &lt;p&gt;
+   */
+  protected void waitForRelease() {
+<span class="nc bnc" id="L59" title="All 2 branches missed.">    if (Thread.currentThread().isInterrupted()) {</span>
+<span class="nc" id="L60">      release();</span>
+<span class="nc" id="L61">      return;</span>
+    }
+<span class="nc" id="L63">    synchronized (m_latchLock) {</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">      if (m_latch != null) {</span>
+<span class="nc" id="L65">        throw new IllegalStateException(&quot;Latch not null&quot;);</span>
+      }
+<span class="nc" id="L67">      m_latch = new CountDownLatch(1);</span>
+<span class="nc" id="L68">      m_map.getUIContext().addShutdownLatch(m_latch);</span>
+    }
+    try {
+<span class="nc" id="L71">      m_latch.await();</span>
+<span class="nc" id="L72">    } catch (final InterruptedException e) {</span>
+<span class="nc" id="L73">      release();</span>
+    }
+    // cross a memory barrier
+<span class="nc" id="L76">    synchronized (m_latchLock) {</span>
+    }
+<span class="nc" id="L78">  }</span>
+
+  /**
+   * Release the latch acquired by waitOnNewLatch()
+   * &lt;p&gt;
+   * This method will crossed on entering this method.
+   * &lt;p&gt;
+   */
+  protected void release() {
+<span class="nc" id="L87">    synchronized (m_latchLock) {</span>
+      // not set up yet
+      // this is ok as we set up in one thread
+      // and wait in another
+      // if the release happens too early
+      // the user will be able to press done again
+<span class="nc bnc" id="L93" title="All 2 branches missed.">      if (m_latch == null) {</span>
+<span class="nc" id="L94">        return;</span>
+      }
+<span class="nc" id="L96">      m_map.getUIContext().removeShutdownLatch(m_latch);</span>
+<span class="nc" id="L97">      m_latch.countDown();</span>
+<span class="nc" id="L98">      m_latch = null;</span>
+    }
+<span class="nc" id="L100">  }</span>
+
+  protected GameData getData() {
+<span class="nc" id="L103">    return m_data;</span>
+  }
+
+  public void display(final PlayerID player) {
+<span class="nc" id="L107">    m_currentPlayer = player;</span>
+<span class="nc" id="L108">    setActive(true);</span>
+<span class="nc" id="L109">  }</span>
+
+  protected PlayerID getCurrentPlayer() {
+<span class="nc" id="L112">    return m_currentPlayer;</span>
+  }
+
+  protected MapPanel getMap() {
+<span class="nc" id="L116">    return m_map;</span>
+  }
+
+  /**
+   * Called when the history panel shows used to disable the panel
+   * temporarily.
+   */
+  public void setActive(final boolean aBool) {
+<span class="nc" id="L124">    m_active = aBool;</span>
+<span class="nc" id="L125">  }</span>
+
+  public boolean getActive() {
+<span class="nc" id="L128">    return m_active;</span>
+  }
+
+  /**
+   * Refreshes the action panel. Should be run within the swing event queue.
+   */
+<span class="nc" id="L134">  protected final Runnable REFRESH = () -&gt; {</span>
+<span class="nc" id="L135">    revalidate();</span>
+<span class="nc" id="L136">    repaint();</span>
+<span class="nc" id="L137">  };</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

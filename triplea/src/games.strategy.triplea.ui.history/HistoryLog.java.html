@@ -1,0 +1,525 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>HistoryLog.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui.history</a> &gt; <span class="el_source">HistoryLog.java</span></div><h1>HistoryLog.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui.history;
+
+import java.awt.BorderLayout;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.TreePath;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.history.HistoryNode;
+import games.strategy.engine.history.Renderable;
+import games.strategy.engine.history.Round;
+import games.strategy.engine.history.Step;
+import games.strategy.engine.random.IRandomStats;
+import games.strategy.engine.random.RandomStatsDetails;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveDelegate;
+import games.strategy.triplea.delegate.OriginalOwnerTracker;
+import games.strategy.triplea.delegate.dataObjects.MoveDescription;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.IntegerMap;
+
+public class HistoryLog extends JFrame {
+  private static final long serialVersionUID = 4880602702815333376L;
+  private final JTextArea m_textArea;
+  private final StringWriter m_stringWriter;
+  private final PrintWriter m_printWriter;
+
+<span class="nc" id="L49">  public HistoryLog() {</span>
+<span class="nc" id="L50">    m_textArea = new JTextArea(40, 80);</span>
+<span class="nc" id="L51">    m_textArea.setEditable(false);</span>
+<span class="nc" id="L52">    final JScrollPane scrollingArea = new JScrollPane(m_textArea);</span>
+    // ... Get the content pane, set layout, add to center
+<span class="nc" id="L54">    final JPanel content = new JPanel();</span>
+<span class="nc" id="L55">    content.setLayout(new BorderLayout());</span>
+<span class="nc" id="L56">    content.add(scrollingArea, BorderLayout.CENTER);</span>
+<span class="nc" id="L57">    m_stringWriter = new StringWriter();</span>
+<span class="nc" id="L58">    m_printWriter = new PrintWriter(m_stringWriter);</span>
+    // ... Set window characteristics.
+<span class="nc" id="L60">    this.setContentPane(content);</span>
+<span class="nc" id="L61">    this.setTitle(&quot;History Log&quot;);</span>
+<span class="nc" id="L62">    this.pack();</span>
+<span class="nc" id="L63">    this.setLocationRelativeTo(null);</span>
+<span class="nc" id="L64">  }</span>
+
+  public PrintWriter getWriter() {
+<span class="nc" id="L67">    return m_printWriter;</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L72">    return m_stringWriter.toString();</span>
+  }
+
+  public void clear() {
+<span class="nc" id="L76">    m_stringWriter.getBuffer().delete(0, m_stringWriter.getBuffer().length());</span>
+<span class="nc" id="L77">    m_textArea.setText(&quot;&quot;);</span>
+<span class="nc" id="L78">  }</span>
+
+  public void printFullTurn(final GameData data, final boolean verbose, final Collection&lt;PlayerID&gt; playersAllowed) {
+<span class="nc" id="L81">    final HistoryNode printNode = data.getHistory().getLastNode();</span>
+<span class="nc" id="L82">    HistoryNode curNode = printNode;</span>
+<span class="nc" id="L83">    Step stepNode = null;</span>
+<span class="nc" id="L84">    Step turnStartNode = null;</span>
+<span class="nc" id="L85">    PlayerID curPlayer = null;</span>
+<span class="nc" id="L86">    final Collection&lt;PlayerID&gt; players = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">    if (playersAllowed != null) {</span>
+<span class="nc" id="L88">      players.addAll(playersAllowed);</span>
+    }
+    // find Step node, if exists in this path
+<span class="nc bnc" id="L91" title="All 2 branches missed.">    while (curNode != null) {</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">      if (curNode instanceof Step) {</span>
+<span class="nc" id="L93">        stepNode = (Step) curNode;</span>
+<span class="nc" id="L94">        break;</span>
+      }
+<span class="nc" id="L96">      curNode = (HistoryNode) curNode.getPreviousNode();</span>
+    }
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    if (stepNode != null) {</span>
+<span class="nc" id="L99">      curPlayer = stepNode.getPlayerID();</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">      if (players.isEmpty()) {</span>
+<span class="nc" id="L101">        players.add(curPlayer);</span>
+      }
+      // get first step for this turn
+<span class="nc bnc" id="L104" title="All 2 branches missed.">      while (stepNode != null) {</span>
+<span class="nc" id="L105">        turnStartNode = stepNode;</span>
+<span class="nc" id="L106">        stepNode = (Step) stepNode.getPreviousSibling();</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">        if (stepNode == null) {</span>
+<span class="nc" id="L108">          break;</span>
+        }
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (stepNode.getPlayerID() == null) {</span>
+<span class="nc" id="L111">          break;</span>
+        }
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        if (!players.contains(stepNode.getPlayerID())) {</span>
+<span class="nc" id="L114">          break;</span>
+        }
+      }
+<span class="nc" id="L117">      printRemainingTurn(turnStartNode, verbose, data.getDiceSides(), players);</span>
+<span class="nc" id="L118">    } else {</span>
+<span class="nc" id="L119">      System.err.println(&quot;No Step node found!&quot;);</span>
+    }
+<span class="nc" id="L121">  }</span>
+
+  private static PlayerID getPlayerID(final HistoryNode printNode) {
+<span class="nc" id="L124">    DefaultMutableTreeNode curNode = printNode;</span>
+<span class="nc" id="L125">    final TreePath parentPath = (new TreePath(printNode.getPath())).getParentPath();</span>
+<span class="nc" id="L126">    PlayerID curPlayer = null;</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">    if (parentPath != null) {</span>
+<span class="nc" id="L128">      final Object pathToNode[] = parentPath.getPath();</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">      for (final Object pathNode : pathToNode) {</span>
+<span class="nc" id="L130">        final HistoryNode node = (HistoryNode) pathNode;</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        if (node instanceof Step) {</span>
+<span class="nc" id="L132">          curPlayer = ((Step) node).getPlayerID();</span>
+        }
+      }
+    }
+    do {
+<span class="nc" id="L137">      final Enumeration&lt;?&gt; nodeEnum = curNode.preorderEnumeration();</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">      while (nodeEnum.hasMoreElements()) {</span>
+<span class="nc" id="L139">        final HistoryNode node = (HistoryNode) nodeEnum.nextElement();</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (node instanceof Step) {</span>
+<span class="nc" id="L141">          final String title = node.getTitle();</span>
+<span class="nc" id="L142">          final PlayerID playerId = ((Step) node).getPlayerID();</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">          if (title.equals(&quot;Initializing Delegates&quot;)) {</span>
+          } else {
+<span class="nc bnc" id="L145" title="All 2 branches missed.">            if (playerId != null) {</span>
+<span class="nc" id="L146">              curPlayer = playerId;</span>
+            }
+          }
+        }
+      }
+<span class="nc" id="L151">      curNode = curNode.getNextSibling();</span>
+<span class="nc bnc" id="L152" title="All 4 branches missed.">    } while ((curNode instanceof Step) &amp;&amp; ((Step) curNode).getPlayerID().equals(curPlayer));</span>
+<span class="nc" id="L153">    return curPlayer;</span>
+  }
+
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public void printRemainingTurn(final HistoryNode printNode, final boolean verbose, final int diceSides,
+      final Collection&lt;PlayerID&gt; playersAllowed) {
+<span class="nc" id="L159">    final PrintWriter logWriter = m_printWriter;</span>
+<span class="nc" id="L160">    final String moreIndent = &quot;    &quot;;</span>
+    // print out the parent nodes
+<span class="nc" id="L162">    DefaultMutableTreeNode curNode = printNode;</span>
+<span class="nc" id="L163">    final TreePath parentPath = (new TreePath(printNode.getPath())).getParentPath();</span>
+<span class="nc" id="L164">    PlayerID currentPlayer = null;</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    if (parentPath != null) {</span>
+<span class="nc" id="L166">      final Object pathToNode[] = parentPath.getPath();</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">      for (final Object pathNode : pathToNode) {</span>
+<span class="nc" id="L168">        final HistoryNode node = (HistoryNode) pathNode;</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">        for (int i = 0; i &lt; node.getLevel(); i++) {</span>
+<span class="nc" id="L170">          logWriter.print(moreIndent);</span>
+        }
+<span class="nc" id="L172">        logWriter.println(node.getTitle());</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">        if (node.getLevel() == 0) {</span>
+<span class="nc" id="L174">          logWriter.println();</span>
+        }
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        if (node instanceof Step) {</span>
+<span class="nc" id="L177">          currentPlayer = ((Step) node).getPlayerID();</span>
+        }
+      }
+    }
+<span class="nc" id="L181">    final Collection&lt;PlayerID&gt; players = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">    if (playersAllowed != null) {</span>
+<span class="nc" id="L183">      players.addAll(playersAllowed);</span>
+    }
+<span class="nc bnc" id="L185" title="All 2 branches missed.">    if (currentPlayer != null) {</span>
+<span class="nc" id="L186">      players.add(currentPlayer);</span>
+    }
+<span class="nc" id="L188">    final List&lt;String&gt; moveList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L189">    boolean moving = false;</span>
+    do {
+      // keep track of conquered territory during combat
+<span class="nc" id="L192">      String conquerStr = &quot;&quot;;</span>
+<span class="nc" id="L193">      final Enumeration&lt;?&gt; nodeEnum = curNode.preorderEnumeration();</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">      while (nodeEnum.hasMoreElements()) {</span>
+<span class="nc" id="L195">        final HistoryNode node = (HistoryNode) nodeEnum.nextElement();</span>
+<span class="nc" id="L196">        final String title = node.getTitle();</span>
+<span class="nc" id="L197">        String indent = &quot;&quot;;</span>
+<span class="nc bnc" id="L198" title="All 2 branches missed.">        for (int i = 0; i &lt; node.getLevel(); i++) {</span>
+<span class="nc" id="L199">          indent = indent + moreIndent;</span>
+        }
+        // flush move list
+<span class="nc bnc" id="L202" title="All 4 branches missed.">        if (moving &amp;&amp; !(node instanceof Renderable)) {</span>
+<span class="nc" id="L203">          final Iterator&lt;String&gt; moveIter = moveList.iterator();</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">          while (moveIter.hasNext()) {</span>
+<span class="nc" id="L205">            logWriter.println(moveIter.next());</span>
+<span class="nc" id="L206">            moveIter.remove();</span>
+          }
+<span class="nc" id="L208">          moving = false;</span>
+        }
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        if (node instanceof Renderable) {</span>
+<span class="nc" id="L211">          final Object details = ((Renderable) node).getRenderingData();</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">          if (details instanceof DiceRoll) {</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">            if (!verbose) {</span>
+<span class="nc" id="L214">              continue;</span>
+            }
+<span class="nc" id="L216">            final String diceMsg1 = title.substring(0, title.indexOf(':') + 1);</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">            if (diceMsg1.equals(&quot;&quot;)) {</span>
+              // tech roll
+<span class="nc" id="L219">              logWriter.println(indent + moreIndent + title);</span>
+<span class="nc" id="L220">            } else {</span>
+              // dice roll
+              // Japanese roll dice for 1 armour in Russia, round 1
+<span class="nc" id="L223">              logWriter.print(indent + moreIndent + diceMsg1);</span>
+<span class="nc" id="L224">              final DiceRoll diceRoll = (DiceRoll) details;</span>
+<span class="nc" id="L225">              final int hits = diceRoll.getHits();</span>
+<span class="nc" id="L226">              int rolls = 0;</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">              for (int i = 1; i &lt;= diceSides; i++) {</span>
+<span class="nc" id="L228">                rolls += diceRoll.getRolls(i).size();</span>
+              }
+<span class="nc" id="L230">              logWriter.println(&quot;  &quot; + hits + &quot;/&quot; + rolls + &quot; hits&quot;);</span>
+            }
+<span class="nc bnc" id="L232" title="All 2 branches missed.">          } else if (details instanceof MoveDescription) {</span>
+            // movement
+<span class="nc" id="L234">            final Pattern p = Pattern.compile(&quot;\\w+ undo move (\\d+).&quot;);</span>
+<span class="nc" id="L235">            final Matcher m = p.matcher(title);</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">            if (m.matches()) {</span>
+<span class="nc" id="L237">              moveList.remove(Integer.valueOf(m.group(1)) - 1);</span>
+<span class="nc" id="L238">            } else {</span>
+<span class="nc" id="L239">              moveList.add(indent + title);</span>
+<span class="nc" id="L240">              moving = true;</span>
+            }
+<span class="nc bnc" id="L242" title="All 2 branches missed.">          } else if (details instanceof Collection) {</span>
+<span class="nc" id="L243">            final Collection&lt;Object&gt; objects = (Collection&lt;Object&gt;) details;</span>
+<span class="nc" id="L244">            final Iterator&lt;Object&gt; objIter = objects.iterator();</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">            if (objIter.hasNext()) {</span>
+<span class="nc" id="L246">              final Object obj = objIter.next();</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">              if (obj instanceof Unit) {</span>
+<span class="nc" id="L248">                final Collection&lt;Unit&gt; allUnitsInDetails = (Collection&lt;Unit&gt;) details;</span>
+                // purchase/place units - don't need details
+<span class="nc" id="L250">                Unit unit = (Unit) obj;</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">                if (title.matches(&quot;\\w+ buy .*&quot;)) {</span>
+<span class="nc" id="L252">                  logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">                } else if (title.matches(&quot;\\w+ attack with .*&quot;)) {</span>
+<span class="nc" id="L254">                  logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L255" title="All 2 branches missed.">                } else if (title.matches(&quot;\\w+ defend with .*&quot;)) {</span>
+<span class="nc" id="L256">                  logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">                } else if (title.matches(&quot;\\d+ \\w+ owned by the .*? lost .*&quot;)) {</span>
+<span class="nc bnc" id="L258" title="All 2 branches missed.">                  if (!verbose) {</span>
+<span class="nc" id="L259">                    continue;</span>
+                  }
+<span class="nc" id="L261">                  logWriter.println(indent + moreIndent + title);</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">                } else if (title.matches(&quot;\\d+ \\w+ owned by the .*? lost&quot;)) {</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">                  if (!verbose) {</span>
+<span class="nc" id="L264">                    continue;</span>
+                  }
+<span class="nc" id="L266">                  logWriter.println(indent + moreIndent + title);</span>
+<span class="nc bnc" id="L267" title="All 2 branches missed.">                } else if (title.startsWith(&quot;Battle casualty summary:&quot;)) {</span>
+                  // logWriter.println(indent+&quot;CAS1: &quot;+title);
+<span class="nc" id="L269">                  logWriter.println(</span>
+<span class="nc" id="L270">                      indent + conquerStr + &quot;. Battle score &quot; + title.substring(title.indexOf(&quot;for attacker is&quot;)));</span>
+<span class="nc" id="L271">                  conquerStr = &quot;&quot;;</span>
+                  // separate units by player and show casualty summary
+<span class="nc" id="L273">                  final IntegerMap&lt;PlayerID&gt; unitCount = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L274">                  unitCount.add(unit.getOwner(), 1);</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">                  while (objIter.hasNext()) {</span>
+<span class="nc" id="L276">                    unit = (Unit) objIter.next();</span>
+<span class="nc" id="L277">                    unitCount.add(unit.getOwner(), 1);</span>
+                  }
+<span class="nc bnc" id="L279" title="All 2 branches missed.">                  for (final PlayerID player : unitCount.keySet()) {</span>
+<span class="nc" id="L280">                    logWriter.println(indent + &quot;Casualties for &quot; + player.getName() + &quot;: &quot;</span>
+<span class="nc" id="L281">                        + MyFormatter.unitsToTextNoOwner(allUnitsInDetails, player));</span>
+                  }
+<span class="nc bnc" id="L283" title="All 2 branches missed.">                } else if (title.matches(&quot;.*? placed in .*&quot;)) {</span>
+<span class="nc" id="L284">                  logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">                } else if (title.matches(&quot;.* owned by the \\w+ retreated to .*&quot;)) {</span>
+<span class="nc" id="L286">                  logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">                } else if (title.matches(&quot;\\w+ win&quot;)) {</span>
+<span class="nc" id="L288">                  conquerStr =</span>
+<span class="nc" id="L289">                      title + conquerStr + &quot; with &quot; + MyFormatter.unitsToTextNoOwner(allUnitsInDetails) + &quot; remaining&quot;;</span>
+<span class="nc" id="L290">                } else {</span>
+<span class="nc" id="L291">                  logWriter.println(indent + title);</span>
+                }
+<span class="nc" id="L293">              } else {</span>
+                // collection of unhandled objects
+<span class="nc" id="L295">                logWriter.println(indent + title);</span>
+              }
+<span class="nc" id="L297">            } else {</span>
+              // empty collection of something
+<span class="nc bnc" id="L299" title="All 2 branches missed.">              if (title.matches(&quot;\\w+ win&quot;)) {</span>
+<span class="nc" id="L300">                conquerStr = title + conquerStr + &quot; with no units remaining&quot;;</span>
+<span class="nc" id="L301">              } else {</span>
+                // empty collection of unhandled objects
+<span class="nc" id="L303">                logWriter.println(indent + title);</span>
+              }
+            }
+<span class="nc bnc" id="L306" title="All 2 branches missed.">          } else if (details instanceof Territory) {</span>
+            // territory details
+<span class="nc" id="L308">            logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">          } else if (details == null) {</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">            if (title.equals(&quot;Adding original owners&quot;)) {</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">            } else if (title.equals(MoveDelegate.CLEANING_UP_DURING_MOVEMENT_PHASE)) {</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">            } else if (title.equals(&quot;Game Loaded&quot;)) {</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">            } else if (title.contains(&quot;now being played by&quot;)) {</span>
+<span class="nc bnc" id="L314" title="All 4 branches missed.">            } else if (title.contains(&quot;Turn Summary&quot;) || title.contains(&quot;Move Summary&quot;)) {</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">            } else if (title.contains(&quot;Setting uses for triggers used&quot;)) {</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">            } else if (title.equals(&quot;Resetting and Giving Bonus Movement to Units&quot;)) {</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">            } else if (title.equals(&quot;Recording Battle Statistics&quot;)) {</span>
+<span class="nc bnc" id="L318" title="All 2 branches missed.">            } else if (title.equals(&quot;Preparing Airbases for Possible Scrambling&quot;)) {</span>
+<span class="nc bnc" id="L319" title="All 2 branches missed.">            } else if (title.matches(&quot;\\w+ collect \\d+ PUs?.*&quot;)) {</span>
+<span class="nc" id="L320">              logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">            } else if (title.matches(&quot;\\w+ takes? .*? from \\w+&quot;)) {</span>
+              // British take Libya from Germans
+<span class="nc bnc" id="L323" title="All 2 branches missed.">              if (moving) {</span>
+<span class="nc" id="L324">                final String str = moveList.remove(moveList.size() - 1);</span>
+<span class="nc" id="L325">                moveList.add(str + &quot;\n  &quot; + indent + title.replaceAll(&quot; takes &quot;, &quot; take &quot;));</span>
+<span class="nc" id="L326">              } else {</span>
+<span class="nc" id="L327">                conquerStr += title.replaceAll(&quot;^\\w+ takes &quot;, &quot;, taking &quot;);</span>
+              }
+<span class="nc bnc" id="L329" title="All 2 branches missed.">            } else if (title.matches(&quot;\\w+ spend \\d+ on tech rolls&quot;)) {</span>
+<span class="nc" id="L330">              logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L331" title="All 2 branches missed.">            } else if (title.startsWith(&quot;Rolls to resolve tech hits:&quot;)) {</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">            } else if (title.matches(&quot;\\w+ discover .*&quot;)) {</span>
+<span class="nc" id="L333">              logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">            } else if (title.matches(&quot;AA raid costs .*&quot;)) {</span>
+<span class="nc" id="L335">              logWriter.println(indent + title);</span>
+<span class="nc" id="L336">            } else {</span>
+              // unhandled message with null details
+<span class="nc" id="L338">              logWriter.println(indent + title);</span>
+            }
+<span class="nc" id="L340">          } else {</span>
+            // unknown details object
+<span class="nc" id="L342">            logWriter.println(indent + title);</span>
+          }
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        } else if (node instanceof Step) {</span>
+<span class="nc" id="L345">          final PlayerID playerId = ((Step) node).getPlayerID();</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">          if (title.equals(&quot;Initializing Delegates&quot;)) {</span>
+          } else {
+<span class="nc" id="L348">            logWriter.println();</span>
+<span class="nc" id="L349">            logWriter.print(indent + title);</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">            if (playerId != null) {</span>
+<span class="nc" id="L351">              currentPlayer = playerId;</span>
+<span class="nc" id="L352">              players.add(currentPlayer);</span>
+<span class="nc" id="L353">              logWriter.print(&quot; - &quot; + playerId.getName());</span>
+            }
+<span class="nc" id="L355">            logWriter.println();</span>
+          }
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        } else if (node instanceof Round) {</span>
+<span class="nc" id="L358">          logWriter.println();</span>
+<span class="nc" id="L359">          logWriter.println(indent + title);</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">        } else if (title.equals(&quot;Game History&quot;)) {</span>
+<span class="nc" id="L361">          logWriter.println(indent + title);</span>
+<span class="nc" id="L362">        } else {</span>
+          // unknown node type
+<span class="nc" id="L364">          logWriter.println(indent + title);</span>
+        }
+      } // while (nodeEnum.hasMoreElements())
+<span class="nc" id="L367">      curNode = curNode.getNextSibling();</span>
+<span class="nc bnc" id="L368" title="All 6 branches missed.">    } while (curNode != null &amp;&amp; (curNode instanceof Step) &amp;&amp; players.contains(((Step) curNode).getPlayerID()));</span>
+    // if we are mid-phase, this might not get flushed
+<span class="nc bnc" id="L370" title="All 4 branches missed.">    if (moving &amp;&amp; !moveList.isEmpty()) {</span>
+<span class="nc" id="L371">      final Iterator&lt;String&gt; moveIter = moveList.iterator();</span>
+<span class="nc bnc" id="L372" title="All 2 branches missed.">      while (moveIter.hasNext()) {</span>
+<span class="nc" id="L373">        logWriter.println(moveIter.next());</span>
+<span class="nc" id="L374">        moveIter.remove();</span>
+      }
+<span class="nc" id="L376">      moving = false;</span>
+    }
+<span class="nc" id="L378">    logWriter.println();</span>
+<span class="nc" id="L379">    logWriter.println();</span>
+<span class="nc" id="L380">    m_textArea.setText(m_stringWriter.toString());</span>
+<span class="nc" id="L381">  }</span>
+
+  public void printTerritorySummary(final HistoryNode printNode, final GameData data) {
+    Collection&lt;Territory&gt; territories;
+<span class="nc" id="L385">    final PlayerID player = getPlayerID(printNode);</span>
+<span class="nc" id="L386">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L388">      territories = data.getMap().getTerritories();</span>
+<span class="nc" id="L389">    } finally {</span>
+<span class="nc" id="L390">      data.releaseReadLock();</span>
+<span class="nc" id="L391">    }</span>
+<span class="nc" id="L392">    final Collection&lt;PlayerID&gt; players = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L393">    players.add(player);</span>
+<span class="nc" id="L394">    printTerritorySummary(players, territories);</span>
+<span class="nc" id="L395">  }</span>
+
+  public void printTerritorySummary(final GameData data) {
+    Collection&lt;Territory&gt; territories;
+    PlayerID player;
+<span class="nc" id="L400">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L402">      player = data.getSequence().getStep().getPlayerID();</span>
+<span class="nc" id="L403">      territories = data.getMap().getTerritories();</span>
+<span class="nc" id="L404">    } finally {</span>
+<span class="nc" id="L405">      data.releaseReadLock();</span>
+<span class="nc" id="L406">    }</span>
+<span class="nc" id="L407">    final Collection&lt;PlayerID&gt; players = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L408">    players.add(player);</span>
+<span class="nc" id="L409">    printTerritorySummary(players, territories);</span>
+<span class="nc" id="L410">  }</span>
+
+  public void printTerritorySummary(final GameData data, final Collection&lt;PlayerID&gt; allowedPlayers) {
+<span class="nc bnc" id="L413" title="All 4 branches missed.">    if (allowedPlayers == null || allowedPlayers.isEmpty()) {</span>
+<span class="nc" id="L414">      printTerritorySummary(data);</span>
+<span class="nc" id="L415">      return;</span>
+    }
+    Collection&lt;Territory&gt; territories;
+<span class="nc" id="L418">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L420">      territories = data.getMap().getTerritories();</span>
+<span class="nc" id="L421">    } finally {</span>
+<span class="nc" id="L422">      data.releaseReadLock();</span>
+<span class="nc" id="L423">    }</span>
+<span class="nc" id="L424">    printTerritorySummary(allowedPlayers, territories);</span>
+<span class="nc" id="L425">  }</span>
+
+  private void printTerritorySummary(final Collection&lt;PlayerID&gt; players,
+      final Collection&lt;Territory&gt; territories) {
+<span class="nc bnc" id="L429" title="All 8 branches missed.">    if (players == null || players.isEmpty() || territories == null || territories.isEmpty()) {</span>
+<span class="nc" id="L430">      return;</span>
+    }
+<span class="nc" id="L432">    final PrintWriter logWriter = m_printWriter;</span>
+    // print all units in all territories, including &quot;flags&quot;
+<span class="nc" id="L434">    logWriter.println(&quot;Territory Summary for &quot; + MyFormatter.defaultNamedToTextList(players) + &quot; : \n&quot;);</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">    for (final Territory t : territories) {</span>
+<span class="nc" id="L436">      final List&lt;Unit&gt; ownedUnits = t.getUnits().getMatches(Matches.unitIsOwnedByOfAnyOfThesePlayers(players));</span>
+      // see if there's a flag
+<span class="nc" id="L438">      final TerritoryAttachment ta = TerritoryAttachment.get(t, true);</span>
+<span class="nc" id="L439">      boolean hasFlag = false;</span>
+<span class="nc bnc" id="L440" title="All 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L441">        hasFlag = false;</span>
+<span class="nc" id="L442">      } else {</span>
+<span class="nc bnc" id="L443" title="All 4 branches missed.">        hasFlag = t.getOwner() != null &amp;&amp; players.contains(t.getOwner())</span>
+<span class="nc bnc" id="L444" title="All 4 branches missed.">            &amp;&amp; (ta.getOriginalOwner() == null || !players.contains(ta.getOriginalOwner()));</span>
+      }
+<span class="nc bnc" id="L446" title="All 4 branches missed.">      if (hasFlag || !ownedUnits.isEmpty()) {</span>
+<span class="nc" id="L447">        logWriter.print(&quot;    &quot; + t.getName() + &quot; : &quot;);</span>
+<span class="nc bnc" id="L448" title="All 4 branches missed.">        if (hasFlag &amp;&amp; ownedUnits.isEmpty()) {</span>
+<span class="nc" id="L449">          logWriter.println(&quot;1 flag&quot;);</span>
+<span class="nc bnc" id="L450" title="All 2 branches missed.">        } else if (hasFlag) {</span>
+<span class="nc" id="L451">          logWriter.print(&quot;1 flag, &quot;);</span>
+        }
+        // else if (ownedUnits.isEmpty())
+        // logWriter.print(&quot;nothing&quot;);
+<span class="nc bnc" id="L455" title="All 2 branches missed.">        if (!ownedUnits.isEmpty()) {</span>
+<span class="nc" id="L456">          logWriter.println(MyFormatter.unitsToTextNoOwner(ownedUnits));</span>
+        }
+      }
+    }
+<span class="nc" id="L460">    logWriter.println();</span>
+<span class="nc" id="L461">    logWriter.println();</span>
+<span class="nc" id="L462">    m_textArea.setText(m_stringWriter.toString());</span>
+<span class="nc" id="L463">  }</span>
+
+  public void printDiceStatistics(final GameData data, final IRandomStats randomStats) {
+<span class="nc" id="L466">    final PrintWriter logWriter = m_printWriter;</span>
+<span class="nc" id="L467">    final RandomStatsDetails stats = randomStats.getRandomStats(data.getDiceSides());</span>
+<span class="nc" id="L468">    final String diceStats = stats.getAllStatsString(&quot;    &quot;);</span>
+<span class="nc bnc" id="L469" title="All 2 branches missed.">    if (diceStats.length() &gt; 0) {</span>
+<span class="nc" id="L470">      logWriter.println(diceStats);</span>
+<span class="nc" id="L471">      logWriter.println();</span>
+<span class="nc" id="L472">      logWriter.println();</span>
+    }
+<span class="nc" id="L474">    m_textArea.setText(m_stringWriter.toString());</span>
+<span class="nc" id="L475">  }</span>
+
+  public void printProductionSummary(final GameData data) {
+<span class="nc" id="L478">    final PrintWriter logWriter = m_printWriter;</span>
+    Collection&lt;PlayerID&gt; players;
+    Resource pus;
+<span class="nc" id="L481">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L483">      pus = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L484">      players = data.getPlayerList().getPlayers();</span>
+<span class="nc" id="L485">    } finally {</span>
+<span class="nc" id="L486">      data.releaseReadLock();</span>
+<span class="nc" id="L487">    }</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">    if (pus == null) {</span>
+<span class="nc" id="L489">      return;</span>
+    }
+<span class="nc" id="L491">    logWriter.println(&quot;Production/PUs Summary :\n&quot;);</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">    for (final PlayerID player : players) {</span>
+<span class="nc" id="L493">      final int PUs = player.getResources().getQuantity(pus);</span>
+<span class="nc" id="L494">      final int production = getProduction(player, data);</span>
+<span class="nc" id="L495">      logWriter.println(&quot;    &quot; + player.getName() + &quot; : &quot; + production + &quot; / &quot; + PUs);</span>
+    }
+<span class="nc" id="L497">    logWriter.println();</span>
+<span class="nc" id="L498">    logWriter.println();</span>
+<span class="nc" id="L499">    m_textArea.setText(m_stringWriter.toString());</span>
+<span class="nc" id="L500">  }</span>
+
+  // copied from StatPanel
+  private int getProduction(final PlayerID player, final GameData data) {
+<span class="nc" id="L504">    int rVal = 0;</span>
+<span class="nc" id="L505">    final Iterator&lt;Territory&gt; iter = data.getMap().getTerritories().iterator();</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">    while (iter.hasNext()) {</span>
+<span class="nc" id="L507">      boolean isConvoyOrLand = false;</span>
+<span class="nc" id="L508">      final Territory place = iter.next();</span>
+<span class="nc" id="L509">      final TerritoryAttachment ta = TerritoryAttachment.get(place);</span>
+<span class="nc bnc" id="L510" title="All 2 branches missed.">      if (!place.isWater()) {</span>
+<span class="nc" id="L511">        isConvoyOrLand = true;</span>
+<span class="nc bnc" id="L512" title="All 6 branches missed.">      } else if (place.isWater() &amp;&amp; ta != null &amp;&amp; OriginalOwnerTracker.getOriginalOwner(place) != PlayerID.NULL_PLAYERID</span>
+<span class="nc bnc" id="L513" title="All 4 branches missed.">          &amp;&amp; OriginalOwnerTracker.getOriginalOwner(place) == player &amp;&amp; place.getOwner().equals(player)) {</span>
+<span class="nc" id="L514">        isConvoyOrLand = true;</span>
+      }
+<span class="nc bnc" id="L516" title="All 4 branches missed.">      if (place.getOwner().equals(player) &amp;&amp; isConvoyOrLand) {</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">        if (ta != null) {</span>
+<span class="nc" id="L518">          rVal += ta.getProduction();</span>
+        }
+      }
+    }
+<span class="nc" id="L522">    return rVal;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>GameSelectorModel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.startup.mc</a> &gt; <span class="el_source">GameSelectorModel.java</span></div><h1>GameSelectorModel.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework.startup.mc;
+
+import java.awt.Component;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.util.Observable;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
+
+import javax.swing.JOptionPane;
+
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.EngineVersionException;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.data.GameParser;
+import games.strategy.engine.framework.GameDataManager;
+import games.strategy.engine.framework.ui.NewGameChooser;
+import games.strategy.engine.framework.ui.NewGameChooserEntry;
+import games.strategy.engine.framework.ui.NewGameChooserModel;
+import games.strategy.triplea.ai.proAI.ProAI;
+
+public class GameSelectorModel extends Observable {
+  /**
+   * Returns the name of the directory within a map's directory where the game xml is held.
+   * Example: returns &quot;games&quot; which would be the games folder of &quot;triplea/maps/someMapFooBar/games&quot;
+   */
+  public static final String DEFAULT_GAME_XML_DIRECTORY_NAME = &quot;games&quot;;
+  /** Returns the folder where maps are held, example: &quot;/maps&quot; */
+<span class="fc" id="L34">  public static final File DEFAULT_MAP_DIRECTORY = new File(ClientFileSystemHelper.getRootFolder(), &quot;maps&quot;);</span>
+  private static final String DEFAULT_GAME_NAME_PREF = &quot;DefaultGameName2&quot;;
+  private static final String DEFAULT_GAME_NAME = &quot;Big World : 1942&quot;;
+  private static final String DEFAULT_GAME_URI_PREF = &quot;DefaultGameURI&quot;;
+<span class="fc" id="L38">  private static final String DEFAULT_GAME_URI = &quot;&quot;;</span>
+<span class="fc" id="L39">  private GameData m_data = null;</span>
+<span class="fc" id="L40">  private String m_gameName = &quot;&quot;;</span>
+<span class="fc" id="L41">  private String m_gameVersion = &quot;&quot;;</span>
+<span class="fc" id="L42">  private String m_gameRound = &quot;&quot;;</span>
+<span class="fc" id="L43">  private String m_fileName = &quot;&quot;;</span>
+<span class="fc" id="L44">  private boolean m_canSelect = true;</span>
+<span class="fc" id="L45">  private boolean m_isHostHeadlessBot = false;</span>
+  // just for host bots, so we can get the actions for loading/saving games on the bots
+  // from this model
+<span class="fc" id="L48">  private ClientModel m_clientModelForHostBots = null;</span>
+
+<span class="fc" id="L50">  public GameSelectorModel() {</span>
+<span class="fc" id="L51">    setGameData(null);</span>
+<span class="fc" id="L52">    m_fileName = &quot;&quot;;</span>
+<span class="fc" id="L53">  }</span>
+
+  public void resetGameDataToNull() {
+<span class="fc" id="L56">    setGameData(null);</span>
+<span class="fc" id="L57">    m_fileName = &quot;&quot;;</span>
+<span class="fc" id="L58">  }</span>
+
+  public void load(final GameData data, final String fileName) {
+<span class="fc" id="L61">    setGameData(data);</span>
+<span class="fc" id="L62">    m_fileName = fileName;</span>
+<span class="fc" id="L63">  }</span>
+
+  public void load(final NewGameChooserEntry entry) {
+    // we don't want to load anything if we are an older jar, because otherwise the user may get confused on which
+    // version of triplea they
+    // are using right now,
+    // and then start a game with an older jar when they should be using the newest jar (we want user to be using the
+    // normal default
+    // [newest] triplea.jar for new games)
+<span class="pc bpc" id="L72" title="1 of 2 branches missed.">    if (ClientFileSystemHelper.areWeOldExtraJar()) {</span>
+<span class="nc" id="L73">      return;</span>
+    }
+<span class="fc" id="L75">    m_fileName = entry.getLocation();</span>
+<span class="fc" id="L76">    setGameData(entry.getGameData());</span>
+<span class="fc" id="L77">    final Preferences prefs = Preferences.userNodeForPackage(this.getClass());</span>
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">    if (entry.getGameData() != null) {</span>
+<span class="fc" id="L79">      prefs.put(DEFAULT_GAME_NAME_PREF, entry.getGameData().getGameName());</span>
+    }
+<span class="fc" id="L81">    prefs.put(DEFAULT_GAME_URI_PREF, entry.getURI().toString());</span>
+    try {
+<span class="fc" id="L83">      prefs.flush();</span>
+<span class="pc" id="L84">    } catch (final BackingStoreException e) {</span>
+      // ignore
+    }
+<span class="fc" id="L87">  }</span>
+
+  public GameData getGameData(final InputStream input) {
+<span class="nc" id="L90">    final GameDataManager manager = new GameDataManager();</span>
+    GameData newData;
+    try {
+<span class="nc" id="L93">      newData = manager.loadGame(input, null);</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">      if (newData != null) {</span>
+<span class="nc" id="L95">        return newData;</span>
+      }
+<span class="nc" id="L97">    } catch (final IOException e) {</span>
+    }
+<span class="nc" id="L99">    return null;</span>
+  }
+
+  public void load(final File file, final Component ui) {
+<span class="nc bnc" id="L103" title="All 2 branches missed.">    if (!file.exists()) {</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">      if (ui == null) {</span>
+<span class="nc" id="L105">        System.out.println(&quot;Could not find file:&quot; + file);</span>
+<span class="nc" id="L106">      } else {</span>
+<span class="nc" id="L107">        error(&quot;Could not find file:&quot; + file, ui);</span>
+      }
+<span class="nc" id="L109">      return;</span>
+    }
+<span class="nc bnc" id="L111" title="All 2 branches missed.">    if (file.isDirectory()) {</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">      if (ui == null) {</span>
+<span class="nc" id="L113">        System.out.println(&quot;Cannot load a directory:&quot; + file);</span>
+<span class="nc" id="L114">      } else {</span>
+<span class="nc" id="L115">        error(&quot;Cannot load a directory:&quot; + file, ui);</span>
+      }
+<span class="nc" id="L117">      return;</span>
+    }
+<span class="nc" id="L119">    final GameDataManager manager = new GameDataManager();</span>
+    GameData newData;
+<span class="nc" id="L121">    final AtomicReference&lt;String&gt; gameName = new AtomicReference&lt;&gt;();</span>
+    try {
+      // if the file name is xml, load it as a new game
+<span class="nc bnc" id="L124" title="All 2 branches missed.">      if (file.getName().toLowerCase().endsWith(&quot;xml&quot;)) {</span>
+<span class="nc" id="L125">        try (FileInputStream fis = new FileInputStream(file)) {</span>
+<span class="nc" id="L126">          newData = (new GameParser(file.getAbsolutePath())).parse(fis, gameName, false);</span>
+<span class="nc bnc" id="L127" title="All 8 branches missed.">        }</span>
+      }
+      // the extension should be tsvg, but
+      // try to load it as a saved game whatever the extension
+      else {
+<span class="nc" id="L132">        newData = manager.loadGame(file);</span>
+      }
+<span class="nc bnc" id="L134" title="All 2 branches missed.">      if (newData != null) {</span>
+<span class="nc" id="L135">        m_fileName = file.getName();</span>
+<span class="nc" id="L136">        setGameData(newData);</span>
+      }
+<span class="nc" id="L138">    } catch (final EngineVersionException e) {</span>
+<span class="nc" id="L139">      System.out.println(e.getMessage());</span>
+<span class="nc" id="L140">    } catch (final Exception e) {</span>
+<span class="nc" id="L141">      String message = e.getMessage();</span>
+<span class="nc bnc" id="L142" title="All 4 branches missed.">      if (message == null &amp;&amp; e.getStackTrace() != null) {</span>
+<span class="nc" id="L143">        message = e.getClass().getName() + &quot;  at  &quot; + e.getStackTrace()[0].toString();</span>
+      }
+<span class="nc" id="L145">      message = &quot;Exception while parsing: &quot; + file.getName() + &quot; : &quot;</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">          + (gameName.get() != null ? gameName.get() + &quot; : &quot; : &quot;&quot;) + message;</span>
+<span class="nc" id="L147">      System.out.println(message);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (ui != null) {</span>
+<span class="nc" id="L149">        error(message + &quot;\r\nPlease see console for full error log!&quot;, ui);</span>
+      }
+    }
+<span class="nc" id="L152">  }</span>
+
+  public boolean isSavedGame() {
+<span class="fc bfc" id="L155" title="All 2 branches covered.">    return !m_fileName.endsWith(&quot;.xml&quot;);</span>
+  }
+
+  private static void error(final String message, final Component ui) {
+<span class="nc" id="L159">    JOptionPane.showMessageDialog(JOptionPane.getFrameForComponent(ui), message, &quot;Could not load Game&quot;,</span>
+<span class="nc" id="L160">        JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L161">  }</span>
+
+  public synchronized GameData getGameData() {
+<span class="fc" id="L164">    return m_data;</span>
+  }
+
+  public void setCanSelect(final boolean aBool) {
+<span class="pc" id="L168">    synchronized (this) {</span>
+<span class="fc" id="L169">      m_canSelect = aBool;</span>
+    }
+<span class="fc" id="L171">    notifyObs();</span>
+<span class="fc" id="L172">  }</span>
+
+  public synchronized boolean canSelect() {
+<span class="fc" id="L175">    return m_canSelect;</span>
+  }
+
+  public void setIsHostHeadlessBot(final boolean aBool) {
+<span class="pc" id="L179">    synchronized (this) {</span>
+<span class="fc" id="L180">      m_isHostHeadlessBot = aBool;</span>
+    }
+<span class="fc" id="L182">    notifyObs();</span>
+<span class="fc" id="L183">  }</span>
+
+  public synchronized boolean isHostHeadlessBot() {
+<span class="fc" id="L186">    return m_isHostHeadlessBot;</span>
+  }
+
+  public void setClientModelForHostBots(final ClientModel clientModel) {
+<span class="pc" id="L190">    synchronized (this) {</span>
+<span class="fc" id="L191">      m_clientModelForHostBots = clientModel;</span>
+    }
+<span class="fc" id="L193">  }</span>
+
+  public synchronized ClientModel getClientModelForHostBots() {
+<span class="fc" id="L196">    return m_clientModelForHostBots;</span>
+  }
+
+  /**
+   * We dont have a gane data (ie we are a remote player and the data has not been sent yet), but
+   * we still want to display game info
+   */
+  public void clearDataButKeepGameInfo(final String gameName, final String gameRound, final String gameVersion) {
+<span class="pc" id="L204">    synchronized (this) {</span>
+<span class="fc" id="L205">      m_data = null;</span>
+<span class="fc" id="L206">      m_gameName = gameName;</span>
+<span class="fc" id="L207">      m_gameRound = gameRound;</span>
+<span class="fc" id="L208">      m_gameVersion = gameVersion;</span>
+    }
+<span class="fc" id="L210">    notifyObs();</span>
+<span class="fc" id="L211">  }</span>
+
+  public synchronized String getFileName() {
+<span class="fc bfc" id="L214" title="All 2 branches covered.">    if (m_data == null) {</span>
+<span class="fc" id="L215">      return &quot;-&quot;;</span>
+    } else {
+<span class="fc" id="L217">      return m_fileName;</span>
+    }
+  }
+
+  public synchronized String getGameName() {
+<span class="fc" id="L222">    return m_gameName;</span>
+  }
+
+  public synchronized String getGameRound() {
+<span class="fc" id="L226">    return m_gameRound;</span>
+  }
+
+  public synchronized String getGameVersion() {
+<span class="fc" id="L230">    return m_gameVersion;</span>
+  }
+
+  public void setGameData(final GameData data) {
+<span class="pc" id="L234">    synchronized (this) {</span>
+<span class="fc bfc" id="L235" title="All 2 branches covered.">      if (data == null) {</span>
+<span class="fc" id="L236">        m_gameName = m_gameRound = m_gameVersion = &quot;-&quot;;</span>
+<span class="fc" id="L237">      } else {</span>
+<span class="fc" id="L238">        m_gameName = data.getGameName();</span>
+<span class="fc" id="L239">        m_gameRound = &quot;&quot; + data.getSequence().getRound();</span>
+<span class="fc" id="L240">        m_gameVersion = data.getGameVersion().toString();</span>
+      }
+<span class="fc" id="L242">      m_data = data;</span>
+    }
+<span class="fc" id="L244">    notifyObs();</span>
+<span class="fc" id="L245">  }</span>
+
+  private void notifyObs() {
+<span class="fc" id="L248">    super.setChanged();</span>
+<span class="fc" id="L249">    super.notifyObservers(m_data);</span>
+<span class="fc" id="L250">    super.clearChanged();</span>
+<span class="fc" id="L251">  }</span>
+
+  private void resetDefaultGame() {
+<span class="nc" id="L254">    final Preferences prefs = Preferences.userNodeForPackage(this.getClass());</span>
+<span class="nc" id="L255">    prefs.put(DEFAULT_GAME_NAME_PREF, DEFAULT_GAME_NAME);</span>
+<span class="nc" id="L256">    prefs.put(DEFAULT_GAME_URI_PREF, DEFAULT_GAME_URI);</span>
+    try {
+<span class="nc" id="L258">      prefs.flush();</span>
+<span class="nc" id="L259">    } catch (final BackingStoreException e2) { // ignore</span>
+    }
+<span class="nc" id="L261">  }</span>
+
+  public void loadDefaultGame(final Component ui) {
+    // clear out ai cached properties (this ended up being the best place to put it, as we have definitely left a game
+    // at this point)
+<span class="nc" id="L266">    ProAI.gameOverClearCache();</span>
+<span class="nc" id="L267">    loadDefaultGame(ui, false);</span>
+<span class="nc" id="L268">  }</span>
+
+  /**
+   * @param ui
+   * @param forceFactoryDefault
+   *        - False is default behavior and causes the new game chooser model to be cleared (and refreshed if needed).
+   *        True causes the default game preference to be reset, but the model does not get cleared/refreshed (because
+   *        we only call with
+   *        'true' if loading the user preferred map failed).
+   */
+  private void loadDefaultGame(final Component ui, final boolean forceFactoryDefault) {
+    // load the previously saved value
+<span class="nc" id="L280">    final Preferences prefs = Preferences.userNodeForPackage(this.getClass());</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">    if (forceFactoryDefault) {</span>
+      // we don't refresh the game chooser model because we have just removed a bad map from it
+<span class="nc" id="L283">      resetDefaultGame();</span>
+    }
+<span class="nc" id="L285">    NewGameChooserEntry selectedGame = null;</span>
+    // just in case flush doesn't work, we still force it again here
+<span class="nc" id="L287">    final String userPreferredDefaultGameURI =</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        (forceFactoryDefault ? DEFAULT_GAME_URI : prefs.get(DEFAULT_GAME_URI_PREF, DEFAULT_GAME_URI));</span>
+    // we don't want to load a game file by default that is not within the map folders we can load. (ie: if a previous
+    // version of triplea
+    // was using running a game within its root folder, we shouldn't open it)
+<span class="nc" id="L292">    final String user = ClientFileSystemHelper.getUserRootFolder().toURI().toString();</span>
+<span class="nc" id="L293">    final String root = ClientFileSystemHelper.getRootFolder().toURI().toString();</span>
+<span class="nc bnc" id="L294" title="All 6 branches missed.">    if (!forceFactoryDefault &amp;&amp; userPreferredDefaultGameURI != null &amp;&amp; userPreferredDefaultGameURI.length() &gt; 0</span>
+<span class="nc bnc" id="L295" title="All 4 branches missed.">        &amp;&amp; (userPreferredDefaultGameURI.contains(root) || userPreferredDefaultGameURI.contains(user))) {</span>
+      // if the user has a preferred URI, then we load it, and don't bother parsing or doing anything with the whole
+      // game model list
+      try {
+<span class="nc" id="L299">        final URI defaultURI = new URI(userPreferredDefaultGameURI);</span>
+<span class="nc" id="L300">        selectedGame = new NewGameChooserEntry(defaultURI);</span>
+<span class="nc" id="L301">      } catch (final Exception e) {</span>
+<span class="nc" id="L302">        selectedGame = selectByName(ui, forceFactoryDefault);</span>
+<span class="nc bnc" id="L303" title="All 2 branches missed.">        if (selectedGame == null) {</span>
+<span class="nc" id="L304">          return;</span>
+        }
+      }
+<span class="nc bnc" id="L307" title="All 2 branches missed.">      if (!selectedGame.isGameDataLoaded()) {</span>
+        try {
+<span class="nc" id="L309">          selectedGame.fullyParseGameData();</span>
+<span class="nc" id="L310">        } catch (final GameParseException e) {</span>
+<span class="nc" id="L311">          loadDefaultGame(ui, true);</span>
+<span class="nc" id="L312">          return;</span>
+        }
+      }
+    } else {
+<span class="nc" id="L316">      selectedGame = selectByName(ui, forceFactoryDefault);</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">      if (selectedGame == null) {</span>
+<span class="nc" id="L318">        return;</span>
+      }
+    }
+<span class="nc" id="L321">    load(selectedGame);</span>
+<span class="nc" id="L322">  }</span>
+
+  private NewGameChooserEntry selectByName(final Component ui, final boolean forceFactoryDefault) {
+<span class="nc" id="L325">    NewGameChooserEntry selectedGame = null;</span>
+<span class="nc" id="L326">    final Preferences prefs = Preferences.userNodeForPackage(this.getClass());</span>
+    // just in case flush doesn't work, we still force it again here
+<span class="nc" id="L328">    final String userPreferredDefaultGameName =</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        (forceFactoryDefault ? DEFAULT_GAME_NAME : prefs.get(DEFAULT_GAME_NAME_PREF, DEFAULT_GAME_NAME));</span>
+<span class="nc" id="L330">    final NewGameChooserModel model = NewGameChooser.getNewGameChooserModel();</span>
+<span class="nc" id="L331">    selectedGame = model.findByName(userPreferredDefaultGameName);</span>
+<span class="nc bnc" id="L332" title="All 2 branches missed.">    if (selectedGame == null) {</span>
+<span class="nc" id="L333">      selectedGame = model.findByName(DEFAULT_GAME_NAME);</span>
+    }
+<span class="nc bnc" id="L335" title="All 4 branches missed.">    if (selectedGame == null &amp;&amp; model.size() &gt; 0) {</span>
+<span class="nc" id="L336">      selectedGame = model.get(0);</span>
+    }
+<span class="nc bnc" id="L338" title="All 2 branches missed.">    if (selectedGame == null) {</span>
+<span class="nc" id="L339">      return null;</span>
+    }
+<span class="nc bnc" id="L341" title="All 2 branches missed.">    if (!selectedGame.isGameDataLoaded()) {</span>
+      try {
+<span class="nc" id="L343">        selectedGame.fullyParseGameData();</span>
+<span class="nc" id="L344">      } catch (final GameParseException e) {</span>
+        // Load real default game...
+<span class="nc" id="L346">        selectedGame.delayParseGameData();</span>
+<span class="nc" id="L347">        model.removeEntry(selectedGame);</span>
+<span class="nc" id="L348">        loadDefaultGame(ui, true);</span>
+<span class="nc" id="L349">        return null;</span>
+      }
+    }
+<span class="nc" id="L352">    return selectedGame;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

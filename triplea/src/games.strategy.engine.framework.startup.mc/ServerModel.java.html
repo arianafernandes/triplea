@@ -1,0 +1,731 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ServerModel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.startup.mc</a> &gt; <span class="el_source">ServerModel.java</span></div><h1>ServerModel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework.startup.mc;</span>
+
+import java.awt.Component;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Observable;
+import java.util.Observer;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.prefs.Preferences;
+
+import javax.swing.JOptionPane;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.chat.Chat;
+import games.strategy.engine.chat.ChatController;
+import games.strategy.engine.chat.ChatPanel;
+import games.strategy.engine.chat.HeadlessChat;
+import games.strategy.engine.chat.IChatPanel;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.properties.GameProperties;
+import games.strategy.engine.data.properties.IEditableProperty;
+import games.strategy.engine.framework.GameDataManager;
+import games.strategy.engine.framework.GameObjectStreamFactory;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.framework.headlessGameServer.HeadlessGameServer;
+import games.strategy.engine.framework.message.PlayerListing;
+import games.strategy.engine.framework.startup.launcher.ILauncher;
+import games.strategy.engine.framework.startup.launcher.ServerLauncher;
+import games.strategy.engine.framework.startup.login.ClientLoginValidator;
+import games.strategy.engine.framework.startup.ui.ServerOptions;
+import games.strategy.engine.framework.ui.SaveGameFileChooser;
+import games.strategy.engine.lobby.server.NullModeratorController;
+import games.strategy.engine.message.ChannelMessenger;
+import games.strategy.engine.message.IChannelMessenger;
+import games.strategy.engine.message.IRemoteMessenger;
+import games.strategy.engine.message.RemoteMessenger;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.message.unifiedmessenger.UnifiedMessenger;
+import games.strategy.net.IConnectionChangeListener;
+import games.strategy.net.IMessenger;
+import games.strategy.net.IMessengerErrorListener;
+import games.strategy.net.INode;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.ServerMessenger;
+import games.strategy.util.Version;
+
+public class ServerModel extends Observable implements IMessengerErrorListener, IConnectionChangeListener {
+<span class="nc" id="L65">  public static final RemoteName SERVER_REMOTE_NAME =</span>
+<span class="nc" id="L66">      new RemoteName(&quot;games.strategy.engine.framework.ui.ServerStartup.SERVER_REMOTE&quot;, IServerStartupRemote.class);</span>
+
+<span class="nc" id="L68">  public enum InteractionMode {</span>
+<span class="nc" id="L69">    HEADLESS, SWING_CLIENT_UI</span>
+  }
+
+  static final String CHAT_NAME = &quot;games.strategy.engine.framework.ui.ServerStartup.CHAT_NAME&quot;;
+  static final String PLAYERNAME = &quot;PlayerName&quot;;
+
+  static RemoteName getObserverWaitingToStartName(final INode node) {
+<span class="nc" id="L76">    return new RemoteName(&quot;games.strategy.engine.framework.startup.mc.ServerModel.OBSERVER&quot; + node.getName(),</span>
+<span class="nc" id="L77">        IObserverWaitingToJoin.class);</span>
+  }
+
+<span class="nc" id="L80">  private static Logger logger = Logger.getLogger(ServerModel.class.getName());</span>
+<span class="nc" id="L81">  private final GameObjectStreamFactory objectStreamFactory = new GameObjectStreamFactory(null);</span>
+  private final SetupPanelModel typePanelModel;
+  private final boolean headless;
+  private IServerMessenger serverMessenger;
+  private IRemoteMessenger remoteMessenger;
+  private IChannelMessenger channelMessenger;
+  private GameData data;
+<span class="nc" id="L88">  private Map&lt;String, String&gt; playersToNodeListing = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L89">  private Map&lt;String, Boolean&gt; playersEnabledListing = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L90">  private Collection&lt;String&gt; playersAllowedToBeDisabled = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L91">  private Map&lt;String, Collection&lt;String&gt;&gt; playerNamesAndAlliancesInTurnOrder =</span>
+<span class="nc" id="L92">      new LinkedHashMap&lt;&gt;();</span>
+<span class="nc" id="L93">  private IRemoteModelListener remoteModelListener = IRemoteModelListener.NULL_LISTENER;</span>
+  private final GameSelectorModel gameSelectorModel;
+  private Component ui;
+  private IChatPanel chatPanel;
+  private ChatController chatController;
+<span class="nc" id="L98">  private final Map&lt;String, String&gt; localPlayerTypes = new HashMap&lt;&gt;();</span>
+  // while our server launcher is not null, delegate new/lost connections to it
+  private volatile ServerLauncher serverLauncher;
+<span class="nc" id="L101">  private CountDownLatch removeConnectionsLatch = null;</span>
+<span class="nc" id="L102">  private final Observer gameSelectorObserver = (observable, value) -&gt; gameDataChanged();</span>
+
+  ServerModel(final GameSelectorModel gameSelectorModel, final SetupPanelModel typePanelModel) {
+<span class="nc" id="L105">    this(gameSelectorModel, typePanelModel, InteractionMode.SWING_CLIENT_UI);</span>
+<span class="nc" id="L106">  }</span>
+
+<span class="nc" id="L108">  public ServerModel(final GameSelectorModel gameSelectorModel, final SetupPanelModel typePanelModel,</span>
+      final InteractionMode interactionMode) {
+<span class="nc" id="L110">    this.gameSelectorModel = gameSelectorModel;</span>
+<span class="nc" id="L111">    this.typePanelModel = typePanelModel;</span>
+<span class="nc" id="L112">    this.gameSelectorModel.addObserver(gameSelectorObserver);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">    headless = (interactionMode == InteractionMode.HEADLESS);</span>
+<span class="nc" id="L114">  }</span>
+
+  public void shutDown() {
+<span class="nc" id="L117">    gameSelectorModel.deleteObserver(gameSelectorObserver);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">    if (serverMessenger != null) {</span>
+<span class="nc" id="L119">      chatController.deactivate();</span>
+<span class="nc" id="L120">      serverMessenger.shutDown();</span>
+<span class="nc" id="L121">      serverMessenger.removeErrorListener(this);</span>
+<span class="nc" id="L122">      chatPanel.shutDown();</span>
+    }
+<span class="nc" id="L124">  }</span>
+
+  public void cancel() {
+<span class="nc" id="L127">    gameSelectorModel.deleteObserver(gameSelectorObserver);</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">    if (serverMessenger != null) {</span>
+<span class="nc" id="L129">      chatController.deactivate();</span>
+<span class="nc" id="L130">      serverMessenger.shutDown();</span>
+<span class="nc" id="L131">      serverMessenger.removeErrorListener(this);</span>
+<span class="nc" id="L132">      chatPanel.setChat(null);</span>
+    }
+<span class="nc" id="L134">  }</span>
+
+  public void setRemoteModelListener(IRemoteModelListener listener) {
+<span class="nc bnc" id="L137" title="All 2 branches missed.">    if (listener == null) {</span>
+<span class="nc" id="L138">      listener = IRemoteModelListener.NULL_LISTENER;</span>
+    }
+<span class="nc" id="L140">    remoteModelListener = listener;</span>
+<span class="nc" id="L141">  }</span>
+
+  public void setLocalPlayerType(final String player, final String type) {
+<span class="nc" id="L144">    synchronized (this) {</span>
+<span class="nc" id="L145">      localPlayerTypes.put(player, type);</span>
+    }
+<span class="nc" id="L147">  }</span>
+
+  private void gameDataChanged() {
+<span class="nc" id="L150">    synchronized (this) {</span>
+<span class="nc" id="L151">      data = gameSelectorModel.getGameData();</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">      if (data != null) {</span>
+<span class="nc" id="L153">        playersToNodeListing = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L154">        playersEnabledListing = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L155">        playersAllowedToBeDisabled = new HashSet&lt;&gt;(data.getPlayerList().getPlayersThatMayBeDisabled());</span>
+<span class="nc" id="L156">        playerNamesAndAlliancesInTurnOrder = new LinkedHashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">        for (final PlayerID player : data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L158">          final String name = player.getName();</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">          if (headless) {</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">            if (player.getIsDisabled()) {</span>
+<span class="nc" id="L161">              playersToNodeListing.put(name, serverMessenger.getLocalNode().getName());</span>
+              // the 2nd in the list should be Weak AI
+<span class="nc" id="L163">              final int indexPosition =</span>
+<span class="nc" id="L164">                  Math.max(0, Math.min(data.getGameLoader().getServerPlayerTypes().length - 1, 1));</span>
+<span class="nc" id="L165">              localPlayerTypes.put(name, data.getGameLoader().getServerPlayerTypes()[indexPosition]);</span>
+<span class="nc" id="L166">            } else {</span>
+              // we generally do not want a headless host bot to be doing any AI turns, since that
+              // is taxing on the system
+<span class="nc" id="L169">              playersToNodeListing.put(name, null);</span>
+            }
+<span class="nc" id="L171">          } else {</span>
+<span class="nc" id="L172">            playersToNodeListing.put(name, serverMessenger.getLocalNode().getName());</span>
+          }
+<span class="nc" id="L174">          playerNamesAndAlliancesInTurnOrder.put(name, data.getAllianceTracker().getAlliancesPlayerIsIn(player));</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">          playersEnabledListing.put(name, !player.getIsDisabled());</span>
+        }
+      }
+<span class="nc" id="L178">      objectStreamFactory.setData(data);</span>
+<span class="nc" id="L179">      localPlayerTypes.clear();</span>
+    }
+<span class="nc" id="L181">    notifyChanellPlayersChanged();</span>
+<span class="nc" id="L182">    remoteModelListener.playerListChanged();</span>
+<span class="nc" id="L183">  }</span>
+
+  private ServerProps getServerProps(final Component ui) {
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    if (System.getProperties().getProperty(GameRunner.TRIPLEA_SERVER_PROPERTY, &quot;false&quot;).equals(&quot;true&quot;)</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">        &amp;&amp; System.getProperties().getProperty(GameRunner.TRIPLEA_STARTED, &quot;&quot;).equals(&quot;&quot;)) {</span>
+<span class="nc" id="L188">      final ServerProps props = new ServerProps();</span>
+<span class="nc" id="L189">      props.setName(System.getProperty(GameRunner.TRIPLEA_NAME_PROPERTY));</span>
+<span class="nc" id="L190">      props.setPort(Integer.parseInt(System.getProperty(GameRunner.TRIPLEA_PORT_PROPERTY)));</span>
+<span class="nc bnc" id="L191" title="All 2 branches missed.">      if (System.getProperty(GameRunner.TRIPLEA_SERVER_PASSWORD_PROPERTY) != null) {</span>
+<span class="nc" id="L192">        props.setPassword(System.getProperty(GameRunner.TRIPLEA_SERVER_PASSWORD_PROPERTY));</span>
+      }
+<span class="nc" id="L194">      System.setProperty(GameRunner.TRIPLEA_STARTED, &quot;true&quot;);</span>
+<span class="nc" id="L195">      return props;</span>
+    }
+<span class="nc" id="L197">    final Preferences prefs = Preferences.userNodeForPackage(this.getClass());</span>
+<span class="nc" id="L198">    final String playername = prefs.get(PLAYERNAME, System.getProperty(&quot;user.name&quot;));</span>
+<span class="nc" id="L199">    final ServerOptions options = new ServerOptions(ui, playername, GameRunner.PORT, false);</span>
+<span class="nc" id="L200">    options.setLocationRelativeTo(ui);</span>
+<span class="nc" id="L201">    options.setVisible(true);</span>
+<span class="nc" id="L202">    options.dispose();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">    if (!options.getOKPressed()) {</span>
+<span class="nc" id="L204">      return null;</span>
+    }
+<span class="nc" id="L206">    final String name = options.getName();</span>
+<span class="nc" id="L207">    logger.log(Level.FINE, &quot;Server playing as:&quot; + name);</span>
+    // save the name! -- lnxduk
+<span class="nc" id="L209">    prefs.put(PLAYERNAME, name);</span>
+<span class="nc" id="L210">    final int port = options.getPort();</span>
+<span class="nc bnc" id="L211" title="All 4 branches missed.">    if (port &gt;= 65536 || port == 0) {</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">      if (headless) {</span>
+<span class="nc" id="L213">        System.out.println(&quot;Invalid Port: &quot; + port);</span>
+<span class="nc" id="L214">      } else {</span>
+<span class="nc" id="L215">        JOptionPane.showMessageDialog(ui, &quot;Invalid Port: &quot; + port, &quot;Error&quot;, JOptionPane.ERROR_MESSAGE);</span>
+      }
+<span class="nc" id="L217">      return null;</span>
+    }
+<span class="nc" id="L219">    final ServerProps props = new ServerProps();</span>
+<span class="nc" id="L220">    props.setName(options.getName());</span>
+<span class="nc" id="L221">    props.setPort(options.getPort());</span>
+<span class="nc" id="L222">    props.setPassword(options.getPassword());</span>
+<span class="nc" id="L223">    return props;</span>
+  }
+
+  /**
+   * UI can be null. We use it as the parent for message dialogs we show.
+   * If you have a component displayed, use it.
+   */
+  public boolean createServerMessenger(Component ui) {
+<span class="nc bnc" id="L231" title="All 2 branches missed.">    ui = ui == null ? null : JOptionPane.getFrameForComponent(ui);</span>
+<span class="nc" id="L232">    this.ui = ui;</span>
+<span class="nc" id="L233">    final ServerProps props = getServerProps(ui);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">    if (props == null) {</span>
+<span class="nc" id="L235">      return false;</span>
+    }
+    try {
+<span class="nc" id="L238">      serverMessenger = new ServerMessenger(props.getName(), props.getPort(), objectStreamFactory);</span>
+<span class="nc" id="L239">      final ClientLoginValidator clientLoginValidator = new ClientLoginValidator(serverMessenger);</span>
+<span class="nc" id="L240">      clientLoginValidator.setGamePassword(props.getPassword());</span>
+<span class="nc" id="L241">      serverMessenger.setLoginValidator(clientLoginValidator);</span>
+<span class="nc" id="L242">      serverMessenger.addErrorListener(this);</span>
+<span class="nc" id="L243">      serverMessenger.addConnectionChangeListener(this);</span>
+<span class="nc" id="L244">      final UnifiedMessenger unifiedMessenger = new UnifiedMessenger(serverMessenger);</span>
+<span class="nc" id="L245">      remoteMessenger = new RemoteMessenger(unifiedMessenger);</span>
+<span class="nc" id="L246">      remoteMessenger.registerRemote(m_serverStartupRemote, SERVER_REMOTE_NAME);</span>
+<span class="nc" id="L247">      channelMessenger = new ChannelMessenger(unifiedMessenger);</span>
+<span class="nc" id="L248">      final NullModeratorController moderatorController = new NullModeratorController(serverMessenger, null);</span>
+<span class="nc" id="L249">      moderatorController.register(remoteMessenger);</span>
+<span class="nc" id="L250">      chatController =</span>
+<span class="nc" id="L251">          new ChatController(CHAT_NAME, serverMessenger, remoteMessenger, channelMessenger, moderatorController);</span>
+
+<span class="nc bnc" id="L253" title="All 4 branches missed.">      if (ui == null &amp;&amp; headless) {</span>
+<span class="nc" id="L254">        chatPanel = new HeadlessChat(serverMessenger, channelMessenger, remoteMessenger, CHAT_NAME,</span>
+<span class="nc" id="L255">            Chat.CHAT_SOUND_PROFILE.GAME_CHATROOM);</span>
+<span class="nc" id="L256">      } else {</span>
+<span class="nc" id="L257">        chatPanel = new ChatPanel(serverMessenger, channelMessenger, remoteMessenger, CHAT_NAME,</span>
+<span class="nc" id="L258">            Chat.CHAT_SOUND_PROFILE.GAME_CHATROOM);</span>
+      }
+
+<span class="nc" id="L261">      serverMessenger.setAcceptNewConnections(true);</span>
+<span class="nc" id="L262">      gameDataChanged();</span>
+<span class="nc" id="L263">      return true;</span>
+<span class="nc" id="L264">    } catch (final IOException ioe) {</span>
+<span class="nc" id="L265">      ioe.printStackTrace(System.out);</span>
+<span class="nc bnc" id="L266" title="All 2 branches missed.">      if (headless) {</span>
+<span class="nc" id="L267">        System.out.println(&quot;Unable to create server socket:&quot; + ioe.getMessage());</span>
+<span class="nc" id="L268">      } else {</span>
+<span class="nc" id="L269">        JOptionPane.showMessageDialog(ui, &quot;Unable to create server socket:&quot; + ioe.getMessage(), &quot;Error&quot;,</span>
+<span class="nc" id="L270">            JOptionPane.ERROR_MESSAGE);</span>
+      }
+<span class="nc" id="L272">      return false;</span>
+    }
+  }
+
+<span class="nc" id="L276">  private final IServerStartupRemote m_serverStartupRemote = new IServerStartupRemote() {</span>
+    @Override
+    public PlayerListing getPlayerListing() {
+<span class="nc" id="L279">      return getPlayerListingInternal();</span>
+    }
+
+    @Override
+    public void takePlayer(final INode who, final String playerName) {
+<span class="nc" id="L284">      takePlayerInternal(who, true, playerName);</span>
+<span class="nc" id="L285">    }</span>
+
+    @Override
+    public void releasePlayer(final INode who, final String playerName) {
+<span class="nc" id="L289">      takePlayerInternal(who, false, playerName);</span>
+<span class="nc" id="L290">    }</span>
+
+    @Override
+    public void disablePlayer(final String playerName) {
+<span class="nc bnc" id="L294" title="All 2 branches missed.">      if (!headless) {</span>
+<span class="nc" id="L295">        return;</span>
+      }
+      // we don't want the client's changing stuff for anyone but a bot
+<span class="nc" id="L298">      setPlayerEnabled(playerName, false);</span>
+<span class="nc" id="L299">    }</span>
+
+    @Override
+    public void enablePlayer(final String playerName) {
+<span class="nc bnc" id="L303" title="All 2 branches missed.">      if (!headless) {</span>
+<span class="nc" id="L304">        return;</span>
+      }
+      // we don't want the client's changing stuff for anyone but a bot
+<span class="nc" id="L307">      setPlayerEnabled(playerName, true);</span>
+<span class="nc" id="L308">    }</span>
+
+    @Override
+    public boolean isGameStarted(final INode newNode) {
+<span class="nc bnc" id="L312" title="All 2 branches missed.">      if (serverLauncher != null) {</span>
+<span class="nc" id="L313">        final RemoteName remoteName = getObserverWaitingToStartName(newNode);</span>
+<span class="nc" id="L314">        final IObserverWaitingToJoin observerWaitingToJoinBlocking =</span>
+<span class="nc" id="L315">            (IObserverWaitingToJoin) remoteMessenger.getRemote(remoteName);</span>
+<span class="nc" id="L316">        final IObserverWaitingToJoin observerWaitingToJoinNonBlocking =</span>
+<span class="nc" id="L317">            (IObserverWaitingToJoin) remoteMessenger.getRemote(remoteName, true);</span>
+<span class="nc" id="L318">        serverLauncher.addObserver(observerWaitingToJoinBlocking, observerWaitingToJoinNonBlocking, newNode);</span>
+<span class="nc" id="L319">        return true;</span>
+      } else {
+<span class="nc" id="L321">        return false;</span>
+      }
+    }
+
+    @Override
+    public boolean getIsServerHeadless() {
+<span class="nc" id="L327">      return HeadlessGameServer.headless();</span>
+    }
+
+    /**
+     * This should not be called from within game, only from the game setup screen, while everyone is waiting for game
+     * to start
+     */
+    @Override
+    public byte[] getSaveGame() {
+<span class="nc" id="L336">      System.out.println(&quot;Sending save game&quot;);</span>
+
+<span class="nc" id="L338">      byte[] bytes = null;</span>
+<span class="nc" id="L339">      try (final ByteArrayOutputStream sink = new ByteArrayOutputStream(5000)) {</span>
+<span class="nc" id="L340">        new GameDataManager().saveGame(sink, data);</span>
+<span class="nc" id="L341">        bytes = sink.toByteArray();</span>
+<span class="nc bnc" id="L342" title="All 8 branches missed.">      } catch (final IOException e) {</span>
+<span class="nc" id="L343">        ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L344">        throw new IllegalStateException(e);</span>
+      }
+<span class="nc" id="L346">      return bytes;</span>
+    }
+
+    @Override
+    public byte[] getGameOptions() {
+<span class="nc" id="L351">      byte[] bytes = null;</span>
+<span class="nc bnc" id="L352" title="All 6 branches missed.">      if (data == null || data.getProperties() == null || data.getProperties().getEditableProperties() == null</span>
+<span class="nc bnc" id="L353" title="All 2 branches missed.">          || data.getProperties().getEditableProperties().isEmpty()) {</span>
+<span class="nc" id="L354">        return bytes;</span>
+      }
+<span class="nc" id="L356">      final List&lt;IEditableProperty&gt; currentEditableProperties = data.getProperties().getEditableProperties();</span>
+
+<span class="nc" id="L358">      try (final ByteArrayOutputStream sink = new ByteArrayOutputStream(1000)) {</span>
+<span class="nc" id="L359">        GameProperties.toOutputStream(sink, currentEditableProperties);</span>
+<span class="nc" id="L360">        bytes = sink.toByteArray();</span>
+<span class="nc bnc" id="L361" title="All 8 branches missed.">      } catch (final IOException e) {</span>
+<span class="nc" id="L362">        ClientLogger.logQuietly(e);</span>
+      }
+<span class="nc" id="L364">      return bytes;</span>
+    }
+
+    @Override
+    public Set&lt;String&gt; getAvailableGames() {
+<span class="nc" id="L369">      final HeadlessGameServer headless = HeadlessGameServer.getInstance();</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">      if (headless == null) {</span>
+<span class="nc" id="L371">        return null;</span>
+      }
+<span class="nc" id="L373">      return headless.getAvailableGames();</span>
+    }
+
+    @Override
+    public void changeServerGameTo(final String gameName) {
+<span class="nc" id="L378">      final HeadlessGameServer headless = HeadlessGameServer.getInstance();</span>
+<span class="nc bnc" id="L379" title="All 2 branches missed.">      if (headless == null) {</span>
+<span class="nc" id="L380">        return;</span>
+      }
+<span class="nc" id="L382">      System.out.println(&quot;Changing to game map: &quot; + gameName);</span>
+<span class="nc" id="L383">      headless.setGameMapTo(gameName);</span>
+<span class="nc" id="L384">    }</span>
+
+    @Override
+    public void changeToLatestAutosave(final SaveGameFileChooser.AUTOSAVE_TYPE typeOfAutosave) {
+<span class="nc" id="L388">      final HeadlessGameServer headless = HeadlessGameServer.getInstance();</span>
+<span class="nc bnc" id="L389" title="All 2 branches missed.">      if (headless == null) {</span>
+<span class="nc" id="L390">        return;</span>
+      }
+      final File save;
+<span class="nc bnc" id="L393" title="All 2 branches missed.">      if (SaveGameFileChooser.AUTOSAVE_TYPE.AUTOSAVE.equals(typeOfAutosave)) {</span>
+<span class="nc" id="L394">        save = new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSaveFileName());</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">      } else if (SaveGameFileChooser.AUTOSAVE_TYPE.AUTOSAVE2.equals(typeOfAutosave)) {</span>
+<span class="nc" id="L396">        save = new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSave2FileName());</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">      } else if (SaveGameFileChooser.AUTOSAVE_TYPE.AUTOSAVE_ODD.equals(typeOfAutosave)) {</span>
+<span class="nc" id="L398">        save = new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSaveOddFileName());</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">      } else if (SaveGameFileChooser.AUTOSAVE_TYPE.AUTOSAVE_EVEN.equals(typeOfAutosave)) {</span>
+<span class="nc" id="L400">        save =</span>
+<span class="nc" id="L401">            new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSaveEvenFileName());</span>
+<span class="nc" id="L402">      } else {</span>
+<span class="nc" id="L403">        return;</span>
+      }
+<span class="nc bnc" id="L405" title="All 4 branches missed.">      if (save == null || !save.exists()) {</span>
+<span class="nc" id="L406">        return;</span>
+      }
+<span class="nc" id="L408">      System.out.println(&quot;Changing to autosave of type: &quot; + typeOfAutosave.toString());</span>
+<span class="nc" id="L409">      headless.loadGameSave(save);</span>
+<span class="nc" id="L410">    }</span>
+
+    @Override
+    public void changeToGameSave(final byte[] bytes, final String fileName) {
+      // TODO: change to a string message return, so we can tell the user/requestor if it was successful or not, and why
+      // if not.
+<span class="nc" id="L416">      final HeadlessGameServer headless = HeadlessGameServer.getInstance();</span>
+<span class="nc bnc" id="L417" title="All 4 branches missed.">      if (headless == null || bytes == null) {</span>
+<span class="nc" id="L418">        return;</span>
+      }
+<span class="nc" id="L420">      System.out.println(&quot;Changing to user savegame: &quot; + fileName);</span>
+<span class="nc" id="L421">      try (ByteArrayInputStream input = new ByteArrayInputStream(bytes);</span>
+<span class="nc" id="L422">          InputStream oinput = new BufferedInputStream(input);) {</span>
+<span class="nc" id="L423">        headless.loadGameSave(oinput, fileName);</span>
+<span class="nc bnc" id="L424" title="All 16 branches missed.">      } catch (final Exception e) {</span>
+<span class="nc" id="L425">        ClientLogger.logQuietly(e);</span>
+      }
+<span class="nc" id="L427">    }</span>
+
+    @Override
+    public void changeToGameOptions(final byte[] bytes) {
+      // TODO: change to a string message return, so we can tell the user/requestor if it was successful or not, and why
+      // if not.
+<span class="nc" id="L433">      final HeadlessGameServer headless = HeadlessGameServer.getInstance();</span>
+<span class="nc bnc" id="L434" title="All 4 branches missed.">      if (headless == null || bytes == null) {</span>
+<span class="nc" id="L435">        return;</span>
+      }
+<span class="nc" id="L437">      System.out.println(&quot;Changing to user game options.&quot;);</span>
+      try {
+<span class="nc" id="L439">        headless.loadGameOptions(bytes);</span>
+<span class="nc" id="L440">      } catch (final Exception e) {</span>
+<span class="nc" id="L441">        ClientLogger.logQuietly(e);</span>
+      }
+<span class="nc" id="L443">    }</span>
+  };
+
+  private PlayerListing getPlayerListingInternal() {
+<span class="nc" id="L447">    synchronized (this) {</span>
+<span class="nc bnc" id="L448" title="All 2 branches missed.">      if (data == null) {</span>
+<span class="nc" id="L449">        return new PlayerListing(new HashMap&lt;&gt;(), new HashMap&lt;&gt;(playersEnabledListing),</span>
+<span class="nc" id="L450">            getLocalPlayerTypes(), new Version(0, 0), gameSelectorModel.getGameName(),</span>
+<span class="nc" id="L451">            gameSelectorModel.getGameRound(), new HashSet&lt;&gt;(playersAllowedToBeDisabled),</span>
+<span class="nc" id="L452">            new LinkedHashMap&lt;&gt;());</span>
+      } else {
+<span class="nc" id="L454">        return new PlayerListing(new HashMap&lt;&gt;(playersToNodeListing),</span>
+<span class="nc" id="L455">            new HashMap&lt;&gt;(playersEnabledListing), getLocalPlayerTypes(), data.getGameVersion(),</span>
+<span class="nc" id="L456">            data.getGameName(), data.getSequence().getRound() + &quot;&quot;,</span>
+<span class="nc" id="L457">            new HashSet&lt;&gt;(playersAllowedToBeDisabled), playerNamesAndAlliancesInTurnOrder);</span>
+      }
+    }
+  }
+
+  private void takePlayerInternal(final INode from, final boolean take, final String playerName) {
+    // synchronize to make sure two adds arent executed at once
+<span class="nc" id="L464">    synchronized (this) {</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">      if (!playersToNodeListing.containsKey(playerName)) {</span>
+<span class="nc" id="L466">        return;</span>
+      }
+<span class="nc bnc" id="L468" title="All 2 branches missed.">      if (take) {</span>
+<span class="nc" id="L469">        playersToNodeListing.put(playerName, from.getName());</span>
+<span class="nc" id="L470">      } else {</span>
+<span class="nc" id="L471">        playersToNodeListing.put(playerName, null);</span>
+      }
+    }
+<span class="nc" id="L474">    notifyChanellPlayersChanged();</span>
+<span class="nc" id="L475">    remoteModelListener.playersTakenChanged();</span>
+<span class="nc" id="L476">  }</span>
+
+  private void setPlayerEnabled(final String playerName, final boolean enabled) {
+<span class="nc" id="L479">    takePlayerInternal(serverMessenger.getLocalNode(), true, playerName);</span>
+    // synchronize
+<span class="nc" id="L481">    synchronized (this) {</span>
+<span class="nc bnc" id="L482" title="All 2 branches missed.">      if (!playersEnabledListing.containsKey(playerName)) {</span>
+<span class="nc" id="L483">        return;</span>
+      }
+<span class="nc" id="L485">      playersEnabledListing.put(playerName, enabled);</span>
+<span class="nc bnc" id="L486" title="All 2 branches missed.">      if (headless) {</span>
+        // we do not want the host bot to actually play, so set to null if enabled, and set to weak ai if disabled
+<span class="nc bnc" id="L488" title="All 2 branches missed.">        if (enabled) {</span>
+<span class="nc" id="L489">          playersToNodeListing.put(playerName, null);</span>
+<span class="nc" id="L490">        } else {</span>
+<span class="nc" id="L491">          localPlayerTypes.put(playerName,</span>
+<span class="nc" id="L492">              data.getGameLoader().getServerPlayerTypes()[Math.max(0,</span>
+                  // the 2nd in the list should be Weak AI
+<span class="nc" id="L494">                  Math.min(data.getGameLoader().getServerPlayerTypes().length - 1, 1))]);</span>
+        }
+      }
+    }
+<span class="nc" id="L498">    notifyChanellPlayersChanged();</span>
+<span class="nc" id="L499">    remoteModelListener.playersTakenChanged();</span>
+<span class="nc" id="L500">  }</span>
+
+  public void setAllPlayersToNullNodes() {
+<span class="nc bnc" id="L503" title="All 2 branches missed.">    if (playersToNodeListing != null) {</span>
+<span class="nc bnc" id="L504" title="All 2 branches missed.">      for (final String p : playersToNodeListing.keySet()) {</span>
+<span class="nc" id="L505">        playersToNodeListing.put(p, null);</span>
+      }
+    }
+<span class="nc" id="L508">  }</span>
+
+  private void notifyChanellPlayersChanged() {
+<span class="nc" id="L511">    final IClientChannel channel =</span>
+<span class="nc" id="L512">        (IClientChannel) channelMessenger.getChannelBroadcastor(IClientChannel.CHANNEL_NAME);</span>
+<span class="nc" id="L513">    channel.playerListingChanged(getPlayerListingInternal());</span>
+<span class="nc" id="L514">  }</span>
+
+  public void takePlayer(final String playerName) {
+<span class="nc" id="L517">    takePlayerInternal(serverMessenger.getLocalNode(), true, playerName);</span>
+<span class="nc" id="L518">  }</span>
+
+  public void releasePlayer(final String playerName) {
+<span class="nc" id="L521">    takePlayerInternal(serverMessenger.getLocalNode(), false, playerName);</span>
+<span class="nc" id="L522">  }</span>
+
+  public void disablePlayer(final String playerName) {
+<span class="nc" id="L525">    setPlayerEnabled(playerName, false);</span>
+<span class="nc" id="L526">  }</span>
+
+  public void enablePlayer(final String playerName) {
+<span class="nc" id="L529">    setPlayerEnabled(playerName, true);</span>
+<span class="nc" id="L530">  }</span>
+
+  public IServerMessenger getMessenger() {
+<span class="nc" id="L533">    return serverMessenger;</span>
+  }
+
+  public Map&lt;String, String&gt; getPlayersToNodeListing() {
+<span class="nc" id="L537">    synchronized (this) {</span>
+<span class="nc" id="L538">      return new HashMap&lt;&gt;(playersToNodeListing);</span>
+    }
+  }
+
+  public Map&lt;String, Boolean&gt; getPlayersEnabledListing() {
+<span class="nc" id="L543">    synchronized (this) {</span>
+<span class="nc" id="L544">      return new HashMap&lt;&gt;(playersEnabledListing);</span>
+    }
+  }
+
+  public Collection&lt;String&gt; getPlayersAllowedToBeDisabled() {
+<span class="nc" id="L549">    synchronized (this) {</span>
+<span class="nc" id="L550">      return new HashSet&lt;&gt;(playersAllowedToBeDisabled);</span>
+    }
+  }
+
+  public Map&lt;String, Collection&lt;String&gt;&gt; getPlayerNamesAndAlliancesInTurnOrderLinkedHashMap() {
+<span class="nc" id="L555">    synchronized (this) {</span>
+<span class="nc" id="L556">      return new LinkedHashMap&lt;&gt;(playerNamesAndAlliancesInTurnOrder);</span>
+    }
+  }
+
+  @Override
+  public void messengerInvalid(final IMessenger messenger, final Exception reason) {
+<span class="nc bnc" id="L562" title="All 2 branches missed.">    if (headless) {</span>
+<span class="nc" id="L563">      System.out.println(&quot;Connection Lost&quot;);</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">      if (typePanelModel != null) {</span>
+<span class="nc" id="L565">        typePanelModel.showSelectType();</span>
+      }
+<span class="nc" id="L567">    } else {</span>
+<span class="nc" id="L568">      JOptionPane.showMessageDialog(ui, &quot;Connection lost&quot;, &quot;Error&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L569">      typePanelModel.showSelectType();</span>
+    }
+<span class="nc" id="L571">  }</span>
+
+  @Override
+<span class="nc" id="L574">  public void connectionAdded(final INode to) {}</span>
+
+  @Override
+  public void connectionRemoved(final INode node) {
+<span class="nc bnc" id="L578" title="All 2 branches missed.">    if (removeConnectionsLatch != null) {</span>
+      try {
+<span class="nc" id="L580">        removeConnectionsLatch.await(6, TimeUnit.SECONDS);</span>
+<span class="nc" id="L581">      } catch (final InterruptedException e) {// no worries</span>
+      }
+    }
+    // will be handled elsewhere
+<span class="nc bnc" id="L585" title="All 2 branches missed.">    if (serverLauncher != null) {</span>
+<span class="nc" id="L586">      serverLauncher.connectionLost(node);</span>
+<span class="nc" id="L587">      return;</span>
+    }
+    // we lost a node. Remove the players he plays.
+<span class="nc" id="L590">    final List&lt;String&gt; free = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L591">    synchronized (this) {</span>
+<span class="nc bnc" id="L592" title="All 2 branches missed.">      for (final String player : playersToNodeListing.keySet()) {</span>
+<span class="nc" id="L593">        final String playedBy = playersToNodeListing.get(player);</span>
+<span class="nc bnc" id="L594" title="All 4 branches missed.">        if (playedBy != null &amp;&amp; playedBy.equals(node.getName())) {</span>
+<span class="nc" id="L595">          free.add(player);</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L599" title="All 2 branches missed.">    for (final String player : free) {</span>
+<span class="nc" id="L600">      takePlayerInternal(node, false, player);</span>
+    }
+<span class="nc" id="L602">  }</span>
+
+  public IChatPanel getChatPanel() {
+<span class="nc" id="L605">    return chatPanel;</span>
+  }
+
+  public void disallowRemoveConnections() {
+<span class="nc bnc" id="L609" title="All 4 branches missed.">    while (removeConnectionsLatch != null &amp;&amp; removeConnectionsLatch.getCount() &gt; 0) {</span>
+<span class="nc" id="L610">      removeConnectionsLatch.countDown();</span>
+    }
+<span class="nc" id="L612">    removeConnectionsLatch = new CountDownLatch(1);</span>
+<span class="nc" id="L613">  }</span>
+
+  public void allowRemoveConnections() {
+<span class="nc bnc" id="L616" title="All 4 branches missed.">    while (removeConnectionsLatch != null &amp;&amp; removeConnectionsLatch.getCount() &gt; 0) {</span>
+<span class="nc" id="L617">      removeConnectionsLatch.countDown();</span>
+    }
+<span class="nc" id="L619">    removeConnectionsLatch = null;</span>
+<span class="nc" id="L620">  }</span>
+
+  public Map&lt;String, String&gt; getLocalPlayerTypes() {
+<span class="nc" id="L623">    final Map&lt;String, String&gt; localPlayerMappings = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L624" title="All 2 branches missed.">    if (data == null) {</span>
+<span class="nc" id="L625">      return localPlayerMappings;</span>
+    }
+    // local player default = humans (for bots = weak ai)
+<span class="nc bnc" id="L628" title="All 2 branches missed.">    final String defaultLocalType = headless</span>
+<span class="nc" id="L629">        ? data.getGameLoader().getServerPlayerTypes()[Math.max(0,</span>
+<span class="nc" id="L630">            Math.min(data.getGameLoader().getServerPlayerTypes().length - 1, 1))]</span>
+<span class="nc" id="L631">        : data.getGameLoader().getServerPlayerTypes()[0];</span>
+<span class="nc bnc" id="L632" title="All 2 branches missed.">    for (final String player : playersToNodeListing.keySet()) {</span>
+<span class="nc" id="L633">      final String playedBy = playersToNodeListing.get(player);</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">      if (playedBy == null) {</span>
+<span class="nc" id="L635">        continue;</span>
+      }
+<span class="nc bnc" id="L637" title="All 2 branches missed.">      if (playedBy.equals(serverMessenger.getLocalNode().getName())) {</span>
+<span class="nc" id="L638">        String type = defaultLocalType;</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">        if (localPlayerTypes.containsKey(player)) {</span>
+<span class="nc" id="L640">          type = localPlayerTypes.get(player);</span>
+        }
+<span class="nc" id="L642">        localPlayerMappings.put(player, type);</span>
+      }
+    }
+<span class="nc" id="L645">    return localPlayerMappings;</span>
+  }
+
+  public ILauncher getLauncher() {
+<span class="nc" id="L649">    synchronized (this) {</span>
+<span class="nc" id="L650">      disallowRemoveConnections();</span>
+      // -1 since we dont count outselves
+<span class="nc" id="L652">      final int clientCount = serverMessenger.getNodes().size() - 1;</span>
+<span class="nc" id="L653">      final Map&lt;String, INode&gt; remotePlayers = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">      for (final String player : playersToNodeListing.keySet()) {</span>
+<span class="nc" id="L655">        final String playedBy = playersToNodeListing.get(player);</span>
+<span class="nc bnc" id="L656" title="All 2 branches missed.">        if (playedBy == null) {</span>
+<span class="nc" id="L657">          return null;</span>
+        }
+<span class="nc bnc" id="L659" title="All 2 branches missed.">        if (!playedBy.equals(serverMessenger.getLocalNode().getName())) {</span>
+<span class="nc" id="L660">          final Set&lt;INode&gt; nodes = serverMessenger.getNodes();</span>
+<span class="nc bnc" id="L661" title="All 2 branches missed.">          for (final INode node : nodes) {</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">            if (node.getName().equals(playedBy)) {</span>
+<span class="nc" id="L663">              remotePlayers.put(player, node);</span>
+<span class="nc" id="L664">              break;</span>
+            }
+          }
+        }
+      }
+<span class="nc" id="L669">      final ServerLauncher launcher = new ServerLauncher(clientCount, remoteMessenger, channelMessenger,</span>
+<span class="nc" id="L670">          serverMessenger, gameSelectorModel, getPlayerListingInternal(), remotePlayers, this, headless);</span>
+<span class="nc" id="L671">      return launcher;</span>
+    }
+  }
+
+  public void newGame() {
+<span class="nc" id="L676">    serverMessenger.setAcceptNewConnections(true);</span>
+<span class="nc" id="L677">    final IClientChannel channel =</span>
+<span class="nc" id="L678">        (IClientChannel) channelMessenger.getChannelBroadcastor(IClientChannel.CHANNEL_NAME);</span>
+<span class="nc" id="L679">    notifyChanellPlayersChanged();</span>
+<span class="nc" id="L680">    channel.gameReset();</span>
+<span class="nc" id="L681">  }</span>
+
+  public void setServerLauncher(final ServerLauncher launcher) {
+<span class="nc" id="L684">    serverLauncher = launcher;</span>
+<span class="nc" id="L685">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L689">    final StringBuilder sb = new StringBuilder();</span>
+<span class="nc bnc" id="L690" title="All 2 branches missed.">    sb.append(&quot;ServerModel GameData:&quot;).append(data == null ? &quot;null&quot; : data.getGameName()).append(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L691" title="All 2 branches missed.">    sb.append(&quot;Connected:&quot;).append(serverMessenger == null ? &quot;null&quot; : serverMessenger.isConnected()).append(&quot;\n&quot;);</span>
+<span class="nc" id="L692">    sb.append(serverMessenger);</span>
+<span class="nc" id="L693">    sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L694">    sb.append(remoteMessenger);</span>
+<span class="nc" id="L695">    sb.append(&quot;\n&quot;);</span>
+<span class="nc" id="L696">    sb.append(channelMessenger);</span>
+<span class="nc" id="L697">    return sb.toString();</span>
+  }
+}
+
+
+<span class="nc" id="L702">class ServerProps {</span>
+  private String name;
+  private int port;
+  private String password;
+
+  public String getPassword() {
+<span class="nc" id="L708">    return password;</span>
+  }
+
+  public void setPassword(final String password) {
+<span class="nc" id="L712">    this.password = password;</span>
+<span class="nc" id="L713">  }</span>
+
+  public String getName() {
+<span class="nc" id="L716">    return name;</span>
+  }
+
+  public void setName(final String name) {
+<span class="nc" id="L720">    this.name = name;</span>
+<span class="nc" id="L721">  }</span>
+
+  public int getPort() {
+<span class="nc" id="L724">    return port;</span>
+  }
+
+  public void setPort(final int port) {
+<span class="nc" id="L728">    this.port = port;</span>
+<span class="nc" id="L729">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

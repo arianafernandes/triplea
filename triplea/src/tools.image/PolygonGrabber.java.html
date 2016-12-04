@@ -1,0 +1,776 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PolygonGrabber.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.image</a> &gt; <span class="el_source">PolygonGrabber.java</span></div><h1>PolygonGrabber.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package tools.image;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.HeadlessException;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import javax.swing.Action;
+import javax.swing.JCheckBoxMenuItem;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import games.strategy.util.PointFileReaderWriter;
+
+/**
+ * old comments
+ * Utility to break a map into polygons.
+ * Not pretty, meant only for one time use.
+ * Inputs - a map with 1 pixel wide borders
+ * - a list of centers - this is used to guess the territory name and to verify the
+ * - territory name entered
+ * Outputs - a list of polygons for each country
+ */
+public class PolygonGrabber extends JFrame {
+  private static final long serialVersionUID = 6381498094805120687L;
+  private static boolean s_islandMode;
+  private final JCheckBoxMenuItem modeItem;
+  // the current set of polyongs
+  private List&lt;Polygon&gt; m_current;
+  // holds the map image
+  // private Image m_image;
+  private BufferedImage m_bufferedImage;
+  // maps String -&gt; List of polygons
+<span class="nc" id="L73">  private Map&lt;String, List&lt;Polygon&gt;&gt; m_polygons = new HashMap&lt;&gt;();</span>
+  // holds the centers for the polygons
+  private Map&lt;String, Point&gt; m_centers;
+<span class="nc" id="L76">  private final JLabel location = new JLabel();</span>
+<span class="nc" id="L77">  private static File s_mapFolderLocation = null;</span>
+<span class="nc" id="L78">  private static final String TRIPLEA_MAP_FOLDER = &quot;triplea.map.folder&quot;;</span>
+
+  /**
+   * main(java.lang.String[])
+   * Main program begins here.
+   * Asks the user to select the map then runs the
+   * the actual polygon grabber program.
+   *
+   * @param java
+   *        .lang.String[] args the command line arguments
+   */
+  public static void main(final String[] args) {
+<span class="nc" id="L90">    handleCommandLineArgs(args);</span>
+<span class="nc" id="L91">    System.out.println(&quot;Select the map&quot;);</span>
+<span class="nc" id="L92">    final FileOpen mapSelection = new FileOpen(&quot;Select The Map&quot;, s_mapFolderLocation, &quot;.gif&quot;, &quot;.png&quot;);</span>
+<span class="nc" id="L93">    final String mapName = mapSelection.getPathString();</span>
+<span class="nc bnc" id="L94" title="All 4 branches missed.">    if (s_mapFolderLocation == null &amp;&amp; mapSelection.getFile() != null) {</span>
+<span class="nc" id="L95">      s_mapFolderLocation = mapSelection.getFile().getParentFile();</span>
+    }
+<span class="nc bnc" id="L97" title="All 2 branches missed.">    if (mapName != null) {</span>
+<span class="nc" id="L98">      System.out.println(&quot;Map : &quot; + mapName);</span>
+<span class="nc" id="L99">      final PolygonGrabber grabber = new PolygonGrabber(mapName);</span>
+<span class="nc" id="L100">      grabber.setSize(800, 600);</span>
+<span class="nc" id="L101">      grabber.setLocationRelativeTo(null);</span>
+<span class="nc" id="L102">      grabber.setVisible(true);</span>
+<span class="nc" id="L103">      JOptionPane.showMessageDialog(grabber,</span>
+<span class="nc" id="L104">          new JLabel(&quot;&lt;html&gt;&quot; + &quot;This is the PolygonGrabber, it will create a polygons.txt file for you. &quot;</span>
+              + &quot;&lt;br&gt;In order to run this, you must already have created a center.txt file. &quot;
+              + &quot;&lt;br&gt;Please click near the center of every single territory and sea zone on your map. &quot;
+              + &quot;&lt;br&gt;The grabber will then fill in the territory based on the borders it finds.&quot;
+              + &quot;&lt;br&gt;If the territory shape or borders do not match what you intend, then your borders &quot;
+              + &quot;&lt;br&gt;might have a gap or differently colored pixel in the border.&quot;
+              + &quot;&lt;br&gt;These borders will define the shape of the territory in TripleA.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;When a territory is inside of another territory, you can turn on 'island mode' to be able to see it.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;You can also load an existing polygons.txt file, then make modifications to it, then save it again.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;LEFT CLICK = fill in a territory's borders.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;Holding CTRL/SHIFT while LEFT CLICKING = add multiple territories together (eg: islands).&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;RIGHT CLICK = save or replace those borders for that territory.&quot;
+              + &quot;&lt;br&gt;&lt;br&gt;When finished, save the polygons and exit.&quot; + &quot;&lt;/html&gt;&quot;));
+<span class="nc" id="L117">    } else {</span>
+<span class="nc" id="L118">      System.out.println(&quot;No Image Map Selected. Shutting down.&quot;);</span>
+<span class="nc" id="L119">      System.exit(0);</span>
+    }
+<span class="nc" id="L121">  }// end main</span>
+
+  /**
+   * Constructor PolygonGrabber(java.lang.String)
+   * Asks user to specify a file with center points. If not
+   * program will exit. We setup the mouse listenrs and toolbars
+   * and load the actual image of the map here.
+   *
+   * @param java
+   *        .lang.String mapName path to image map
+   */
+  public PolygonGrabber(final String mapName) {
+<span class="nc" id="L133">    super(&quot;Polygon grabber&quot;);</span>
+<span class="nc" id="L134">    setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);</span>
+<span class="nc" id="L135">    File file = null;</span>
+<span class="nc bnc" id="L136" title="All 4 branches missed.">    if (s_mapFolderLocation != null &amp;&amp; s_mapFolderLocation.exists()) {</span>
+<span class="nc" id="L137">      file = new File(s_mapFolderLocation, &quot;centers.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L139" title="All 4 branches missed.">    if (file == null || !file.exists()) {</span>
+<span class="nc" id="L140">      file = new File(new File(mapName).getParent() + File.separator + &quot;centers.txt&quot;);</span>
+    }
+<span class="nc bnc" id="L142" title="All 4 branches missed.">    if (file.exists() &amp;&amp; JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L143">        &quot;A centers.txt file was found in the map's folder, do you want to use the file to supply the territories names?&quot;,</span>
+<span class="nc" id="L144">        &quot;File Suggestion&quot;, 1) == 0) {</span>
+      try {
+<span class="nc" id="L146">        System.out.println(&quot;Centers : &quot; + file.getPath());</span>
+<span class="nc" id="L147">        m_centers = PointFileReaderWriter.readOneToOne(new FileInputStream(file.getPath()));</span>
+<span class="nc" id="L148">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L149">        System.out.println(&quot;Something wrong with Centers file&quot;);</span>
+<span class="nc" id="L150">        ex1.printStackTrace();</span>
+      }
+<span class="nc" id="L152">    } else {</span>
+      try {
+<span class="nc" id="L154">        System.out.println(&quot;Select the Centers file&quot;);</span>
+<span class="nc" id="L155">        final String centerPath = new FileOpen(&quot;Select A Center File&quot;, s_mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">        if (centerPath != null) {</span>
+<span class="nc" id="L157">          System.out.println(&quot;Centers : &quot; + centerPath);</span>
+<span class="nc" id="L158">          m_centers = PointFileReaderWriter.readOneToOne(new FileInputStream(centerPath));</span>
+<span class="nc" id="L159">        } else {</span>
+<span class="nc" id="L160">          System.out.println(&quot;You must specify a centers file.&quot;);</span>
+<span class="nc" id="L161">          System.out.println(&quot;Shutting down.&quot;);</span>
+<span class="nc" id="L162">          System.exit(0);</span>
+        }
+<span class="nc" id="L164">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L165">        System.out.println(&quot;Something wrong with Centers file&quot;);</span>
+<span class="nc" id="L166">        ex1.printStackTrace();</span>
+<span class="nc" id="L167">        System.exit(0);</span>
+      }
+    }
+<span class="nc" id="L170">    createImage(mapName);</span>
+<span class="nc" id="L171">    final JPanel imagePanel = createMainPanel();</span>
+    /*
+     * Add a mouse listener to show
+     * X : Y coordinates on the lower
+     * left corner of the screen.
+     */
+<span class="nc" id="L177">    imagePanel.addMouseMotionListener(new MouseMotionAdapter() {</span>
+      @Override
+      public void mouseMoved(final MouseEvent e) {
+<span class="nc" id="L180">        location.setText(&quot;x:&quot; + e.getX() + &quot; y:&quot; + e.getY());</span>
+<span class="nc" id="L181">      }</span>
+    });
+    /*
+     * Add a mouse listener to monitor
+     * for right mouse button being
+     * clicked.
+     */
+<span class="nc" id="L188">    imagePanel.addMouseListener(new MouseAdapter() {</span>
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc bnc" id="L191" title="All 4 branches missed.">        mouseEvent(e.getPoint(), e.isControlDown() || e.isShiftDown(), SwingUtilities.isRightMouseButton(e));</span>
+<span class="nc" id="L192">      }</span>
+    });
+    // set up the image panel size dimensions ...etc
+<span class="nc" id="L195">    imagePanel.setMinimumSize(new Dimension(m_bufferedImage.getWidth(this), m_bufferedImage.getHeight(this)));</span>
+<span class="nc" id="L196">    imagePanel.setPreferredSize(new Dimension(m_bufferedImage.getWidth(this), m_bufferedImage.getHeight(this)));</span>
+<span class="nc" id="L197">    imagePanel.setMaximumSize(new Dimension(m_bufferedImage.getWidth(this), m_bufferedImage.getHeight(this)));</span>
+    // set up the layout manager
+<span class="nc" id="L199">    this.getContentPane().setLayout(new BorderLayout());</span>
+<span class="nc" id="L200">    this.getContentPane().add(new JScrollPane(imagePanel), BorderLayout.CENTER);</span>
+<span class="nc" id="L201">    this.getContentPane().add(location, BorderLayout.SOUTH);</span>
+    // set up the actions
+<span class="nc" id="L203">    final Action openAction = SwingAction.of(&quot;Load Polygons&quot;, e -&gt; loadPolygons());</span>
+<span class="nc" id="L204">    openAction.putValue(Action.SHORT_DESCRIPTION, &quot;Load An Existing Polygon Points FIle&quot;);</span>
+<span class="nc" id="L205">    final Action saveAction = SwingAction.of(&quot;Save Polygons&quot;, e -&gt; savePolygons());</span>
+<span class="nc" id="L206">    saveAction.putValue(Action.SHORT_DESCRIPTION, &quot;Save The Polygon Points To File&quot;);</span>
+<span class="nc" id="L207">    final Action exitAction = SwingAction.of(&quot;Exit&quot;, e -&gt; System.exit(0));</span>
+<span class="nc" id="L208">    exitAction.putValue(Action.SHORT_DESCRIPTION, &quot;Exit The Program&quot;);</span>
+<span class="nc" id="L209">    final Action autoAction = SwingAction.of(&quot;Auto Find Polygons&quot;, e -&gt; {</span>
+<span class="nc" id="L210">      JOptionPane.showMessageDialog(null,</span>
+<span class="nc" id="L211">          new JLabel(&quot;&lt;html&gt;&quot;</span>
+              + &quot;You will need to check and go back and do some polygons manually, as Auto does not catch them all. &quot;
+              + &quot;&lt;br&gt;Also, if a territory has more than 1 part (like an island chain), you will need to go back and &quot;
+              + &quot;&lt;br&gt;redo the entire territory chain using CTRL + Click in order to capture each part of the territory.&quot;
+              + &quot;&lt;/html&gt;&quot;));
+<span class="nc" id="L216">      m_current = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L217">      final BufferedImage imageCopy = new BufferedImage(m_bufferedImage.getWidth(null),</span>
+<span class="nc" id="L218">          m_bufferedImage.getHeight(null), BufferedImage.TYPE_INT_ARGB);</span>
+<span class="nc" id="L219">      final Graphics g = imageCopy.getGraphics();</span>
+<span class="nc" id="L220">      g.drawImage(m_bufferedImage, 0, 0, null);</span>
+<span class="nc" id="L221">      final Iterator&lt;String&gt; territoryNames = m_centers.keySet().iterator();</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">      while (territoryNames.hasNext()) {</span>
+<span class="nc" id="L223">        final String territoryName = territoryNames.next();</span>
+<span class="nc" id="L224">        final Point center = m_centers.get(territoryName);</span>
+<span class="nc" id="L225">        System.out.println(&quot;Detecting Polygon for:&quot; + territoryName);</span>
+<span class="nc" id="L226">        final Polygon p = findPolygon(center.x, center.y);</span>
+        // test if the poly contains the center point (this often fails when there is an island right above (because
+        // findPolygon will grab
+        // the island instead)
+<span class="nc bnc" id="L230" title="All 2 branches missed.">        if (!p.contains(center)) {</span>
+<span class="nc" id="L231">          continue;</span>
+        }
+        // test if this poly contains any other centers, and if so do not do this one. let the user manually do it to
+        // make sure it gets
+        // done properly
+<span class="nc" id="L236">        boolean hasIslands = false;</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        for (final Point otherCenterPoint : m_centers.values()) {</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">          if (center.equals(otherCenterPoint)) {</span>
+<span class="nc" id="L239">            continue;</span>
+          }
+<span class="nc bnc" id="L241" title="All 2 branches missed.">          if (p.contains(otherCenterPoint)) {</span>
+<span class="nc" id="L242">            hasIslands = true;</span>
+<span class="nc" id="L243">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L246" title="All 2 branches missed.">        if (hasIslands) {</span>
+<span class="nc" id="L247">          continue;</span>
+        }
+        // some islands do not have centers on them because they are island chains that are also part of an island or
+        // territory touching a
+        // sidewall or outside of this polygon. we should still skip them.
+<span class="nc bnc" id="L252" title="All 2 branches missed.">        if (doesPolygonContainAnyBlackInside(p, imageCopy, g)) {</span>
+<span class="nc" id="L253">          continue;</span>
+        }
+<span class="nc" id="L255">        final List&lt;Polygon&gt; polys = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L256">        polys.add(p);</span>
+<span class="nc" id="L257">        m_polygons.put(territoryName, polys);</span>
+      }
+<span class="nc" id="L259">      g.dispose();</span>
+<span class="nc" id="L260">      imageCopy.flush();</span>
+<span class="nc" id="L261">      repaint();</span>
+
+<span class="nc" id="L263">    });</span>
+<span class="nc" id="L264">    autoAction.putValue(Action.SHORT_DESCRIPTION, &quot;Autodetect Polygons around Centers&quot;);</span>
+    // set up the menu items
+<span class="nc" id="L266">    final JMenuItem openItem = new JMenuItem(openAction);</span>
+<span class="nc" id="L267">    openItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_MASK));</span>
+<span class="nc" id="L268">    final JMenuItem saveItem = new JMenuItem(saveAction);</span>
+<span class="nc" id="L269">    saveItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_MASK));</span>
+<span class="nc" id="L270">    final JMenuItem exitItem = new JMenuItem(exitAction);</span>
+<span class="nc" id="L271">    s_islandMode = false;</span>
+<span class="nc" id="L272">    modeItem = new JCheckBoxMenuItem(&quot;Island Mode&quot;, false);</span>
+<span class="nc" id="L273">    modeItem.addActionListener(new ActionListener() {</span>
+      @Override
+      public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L276">        s_islandMode = modeItem.getState();</span>
+<span class="nc" id="L277">        repaint();</span>
+<span class="nc" id="L278">      }</span>
+    });
+    // set up the menu bar
+<span class="nc" id="L281">    final JMenuBar menuBar = new JMenuBar();</span>
+<span class="nc" id="L282">    setJMenuBar(menuBar);</span>
+<span class="nc" id="L283">    final JMenu fileMenu = new JMenu(&quot;File&quot;);</span>
+<span class="nc" id="L284">    fileMenu.setMnemonic('F');</span>
+<span class="nc" id="L285">    fileMenu.add(openItem);</span>
+<span class="nc" id="L286">    fileMenu.add(saveItem);</span>
+<span class="nc" id="L287">    fileMenu.addSeparator();</span>
+<span class="nc" id="L288">    fileMenu.add(exitItem);</span>
+<span class="nc" id="L289">    final JMenu editMenu = new JMenu(&quot;Edit&quot;);</span>
+<span class="nc" id="L290">    final JMenuItem autoItem = new JMenuItem(autoAction);</span>
+<span class="nc" id="L291">    editMenu.setMnemonic('E');</span>
+<span class="nc" id="L292">    editMenu.add(modeItem);</span>
+<span class="nc" id="L293">    editMenu.add(autoItem);</span>
+<span class="nc" id="L294">    menuBar.add(fileMenu);</span>
+<span class="nc" id="L295">    menuBar.add(editMenu);</span>
+<span class="nc" id="L296">  }// end constructor</span>
+
+  /**
+   * createImage(java.lang.String)
+   * We create the image of the map here and
+   * assure that it is loaded properly.
+   *
+   * @param mapName
+   *        .lang.String mapName the path of the image map
+   */
+  private void createImage(final String mapName) {
+<span class="nc" id="L307">    final Image image = Toolkit.getDefaultToolkit().createImage(mapName);</span>
+<span class="nc" id="L308">    Util.ensureImageLoaded(image);</span>
+<span class="nc" id="L309">    m_bufferedImage = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);</span>
+<span class="nc" id="L310">    final Graphics g = m_bufferedImage.getGraphics();</span>
+<span class="nc" id="L311">    g.drawImage(image, 0, 0, this);</span>
+<span class="nc" id="L312">    g.dispose();</span>
+<span class="nc" id="L313">  }</span>
+
+  /**
+   * javax.swing.JPanel createMainPanel()
+   * Creates a JPanel to be used. Dictates how the map is
+   * painted. Current problem is that islands inside sea
+   * zones are not recognized when filling in the sea zone
+   * with a color, so we just outline in red instead of
+   * filling. We fill for selecting territories only for
+   * ease of use. We use var &quot;islandMode&quot; to dictate how
+   * to paint the map.
+   *
+   * @return javax.swing.JPanel the newly create panel
+   */
+  private JPanel createMainPanel() {
+<span class="nc" id="L328">    final JPanel imagePanel = new JPanel() {</span>
+      private static final long serialVersionUID = 4106539186003148628L;
+
+      @Override
+      public void paint(final Graphics g) {
+        // super.paint(g);
+<span class="nc" id="L334">        g.drawImage(m_bufferedImage, 0, 0, this);</span>
+<span class="nc" id="L335">        final Iterator&lt;Entry&lt;String, List&lt;Polygon&gt;&gt;&gt; iter = m_polygons.entrySet().iterator();</span>
+<span class="nc" id="L336">        g.setColor(Color.red);</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        while (iter.hasNext()) {</span>
+<span class="nc" id="L338">          final Collection&lt;Polygon&gt; polygons = iter.next().getValue();</span>
+<span class="nc" id="L339">          final Iterator&lt;Polygon&gt; iter2 = polygons.iterator();</span>
+<span class="nc bnc" id="L340" title="All 2 branches missed.">          if (s_islandMode) {</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">            while (iter2.hasNext()) {</span>
+<span class="nc" id="L342">              final Polygon item = iter2.next();</span>
+<span class="nc" id="L343">              g.drawPolygon(item.xpoints, item.ypoints, item.npoints);</span>
+            } // while
+<span class="nc" id="L345">          } else {</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">            while (iter2.hasNext()) {</span>
+<span class="nc" id="L347">              final Polygon item = iter2.next();</span>
+<span class="nc" id="L348">              g.setColor(Color.yellow);</span>
+<span class="nc" id="L349">              g.fillPolygon(item.xpoints, item.ypoints, item.npoints);</span>
+<span class="nc" id="L350">              g.setColor(Color.black);</span>
+<span class="nc" id="L351">              g.drawPolygon(item.xpoints, item.ypoints, item.npoints);</span>
+            } // while
+          }
+        } // while
+<span class="nc" id="L355">        g.setColor(Color.red);</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        if (m_current != null) {</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">          for (final Polygon item : m_current) {</span>
+<span class="nc" id="L358">            g.fillPolygon(item.xpoints, item.ypoints, item.npoints);</span>
+          } // while
+        } // if
+<span class="nc" id="L361">      }// paint</span>
+    };
+<span class="nc" id="L363">    return imagePanel;</span>
+  }
+
+  /**
+   * savePolygons()
+   * Saves the polygons to disk.
+   */
+  private void savePolygons() {
+<span class="nc" id="L371">    final String polyName =</span>
+<span class="nc" id="L372">        new FileSave(&quot;Where To Save Polygons.txt ?&quot;, &quot;polygons.txt&quot;, s_mapFolderLocation).getPathString();</span>
+    try {
+<span class="nc bnc" id="L374" title="All 2 branches missed.">      if (polyName == null) {</span>
+<span class="nc" id="L375">        return;</span>
+      }
+<span class="nc" id="L377">      final FileOutputStream out = new FileOutputStream(polyName);</span>
+<span class="nc" id="L378">      PointFileReaderWriter.writeOneToManyPolygons(out, m_polygons);</span>
+<span class="nc" id="L379">      out.flush();</span>
+<span class="nc" id="L380">      out.close();</span>
+<span class="nc" id="L381">      System.out.println(&quot;Data written to :&quot; + new File(polyName).getCanonicalPath());</span>
+<span class="nc" id="L382">    } catch (final Exception ex) {</span>
+<span class="nc" id="L383">      ClientLogger.logQuietly(&quot;file save name: &quot; + polyName, ex);</span>
+    }
+<span class="nc" id="L385">  }</span>
+
+  /**
+   * loadPolygons()
+   * Loads a pre-defined file with map polygon points.
+   */
+  private void loadPolygons() {
+<span class="nc" id="L392">    System.out.println(&quot;Load a polygon file&quot;);</span>
+<span class="nc" id="L393">    final String polyName = new FileOpen(&quot;Load A Polygon File&quot;, s_mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+    try {
+<span class="nc bnc" id="L395" title="All 2 branches missed.">      if (polyName == null) {</span>
+<span class="nc" id="L396">        return;</span>
+      }
+<span class="nc" id="L398">      final FileInputStream in = new FileInputStream(polyName);</span>
+<span class="nc" id="L399">      m_polygons = PointFileReaderWriter.readOneToManyPolygons(in);</span>
+<span class="nc" id="L400">      repaint();</span>
+<span class="nc" id="L401">    } catch (final FileNotFoundException ex) {</span>
+<span class="nc" id="L402">      ClientLogger.logQuietly(&quot;file name = &quot; + polyName, ex);</span>
+<span class="nc" id="L403">    } catch (final HeadlessException ex) {</span>
+      // TODO: remove HeadlessException (fix anti-pattern control flow via exception handling with proper control flow)
+<span class="nc" id="L405">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L407">  }</span>
+
+  /**
+   * mouseEvent(java.awt.Point, java.lang.boolean, java.lang.boolean)
+   *
+   * @param java
+   *        .awt.Point point a point clicked by mouse
+   * @param java
+   *        .lang.boolean ctrlDown true if ctrl key was hit
+   * @param java
+   *        .lang.boolean rightMouse true if the right mouse button was hit
+   */
+  private void mouseEvent(final Point point, final boolean ctrlDown, final boolean rightMouse) {
+<span class="nc" id="L420">    final Polygon p = findPolygon(point.x, point.y);</span>
+<span class="nc bnc" id="L421" title="All 2 branches missed.">    if (p == null) {</span>
+<span class="nc" id="L422">      return;</span>
+    }
+<span class="nc bnc" id="L424" title="All 4 branches missed.">    if (rightMouse &amp;&amp; m_current != null) // right click and list of polys is not empty</span>
+    {
+<span class="nc" id="L426">      doneCurrentGroup();</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">    } else if (pointInCurrentPolygon(point)) // point clicked is already highlighted</span>
+    {
+<span class="nc" id="L429">      System.out.println(&quot;rejecting&quot;);</span>
+<span class="nc" id="L430">      return;</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">    } else if (ctrlDown) {</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">      if (m_current == null) {</span>
+<span class="nc" id="L433">        m_current = new ArrayList&lt;&gt;();</span>
+      }
+<span class="nc" id="L435">      m_current.add(p);</span>
+<span class="nc" id="L436">    } else {</span>
+<span class="nc" id="L437">      m_current = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L438">      m_current.add(p);</span>
+    }
+<span class="nc" id="L440">    repaint();</span>
+<span class="nc" id="L441">  }</span>
+
+  /**
+   * java.lang.boolean pointInCurrentPolygon(java.awt.Point)
+   * returns false if there is no points in a current polygon.
+   * returns true if there is.
+   *
+   * @param java
+   *        .awt.Point p the point to check for
+   * @return java.lang.boolean
+   */
+  private boolean pointInCurrentPolygon(final Point p) {
+<span class="nc bnc" id="L453" title="All 2 branches missed.">    if (m_current == null) {</span>
+<span class="nc" id="L454">      return false;</span>
+    }
+<span class="nc bnc" id="L456" title="All 2 branches missed.">    for (final Polygon item : m_current) {</span>
+<span class="nc bnc" id="L457" title="All 2 branches missed.">      if (item.contains(p)) {</span>
+<span class="nc" id="L458">        return true;</span>
+      }
+    }
+<span class="nc" id="L461">    return false;</span>
+  }
+
+  /**
+   * doneCurrentGroup()
+   * Does something with respect to check if the name
+   * of a territory is valid or not.
+   *
+   * @throws HeadlessException
+   */
+  private void doneCurrentGroup() throws HeadlessException {
+<span class="nc" id="L472">    final JTextField text = new JTextField();</span>
+<span class="nc" id="L473">    final Iterator&lt;Entry&lt;String, Point&gt;&gt; centersiter = m_centers.entrySet().iterator();</span>
+<span class="nc" id="L474">    guessCountryName(text, centersiter);</span>
+<span class="nc" id="L475">    final int option = JOptionPane.showConfirmDialog(this, text);</span>
+    // cancel = 2
+    // no = 1
+    // yes = 0
+<span class="nc bnc" id="L479" title="All 2 branches missed.">    if (option == 0) {</span>
+<span class="nc bnc" id="L480" title="All 2 branches missed.">      if (!m_centers.keySet().contains(text.getText())) {</span>
+        // not a valid name
+<span class="nc" id="L482">        JOptionPane.showMessageDialog(this, &quot;not a valid name&quot;);</span>
+<span class="nc" id="L483">        m_current = null;</span>
+<span class="nc" id="L484">        return;</span>
+      }
+<span class="nc" id="L486">      m_polygons.put(text.getText(), new ArrayList&lt;&gt;(m_current));</span>
+<span class="nc" id="L487">      m_current = null;</span>
+<span class="nc bnc" id="L488" title="All 2 branches missed.">    } else if (option &gt; 0) {</span>
+<span class="nc" id="L489">      m_current = null;</span>
+<span class="nc" id="L490">    } else {</span>
+<span class="nc" id="L491">      System.out.println(&quot;something very invalid&quot;);</span>
+    }
+<span class="nc" id="L493">  }</span>
+
+  /**
+   * guessCountryName(javax.swing.JTextField, java.tools.Iterator)
+   * Guess the country name based on the location of the previous centers
+   *
+   * @param javax
+   *        .swing.JTextField text text dialog
+   * @param java
+   *        .tools.Iterator centersiter center iterator
+   */
+  private void guessCountryName(final JTextField text, final Iterator&lt;Entry&lt;String, Point&gt;&gt; centersiter) {
+<span class="nc" id="L505">    final List&lt;String&gt; options = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">    while (centersiter.hasNext()) {</span>
+<span class="nc" id="L507">      final Entry&lt;String, Point&gt; item = centersiter.next();</span>
+<span class="nc" id="L508">      final Point p = new Point(item.getValue());</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">      for (final Polygon polygon : m_current) {</span>
+<span class="nc bnc" id="L510" title="All 2 branches missed.">        if (polygon.contains(p)) {</span>
+<span class="nc" id="L511">          options.add(item.getKey());</span>
+        } // if
+      } // while
+    } // while
+<span class="nc bnc" id="L515" title="All 2 branches missed.">    if (!options.isEmpty()) {</span>
+<span class="nc" id="L516">      Collections.shuffle(options);</span>
+<span class="nc" id="L517">      text.setText(options.get(0));</span>
+    }
+<span class="nc" id="L519">  }</span>
+
+  /**
+   * java.lang.boolean isBlack(java.awt.Point)
+   * Checks to see if the given point is of color black.
+   *
+   * @param java
+   *        .awt.Point p the point to check
+   * @return java.lang.boolean
+   */
+  private boolean isBlack(final Point p) {
+<span class="nc" id="L530">    return isBlack(p.x, p.y);</span>
+  }
+
+  /**
+   * java.lang.boolean isBlack(java.lang.int, java.lang.int)
+   * Checks to see if the x/y coordinates from a given point
+   * are inbounds and if so is it black.
+   *
+   * @param java
+   *        .lang.int x the x coordinate
+   * @param java
+   *        .lang.int y the y coordinate
+   * @return java.lang.boolean
+   */
+  private boolean isBlack(final int x, final int y) {
+<span class="nc bnc" id="L545" title="All 2 branches missed.">    if (!inBounds(x, y)) {</span>
+      // not inbounds, can't be black
+<span class="nc" id="L547">      return false;</span>
+    }
+    // gets ARGB integer value and we LOGICAL AND mask it
+    // with ARGB value of 00,FF,FF,FF to determine if it
+    // it black or not.
+    // maybe here ?
+<span class="nc bnc" id="L553" title="All 2 branches missed.">    return (m_bufferedImage.getRGB(x, y) &amp; 0x00FFFFFF) == 0;</span>
+  }
+
+  private static boolean isBlack(final int x, final int y, final BufferedImage bufferedImage) {
+<span class="nc bnc" id="L557" title="All 2 branches missed.">    if (!inBounds(x, y, bufferedImage)) {</span>
+      // not inbounds, can't be black
+<span class="nc" id="L559">      return false;</span>
+    }
+    // gets ARGB integer value and we LOGICAL AND mask it
+    // with ARGB value of 00,FF,FF,FF to determine if it
+    // it black or not.
+    // maybe here ?
+<span class="nc bnc" id="L565" title="All 2 branches missed.">    return (bufferedImage.getRGB(x, y) &amp; 0x00FFFFFF) == 0;</span>
+  }
+
+  /**
+   * java.lang.boolean inBounds(java.lang.int, java.lang.int)
+   * Checks if the given x/y coordinate point is inbounds or not
+   *
+   * @param java
+   *        .lang.int x the x coordinate
+   * @param java
+   *        .lang.int y the y coordinate
+   * @return java.lang.boolean
+   */
+  private boolean inBounds(final int x, final int y) {
+<span class="nc bnc" id="L579" title="All 8 branches missed.">    return x &gt;= 0 &amp;&amp; x &lt; m_bufferedImage.getWidth(null) &amp;&amp; y &gt;= 0 &amp;&amp; y &lt; m_bufferedImage.getHeight(null);</span>
+  }
+
+  private static boolean inBounds(final int x, final int y, final Image image) {
+<span class="nc bnc" id="L583" title="All 8 branches missed.">    return x &gt;= 0 &amp;&amp; x &lt; image.getWidth(null) &amp;&amp; y &gt;= 0 &amp;&amp; y &lt; image.getHeight(null);</span>
+  }
+
+  /**
+   * move(java.awt.Point, java.lang.int)
+   * Moves to a specified direction
+   * Directions
+   * 0 - North
+   * 1 - North east
+   * 2 - East
+   * 3 - South east
+   * 4 - South
+   * 5 - South west
+   * 6 - West
+   * 7 - North west
+   *
+   * @param java
+   *        .awt.Point p the given point
+   * @param java
+   *        .lang.int direction the specified direction to move
+   */
+  private void move(final Point p, final int direction) {
+<span class="nc bnc" id="L605" title="All 4 branches missed.">    if (direction &lt; 0 || direction &gt; 7) {</span>
+<span class="nc" id="L606">      throw new IllegalArgumentException(&quot;Not a direction :&quot; + direction);</span>
+    }
+<span class="nc bnc" id="L608" title="All 6 branches missed.">    if (direction == 1 || direction == 2 || direction == 3) {</span>
+<span class="nc" id="L609">      p.x++;</span>
+<span class="nc bnc" id="L610" title="All 6 branches missed.">    } else if (direction == 5 || direction == 6 || direction == 7) {</span>
+<span class="nc" id="L611">      p.x--;</span>
+    }
+<span class="nc bnc" id="L613" title="All 6 branches missed.">    if (direction == 5 || direction == 4 || direction == 3) {</span>
+<span class="nc" id="L614">      p.y++;</span>
+<span class="nc bnc" id="L615" title="All 6 branches missed.">    } else if (direction == 7 || direction == 0 || direction == 1) {</span>
+<span class="nc" id="L616">      p.y--;</span>
+    }
+<span class="nc" id="L618">  }</span>
+
+  // used below
+<span class="nc" id="L621">  private final Point m_testPoint = new Point();</span>
+
+  /**
+   * java.lang.boolean isOnEdge(java.lang.int, java.awt.Point)
+   * Checks to see if the direction we're going is on the edge.
+   * At least thats what I can understand from this.
+   *
+   * @param java
+   *        .lang.int direction the given direction
+   * @param java
+   *        .awt.Point currentPoint the current point
+   * @return java.lang.boolean
+   */
+  private boolean isOnEdge(final int direction, final Point currentPoint) {
+<span class="nc" id="L635">    m_testPoint.setLocation(currentPoint);</span>
+<span class="nc" id="L636">    move(m_testPoint, direction);</span>
+<span class="nc bnc" id="L637" title="All 6 branches missed.">    return m_testPoint.x == 0 || m_testPoint.y == 0 || m_testPoint.y == m_bufferedImage.getHeight(this)</span>
+<span class="nc bnc" id="L638" title="All 4 branches missed.">        || m_testPoint.x == m_bufferedImage.getWidth(this) || isBlack(m_testPoint);</span>
+  }
+
+  private boolean doesPolygonContainAnyBlackInside(final Polygon poly, final BufferedImage imageCopy,
+      final Graphics imageCopyGraphics) {
+    // we would like to just test if each point is both black and contained within the polygon, but contains counts the
+    // borders,
+    // so we have to turn the border edges a different color (then later back to black again) using a copy of the image
+    // final BufferedImage testImage = new BufferedImage(m_bufferedImage.getWidth(null),
+    // m_bufferedImage.getHeight(null),
+    // BufferedImage.TYPE_INT_ARGB);
+<span class="nc" id="L649">    imageCopyGraphics.setColor(Color.GREEN);</span>
+<span class="nc" id="L650">    imageCopyGraphics.drawPolygon(poly.xpoints, poly.ypoints, poly.npoints);</span>
+<span class="nc" id="L651">    final Rectangle rect = poly.getBounds();</span>
+<span class="nc bnc" id="L652" title="All 2 branches missed.">    for (int x = rect.x; x &lt; rect.x + rect.width; x++) {</span>
+<span class="nc bnc" id="L653" title="All 2 branches missed.">      for (int y = rect.y; y &lt; rect.y + rect.height; y++) {</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">        if (isBlack(x, y, imageCopy)) {</span>
+<span class="nc bnc" id="L655" title="All 2 branches missed.">          if (poly.contains(new Point(x, y))) {</span>
+<span class="nc" id="L656">            imageCopyGraphics.setColor(Color.BLACK);</span>
+<span class="nc" id="L657">            imageCopyGraphics.drawPolygon(poly.xpoints, poly.ypoints, poly.npoints);</span>
+            // testImage.flush();
+<span class="nc" id="L659">            return true;</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L664">    imageCopyGraphics.setColor(Color.BLACK);</span>
+<span class="nc" id="L665">    imageCopyGraphics.drawPolygon(poly.xpoints, poly.ypoints, poly.npoints);</span>
+    // testImage.flush();
+<span class="nc" id="L667">    return false;</span>
+  }
+
+  /**
+   * java.awt.Polygon findPolygon(java.lang.int, java.lang.int)
+   * Algorithm to find a polygon given a x/y coordinates and
+   * returns the found polygon.
+   *
+   * @param java
+   *        .lang.int x the x coordinate
+   * @param java
+   *        .lang.int y the y coordinate
+   * @return java.awt.Polygon
+   */
+  private Polygon findPolygon(final int x, final int y) {
+    // walk up, find the first black point
+<span class="nc" id="L683">    final Point startPoint = new Point(x, y);</span>
+<span class="nc bnc" id="L684" title="All 4 branches missed.">    while (inBounds(startPoint.x, startPoint.y - 1) &amp;&amp; !isBlack(startPoint.x, startPoint.y)) {</span>
+<span class="nc" id="L685">      startPoint.y--;</span>
+    }
+<span class="nc" id="L687">    final List&lt;Point&gt; points = new ArrayList&lt;&gt;(100);</span>
+<span class="nc" id="L688">    points.add(new Point(startPoint));</span>
+<span class="nc" id="L689">    int currentDirection = 2;</span>
+<span class="nc" id="L690">    Point currentPoint = new Point(startPoint);</span>
+<span class="nc" id="L691">    int iterCount = 0;</span>
+<span class="nc bnc" id="L692" title="All 4 branches missed.">    while (!currentPoint.equals(startPoint) || points.size() == 1) {</span>
+<span class="nc" id="L693">      iterCount++;</span>
+<span class="nc bnc" id="L694" title="All 2 branches missed.">      if (iterCount &gt; 100000) {</span>
+<span class="nc" id="L695">        JOptionPane.showMessageDialog(this,</span>
+<span class="nc" id="L696">            &quot;Failed to grab the polygon. Failed at point: &quot; + currentPoint.getX() + &quot;,&quot;</span>
+<span class="nc" id="L697">                + currentPoint</span>
+<span class="nc" id="L698">                    .getY()</span>
+<span class="nc" id="L699">                + &quot;\r\n&quot;</span>
+<span class="nc" id="L700">                + &quot;Note that this is a common error and can usually be fixed by 'smoothing out' the territory border and removing any anti-aliasing.&quot;);</span>
+<span class="nc" id="L701">        return null;</span>
+      }
+      int tempDirection;
+<span class="nc bnc" id="L704" title="All 2 branches missed.">      for (int i = 2; i &gt;= -3; i--) // was -4</span>
+      {
+<span class="nc" id="L706">        tempDirection = (currentDirection + i) % 8;</span>
+<span class="nc bnc" id="L707" title="All 2 branches missed.">        if (tempDirection &lt; 0) {</span>
+<span class="nc" id="L708">          tempDirection += 8;</span>
+        }
+<span class="nc bnc" id="L710" title="All 2 branches missed.">        if (isOnEdge(tempDirection, currentPoint)) {</span>
+          // if we need to change our course
+<span class="nc bnc" id="L712" title="All 2 branches missed.">          if (i != 0) {</span>
+<span class="nc" id="L713">            points.add(currentPoint);</span>
+<span class="nc" id="L714">            currentPoint = new Point(currentPoint);</span>
+<span class="nc" id="L715">            move(currentPoint, tempDirection);</span>
+<span class="nc" id="L716">            currentDirection = tempDirection;</span>
+<span class="nc" id="L717">          } else {</span>
+<span class="nc" id="L718">            move(currentPoint, currentDirection);</span>
+          }
+<span class="nc" id="L720">          break;</span>
+        }
+      }
+    }
+<span class="nc" id="L724">    final int[] xpoints = new int[points.size()];</span>
+<span class="nc" id="L725">    final int[] ypoints = new int[points.size()];</span>
+<span class="nc" id="L726">    int i = 0;</span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">    for (final Point item : points) {</span>
+<span class="nc" id="L728">      xpoints[i] = item.x;</span>
+<span class="nc" id="L729">      ypoints[i] = item.y;</span>
+<span class="nc" id="L730">      i++;</span>
+    }
+<span class="nc" id="L732">    System.out.println(&quot;Done finding polygon. total points;&quot; + xpoints.length);</span>
+<span class="nc" id="L733">    return new Polygon(xpoints, ypoints, xpoints.length);</span>
+  }
+
+  private static String getValue(final String arg) {
+<span class="nc" id="L737">    final int index = arg.indexOf('=');</span>
+<span class="nc bnc" id="L738" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L739">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L741">    return arg.substring(index + 1);</span>
+  }
+
+  private static void handleCommandLineArgs(final String[] args) {
+    // arg can only be the map folder location.
+<span class="nc bnc" id="L746" title="All 2 branches missed.">    if (args.length == 1) {</span>
+      String value;
+<span class="nc bnc" id="L748" title="All 2 branches missed.">      if (args[0].startsWith(TRIPLEA_MAP_FOLDER)) {</span>
+<span class="nc" id="L749">        value = getValue(args[0]);</span>
+<span class="nc" id="L750">      } else {</span>
+<span class="nc" id="L751">        value = args[0];</span>
+      }
+<span class="nc" id="L753">      final File mapFolder = new File(value);</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">      if (mapFolder.exists()) {</span>
+<span class="nc" id="L755">        s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L756">      } else {</span>
+<span class="nc" id="L757">        System.out.println(&quot;Could not find directory: &quot; + value);</span>
+      }
+<span class="nc bnc" id="L759" title="All 2 branches missed.">    } else if (args.length &gt; 1) {</span>
+<span class="nc" id="L760">      System.out.println(&quot;Only argument allowed is the map directory.&quot;);</span>
+    }
+    // might be set by -D
+<span class="nc bnc" id="L763" title="All 4 branches missed.">    if (s_mapFolderLocation == null || s_mapFolderLocation.length() &lt; 1) {</span>
+<span class="nc" id="L764">      final String value = System.getProperty(TRIPLEA_MAP_FOLDER);</span>
+<span class="nc bnc" id="L765" title="All 4 branches missed.">      if (value != null &amp;&amp; value.length() &gt; 0) {</span>
+<span class="nc" id="L766">        final File mapFolder = new File(value);</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">        if (mapFolder.exists()) {</span>
+<span class="nc" id="L768">          s_mapFolderLocation = mapFolder;</span>
+<span class="nc" id="L769">        } else {</span>
+<span class="nc" id="L770">          System.out.println(&quot;Could not find directory: &quot; + value);</span>
+        }
+      }
+    }
+<span class="nc" id="L774">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PickTerritoryAndUnitsPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">PickTerritoryAndUnitsPanel.java</span></div><h1>PickTerritoryAndUnitsPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.Color;
+import java.awt.event.ActionEvent;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.util.CountDownLatchHandler;
+import games.strategy.util.EventThreadJOptionPane;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * For choosing territories and units for them, during RandomStartDelegate.
+ */
+public class PickTerritoryAndUnitsPanel extends ActionPanel {
+  private static final long serialVersionUID = -2672163347536778594L;
+  private final TripleAFrame m_parent;
+<span class="nc" id="L33">  private final JLabel m_actionLabel = new JLabel();</span>
+<span class="nc" id="L34">  private JButton m_doneButton = null;</span>
+<span class="nc" id="L35">  private JButton m_selectTerritoryButton = null;</span>
+<span class="nc" id="L36">  private JButton m_selectUnitsButton = null;</span>
+<span class="nc" id="L37">  private Territory m_pickedTerritory = null;</span>
+<span class="nc" id="L38">  private Set&lt;Unit&gt; m_pickedUnits = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L39">  private List&lt;Territory&gt; m_territoryChoices = null;</span>
+<span class="nc" id="L40">  private List&lt;Unit&gt; m_unitChoices = null;</span>
+<span class="nc" id="L41">  private int m_unitsPerPick = 1;</span>
+<span class="nc" id="L42">  private Action m_currentAction = null;</span>
+<span class="nc" id="L43">  private Territory m_currentHighlightedTerritory = null;</span>
+
+  public PickTerritoryAndUnitsPanel(final GameData data, final MapPanel map, final TripleAFrame parent) {
+<span class="nc" id="L46">    super(data, map);</span>
+<span class="nc" id="L47">    m_parent = parent;</span>
+<span class="nc" id="L48">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L52">    return &quot;Pick Territory and Units&quot;;</span>
+  }
+
+  @Override
+  public void display(final PlayerID id) {
+<span class="nc" id="L57">    super.display(id);</span>
+<span class="nc" id="L58">    m_pickedTerritory = null;</span>
+<span class="nc" id="L59">    m_pickedUnits = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L60">    m_currentAction = null;</span>
+<span class="nc" id="L61">    m_currentHighlightedTerritory = null;</span>
+<span class="nc" id="L62">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L63">      removeAll();</span>
+<span class="nc" id="L64">      m_actionLabel.setText(id.getName() + &quot; Pick Territory and Units&quot;);</span>
+<span class="nc" id="L65">      add(m_actionLabel);</span>
+<span class="nc" id="L66">      m_selectTerritoryButton = new JButton(SelectTerritoryAction);</span>
+<span class="nc" id="L67">      add(m_selectTerritoryButton);</span>
+<span class="nc" id="L68">      m_selectUnitsButton = new JButton(SelectUnitsAction);</span>
+<span class="nc" id="L69">      add(m_selectUnitsButton);</span>
+<span class="nc" id="L70">      m_doneButton = new JButton(DoneAction);</span>
+<span class="nc" id="L71">      add(m_doneButton);</span>
+<span class="nc" id="L72">      SwingUtilities.invokeLater(() -&gt; m_selectTerritoryButton.requestFocusInWindow());</span>
+<span class="nc" id="L73">    });</span>
+<span class="nc" id="L74">  }</span>
+
+  public Tuple&lt;Territory, Set&lt;Unit&gt;&gt; waitForPickTerritoryAndUnits(final List&lt;Territory&gt; territoryChoices,
+      final List&lt;Unit&gt; unitChoices, final int unitsPerPick) {
+<span class="nc" id="L78">    m_territoryChoices = territoryChoices;</span>
+<span class="nc" id="L79">    m_unitChoices = unitChoices;</span>
+<span class="nc" id="L80">    m_unitsPerPick = unitsPerPick;</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    if (m_currentHighlightedTerritory != null) {</span>
+<span class="nc" id="L82">      getMap().clearTerritoryOverlay(m_currentHighlightedTerritory);</span>
+<span class="nc" id="L83">      m_currentHighlightedTerritory = null;</span>
+    }
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    if (territoryChoices.size() == 1) {</span>
+<span class="nc" id="L86">      m_pickedTerritory = territoryChoices.get(0);</span>
+<span class="nc" id="L87">      m_currentHighlightedTerritory = m_pickedTerritory;</span>
+<span class="nc" id="L88">      getMap().setTerritoryOverlay(m_currentHighlightedTerritory, Color.WHITE, 200);</span>
+    }
+<span class="nc" id="L90">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">      if (territoryChoices.size() &gt; 1) {</span>
+<span class="nc" id="L92">        SelectTerritoryAction.actionPerformed(null);</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">      } else if (unitChoices.size() &gt; 1) {</span>
+<span class="nc" id="L94">        SelectUnitsAction.actionPerformed(null);</span>
+      }
+<span class="nc" id="L96">    });</span>
+<span class="nc" id="L97">    waitForRelease();</span>
+<span class="nc" id="L98">    return Tuple.of(this.m_pickedTerritory, this.m_pickedUnits);</span>
+  }
+
+  private void setWidgetActivation() {
+<span class="nc" id="L102">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">      if (!getActive()) {</span>
+        // current turn belongs to remote player or AI player
+<span class="nc" id="L105">        DoneAction.setEnabled(false);</span>
+<span class="nc" id="L106">        SelectUnitsAction.setEnabled(false);</span>
+<span class="nc" id="L107">        SelectTerritoryAction.setEnabled(false);</span>
+<span class="nc" id="L108">      } else {</span>
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        DoneAction.setEnabled(m_currentAction == null);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        SelectUnitsAction.setEnabled(m_currentAction == null);</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">        SelectTerritoryAction.setEnabled(m_currentAction == null);</span>
+      }
+<span class="nc" id="L113">    });</span>
+<span class="nc" id="L114">  }</span>
+
+<span class="nc" id="L116">  private final Action DoneAction = new AbstractAction(&quot;Done&quot;) {</span>
+    private static final long serialVersionUID = -2376988913511268803L;
+
+    @Override
+    public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L121">      m_currentAction = DoneAction;</span>
+<span class="nc" id="L122">      setWidgetActivation();</span>
+<span class="nc bnc" id="L123" title="All 4 branches missed.">      if (m_pickedTerritory == null || !m_territoryChoices.contains(m_pickedTerritory)) {</span>
+<span class="nc" id="L124">        EventThreadJOptionPane.showMessageDialog(m_parent, &quot;Must Pick An Unowned Territory&quot;,</span>
+<span class="nc" id="L125">            &quot;Must Pick An Unowned Territory&quot;, JOptionPane.WARNING_MESSAGE, new CountDownLatchHandler(true));</span>
+<span class="nc" id="L126">        m_currentAction = null;</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">        if (m_currentHighlightedTerritory != null) {</span>
+<span class="nc" id="L128">          getMap().clearTerritoryOverlay(m_currentHighlightedTerritory);</span>
+        }
+<span class="nc" id="L130">        m_currentHighlightedTerritory = null;</span>
+<span class="nc" id="L131">        m_pickedTerritory = null;</span>
+<span class="nc" id="L132">        setWidgetActivation();</span>
+<span class="nc" id="L133">        return;</span>
+      }
+<span class="nc bnc" id="L135" title="All 4 branches missed.">      if (!m_pickedUnits.isEmpty() &amp;&amp; !m_unitChoices.containsAll(m_pickedUnits)) {</span>
+<span class="nc" id="L136">        EventThreadJOptionPane.showMessageDialog(m_parent, &quot;Invalid Units?!?&quot;, &quot;Invalid Units?!?&quot;,</span>
+<span class="nc" id="L137">            JOptionPane.WARNING_MESSAGE, new CountDownLatchHandler(true));</span>
+<span class="nc" id="L138">        m_currentAction = null;</span>
+<span class="nc" id="L139">        m_pickedUnits.clear();</span>
+<span class="nc" id="L140">        setWidgetActivation();</span>
+<span class="nc" id="L141">        return;</span>
+      }
+<span class="nc bnc" id="L143" title="All 2 branches missed.">      if (m_pickedUnits.size() &gt; Math.max(0, m_unitsPerPick)) {</span>
+<span class="nc" id="L144">        EventThreadJOptionPane.showMessageDialog(m_parent, &quot;Too Many Units?!?&quot;, &quot;Too Many Units?!?&quot;,</span>
+<span class="nc" id="L145">            JOptionPane.WARNING_MESSAGE, new CountDownLatchHandler(true));</span>
+<span class="nc" id="L146">        m_currentAction = null;</span>
+<span class="nc" id="L147">        m_pickedUnits.clear();</span>
+<span class="nc" id="L148">        setWidgetActivation();</span>
+<span class="nc" id="L149">        return;</span>
+      }
+<span class="nc bnc" id="L151" title="All 2 branches missed.">      if (m_pickedUnits.size() &lt; m_unitsPerPick) {</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        if (m_unitChoices.size() &lt; m_unitsPerPick) {</span>
+          // if we have fewer units than the number we are supposed to pick, set it to all
+<span class="nc" id="L154">          m_pickedUnits.addAll(m_unitChoices);</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        } else if (Match.allMatch(m_unitChoices, Matches.unitIsOfType(m_unitChoices.get(0).getType()))) {</span>
+          // if we have only 1 unit type, set it to that
+<span class="nc" id="L157">          m_pickedUnits.clear();</span>
+<span class="nc" id="L158">          m_pickedUnits.addAll(Match.getNMatches(m_unitChoices, m_unitsPerPick, Match.getAlwaysMatch()));</span>
+<span class="nc" id="L159">        } else {</span>
+<span class="nc" id="L160">          EventThreadJOptionPane.showMessageDialog(m_parent, &quot;Must Choose Units For This Territory&quot;,</span>
+<span class="nc" id="L161">              &quot;Must Choose Units For This Territory&quot;, JOptionPane.WARNING_MESSAGE, new CountDownLatchHandler(true));</span>
+<span class="nc" id="L162">          m_currentAction = null;</span>
+<span class="nc" id="L163">          setWidgetActivation();</span>
+<span class="nc" id="L164">          return;</span>
+        }
+      }
+<span class="nc" id="L167">      m_currentAction = null;</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">      if (m_currentHighlightedTerritory != null) {</span>
+<span class="nc" id="L169">        getMap().clearTerritoryOverlay(m_currentHighlightedTerritory);</span>
+      }
+<span class="nc" id="L171">      m_currentHighlightedTerritory = null;</span>
+<span class="nc" id="L172">      setWidgetActivation();</span>
+<span class="nc" id="L173">      release();</span>
+<span class="nc" id="L174">    }</span>
+  };
+<span class="nc" id="L176">  private final Action SelectUnitsAction = new AbstractAction(&quot;Select Units&quot;) {</span>
+    private static final long serialVersionUID = 4745335350716395600L;
+
+    @Override
+    public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L181">      m_currentAction = SelectUnitsAction;</span>
+<span class="nc" id="L182">      setWidgetActivation();</span>
+<span class="nc" id="L183">      final UnitChooser unitChooser = new UnitChooser(m_unitChoices, Collections.emptyMap(),</span>
+<span class="nc" id="L184">          getData(), false, getMap().getUIContext());</span>
+<span class="nc" id="L185">      unitChooser.setMaxAndShowMaxButton(m_unitsPerPick);</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">      if (JOptionPane.OK_OPTION == EventThreadJOptionPane.showConfirmDialog(m_parent, unitChooser, &quot;Select Units&quot;,</span>
+<span class="nc" id="L187">          JOptionPane.OK_CANCEL_OPTION, new CountDownLatchHandler(true))) {</span>
+<span class="nc" id="L188">        m_pickedUnits.clear();</span>
+<span class="nc" id="L189">        m_pickedUnits.addAll(unitChooser.getSelected());</span>
+      }
+<span class="nc" id="L191">      m_currentAction = null;</span>
+<span class="nc" id="L192">      setWidgetActivation();</span>
+<span class="nc" id="L193">    }</span>
+  };
+<span class="nc" id="L195">  private final Action SelectTerritoryAction = new AbstractAction(&quot;Select Territory&quot;) {</span>
+    private static final long serialVersionUID = -8003634505955439651L;
+
+    @Override
+    public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L200">      m_currentAction = SelectTerritoryAction;</span>
+<span class="nc" id="L201">      setWidgetActivation();</span>
+<span class="nc" id="L202">      getMap().addMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L203">    }</span>
+  };
+<span class="nc" id="L205">  private final MapSelectionListener MAP_SELECTION_LISTENER = new DefaultMapSelectionListener() {</span>
+    @Override
+    public void territorySelected(final Territory territory, final MouseDetails md) {
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      if (territory == null) {</span>
+<span class="nc" id="L209">        return;</span>
+      }
+<span class="nc bnc" id="L211" title="All 2 branches missed.">      if (m_currentAction == SelectTerritoryAction) {</span>
+<span class="nc bnc" id="L212" title="All 4 branches missed.">        if (territory == null || !m_territoryChoices.contains(territory)) {</span>
+<span class="nc" id="L213">          EventThreadJOptionPane.showMessageDialog(m_parent,</span>
+<span class="nc" id="L214">              &quot;Must Pick An Unowned Territory (will have a white highlight)&quot;, &quot;Must Pick An Unowned Territory&quot;,</span>
+<span class="nc" id="L215">              JOptionPane.WARNING_MESSAGE, new CountDownLatchHandler(true));</span>
+<span class="nc" id="L216">          return;</span>
+        }
+<span class="nc" id="L218">        m_pickedTerritory = territory;</span>
+<span class="nc" id="L219">        SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L220">          getMap().removeMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L221">          m_currentAction = null;</span>
+<span class="nc" id="L222">          setWidgetActivation();</span>
+<span class="nc" id="L223">        });</span>
+<span class="nc" id="L224">      } else {</span>
+<span class="nc" id="L225">        System.err.println(&quot;Should not be able to select a territory outside of the SelectTerritoryAction.&quot;);</span>
+      }
+<span class="nc" id="L227">    }</span>
+
+    @Override
+    public void mouseMoved(final Territory territory, final MouseDetails md) {
+<span class="nc bnc" id="L231" title="All 2 branches missed.">      if (!getActive()) {</span>
+<span class="nc" id="L232">        System.err.println(&quot;Should not be able to select a territory when inactive.&quot;);</span>
+<span class="nc" id="L233">        return;</span>
+      }
+<span class="nc bnc" id="L235" title="All 2 branches missed.">      if (territory != null) {</span>
+        // highlight territory
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (m_currentAction == SelectTerritoryAction) {</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">          if (m_currentHighlightedTerritory != territory) {</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">            if (m_currentHighlightedTerritory != null) {</span>
+<span class="nc" id="L240">              getMap().clearTerritoryOverlay(m_currentHighlightedTerritory);</span>
+            }
+<span class="nc" id="L242">            m_currentHighlightedTerritory = territory;</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">            if (m_territoryChoices.contains(m_currentHighlightedTerritory)) {</span>
+<span class="nc" id="L244">              getMap().setTerritoryOverlay(m_currentHighlightedTerritory, Color.WHITE, 200);</span>
+<span class="nc" id="L245">            } else {</span>
+<span class="nc" id="L246">              getMap().setTerritoryOverlay(m_currentHighlightedTerritory, Color.RED, 200);</span>
+            }
+<span class="nc" id="L248">            getMap().repaint();</span>
+          }
+        }
+      }
+<span class="nc" id="L252">    }</span>
+  };
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

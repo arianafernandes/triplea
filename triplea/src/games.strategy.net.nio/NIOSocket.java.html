@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>NIOSocket.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net.nio</a> &gt; <span class="el_source">NIOSocket.java</span></div><h1>NIOSocket.java</h1><pre class="source lang-java linenums">package games.strategy.net.nio;
+
+import java.io.IOException;
+import java.net.Socket;
+import java.nio.channels.SocketChannel;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.net.INode;
+import games.strategy.net.IObjectStreamFactory;
+import games.strategy.net.MessageHeader;
+
+/**
+ * The threads needed for a group of sockets using NIO.
+ * One thread reds socket data, one thread writes socket data
+ * and one thread deserializes (decodes) packets read by the read
+ * thread.
+ * serializing (encoding) objects to be written across the network is done
+ * by threads calling this object.
+ */
+public class NIOSocket implements IErrorReporter {
+<span class="fc" id="L22">  private static final Logger s_logger = Logger.getLogger(NIOSocket.class.getName());</span>
+  private final Encoder m_encoder;
+  private final Decoder m_decoder;
+  private final NIOWriter m_writer;
+  private final NIOReader m_reader;
+  private final NIOSocketListener m_listener;
+
+<span class="fc" id="L29">  public NIOSocket(final IObjectStreamFactory factory, final NIOSocketListener listener, final String name) {</span>
+<span class="fc" id="L30">    m_listener = listener;</span>
+<span class="fc" id="L31">    m_writer = new NIOWriter(this, name);</span>
+<span class="fc" id="L32">    m_reader = new NIOReader(this, name);</span>
+<span class="fc" id="L33">    m_decoder = new Decoder(this, m_reader, this, factory, name);</span>
+<span class="fc" id="L34">    m_encoder = new Encoder(this, m_writer, factory);</span>
+<span class="fc" id="L35">  }</span>
+
+  INode getLocalNode() {
+<span class="fc" id="L38">    return m_listener.getLocalNode();</span>
+  }
+
+  INode getRemoteNode(final SocketChannel channel) {
+<span class="fc" id="L42">    return m_listener.getRemoteNode(channel);</span>
+  }
+
+  /**
+   * Stop our threads.
+   * This does not close the sockets we are connected to.
+   */
+  public void shutDown() {
+<span class="fc" id="L50">    m_writer.shutDown();</span>
+<span class="fc" id="L51">    m_reader.shutDown();</span>
+<span class="fc" id="L52">    m_decoder.shutDown();</span>
+<span class="fc" id="L53">  }</span>
+
+  public void send(final SocketChannel to, final MessageHeader header) {
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">    if (to == null) {</span>
+<span class="nc" id="L57">      throw new IllegalArgumentException(&quot;to cant be null!&quot;);</span>
+    }
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">    if (header == null) {</span>
+<span class="nc" id="L60">      throw new IllegalArgumentException(&quot;header cant be null&quot;);</span>
+    }
+<span class="fc" id="L62">    m_encoder.write(to, header);</span>
+<span class="fc" id="L63">  }</span>
+
+  /**
+   * Add this channel.
+   * The channel will either be unquarantined, or an error will be reported
+   */
+  public void add(final SocketChannel channel, final QuarantineConversation conversation) {
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">    if (channel.isBlocking()) {</span>
+<span class="nc" id="L71">      throw new IllegalArgumentException(&quot;Channel is blocking&quot;);</span>
+    }
+    // add the decoder first, so it can quarantine the messages!
+<span class="fc" id="L74">    m_decoder.add(channel, conversation);</span>
+<span class="fc" id="L75">    m_reader.add(channel);</span>
+<span class="fc" id="L76">  }</span>
+
+  void unquarantine(final SocketChannel channel, final QuarantineConversation conversation) {
+<span class="fc" id="L79">    m_listener.socketUnqaurantined(channel, conversation);</span>
+<span class="fc" id="L80">  }</span>
+
+  @Override
+  public void error(final SocketChannel channel, final Exception e) {
+<span class="fc" id="L84">    close(channel);</span>
+<span class="fc" id="L85">    m_listener.socketError(channel, e);</span>
+<span class="fc" id="L86">  }</span>
+
+  /**
+   * Close the channel, and clean up any data associated with it
+   */
+  public void close(final SocketChannel channel) {
+    try {
+<span class="fc" id="L93">      final Socket s = channel.socket();</span>
+<span class="fc bfc" id="L94" title="All 2 branches covered.">      if (!s.isInputShutdown()) {</span>
+<span class="fc" id="L95">        s.shutdownInput();</span>
+      }
+<span class="fc bfc" id="L97" title="All 2 branches covered.">      if (!s.isOutputShutdown()) {</span>
+<span class="fc" id="L98">        s.shutdownOutput();</span>
+      }
+<span class="fc bfc" id="L100" title="All 2 branches covered.">      if (!s.isClosed()) {</span>
+<span class="fc" id="L101">        s.close();</span>
+      }
+<span class="fc" id="L103">      channel.close();</span>
+<span class="pc" id="L104">    } catch (final IOException e1) {</span>
+<span class="nc" id="L105">      s_logger.log(Level.FINE, &quot;error closing channel&quot;, e1);</span>
+    }
+<span class="fc" id="L107">    m_decoder.closed(channel);</span>
+<span class="fc" id="L108">    m_writer.closed(channel);</span>
+<span class="fc" id="L109">    m_reader.closed(channel);</span>
+<span class="fc" id="L110">  }</span>
+
+  void messageReceived(final MessageHeader header, final SocketChannel channel) {
+<span class="fc" id="L113">    m_listener.messageReceived(header, channel);</span>
+<span class="fc" id="L114">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

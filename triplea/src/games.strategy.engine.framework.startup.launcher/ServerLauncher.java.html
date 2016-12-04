@@ -1,0 +1,463 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ServerLauncher.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.startup.launcher</a> &gt; <span class="el_source">ServerLauncher.java</span></div><h1>ServerLauncher.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework.startup.launcher;</span>
+
+import java.awt.Component;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
+
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.framework.GameDataManager;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.framework.ServerGame;
+import games.strategy.engine.framework.headlessGameServer.HeadlessGameServer;
+import games.strategy.engine.framework.message.PlayerListing;
+import games.strategy.engine.framework.startup.mc.ClientModel;
+import games.strategy.engine.framework.startup.mc.GameSelectorModel;
+import games.strategy.engine.framework.startup.mc.IClientChannel;
+import games.strategy.engine.framework.startup.mc.IObserverWaitingToJoin;
+import games.strategy.engine.framework.startup.mc.ServerModel;
+import games.strategy.engine.framework.startup.ui.InGameLobbyWatcherWrapper;
+import games.strategy.engine.framework.ui.SaveGameFileChooser;
+import games.strategy.engine.gamePlayer.IGamePlayer;
+import games.strategy.engine.lobby.server.GameDescription;
+import games.strategy.engine.message.ConnectionLostException;
+import games.strategy.engine.message.IChannelMessenger;
+import games.strategy.engine.message.IRemoteMessenger;
+import games.strategy.engine.message.MessengerException;
+import games.strategy.engine.random.CryptoRandomSource;
+import games.strategy.net.IMessenger;
+import games.strategy.net.INode;
+import games.strategy.net.Messengers;
+import games.strategy.util.ThreadUtil;
+
+public class ServerLauncher extends AbstractLauncher {
+<span class="nc" id="L51">  private static final Logger s_logger = Logger.getLogger(ServerLauncher.class.getName());</span>
+<span class="nc" id="L52">  public static final String SERVER_ROOT_DIR_PROPERTY = &quot;triplea.server.root.dir&quot;;</span>
+  private final int m_clientCount;
+  private final IRemoteMessenger m_remoteMessenger;
+  private final IChannelMessenger m_channelMessenger;
+  private final IMessenger m_messenger;
+  private final PlayerListing m_playerListing;
+  private final Map&lt;String, INode&gt; m_remotelPlayers;
+  private final ServerModel m_serverModel;
+  private ServerGame m_serverGame;
+  private Component m_ui;
+  private ServerReady m_serverReady;
+<span class="nc" id="L63">  private final CountDownLatch m_errorLatch = new CountDownLatch(1);</span>
+<span class="nc" id="L64">  private volatile boolean m_isLaunching = true;</span>
+<span class="nc" id="L65">  private volatile boolean m_abortLaunch = false;</span>
+<span class="nc" id="L66">  private volatile boolean m_gameStopped = false;</span>
+  // a list of observers that tried to join the game during starup
+  // we need to track these, because when we loose connections to them
+  // we can ignore the connection lost
+<span class="nc" id="L70">  private final List&lt;INode&gt; m_observersThatTriedToJoinDuringStartup =</span>
+<span class="nc" id="L71">      Collections.synchronizedList(new ArrayList&lt;&gt;());</span>
+  private InGameLobbyWatcherWrapper m_inGameLobbyWatcher;
+
+  public ServerLauncher(final int clientCount, final IRemoteMessenger remoteMessenger,
+      final IChannelMessenger channelMessenger, final IMessenger messenger, final GameSelectorModel gameSelectorModel,
+      final PlayerListing playerListing, final Map&lt;String, INode&gt; remotelPlayers, final ServerModel serverModel,
+      final boolean headless) {
+<span class="nc" id="L78">    super(gameSelectorModel, headless);</span>
+<span class="nc" id="L79">    m_clientCount = clientCount;</span>
+<span class="nc" id="L80">    m_remoteMessenger = remoteMessenger;</span>
+<span class="nc" id="L81">    m_channelMessenger = channelMessenger;</span>
+<span class="nc" id="L82">    m_messenger = messenger;</span>
+<span class="nc" id="L83">    m_playerListing = playerListing;</span>
+<span class="nc" id="L84">    m_remotelPlayers = remotelPlayers;</span>
+<span class="nc" id="L85">    m_serverModel = serverModel;</span>
+<span class="nc" id="L86">  }</span>
+
+  public void setInGameLobbyWatcher(final InGameLobbyWatcherWrapper watcher) {
+<span class="nc" id="L89">    m_inGameLobbyWatcher = watcher;</span>
+<span class="nc" id="L90">  }</span>
+
+  private boolean testShouldWeAbort() {
+<span class="nc bnc" id="L93" title="All 2 branches missed.">    if (m_abortLaunch) {</span>
+<span class="nc" id="L94">      return true;</span>
+    }
+<span class="nc bnc" id="L96" title="All 4 branches missed.">    if (m_gameData == null || m_serverModel == null) {</span>
+<span class="nc" id="L97">      return true;</span>
+    } else {
+<span class="nc" id="L99">      final Map&lt;String, String&gt; players = m_serverModel.getPlayersToNodeListing();</span>
+<span class="nc bnc" id="L100" title="All 4 branches missed.">      if (players == null || players.isEmpty()) {</span>
+<span class="nc" id="L101">        return true;</span>
+      } else {
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        for (final String player : players.keySet()) {</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">          if (players.get(player) == null) {</span>
+<span class="nc" id="L105">            return true;</span>
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L110" title="All 4 branches missed.">    if (m_serverGame != null &amp;&amp; m_serverGame.getPlayerManager() != null) {</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">      if (m_serverGame.getPlayerManager().isEmpty()) {</span>
+<span class="nc" id="L112">        return true;</span>
+      }
+    }
+<span class="nc" id="L115">    return false;</span>
+  }
+
+  @Override
+  protected void launchInNewThread(final Component parent) {
+    try {
+      // the order of this stuff does matter
+<span class="nc" id="L122">      m_serverModel.setServerLauncher(this);</span>
+<span class="nc" id="L123">      m_serverReady = new ServerReady(m_clientCount);</span>
+<span class="nc bnc" id="L124" title="All 2 branches missed.">      if (m_inGameLobbyWatcher != null) {</span>
+<span class="nc" id="L125">        m_inGameLobbyWatcher.setGameStatus(GameDescription.GameStatus.LAUNCHING, null);</span>
+      }
+<span class="nc" id="L127">      m_serverModel.allowRemoveConnections();</span>
+<span class="nc" id="L128">      m_ui = parent;</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">      if (m_headless) {</span>
+<span class="nc" id="L130">        HeadlessGameServer.log(&quot;Game Status: Launching&quot;);</span>
+      }
+<span class="nc" id="L132">      m_remoteMessenger.registerRemote(m_serverReady, ClientModel.CLIENT_READY_CHANNEL);</span>
+<span class="nc" id="L133">      m_gameData.doPreGameStartDataModifications(m_playerListing);</span>
+<span class="nc" id="L134">      s_logger.fine(&quot;Starting server&quot;);</span>
+<span class="nc" id="L135">      m_abortLaunch = testShouldWeAbort();</span>
+      byte[] gameDataAsBytes;
+      try {
+<span class="nc" id="L138">        gameDataAsBytes = gameDataToBytes(m_gameData);</span>
+<span class="nc" id="L139">      } catch (final IOException e) {</span>
+<span class="nc" id="L140">        ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L141">        throw new IllegalStateException(e.getMessage());</span>
+      }
+<span class="nc" id="L143">      final Set&lt;IGamePlayer&gt; localPlayerSet =</span>
+<span class="nc" id="L144">          m_gameData.getGameLoader().createPlayers(m_playerListing.getLocalPlayerTypes());</span>
+<span class="nc" id="L145">      final Messengers messengers = new Messengers(m_messenger, m_remoteMessenger, m_channelMessenger);</span>
+<span class="nc" id="L146">      m_serverGame = new ServerGame(m_gameData, localPlayerSet, m_remotelPlayers, messengers);</span>
+<span class="nc" id="L147">      m_serverGame.setInGameLobbyWatcher(m_inGameLobbyWatcher);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (m_headless) {</span>
+<span class="nc" id="L149">        HeadlessGameServer.setServerGame(m_serverGame);</span>
+      }
+      // tell the clients to start,
+      // later we will wait for them to all
+      // signal that they are ready.
+<span class="nc" id="L154">      ((IClientChannel) m_channelMessenger.getChannelBroadcastor(IClientChannel.CHANNEL_NAME))</span>
+<span class="nc" id="L155">          .doneSelectingPlayers(gameDataAsBytes, m_serverGame.getPlayerManager().getPlayerMapping());</span>
+
+<span class="nc bnc" id="L157" title="All 2 branches missed.">      final boolean useSecureRandomSource = !m_remotelPlayers.isEmpty();</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      if (useSecureRandomSource) {</span>
+        // server game.
+        // try to find an opponent to be the other side of the crypto random source.
+<span class="nc" id="L161">        final PlayerID remotePlayer =</span>
+<span class="nc" id="L162">            m_serverGame.getPlayerManager().getRemoteOpponent(m_messenger.getLocalNode(), m_gameData);</span>
+<span class="nc" id="L163">        final CryptoRandomSource randomSource = new CryptoRandomSource(remotePlayer, m_serverGame);</span>
+<span class="nc" id="L164">        m_serverGame.setRandomSource(randomSource);</span>
+      }
+      try {
+<span class="nc" id="L167">        m_gameData.getGameLoader().startGame(m_serverGame, localPlayerSet, m_headless);</span>
+<span class="nc" id="L168">      } catch (final Exception e) {</span>
+<span class="nc" id="L169">        ClientLogger.logError(&quot;Failed to launch&quot;, e);</span>
+<span class="nc" id="L170">        m_abortLaunch = true;</span>
+
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        if (m_gameLoadingWindow != null) {</span>
+<span class="nc" id="L173">          m_gameLoadingWindow.doneWait();</span>
+        }
+      }
+<span class="nc bnc" id="L176" title="All 2 branches missed.">      if (m_headless) {</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        HeadlessGameServer.log(&quot;Game Successfully Loaded. &quot; + (m_abortLaunch ? &quot;Aborting Launch.&quot; : &quot;Starting Game.&quot;));</span>
+      }
+<span class="nc bnc" id="L179" title="All 2 branches missed.">      if (m_abortLaunch) {</span>
+<span class="nc" id="L180">        m_serverReady.countDownAll();</span>
+      }
+<span class="nc bnc" id="L182" title="All 2 branches missed.">      if (!m_serverReady.await(GameRunner.getServerStartGameSyncWaitTime(), TimeUnit.SECONDS)) {</span>
+<span class="nc" id="L183">        System.out.println(&quot;Waiting for clients to be ready timed out!&quot;);</span>
+<span class="nc" id="L184">        m_abortLaunch = true;</span>
+      }
+<span class="nc" id="L186">      m_remoteMessenger.unregisterRemote(ClientModel.CLIENT_READY_CHANNEL);</span>
+<span class="nc" id="L187">      final Thread t = new Thread(&quot;Triplea, start server game&quot;) {</span>
+        @Override
+        public void run() {
+          try {
+<span class="nc" id="L191">            m_isLaunching = false;</span>
+<span class="nc" id="L192">            m_abortLaunch = testShouldWeAbort();</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">            if (!m_abortLaunch) {</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">              if (useSecureRandomSource) {</span>
+<span class="nc" id="L195">                warmUpCryptoRandomSource();</span>
+              }
+<span class="nc bnc" id="L197" title="All 2 branches missed.">              if (m_gameLoadingWindow != null) {</span>
+<span class="nc" id="L198">                m_gameLoadingWindow.doneWait();</span>
+              }
+<span class="nc bnc" id="L200" title="All 2 branches missed.">              if (m_headless) {</span>
+<span class="nc" id="L201">                HeadlessGameServer.log(&quot;Starting Game Delegates.&quot;);</span>
+              }
+<span class="nc" id="L203">              m_serverGame.startGame();</span>
+<span class="nc" id="L204">            } else {</span>
+<span class="nc" id="L205">              stopGame();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">              if (!m_headless) {</span>
+<span class="nc" id="L207">                SwingUtilities.invokeLater(</span>
+<span class="nc" id="L208">                    () -&gt; JOptionPane.showMessageDialog(m_ui, &quot;Problem during startup, game aborted.&quot;));</span>
+<span class="nc" id="L209">              } else {</span>
+<span class="nc" id="L210">                System.out.println(&quot;Problem during startup, game aborted.&quot;);</span>
+              }
+            }
+<span class="nc" id="L213">          } catch (final MessengerException me) {</span>
+            // if just connection lost, no need to scare the user with some giant stack trace
+<span class="nc bnc" id="L215" title="All 2 branches missed.">            if (me instanceof ConnectionLostException) {</span>
+<span class="nc" id="L216">              System.out.println(&quot;Game Player disconnection: &quot; + me.getMessage());</span>
+<span class="nc" id="L217">            } else {</span>
+<span class="nc" id="L218">              me.printStackTrace(System.out);</span>
+            }
+            // we lost a connection
+            // wait for the connection handler to notice, and shut us down
+            try {
+              // we are already aborting the launch
+<span class="nc bnc" id="L224" title="All 2 branches missed.">              if (!m_abortLaunch) {</span>
+<span class="nc" id="L225">                if (!m_errorLatch.await(GameRunner.getServerObserverJoinWaitTime()</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">                    + GameRunner.ADDITIONAL_SERVER_ERROR_DISCONNECTION_WAIT_TIME, TimeUnit.SECONDS)) {</span>
+<span class="nc" id="L227">                  System.err.println(&quot;Waiting on error latch timed out!&quot;);</span>
+                }
+              }
+<span class="nc" id="L230">            } catch (final InterruptedException e) {</span>
+<span class="nc" id="L231">              ClientLogger.logQuietly(e);</span>
+            }
+<span class="nc" id="L233">            stopGame();</span>
+<span class="nc" id="L234">          } catch (final Exception e) {</span>
+<span class="nc" id="L235">            e.printStackTrace(System.err);</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">            if (m_headless) {</span>
+<span class="nc" id="L237">              System.out.println(games.strategy.debug.DebugUtils.getThreadDumps());</span>
+<span class="nc" id="L238">              HeadlessGameServer.sendChat(</span>
+<span class="nc" id="L239">                  &quot;If this is a repeatable issue or error, please make a copy of this savegame and contact a Mod and/or file a bug report.&quot;);</span>
+            }
+<span class="nc" id="L241">            stopGame();</span>
+          }
+          // having an oddball issue with the zip stream being closed while parsing to load default game. might be
+          // caused by closing of stream while unloading map resources.
+<span class="nc" id="L245">          ThreadUtil.sleep(200);</span>
+          // either game ended, or aborted, or a player left or disconnected
+<span class="nc bnc" id="L247" title="All 2 branches missed.">          if (m_headless) {</span>
+            try {
+<span class="nc" id="L249">              System.out.println(&quot;Game ended, going back to waiting.&quot;);</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">              if (m_serverModel != null) {</span>
+                // if we do not do this, we can get into an infinite loop of launching a game,
+                // then crashing out, then launching, etc.
+<span class="nc" id="L253">                m_serverModel.setAllPlayersToNullNodes();</span>
+              }
+<span class="nc" id="L255">              final File f1 =</span>
+<span class="nc" id="L256">                  new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSaveFileName());</span>
+<span class="nc" id="L257">              final File f2 =</span>
+<span class="nc" id="L258">                  new File(ClientContext.folderSettings().getSaveGamePath(),</span>
+<span class="nc" id="L259">                      SaveGameFileChooser.getAutoSave2FileName());</span>
+              final File f;
+<span class="nc bnc" id="L261" title="All 4 branches missed.">              if (!f1.exists() &amp;&amp; !f2.exists()) {</span>
+<span class="nc" id="L262">                m_gameSelectorModel.resetGameDataToNull();</span>
+<span class="nc" id="L263">              } else {</span>
+<span class="nc bnc" id="L264" title="All 4 branches missed.">                if (!f1.exists() || f1.lastModified() &lt; f2.lastModified()) {</span>
+<span class="nc" id="L265">                  f = f2;</span>
+<span class="nc" id="L266">                } else {</span>
+<span class="nc" id="L267">                  f = f1;</span>
+                }
+<span class="nc" id="L269">                m_gameSelectorModel.load(f, null);</span>
+              }
+<span class="nc" id="L271">            } catch (final Exception e) {</span>
+<span class="nc" id="L272">              ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L273">              m_gameSelectorModel.resetGameDataToNull();</span>
+            }
+<span class="nc" id="L275">          } else {</span>
+<span class="nc" id="L276">            m_gameSelectorModel.loadDefaultGame(parent);</span>
+          }
+<span class="nc bnc" id="L278" title="All 2 branches missed.">          if (parent != null) {</span>
+<span class="nc" id="L279">            SwingUtilities.invokeLater(() -&gt; JOptionPane.getFrameForComponent(parent).setVisible(true));</span>
+          }
+<span class="nc" id="L281">          m_serverModel.setServerLauncher(null);</span>
+<span class="nc" id="L282">          m_serverModel.newGame();</span>
+<span class="nc bnc" id="L283" title="All 2 branches missed.">          if (m_inGameLobbyWatcher != null) {</span>
+<span class="nc" id="L284">            m_inGameLobbyWatcher.setGameStatus(GameDescription.GameStatus.WAITING_FOR_PLAYERS, null);</span>
+          }
+<span class="nc bnc" id="L286" title="All 2 branches missed.">          if (m_headless) {</span>
+            // tell headless server to wait for new connections:
+<span class="nc" id="L288">            HeadlessGameServer.waitForUsersHeadlessInstance();</span>
+<span class="nc" id="L289">            HeadlessGameServer.log(&quot;Game Status: Waiting For Players&quot;);</span>
+          }
+<span class="nc" id="L291">        }</span>
+      };
+<span class="nc" id="L293">      t.start();</span>
+<span class="nc" id="L294">    } finally {</span>
+<span class="nc bnc" id="L295" title="All 4 branches missed.">      if (m_gameLoadingWindow != null) {</span>
+<span class="nc" id="L296">        m_gameLoadingWindow.doneWait();</span>
+      }
+<span class="nc bnc" id="L298" title="All 4 branches missed.">      if (m_inGameLobbyWatcher != null) {</span>
+<span class="nc" id="L299">        m_inGameLobbyWatcher.setGameStatus(GameDescription.GameStatus.IN_PROGRESS, m_serverGame);</span>
+      }
+<span class="nc bnc" id="L301" title="All 4 branches missed.">      if (m_headless) {</span>
+<span class="nc" id="L302">        HeadlessGameServer.log(&quot;Game Status: In Progress&quot;);</span>
+      }
+<span class="nc" id="L304">    }</span>
+<span class="nc" id="L305">  }</span>
+
+  private void warmUpCryptoRandomSource() {
+    // the first roll takes a while, initialize
+    // here in the background so that the user doesnt notice
+<span class="nc" id="L310">    final Thread t = new Thread(&quot;Warming up crypto random source&quot;) {</span>
+      @Override
+      public void run() {
+        try {
+<span class="nc" id="L314">          m_serverGame.getRandomSource().getRandom(m_gameData.getDiceSides(), 2, &quot;Warming up crypto random source&quot;);</span>
+<span class="nc" id="L315">        } catch (final RuntimeException re) {</span>
+<span class="nc" id="L316">          re.printStackTrace(System.out);</span>
+        }
+<span class="nc" id="L318">      }</span>
+    };
+<span class="nc" id="L320">    t.start();</span>
+<span class="nc" id="L321">  }</span>
+
+  public void addObserver(final IObserverWaitingToJoin blockingObserver,
+      final IObserverWaitingToJoin nonBlockingObserver, final INode newNode) {
+<span class="nc bnc" id="L325" title="All 2 branches missed.">    if (m_isLaunching) {</span>
+<span class="nc" id="L326">      m_observersThatTriedToJoinDuringStartup.add(newNode);</span>
+<span class="nc" id="L327">      nonBlockingObserver.cannotJoinGame(&quot;Game is launching, try again soon&quot;);</span>
+<span class="nc" id="L328">      return;</span>
+    }
+<span class="nc" id="L330">    m_serverGame.addObserver(blockingObserver, nonBlockingObserver, newNode);</span>
+<span class="nc" id="L331">  }</span>
+
+  private static byte[] gameDataToBytes(final GameData data) throws IOException {
+<span class="nc" id="L334">    final ByteArrayOutputStream sink = new ByteArrayOutputStream(25000);</span>
+<span class="nc" id="L335">    new GameDataManager().saveGame(sink, data);</span>
+<span class="nc" id="L336">    sink.flush();</span>
+<span class="nc" id="L337">    sink.close();</span>
+<span class="nc" id="L338">    return sink.toByteArray();</span>
+  }
+
+  public void connectionLost(final INode node) {
+    // System.out.println(&quot;Connection lost to: &quot; + node);
+<span class="nc bnc" id="L343" title="All 2 branches missed.">    if (m_isLaunching) {</span>
+      // this is expected, we told the observer
+      // he couldnt join, so now we loose the connection
+<span class="nc bnc" id="L346" title="All 2 branches missed.">      if (m_observersThatTriedToJoinDuringStartup.remove(node)) {</span>
+<span class="nc" id="L347">        return;</span>
+      }
+      // a player has dropped out, abort
+<span class="nc" id="L350">      m_abortLaunch = true;</span>
+<span class="nc" id="L351">      m_serverReady.countDownAll();</span>
+<span class="nc" id="L352">      return;</span>
+    }
+    // if we loose a connection to a player, shut down
+    // the game (after saving) and go back to the main screen
+<span class="nc bnc" id="L356" title="All 2 branches missed.">    if (m_serverGame.getPlayerManager().isPlaying(node)) {</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">      if (m_serverGame.isGameSequenceRunning()) {</span>
+<span class="nc" id="L358">        saveAndEndGame(node);</span>
+<span class="nc" id="L359">      } else {</span>
+<span class="nc" id="L360">        stopGame();</span>
+      }
+      // if the game already exited do to a networking error
+      // we need to let them continue
+<span class="nc" id="L364">      m_errorLatch.countDown();</span>
+    } else {
+      // nothing to do
+      // we just lost a connection to an observer
+      // which is ok.
+    }
+<span class="nc" id="L370">  }</span>
+
+  private void stopGame() {
+<span class="nc bnc" id="L373" title="All 2 branches missed.">    if (!m_gameStopped) {</span>
+<span class="nc" id="L374">      m_gameStopped = true;</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">      if (m_serverGame != null) {</span>
+<span class="nc" id="L376">        m_serverGame.stopGame();</span>
+      }
+    }
+<span class="nc" id="L379">  }</span>
+
+  private void saveAndEndGame(final INode node) {
+<span class="nc" id="L382">    final DateFormat format = new SimpleDateFormat(&quot;MMM_dd_'at'_HH_mm&quot;);</span>
+<span class="nc" id="L383">    SaveGameFileChooser.ensureMapsFolderExists();</span>
+    // a hack, if headless save to the autosave to avoid polluting our savegames folder with a million saves
+    final File f;
+<span class="nc bnc" id="L386" title="All 2 branches missed.">    if (m_headless) {</span>
+<span class="nc" id="L387">      final File f1 =</span>
+<span class="nc" id="L388">          new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSaveFileName());</span>
+<span class="nc" id="L389">      final File f2 =</span>
+<span class="nc" id="L390">          new File(ClientContext.folderSettings().getSaveGamePath(), SaveGameFileChooser.getAutoSave2FileName());</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">      if (f1.lastModified() &gt; f2.lastModified()) {</span>
+<span class="nc" id="L392">        f = f2;</span>
+<span class="nc" id="L393">      } else {</span>
+<span class="nc" id="L394">        f = f1;</span>
+      }
+<span class="nc" id="L396">    } else {</span>
+<span class="nc" id="L397">      f = new File(ClientContext.folderSettings().getSaveGamePath(),</span>
+<span class="nc" id="L398">          &quot;connection_lost_on_&quot; + format.format(new Date()) + &quot;.tsvg&quot;);</span>
+    }
+    try {
+<span class="nc" id="L401">      m_serverGame.saveGame(f);</span>
+<span class="nc" id="L402">    } catch (final Exception e) {</span>
+<span class="nc" id="L403">      ClientLogger.logQuietly(e);</span>
+<span class="nc bnc" id="L404" title="All 4 branches missed.">      if (m_headless &amp;&amp; HeadlessGameServer.getInstance() != null) {</span>
+<span class="nc" id="L405">        HeadlessGameServer.getInstance().printThreadDumpsAndStatus();</span>
+        // TODO: We seem to be getting this bug once a week (1.8.0.1 and previous versions). Trying a fix for 1.8.0.3,
+        // need to see if it
+        // works.
+      }
+    }
+<span class="nc" id="L411">    stopGame();</span>
+<span class="nc bnc" id="L412" title="All 2 branches missed.">    if (!m_headless) {</span>
+<span class="nc" id="L413">      SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L414">        final String message =</span>
+<span class="nc" id="L415">            &quot;Connection lost to:&quot; + node.getName() + &quot; game is over.  Game saved to:&quot; + f.getName();</span>
+<span class="nc" id="L416">        JOptionPane.showMessageDialog(JOptionPane.getFrameForComponent(m_ui), message);</span>
+<span class="nc" id="L417">      });</span>
+<span class="nc" id="L418">    } else {</span>
+<span class="nc" id="L419">      System.out.println(&quot;Connection lost to:&quot; + node.getName() + &quot; game is over.  Game saved to:&quot; + f.getName());</span>
+    }
+<span class="nc" id="L421">  }</span>
+}
+
+
+class ServerReady implements IServerReady {
+  private final CountDownLatch m_latch;
+  private final int m_clients;
+
+<span class="nc" id="L429">  ServerReady(final int waitCount) {</span>
+<span class="nc" id="L430">    m_clients = waitCount;</span>
+<span class="nc" id="L431">    m_latch = new CountDownLatch(m_clients);</span>
+<span class="nc" id="L432">  }</span>
+
+  @Override
+  public void clientReady() {
+<span class="nc" id="L436">    m_latch.countDown();</span>
+<span class="nc" id="L437">  }</span>
+
+  public void countDownAll() {
+<span class="nc bnc" id="L440" title="All 2 branches missed.">    for (int i = 0; i &lt; m_clients; i++) {</span>
+<span class="nc" id="L441">      m_latch.countDown();</span>
+    }
+<span class="nc" id="L443">  }</span>
+
+  public void await() {
+    try {
+<span class="nc" id="L447">      m_latch.await();</span>
+<span class="nc" id="L448">    } catch (final InterruptedException e) {</span>
+<span class="nc" id="L449">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L451">  }</span>
+
+  public boolean await(final long timeout, final TimeUnit timeUnit) {
+<span class="nc" id="L454">    boolean didNotTimeOut = false;</span>
+    try {
+<span class="nc" id="L456">      didNotTimeOut = m_latch.await(timeout, timeUnit);</span>
+<span class="nc" id="L457">    } catch (final InterruptedException e) {</span>
+<span class="nc" id="L458">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L460">    return didNotTimeOut;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

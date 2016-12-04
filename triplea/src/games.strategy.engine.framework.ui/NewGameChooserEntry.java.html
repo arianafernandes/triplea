@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>NewGameChooserEntry.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.ui</a> &gt; <span class="el_source">NewGameChooserEntry.java</span></div><h1>NewGameChooserEntry.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.engine.framework.ui;</span>
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.util.Comparator;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.data.EngineVersionException;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.data.GameParser;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.triplea.Constants;
+import games.strategy.util.UrlStreams;
+
+public class NewGameChooserEntry {
+  private final URI url;
+  private GameData gameData;
+<span class="fc" id="L26">  private boolean gameDataFullyLoaded = false;</span>
+  private final String gameNameAndMapNameProperty;
+
+
+  public static Comparator&lt;NewGameChooserEntry&gt; getComparator() {
+<span class="fc" id="L31">    return new Comparator&lt;NewGameChooserEntry&gt;() {</span>
+      @Override
+      public int compare(final NewGameChooserEntry o1, final NewGameChooserEntry o2) {
+<span class="nc" id="L34">        return getLowerCaseComparable(o1).compareTo(getLowerCaseComparable(o2));</span>
+      }
+
+      private String getLowerCaseComparable(final NewGameChooserEntry newGameChooserEntry) {
+<span class="nc" id="L38">        return newGameChooserEntry.getGameData().getGameName().toLowerCase();</span>
+      }
+    };
+  }
+
+
+<span class="fc" id="L44">  public NewGameChooserEntry(final URI uri)</span>
+      throws IOException, GameParseException, SAXException, EngineVersionException {
+<span class="fc" id="L46">    url = uri;</span>
+<span class="fc" id="L47">    final AtomicReference&lt;String&gt; gameName = new AtomicReference&lt;&gt;();</span>
+
+<span class="fc" id="L49">    final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(uri);</span>
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">    if (!inputStream.isPresent()) {</span>
+<span class="nc" id="L51">      gameNameAndMapNameProperty = &quot;&quot;;</span>
+      // this means the map was deleted out from under us.
+<span class="nc" id="L53">      return;</span>
+    }
+
+<span class="fc" id="L56">    try (InputStream input = inputStream.get()) {</span>
+<span class="fc" id="L57">      final boolean delayParsing = GameRunner.getDelayedParsing();</span>
+<span class="fc" id="L58">      gameData = new GameParser(uri.toString()).parse(input, gameName, delayParsing);</span>
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">      gameDataFullyLoaded = !delayParsing;</span>
+<span class="fc" id="L60">      gameNameAndMapNameProperty = getGameName() + &quot;:&quot; + getMapNameProperty();</span>
+<span class="pc bpc" id="L61" title="7 of 8 branches missed.">    }</span>
+<span class="fc" id="L62">  }</span>
+
+  public void fullyParseGameData() throws GameParseException {
+    // TODO: We should be setting this in the the constructor. At this point, you have to call methods in the
+    // correct order for things to work, and that is bads.
+<span class="nc" id="L67">    gameData = null;</span>
+
+<span class="nc" id="L69">    final AtomicReference&lt;String&gt; gameName = new AtomicReference&lt;&gt;();</span>
+
+<span class="nc" id="L71">    final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(url);</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">    if (!inputStream.isPresent()) {</span>
+<span class="nc" id="L73">      return;</span>
+    }
+
+<span class="nc" id="L76">    try (InputStream input = inputStream.get()) {</span>
+<span class="nc" id="L77">      gameData = new GameParser(url.toString()).parse(input, gameName, false);</span>
+<span class="nc" id="L78">      gameDataFullyLoaded = true;</span>
+
+<span class="nc bnc" id="L80" title="All 8 branches missed.">    } catch (final EngineVersionException e) {</span>
+<span class="nc" id="L81">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L82">      throw new GameParseException(e.getMessage());</span>
+<span class="nc" id="L83">    } catch (final SAXParseException e) {</span>
+<span class="nc" id="L84">      final String msg =</span>
+<span class="nc" id="L85">          &quot;Could not parse:&quot; + url + &quot; error at line:&quot; + e.getLineNumber() + &quot; column:&quot; + e.getColumnNumber();</span>
+<span class="nc" id="L86">      ClientLogger.logError(msg, e);</span>
+<span class="nc" id="L87">      throw new GameParseException(e.getMessage());</span>
+<span class="nc" id="L88">    } catch (final Exception e) {</span>
+<span class="nc" id="L89">      final String msg = &quot;Could not parse:&quot; + url;</span>
+<span class="nc" id="L90">      ClientLogger.logError(msg, e);</span>
+<span class="nc" id="L91">      throw new GameParseException(e.getMessage());</span>
+    }
+<span class="nc" id="L93">  }</span>
+
+  /**
+   * Do not use this if possible. Instead try to remove the bad map from the GameChooserModel.
+   * If that fails, then do a short parse so the user doesn't get a null pointer error.
+   */
+  public void delayParseGameData() {
+<span class="nc" id="L100">    gameData = null;</span>
+
+<span class="nc" id="L102">    final AtomicReference&lt;String&gt; gameName = new AtomicReference&lt;&gt;();</span>
+<span class="nc" id="L103">    final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(url);</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">    if (!inputStream.isPresent()) {</span>
+<span class="nc" id="L105">      return;</span>
+    }
+<span class="nc" id="L107">    try (InputStream input = inputStream.get()) {</span>
+<span class="nc" id="L108">      gameData = new GameParser(url.toString()).parse(input, gameName, true);</span>
+<span class="nc" id="L109">      gameDataFullyLoaded = false;</span>
+<span class="nc bnc" id="L110" title="All 8 branches missed.">    } catch (final EngineVersionException e) {</span>
+<span class="nc" id="L111">      System.out.println(e.getMessage());</span>
+<span class="nc" id="L112">    } catch (final SAXParseException e) {</span>
+<span class="nc" id="L113">      System.err.println(</span>
+<span class="nc" id="L114">          &quot;Could not parse:&quot; + url + &quot; error at line:&quot; + e.getLineNumber() + &quot; column:&quot; + e.getColumnNumber());</span>
+<span class="nc" id="L115">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L116">    } catch (final Exception e) {</span>
+<span class="nc" id="L117">      System.err.println(&quot;Could not parse:&quot; + url);</span>
+<span class="nc" id="L118">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L120">  }</span>
+
+  public boolean isGameDataLoaded() {
+<span class="nc" id="L123">    return gameDataFullyLoaded;</span>
+  }
+
+  public String getGameName() {
+<span class="fc" id="L127">    return gameData.getGameName();</span>
+  }
+
+  // the user may have selected a map skin instead of this map folder, so don't use this for anything except our
+  // equals/hashcode below
+  private String getMapNameProperty() {
+<span class="fc" id="L133">    final String mapName = (String) gameData.getProperties().get(Constants.MAP_NAME);</span>
+<span class="pc bpc" id="L134" title="2 of 4 branches missed.">    if (mapName == null || mapName.trim().length() == 0) {</span>
+<span class="nc" id="L135">      throw new IllegalStateException(&quot;Map name property not set on game&quot;);</span>
+    }
+<span class="fc" id="L137">    return mapName;</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L142">    return getGameName();</span>
+  }
+
+  public GameData getGameData() {
+<span class="nc" id="L146">    return gameData;</span>
+  }
+
+  public URI getURI() {
+<span class="nc" id="L150">    return url;</span>
+  }
+
+  public String getLocation() {
+<span class="nc" id="L154">    final String raw = url.toString();</span>
+<span class="nc" id="L155">    final String base = ClientFileSystemHelper.getRootFolder().toURI().toString() + &quot;maps&quot;;</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    if (raw.startsWith(base)) {</span>
+<span class="nc" id="L157">      return raw.substring(base.length());</span>
+    }
+<span class="nc bnc" id="L159" title="All 2 branches missed.">    if (raw.startsWith(&quot;jar:&quot; + base)) {</span>
+<span class="nc" id="L160">      return raw.substring(&quot;jar:&quot;.length() + base.length());</span>
+    }
+<span class="nc" id="L162">    return raw;</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="fc" id="L167">    return gameNameAndMapNameProperty.hashCode();</span>
+  }
+
+  @Override
+  public boolean equals(final Object obj) {
+<span class="nc bnc" id="L172" title="All 2 branches missed.">    if (this == obj) {</span>
+<span class="nc" id="L173">      return true;</span>
+    }
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    if (obj == null) {</span>
+<span class="nc" id="L176">      return false;</span>
+    }
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    if (getClass() != obj.getClass()) {</span>
+<span class="nc" id="L179">      return false;</span>
+    }
+<span class="nc" id="L181">    final NewGameChooserEntry other = (NewGameChooserEntry) obj;</span>
+<span class="nc bnc" id="L182" title="All 4 branches missed.">    if (gameData == null &amp;&amp; other.gameData != null) {</span>
+<span class="nc" id="L183">      return false;</span>
+    } else {
+<span class="nc bnc" id="L185" title="All 2 branches missed.">      if (other.gameData == null) {</span>
+<span class="nc" id="L186">        return false;</span>
+      }
+    }
+<span class="nc" id="L189">    return this.gameNameAndMapNameProperty.equals(other.gameNameAndMapNameProperty);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

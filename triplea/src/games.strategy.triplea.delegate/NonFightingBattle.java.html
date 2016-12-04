@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>NonFightingBattle.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">NonFightingBattle.java</span></div><h1>NonFightingBattle.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.oddsCalculator.ta.BattleResults;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/**
+ * Battle in which no fighting occurs. &lt;b&gt;
+ * Example is a naval invasion into an empty country,
+ * but the battle cannot be fought until a naval battle
+ * occurs.
+ */
+public class NonFightingBattle extends AbstractBattle {
+  private static final long serialVersionUID = -1699534010648145123L;
+<span class="fc" id="L36">  private final Set&lt;Territory&gt; m_attackingFrom = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L37">  private final Collection&lt;Territory&gt; m_amphibiousAttackFrom = new ArrayList&lt;&gt;();</span>
+  // maps Territory-&gt; units (stores a collection of who is attacking from where, needed for undoing moves)
+<span class="fc" id="L39">  private final Map&lt;Territory, Collection&lt;Unit&gt;&gt; m_attackingFromMap = new HashMap&lt;&gt;();</span>
+
+  public NonFightingBattle(final Territory battleSite, final PlayerID attacker, final BattleTracker battleTracker,
+      final GameData data) {
+<span class="fc" id="L43">    super(battleSite, attacker, battleTracker, false, BattleType.NORMAL, data);</span>
+<span class="fc" id="L44">  }</span>
+
+  @Override
+  public Change addAttackChange(final Route route, final Collection&lt;Unit&gt; units,
+      final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets) {
+<span class="fc" id="L49">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; addedTransporting = TransportTracker.transporting(units);</span>
+<span class="fc bfc" id="L50" title="All 2 branches covered.">    for (final Unit unit : addedTransporting.keySet()) {</span>
+<span class="pc bpc" id="L51" title="1 of 2 branches missed.">      if (m_dependentUnits.get(unit) != null) {</span>
+<span class="nc" id="L52">        m_dependentUnits.get(unit).addAll(addedTransporting.get(unit));</span>
+<span class="nc" id="L53">      } else {</span>
+<span class="fc" id="L54">        m_dependentUnits.put(unit, addedTransporting.get(unit));</span>
+      }
+    }
+<span class="fc" id="L57">    final Territory attackingFrom = route.getTerritoryBeforeEnd();</span>
+<span class="fc" id="L58">    m_attackingFrom.add(attackingFrom);</span>
+<span class="fc" id="L59">    m_attackingUnits.addAll(units);</span>
+<span class="fc" id="L60">    m_attackingFromMap.putIfAbsent(attackingFrom, new ArrayList&lt;&gt;());</span>
+<span class="fc" id="L61">    final Collection&lt;Unit&gt; attackingFromMapUnits = m_attackingFromMap.get(attackingFrom);</span>
+<span class="fc" id="L62">    attackingFromMapUnits.addAll(units);</span>
+    // are we amphibious
+<span class="pc bpc" id="L64" title="2 of 6 branches missed.">    if (route.getStart().isWater() &amp;&amp; route.getEnd() != null &amp;&amp; !route.getEnd().isWater()</span>
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">        &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L66">      m_amphibiousAttackFrom.add(route.getTerritoryBeforeEnd());</span>
+<span class="fc" id="L67">      m_amphibiousLandAttackers.addAll(Match.getMatches(units, Matches.UnitIsLand));</span>
+<span class="fc" id="L68">      m_isAmphibious = true;</span>
+    }
+<span class="fc" id="L70">    return ChangeFactory.EMPTY_CHANGE;</span>
+  }
+
+  @Override
+  public void fight(final IDelegateBridge bridge) {
+<span class="nc bnc" id="L75" title="All 2 branches missed.">    if (!m_battleTracker.getDependentOn(this).isEmpty()) {</span>
+<span class="nc" id="L76">      throw new IllegalStateException(&quot;Must fight battles that this battle depends on first&quot;);</span>
+    }
+    // create event
+<span class="nc" id="L79">    bridge.getHistoryWriter().startEvent(&quot;Battle in &quot; + m_battleSite, m_battleSite);</span>
+    // if any attacking non air units then win
+<span class="nc" id="L81">    final boolean someAttacking = hasAttackingUnits();</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    if (someAttacking) {</span>
+<span class="nc" id="L83">      m_whoWon = WhoWon.ATTACKER;</span>
+<span class="nc" id="L84">      m_battleResultDescription = BattleRecord.BattleResultDescription.BLITZED;</span>
+<span class="nc" id="L85">      m_battleTracker.takeOver(m_battleSite, m_attacker, bridge, null, null);</span>
+<span class="nc" id="L86">      m_battleTracker.addToConquered(m_battleSite);</span>
+<span class="nc" id="L87">    } else {</span>
+<span class="nc" id="L88">      m_whoWon = WhoWon.DEFENDER;</span>
+<span class="nc" id="L89">      m_battleResultDescription = BattleRecord.BattleResultDescription.LOST;</span>
+    }
+<span class="nc" id="L91">    m_battleTracker.getBattleRecords().addResultToBattle(m_attacker, m_battleID, m_defender, m_attackerLostTUV,</span>
+<span class="nc" id="L92">        m_defenderLostTUV, m_battleResultDescription, new BattleResults(this, m_data));</span>
+<span class="nc" id="L93">    end();</span>
+<span class="nc" id="L94">  }</span>
+
+  private void end() {
+<span class="nc" id="L97">    m_battleTracker.removeBattle(this);</span>
+<span class="nc" id="L98">    m_isOver = true;</span>
+<span class="nc" id="L99">  }</span>
+
+  /**
+   * @return territories where there are amphibious attacks
+   */
+  public Collection&lt;Territory&gt; getAmphibiousAttackTerritories() {
+<span class="nc" id="L105">    return m_amphibiousAttackFrom;</span>
+  }
+
+  public Collection&lt;Territory&gt; getAttackingFrom() {
+<span class="nc" id="L109">    return m_attackingFrom;</span>
+  }
+
+  public Map&lt;Territory, Collection&lt;Unit&gt;&gt; getAttackingFromMap() {
+<span class="nc" id="L113">    return m_attackingFromMap;</span>
+  }
+
+  boolean hasAttackingUnits() {
+<span class="nc" id="L117">    final CompositeMatch&lt;Unit&gt; attackingLand = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L118">    attackingLand.add(Matches.alliedUnit(m_attacker, m_data));</span>
+<span class="nc" id="L119">    attackingLand.add(Matches.UnitIsLand);</span>
+<span class="nc" id="L120">    final boolean someAttacking = m_battleSite.getUnits().someMatch(attackingLand);</span>
+<span class="nc" id="L121">    return someAttacking;</span>
+  }
+
+  @Override
+  public void removeAttack(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L126">    m_attackingUnits.removeAll(units);</span>
+    // the route could be null, in the case of a unit in a territory where a sub is submerged.
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">    if (route == null) {</span>
+<span class="nc" id="L129">      return;</span>
+    }
+<span class="fc" id="L131">    final Territory attackingFrom = route.getTerritoryBeforeEnd();</span>
+<span class="fc" id="L132">    Collection&lt;Unit&gt; attackingFromMapUnits = m_attackingFromMap.get(attackingFrom);</span>
+    // handle possible null pointer
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">    if (attackingFromMapUnits == null) {</span>
+<span class="nc" id="L135">      attackingFromMapUnits = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L137">    attackingFromMapUnits.removeAll(units);</span>
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">    if (attackingFromMapUnits.isEmpty()) {</span>
+<span class="fc" id="L139">      m_attackingFrom.remove(attackingFrom);</span>
+    }
+    // deal with amphibious assaults
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">    if (attackingFrom.isWater()) {</span>
+<span class="pc bpc" id="L143" title="3 of 6 branches missed.">      if (route.getEnd() != null &amp;&amp; !route.getEnd().isWater() &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L144">        m_amphibiousLandAttackers.removeAll(Match.getMatches(units, Matches.UnitIsLand));</span>
+      }
+      // if none of the units is a land unit, the attack from
+      // that territory is no longer an amphibious assault
+<span class="pc bpc" id="L148" title="1 of 2 branches missed.">      if (Match.noneMatch(attackingFromMapUnits, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L149">        m_amphibiousAttackFrom.remove(attackingFrom);</span>
+        // do we have any amphibious attacks left?
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">        m_isAmphibious = !m_amphibiousAttackFrom.isEmpty();</span>
+      }
+    }
+<span class="fc" id="L154">    final Iterator&lt;Unit&gt; dependents = m_dependentUnits.keySet().iterator();</span>
+<span class="fc bfc" id="L155" title="All 2 branches covered.">    while (dependents.hasNext()) {</span>
+<span class="fc" id="L156">      final Unit dependence = dependents.next();</span>
+<span class="fc" id="L157">      final Collection&lt;Unit&gt; dependent = m_dependentUnits.get(dependence);</span>
+<span class="fc" id="L158">      dependent.removeAll(units);</span>
+    }
+<span class="fc" id="L160">  }</span>
+
+  @Override
+  public boolean isEmpty() {
+<span class="nc bnc" id="L164" title="All 2 branches missed.">    return !hasAttackingUnits();</span>
+  }
+
+  @Override
+  public void unitsLostInPrecedingBattle(final IBattle battle, final Collection&lt;Unit&gt; units,
+      final IDelegateBridge bridge, final boolean withdrawn) {
+<span class="nc bnc" id="L170" title="All 2 branches missed.">    if (withdrawn) {</span>
+<span class="nc" id="L171">      return;</span>
+    }
+<span class="nc" id="L173">    Collection&lt;Unit&gt; lost = getDependentUnits(units);</span>
+<span class="nc" id="L174">    lost.addAll(Util.intersection(units, m_attackingUnits));</span>
+<span class="nc" id="L175">    lost = Match.getMatches(lost, Matches.unitIsInTerritory(m_battleSite));</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">    if (lost.size() != 0) {</span>
+<span class="nc" id="L177">      final String transcriptText = MyFormatter.unitsToText(lost) + &quot; lost in &quot; + m_battleSite.getName();</span>
+<span class="nc" id="L178">      bridge.getHistoryWriter().addChildToEvent(transcriptText, lost);</span>
+<span class="nc" id="L179">      final Change change = ChangeFactory.removeUnits(m_battleSite, lost);</span>
+<span class="nc" id="L180">      bridge.addChange(change);</span>
+    }
+<span class="nc" id="L182">  }</span>
+
+  public void addDependentUnits(final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependencies) {
+<span class="nc bnc" id="L185" title="All 2 branches missed.">    for (final Unit holder : dependencies.keySet()) {</span>
+<span class="nc" id="L186">      final Collection&lt;Unit&gt; transporting = dependencies.get(holder);</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">      if (m_dependentUnits.get(holder) != null) {</span>
+<span class="nc" id="L188">        m_dependentUnits.get(holder).addAll(transporting);</span>
+<span class="nc" id="L189">      } else {</span>
+<span class="nc" id="L190">        m_dependentUnits.put(holder, new LinkedHashSet&lt;&gt;(transporting));</span>
+      }
+    }
+<span class="nc" id="L193">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

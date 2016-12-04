@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>VaultTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.vault</a> &gt; <span class="el_source">VaultTest.java</span></div><h1>VaultTest.java</h1><pre class="source lang-java linenums">package games.strategy.engine.vault;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.message.ChannelMessenger;
+import games.strategy.engine.message.unifiedmessenger.UnifiedMessenger;
+import games.strategy.net.ClientMessenger;
+import games.strategy.net.IMessenger;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.MacFinder;
+import games.strategy.net.Node;
+import games.strategy.net.ServerMessenger;
+import games.strategy.test.TestUtil;
+
+/**
+ * Comment(KG): This test is broken, If you run each test individually they all work, but when running all test in the
+ * class some will fail.
+ * This is because the lifecycle of the UnifiedMessenger (and internal classes such as NIOReader/Writer) are broken.
+ * The UnifiedMessenger will create a new ThreadPool with each instantiation, and this pool is never shutdown.
+ */
+<span class="fc" id="L34">public class VaultTest {</span>
+<span class="fc" id="L35">  private static int SERVER_PORT = -1;</span>
+  private IServerMessenger m_server;
+  private IMessenger m_client1;
+  private Vault m_clientVault;
+  private Vault m_serverVault;
+
+  @Before
+  public void setUp() throws IOException {
+<span class="fc" id="L43">    SERVER_PORT = TestUtil.getUniquePort();</span>
+<span class="fc" id="L44">    m_server = new ServerMessenger(&quot;Server&quot;, SERVER_PORT);</span>
+<span class="fc" id="L45">    m_server.setAcceptNewConnections(true);</span>
+<span class="fc" id="L46">    final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L47">    m_client1 = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client1&quot;, mac);</span>
+<span class="fc" id="L48">    final UnifiedMessenger serverUM = new UnifiedMessenger(m_server);</span>
+<span class="fc" id="L49">    final UnifiedMessenger clientUM = new UnifiedMessenger(m_client1);</span>
+<span class="fc" id="L50">    m_serverVault = new Vault(new ChannelMessenger(serverUM));</span>
+<span class="fc" id="L51">    m_clientVault = new Vault(new ChannelMessenger(clientUM));</span>
+<span class="fc" id="L52">    Thread.yield();</span>
+<span class="fc" id="L53">  }</span>
+
+  @After
+  public void tearDown() {
+    try {
+<span class="pc bpc" id="L58" title="1 of 2 branches missed.">      if (m_server != null) {</span>
+<span class="fc" id="L59">        m_server.shutDown();</span>
+      }
+<span class="pc" id="L61">    } catch (final Exception e) {</span>
+<span class="nc" id="L62">      ClientLogger.logQuietly(e);</span>
+    }
+    try {
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">      if (m_client1 != null) {</span>
+<span class="fc" id="L66">        m_client1.shutDown();</span>
+      }
+<span class="pc" id="L68">    } catch (final Exception e) {</span>
+<span class="nc" id="L69">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="fc" id="L71">  }</span>
+
+  @Test
+  public void testLocal() throws NotUnlockedException {
+<span class="fc" id="L75">    final IServerMessenger messenger = mock(IServerMessenger.class);</span>
+    try {
+<span class="fc" id="L77">      when(messenger.getLocalNode()).thenReturn(new Node(&quot;dummy&quot;, InetAddress.getLocalHost(), 0));</span>
+<span class="pc" id="L78">    } catch (final UnknownHostException e) {</span>
+<span class="nc" id="L79">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="fc" id="L81">    final UnifiedMessenger unifiedMessenger = new UnifiedMessenger(messenger);</span>
+<span class="fc" id="L82">    final ChannelMessenger channelMessenger = new ChannelMessenger(unifiedMessenger);</span>
+    // RemoteMessenger remoteMessenger = new RemoteMessenger(unifiedMessenger);
+<span class="fc" id="L84">    final Vault vault = new Vault(channelMessenger);</span>
+<span class="fc" id="L85">    final byte[] data = new byte[] {0, 1, 2, 3, 4, 5};</span>
+<span class="fc" id="L86">    final VaultID id = vault.lock(data);</span>
+<span class="fc" id="L87">    vault.unlock(id);</span>
+<span class="fc" id="L88">    assertArrayEquals(data, vault.get(id));</span>
+<span class="fc" id="L89">    vault.release(id);</span>
+<span class="fc" id="L90">  }</span>
+
+  /**
+   * Passes when run individually.
+   * Fails when run as part of a suite that consists of multiple server/vault tests.
+   *
+   * @throws NotUnlockedException
+   */
+  public void temporarilyDisabledSoPleaseRunManuallytestServerLock() throws NotUnlockedException {
+<span class="nc" id="L99">    final byte[] data = new byte[] {0, 1, 2, 3, 4, 5};</span>
+<span class="nc" id="L100">    final VaultID id = m_serverVault.lock(data);</span>
+<span class="nc" id="L101">    m_clientVault.waitForID(id, 1000);</span>
+<span class="nc" id="L102">    assertTrue(m_clientVault.knowsAbout(id));</span>
+<span class="nc" id="L103">    m_serverVault.unlock(id);</span>
+<span class="nc" id="L104">    m_clientVault.waitForIdToUnlock(id, 1000);</span>
+<span class="nc" id="L105">    assertTrue(m_clientVault.isUnlocked(id));</span>
+<span class="nc" id="L106">    assertEquals(data, m_clientVault.get(id));</span>
+<span class="nc" id="L107">    assertEquals(m_serverVault.get(id), m_clientVault.get(id));</span>
+<span class="nc" id="L108">    m_clientVault.release(id);</span>
+<span class="nc" id="L109">  }</span>
+
+  @Test
+  public void testClientLock() throws NotUnlockedException {
+<span class="fc" id="L113">    final byte[] data = new byte[] {0, 1, 2, 3, 4, 5};</span>
+<span class="fc" id="L114">    final VaultID id = m_clientVault.lock(data);</span>
+<span class="fc" id="L115">    m_serverVault.waitForID(id, 1000);</span>
+<span class="fc" id="L116">    assertTrue(m_serverVault.knowsAbout(id));</span>
+<span class="fc" id="L117">    m_clientVault.unlock(id);</span>
+<span class="fc" id="L118">    m_serverVault.waitForIdToUnlock(id, 1000);</span>
+<span class="fc" id="L119">    assertTrue(m_serverVault.isUnlocked(id));</span>
+<span class="fc" id="L120">    assertArrayEquals(data, m_serverVault.get(id));</span>
+<span class="fc" id="L121">    assertArrayEquals(m_clientVault.get(id), m_serverVault.get(id));</span>
+<span class="fc" id="L122">    m_clientVault.release(id);</span>
+<span class="fc" id="L123">  }</span>
+
+  /**
+   * Passes when run individually.
+   * Fails when run as part of a suite that consists of multiple server/vault tests.
+   *
+   * @throws NotUnlockedException
+   */
+  public void temporarilyDisabledSoPleaseRunManuallytestMultiple() throws NotUnlockedException {
+<span class="nc" id="L132">    final byte[] data1 = new byte[] {0, 1, 2, 3, 4, 5};</span>
+<span class="nc" id="L133">    final byte[] data2 = new byte[] {0xE, 0xF, 2, 1, 3, 1, 2, 12, 3, 31, 124, 12, 1};</span>
+<span class="nc" id="L134">    final VaultID id1 = m_serverVault.lock(data1);</span>
+<span class="nc" id="L135">    final VaultID id2 = m_serverVault.lock(data2);</span>
+<span class="nc" id="L136">    m_clientVault.waitForID(id1, 2000);</span>
+<span class="nc" id="L137">    m_clientVault.waitForID(id2, 2000);</span>
+<span class="nc" id="L138">    assertTrue(m_clientVault.knowsAbout(id1));</span>
+<span class="nc" id="L139">    assertTrue(m_clientVault.knowsAbout(id2));</span>
+<span class="nc" id="L140">    m_serverVault.unlock(id1);</span>
+<span class="nc" id="L141">    m_serverVault.unlock(id2);</span>
+<span class="nc" id="L142">    m_clientVault.waitForIdToUnlock(id1, 1000);</span>
+<span class="nc" id="L143">    m_clientVault.waitForIdToUnlock(id2, 1000);</span>
+<span class="nc" id="L144">    assertTrue(m_clientVault.isUnlocked(id1));</span>
+<span class="nc" id="L145">    assertTrue(m_clientVault.isUnlocked(id2));</span>
+<span class="nc" id="L146">    assertEquals(data1, m_clientVault.get(id1));</span>
+<span class="nc" id="L147">    assertEquals(data2, m_clientVault.get(id2));</span>
+<span class="nc" id="L148">    m_clientVault.release(id1);</span>
+<span class="nc" id="L149">    m_clientVault.release(id2);</span>
+<span class="nc" id="L150">  }</span>
+
+  @Test
+  public void testJoin() {
+<span class="fc" id="L154">    final byte[] data = new byte[] {0, 1, 2, 3, 4, 5};</span>
+<span class="fc" id="L155">    final byte[] joined = Vault.joinDataAndKnown(data);</span>
+<span class="fc" id="L156">    assertArrayEquals(new byte[] {0xC, 0xA, 0xF, 0xE, 0xB, 0xA, 0xB, 0xE, 0, 1, 2, 3, 4, 5}, joined);</span>
+<span class="fc" id="L157">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

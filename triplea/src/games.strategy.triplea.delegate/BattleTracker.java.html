@@ -1,0 +1,1093 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BattleTracker.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">BattleTracker.java</span></div><h1>BattleTracker.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipTracker;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.net.GUID;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.IBattle.WhoWon;
+import games.strategy.triplea.delegate.dataObjects.BattleListing;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord;
+import games.strategy.triplea.delegate.dataObjects.BattleRecords;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.oddsCalculator.ta.BattleResults;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.InverseMatch;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Used to keep track of where battles have occurred
+ */
+<span class="fc" id="L52">public class BattleTracker implements java.io.Serializable {</span>
+  private static final long serialVersionUID = 8806010984321554662L;
+  // List of pending battles
+<span class="fc" id="L55">  private final Set&lt;IBattle&gt; m_pendingBattles = new HashSet&lt;&gt;();</span>
+  // List of battle dependencies
+  // maps blocked -&gt; Collection of battles that must precede
+<span class="fc" id="L58">  private final Map&lt;IBattle, HashSet&lt;IBattle&gt;&gt; m_dependencies = new HashMap&lt;&gt;();</span>
+  // enemy and neutral territories that have been conquered
+  // blitzed is a subset of this
+<span class="fc" id="L61">  private final Set&lt;Territory&gt; m_conquered = new HashSet&lt;&gt;();</span>
+  // blitzed territories
+<span class="fc" id="L63">  private final Set&lt;Territory&gt; m_blitzed = new HashSet&lt;&gt;();</span>
+  // territories where a battle occurred
+<span class="fc" id="L65">  private final Set&lt;Territory&gt; m_foughBattles = new HashSet&lt;&gt;();</span>
+  // these territories have had battleships bombard during a naval invasion
+  // used to make sure that the same battleship doesn't bombard twice
+<span class="fc" id="L68">  private final Set&lt;Territory&gt; m_bombardedFromTerritories = new HashSet&lt;&gt;();</span>
+  // list of territory we have conquered in a FinishedBattle and where from and if amphibious
+<span class="fc" id="L70">  private final HashMap&lt;Territory, Map&lt;Territory, Collection&lt;Unit&gt;&gt;&gt; m_finishedBattlesUnitAttackFromMap =</span>
+<span class="fc" id="L71">      new HashMap&lt;&gt;();</span>
+  // things like kamikaze suicide attacks disallow bombarding from that sea zone for that turn
+<span class="fc" id="L73">  private final Set&lt;Territory&gt; m_noBombardAllowed = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L74">  private final Map&lt;Territory, Collection&lt;Unit&gt;&gt; m_defendingAirThatCanNotLand =</span>
+<span class="fc" id="L75">      new HashMap&lt;&gt;();</span>
+<span class="fc" id="L76">  private BattleRecords m_battleRecords = null;</span>
+  // to keep track of all relationships that have changed this turn
+  // (so we can validate things like transports loading in newly created hostile zones)
+<span class="fc" id="L79">  private final Collection&lt;Tuple&lt;Tuple&lt;PlayerID, PlayerID&gt;, Tuple&lt;RelationshipType, RelationshipType&gt;&gt;&gt; m_relationshipChangesThisTurn =</span>
+<span class="fc" id="L80">      new ArrayList&lt;&gt;();</span>
+
+  /**
+   * @param t
+   *        referring territory
+   * @param bombing
+   * @return whether a battle is to be fought in the given territory
+   */
+  public boolean hasPendingBattle(final Territory t, final boolean bombing) {
+<span class="fc bfc" id="L89" title="All 2 branches covered.">    return getPendingBattle(t, bombing, null) != null;</span>
+  }
+
+  /**
+   * add to the conquered.
+   */
+  void addToConquered(final Collection&lt;Territory&gt; territories) {
+<span class="nc" id="L96">    m_conquered.addAll(territories);</span>
+<span class="nc" id="L97">  }</span>
+
+  void addToConquered(final Territory territory) {
+<span class="fc" id="L100">    m_conquered.add(territory);</span>
+<span class="fc" id="L101">  }</span>
+
+  /**
+   * @param t
+   *        referring territory
+   * @return whether territory was conquered
+   */
+  public boolean wasConquered(final Territory t) {
+<span class="fc" id="L109">    return m_conquered.contains(t);</span>
+  }
+
+  public Set&lt;Territory&gt; getConquered() {
+<span class="nc" id="L113">    return m_conquered;</span>
+  }
+
+  /**
+   * @param t
+   *        referring territory
+   * @return whether territory was conquered by blitz
+   */
+  public boolean wasBlitzed(final Territory t) {
+<span class="fc" id="L122">    return m_blitzed.contains(t);</span>
+  }
+
+  public boolean wasBattleFought(final Territory t) {
+<span class="fc" id="L126">    return m_foughBattles.contains(t);</span>
+  }
+
+  public boolean noBombardAllowedFromHere(final Territory t) {
+<span class="fc" id="L130">    return m_noBombardAllowed.contains(t);</span>
+  }
+
+  public void addNoBombardAllowedFromHere(final Territory t) {
+<span class="nc" id="L134">    m_noBombardAllowed.add(t);</span>
+<span class="nc" id="L135">  }</span>
+
+  public HashMap&lt;Territory, Map&lt;Territory, Collection&lt;Unit&gt;&gt;&gt; getFinishedBattlesUnitAttackFromMap() {
+<span class="nc" id="L138">    return m_finishedBattlesUnitAttackFromMap;</span>
+  }
+
+  public void addRelationshipChangesThisTurn(final PlayerID p1, final PlayerID p2, final RelationshipType oldRelation,
+      final RelationshipType newRelation) {
+<span class="nc" id="L143">    m_relationshipChangesThisTurn.add(Tuple.of(</span>
+<span class="nc" id="L144">        Tuple.of(p1, p2),</span>
+<span class="nc" id="L145">        Tuple.of(oldRelation, newRelation)));</span>
+<span class="nc" id="L146">  }</span>
+
+  public boolean didAllThesePlayersJustGoToWarThisTurn(final PlayerID p1, final Collection&lt;Unit&gt; enemyUnits,
+      final GameData data) {
+<span class="nc" id="L150">    final Set&lt;PlayerID&gt; enemies = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">    for (final Unit u : Match.getMatches(enemyUnits, Matches.unitIsEnemyOf(data, p1))) {</span>
+<span class="nc" id="L152">      enemies.add(u.getOwner());</span>
+    }
+<span class="nc bnc" id="L154" title="All 2 branches missed.">    for (final PlayerID e : enemies) {</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">      if (!didThesePlayersJustGoToWarThisTurn(p1, e)) {</span>
+<span class="nc" id="L156">        return false;</span>
+      }
+    }
+<span class="nc" id="L159">    return true;</span>
+  }
+
+  public boolean didThesePlayersJustGoToWarThisTurn(final PlayerID p1, final PlayerID p2) {
+    // check all relationship changes that are p1 and p2, to make sure that oldRelation is not war,
+    // and newRelation is war
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    for (final Tuple&lt;Tuple&lt;PlayerID, PlayerID&gt;, Tuple&lt;RelationshipType, RelationshipType&gt;&gt; t : m_relationshipChangesThisTurn) {</span>
+<span class="nc" id="L166">      final Tuple&lt;PlayerID, PlayerID&gt; players = t.getFirst();</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">      if (players.getFirst().equals(p1)) {</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">        if (!players.getSecond().equals(p2)) {</span>
+<span class="nc" id="L169">          continue;</span>
+        }
+<span class="nc bnc" id="L171" title="All 2 branches missed.">      } else if (players.getSecond().equals(p1)) {</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">        if (!players.getFirst().equals(p2)) {</span>
+<span class="nc" id="L173">          continue;</span>
+        }
+      } else {
+        continue;
+      }
+<span class="nc" id="L178">      final Tuple&lt;RelationshipType, RelationshipType&gt; relations = t.getSecond();</span>
+<span class="nc bnc" id="L179" title="All 2 branches missed.">      if (!Matches.RelationshipTypeIsAtWar.match(relations.getFirst())) {</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">        if (Matches.RelationshipTypeIsAtWar.match(relations.getSecond())) {</span>
+<span class="nc" id="L181">          return true;</span>
+        }
+      }
+    }
+<span class="nc" id="L185">    return false;</span>
+  }
+
+  void clearFinishedBattles(final IDelegateBridge bridge) {
+<span class="fc bfc" id="L189" title="All 2 branches covered.">    for (final IBattle battle : new ArrayList&lt;&gt;(m_pendingBattles)) {</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">      if (FinishedBattle.class.isAssignableFrom(battle.getClass())) {</span>
+<span class="nc" id="L191">        final FinishedBattle finished = (FinishedBattle) battle;</span>
+<span class="nc" id="L192">        m_finishedBattlesUnitAttackFromMap.put(finished.getTerritory(), finished.getAttackingFromMap());</span>
+<span class="nc" id="L193">        finished.fight(bridge);</span>
+      }
+    }
+<span class="fc" id="L196">  }</span>
+
+  public void clearEmptyAirBattleAttacks(final IDelegateBridge bridge) {
+<span class="fc bfc" id="L199" title="All 2 branches covered.">    for (final IBattle battle : new ArrayList&lt;&gt;(m_pendingBattles)) {</span>
+<span class="pc bpc" id="L200" title="1 of 2 branches missed.">      if (AirBattle.class.isAssignableFrom(battle.getClass())) {</span>
+<span class="nc" id="L201">        final AirBattle airBattle = (AirBattle) battle;</span>
+<span class="nc" id="L202">        airBattle.updateDefendingUnits();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">        if (airBattle.getDefendingUnits().isEmpty()) {</span>
+<span class="nc" id="L204">          airBattle.finishBattleAndRemoveFromTrackerHeadless(bridge);</span>
+        }
+      }
+    }
+<span class="fc" id="L208">  }</span>
+
+  public void undoBattle(final Route route, final Collection&lt;Unit&gt; units, final PlayerID player,
+      final IDelegateBridge bridge) {
+<span class="fc bfc" id="L212" title="All 2 branches covered.">    for (final IBattle battle : new ArrayList&lt;&gt;(m_pendingBattles)) {</span>
+<span class="fc bfc" id="L213" title="All 2 branches covered.">      if (battle.getTerritory().equals(route.getEnd())) {</span>
+<span class="fc" id="L214">        battle.removeAttack(route, units);</span>
+<span class="fc bfc" id="L215" title="All 2 branches covered.">        if (battle.isEmpty()) {</span>
+<span class="fc" id="L216">          removeBattleForUndo(player, battle);</span>
+        }
+      }
+    }
+<span class="fc" id="L220">    final RelationshipTracker relationshipTracker = bridge.getData().getRelationshipTracker();</span>
+    // if we have no longer conquered it, clear the blitz state
+    // We must look at all territories,
+    // because we could have conquered the end territory if there are no units there
+<span class="fc bfc" id="L224" title="All 2 branches covered.">    for (final Territory current : route.getAllTerritories()) {</span>
+<span class="pc bpc" id="L225" title="1 of 4 branches missed.">      if (!relationshipTracker.isAllied(current.getOwner(), player) &amp;&amp; m_conquered.contains(current)) {</span>
+<span class="nc" id="L226">        m_conquered.remove(current);</span>
+<span class="nc" id="L227">        m_blitzed.remove(current);</span>
+      }
+    }
+    // say they weren't in combat
+<span class="fc" id="L231">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc" id="L232">    final Iterator&lt;Unit&gt; attackIter = units.iterator();</span>
+<span class="fc bfc" id="L233" title="All 2 branches covered.">    while (attackIter.hasNext()) {</span>
+<span class="fc" id="L234">      change.add(ChangeFactory.unitPropertyChange(attackIter.next(), false, TripleAUnit.WAS_IN_COMBAT));</span>
+    }
+<span class="fc" id="L236">    bridge.addChange(change);</span>
+<span class="fc" id="L237">  }</span>
+
+  private void removeBattleForUndo(final PlayerID player, final IBattle battle) {
+<span class="pc bpc" id="L240" title="1 of 2 branches missed.">    if (m_battleRecords != null) {</span>
+<span class="fc" id="L241">      m_battleRecords.removeBattle(player, battle.getBattleID());</span>
+    }
+<span class="fc" id="L243">    m_pendingBattles.remove(battle);</span>
+<span class="fc" id="L244">    m_dependencies.remove(battle);</span>
+<span class="pc bpc" id="L245" title="1 of 2 branches missed.">    for (final Collection&lt;IBattle&gt; battles : m_dependencies.values()) {</span>
+<span class="nc" id="L246">      battles.remove(battle);</span>
+    }
+<span class="fc" id="L248">  }</span>
+
+  public void addBattle(final Route route, final Collection&lt;Unit&gt; units, final boolean bombing, final PlayerID id,
+      final IDelegateBridge bridge, final UndoableMove changeTracker,
+      final Collection&lt;Unit&gt; unitsNotUnloadedTilEndOfRoute) {
+<span class="fc" id="L253">    this.addBattle(route, units, bombing, id, bridge, changeTracker, unitsNotUnloadedTilEndOfRoute, null, false);</span>
+<span class="fc" id="L254">  }</span>
+
+  public void addBattle(final Route route, final Collection&lt;Unit&gt; units, final boolean bombing, final PlayerID id,
+      final IDelegateBridge bridge, final UndoableMove changeTracker,
+      final Collection&lt;Unit&gt; unitsNotUnloadedTilEndOfRoute, final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets,
+      final boolean airBattleCompleted) {
+<span class="fc" id="L260">    final GameData data = bridge.getData();</span>
+<span class="fc bfc" id="L261" title="All 2 branches covered.">    if (bombing) {</span>
+      // create only either an air battle OR a bombing battle.
+      // (the air battle will create a bombing battle when done, if needed)
+<span class="pc bpc" id="L264" title="1 of 4 branches missed.">      if (!airBattleCompleted &amp;&amp; games.strategy.triplea.Properties.getRaidsMayBePreceededByAirBattles(data)</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">          &amp;&amp; AirBattle.territoryCouldPossiblyHaveAirBattleDefenders(route.getEnd(), id, data, bombing)) {</span>
+<span class="nc" id="L266">        addAirBattle(route, units, id, data, true);</span>
+<span class="nc" id="L267">      } else {</span>
+<span class="fc" id="L268">        addBombingBattle(route, units, id, data, targets);</span>
+      }
+      // say they were in combat
+<span class="fc" id="L271">      markWasInCombat(units, bridge, changeTracker);</span>
+<span class="fc" id="L272">    } else {</span>
+      // create both an air battle and a normal battle
+<span class="pc bpc" id="L274" title="2 of 4 branches missed.">      if (!airBattleCompleted &amp;&amp; games.strategy.triplea.Properties.getBattlesMayBePreceededByAirBattles(data)</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">          &amp;&amp; AirBattle.territoryCouldPossiblyHaveAirBattleDefenders(route.getEnd(), id, data, bombing)) {</span>
+<span class="nc" id="L276">        addAirBattle(route, Match.getMatches(units, AirBattle.attackingGroundSeaBattleEscorts(id, data)), id, data,</span>
+<span class="nc" id="L277">            false);</span>
+      }
+<span class="fc" id="L279">      final Change change = addMustFightBattleChange(route, units, id, data);</span>
+<span class="fc" id="L280">      bridge.addChange(change);</span>
+<span class="fc bfc" id="L281" title="All 2 branches covered.">      if (changeTracker != null) {</span>
+<span class="fc" id="L282">        changeTracker.addChange(change);</span>
+      }
+<span class="fc bfc" id="L284" title="All 2 branches covered.">      if (games.strategy.util.Match.someMatch(units, Matches.UnitIsLand)</span>
+<span class="fc bfc" id="L285" title="All 2 branches covered.">          || games.strategy.util.Match.someMatch(units, Matches.UnitIsSea)) {</span>
+<span class="fc" id="L286">        addEmptyBattle(route, units, id, bridge, changeTracker, unitsNotUnloadedTilEndOfRoute);</span>
+      }
+    }
+<span class="fc" id="L289">  }</span>
+
+  private void markWasInCombat(final Collection&lt;Unit&gt; units, final IDelegateBridge bridge,
+      final UndoableMove changeTracker) {
+<span class="pc bpc" id="L293" title="1 of 2 branches missed.">    if (units == null) {</span>
+<span class="nc" id="L294">      return;</span>
+    }
+<span class="fc" id="L296">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc" id="L297">    final Iterator&lt;Unit&gt; attackIter = units.iterator();</span>
+<span class="fc bfc" id="L298" title="All 2 branches covered.">    while (attackIter.hasNext()) {</span>
+<span class="fc" id="L299">      change.add(ChangeFactory.unitPropertyChange(attackIter.next(), true, TripleAUnit.WAS_IN_COMBAT));</span>
+    }
+<span class="fc" id="L301">    bridge.addChange(change);</span>
+<span class="fc bfc" id="L302" title="All 2 branches covered.">    if (changeTracker != null) {</span>
+<span class="fc" id="L303">      changeTracker.addChange(change);</span>
+    }
+<span class="fc" id="L305">  }</span>
+
+  private void addBombingBattle(final Route route, final Collection&lt;Unit&gt; units, final PlayerID attacker,
+      final GameData data, final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets) {
+<span class="fc" id="L309">    IBattle battle = getPendingBattle(route.getEnd(), true, BattleType.BOMBING_RAID);</span>
+<span class="pc bpc" id="L310" title="1 of 2 branches missed.">    if (battle == null) {</span>
+<span class="fc" id="L311">      battle = new StrategicBombingRaidBattle(route.getEnd(), data, attacker, this);</span>
+<span class="fc" id="L312">      m_pendingBattles.add(battle);</span>
+<span class="fc" id="L313">      getBattleRecords().addBattle(attacker, battle.getBattleID(), route.getEnd(), battle.getBattleType());</span>
+    }
+<span class="fc" id="L315">    final Change change = battle.addAttackChange(route, units, targets);</span>
+    // when state is moved to the game data, this will change
+<span class="pc bpc" id="L317" title="1 of 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L318">      throw new IllegalStateException(&quot;Non empty change&quot;);</span>
+    }
+    // dont let land battles in the same territory occur before bombing battles
+<span class="fc" id="L321">    final IBattle dependent = getPendingBattle(route.getEnd(), false, BattleType.NORMAL);</span>
+<span class="pc bpc" id="L322" title="1 of 2 branches missed.">    if (dependent != null) {</span>
+<span class="nc" id="L323">      addDependency(dependent, battle);</span>
+    }
+<span class="fc" id="L325">    final IBattle dependentAirBattle = getPendingBattle(route.getEnd(), false, BattleType.AIR_BATTLE);</span>
+<span class="pc bpc" id="L326" title="1 of 2 branches missed.">    if (dependentAirBattle != null) {</span>
+<span class="nc" id="L327">      addDependency(dependentAirBattle, battle);</span>
+    }
+<span class="fc" id="L329">  }</span>
+
+  private void addAirBattle(final Route route, final Collection&lt;Unit&gt; units, final PlayerID attacker,
+      final GameData data, final boolean bombingRun) {
+<span class="nc bnc" id="L333" title="All 2 branches missed.">    if (units.isEmpty()) {</span>
+<span class="nc" id="L334">      return;</span>
+    }
+<span class="nc" id="L336">    IBattle battle =</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        getPendingBattle(route.getEnd(), bombingRun, (bombingRun ? BattleType.AIR_RAID : BattleType.AIR_BATTLE));</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">    if (battle == null) {</span>
+<span class="nc" id="L339">      battle = new AirBattle(route.getEnd(), bombingRun, data, attacker, this);</span>
+<span class="nc" id="L340">      m_pendingBattles.add(battle);</span>
+<span class="nc" id="L341">      getBattleRecords().addBattle(attacker, battle.getBattleID(), route.getEnd(), battle.getBattleType());</span>
+    }
+<span class="nc" id="L343">    final Change change = battle.addAttackChange(route, units, null);</span>
+    // when state is moved to the game data, this will change
+<span class="nc bnc" id="L345" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L346">      throw new IllegalStateException(&quot;Non empty change&quot;);</span>
+    }
+    // dont let land battles in the same territory occur before bombing battles
+<span class="nc bnc" id="L349" title="All 2 branches missed.">    if (bombingRun) {</span>
+<span class="nc" id="L350">      final IBattle dependentAirBattle = getPendingBattle(route.getEnd(), false, BattleType.AIR_BATTLE);</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">      if (dependentAirBattle != null) {</span>
+<span class="nc" id="L352">        addDependency(dependentAirBattle, battle);</span>
+      }
+<span class="nc" id="L354">    } else {</span>
+<span class="nc" id="L355">      final IBattle airRaid = getPendingBattle(route.getEnd(), true, BattleType.AIR_RAID);</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">      if (airRaid != null) {</span>
+<span class="nc" id="L357">        addDependency(battle, airRaid);</span>
+      }
+<span class="nc" id="L359">      final IBattle raid = getPendingBattle(route.getEnd(), true, BattleType.BOMBING_RAID);</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">      if (raid != null) {</span>
+<span class="nc" id="L361">        addDependency(battle, raid);</span>
+      }
+    }
+<span class="nc" id="L364">    final IBattle dependent = getPendingBattle(route.getEnd(), false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">    if (dependent != null) {</span>
+<span class="nc" id="L366">      addDependency(dependent, battle);</span>
+    }
+<span class="nc" id="L368">  }</span>
+
+  /**
+   * No enemies.
+   */
+  private void addEmptyBattle(final Route route, final Collection&lt;Unit&gt; units, final PlayerID id,
+      final IDelegateBridge bridge, final UndoableMove changeTracker,
+      final Collection&lt;Unit&gt; unitsNotUnloadedTilEndOfRoute) {
+<span class="fc" id="L376">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L377">    final Collection&lt;Unit&gt; canConquer = Match.getMatches(units,</span>
+<span class="fc" id="L378">        Matches.unitIsBeingTransportedByOrIsDependentOfSomeUnitInThisList(units, route, id, data, false).invert());</span>
+<span class="fc bfc" id="L379" title="All 2 branches covered.">    if (Match.noneMatch(canConquer, Matches.UnitIsNotAir)) {</span>
+<span class="fc" id="L380">      return;</span>
+    }
+<span class="fc" id="L382">    final Collection&lt;Unit&gt; presentFromStartTilEnd = new ArrayList&lt;&gt;(canConquer);</span>
+<span class="fc bfc" id="L383" title="All 2 branches covered.">    if (unitsNotUnloadedTilEndOfRoute != null) {</span>
+<span class="fc" id="L384">      presentFromStartTilEnd.removeAll(unitsNotUnloadedTilEndOfRoute);</span>
+    }
+<span class="fc" id="L386">    final boolean canConquerMiddleSteps = Match.someMatch(presentFromStartTilEnd, Matches.UnitIsNotAir);</span>
+<span class="fc" id="L387">    final boolean scramblingEnabled = games.strategy.triplea.Properties.getScramble_Rules_In_Effect(data);</span>
+<span class="fc" id="L388">    final CompositeMatch&lt;Territory&gt; conquerable = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="fc" id="L389">    conquerable.add(Matches.territoryIsEmptyOfCombatUnits(data, id));</span>
+<span class="fc" id="L390">    conquerable.add(new CompositeMatchOr&lt;&gt;(</span>
+<span class="fc" id="L391">        Matches.territoryIsOwnedByPlayerWhosRelationshipTypeCanTakeOverOwnedTerritoryAndPassableAndNotWater(id),</span>
+<span class="fc" id="L392">        Matches.isTerritoryEnemyAndNotUnownedWaterOrImpassableOrRestricted(id, data)));</span>
+<span class="fc" id="L393">    final Collection&lt;Territory&gt; conquered = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L394" title="1 of 2 branches missed.">    if (canConquerMiddleSteps) {</span>
+<span class="fc" id="L395">      conquered.addAll(route.getMatches(conquerable));</span>
+      // in case we begin in enemy territory, and blitz out of it, check the first territory
+<span class="pc bpc" id="L397" title="1 of 4 branches missed.">      if (route.getStart() != route.getEnd() &amp;&amp; conquerable.match(route.getStart())) {</span>
+<span class="nc" id="L398">        conquered.add(route.getStart());</span>
+      }
+    }
+    // we handle the end of the route later
+<span class="fc" id="L402">    conquered.remove(route.getEnd());</span>
+<span class="fc" id="L403">    final Collection&lt;Territory&gt; blitzed = Match.getMatches(conquered, Matches.TerritoryIsBlitzable(id, data));</span>
+<span class="fc" id="L404">    m_blitzed.addAll(Match.getMatches(blitzed, Matches.isTerritoryEnemy(id, data)));</span>
+<span class="fc" id="L405">    m_conquered.addAll(Match.getMatches(conquered, Matches.isTerritoryEnemy(id, data)));</span>
+<span class="fc bfc" id="L406" title="All 2 branches covered.">    for (final Territory current : conquered) {</span>
+<span class="fc" id="L407">      IBattle nonFight = getPendingBattle(current, false, BattleType.NORMAL);</span>
+      // TODO: if we ever want to scramble to a blitzed territory, then we need to fix this
+<span class="pc bpc" id="L409" title="1 of 2 branches missed.">      if (nonFight == null) {</span>
+<span class="fc" id="L410">        nonFight = new FinishedBattle(current, id, this, false, BattleType.NORMAL, data,</span>
+<span class="fc" id="L411">            BattleRecord.BattleResultDescription.CONQUERED, WhoWon.ATTACKER);</span>
+<span class="fc" id="L412">        m_pendingBattles.add(nonFight);</span>
+<span class="fc" id="L413">        getBattleRecords().addBattle(id, nonFight.getBattleID(), current, nonFight.getBattleType());</span>
+      }
+<span class="fc" id="L415">      final Change change = nonFight.addAttackChange(route, units, null);</span>
+<span class="fc" id="L416">      bridge.addChange(change);</span>
+<span class="pc bpc" id="L417" title="1 of 2 branches missed.">      if (changeTracker != null) {</span>
+<span class="fc" id="L418">        changeTracker.addChange(change);</span>
+      }
+<span class="fc" id="L420">      takeOver(current, id, bridge, changeTracker, units);</span>
+      // }
+    }
+    // check the last territory
+<span class="fc bfc" id="L424" title="All 2 branches covered.">    if (conquerable.match(route.getEnd())) {</span>
+<span class="fc" id="L425">      IBattle precede = getDependentAmphibiousAssault(route);</span>
+<span class="fc bfc" id="L426" title="All 2 branches covered.">      if (precede == null) {</span>
+<span class="fc" id="L427">        precede = getPendingBattle(route.getEnd(), true, null);</span>
+      }
+      // if we have a preceding battle, then we must use a non-fighting-battle
+      // if we have scrambling on, and this is an amphibious attack,
+      // we may wish to scramble to kill the transports, so must use non-fighting-battle also
+<span class="pc bpc" id="L432" title="3 of 8 branches missed.">      if (precede != null || (scramblingEnabled &amp;&amp; route.isUnload() &amp;&amp; route.hasExactlyOneStep())) {</span>
+<span class="fc" id="L433">        IBattle nonFight = getPendingBattle(route.getEnd(), false, BattleType.NORMAL);</span>
+<span class="pc bpc" id="L434" title="1 of 2 branches missed.">        if (nonFight == null) {</span>
+<span class="fc" id="L435">          nonFight = new NonFightingBattle(route.getEnd(), id, this, data);</span>
+<span class="fc" id="L436">          m_pendingBattles.add(nonFight);</span>
+<span class="fc" id="L437">          getBattleRecords().addBattle(id, nonFight.getBattleID(), route.getEnd(), nonFight.getBattleType());</span>
+        }
+<span class="fc" id="L439">        final Change change = nonFight.addAttackChange(route, units, null);</span>
+<span class="fc" id="L440">        bridge.addChange(change);</span>
+<span class="pc bpc" id="L441" title="1 of 2 branches missed.">        if (changeTracker != null) {</span>
+<span class="fc" id="L442">          changeTracker.addChange(change);</span>
+        }
+<span class="pc bpc" id="L444" title="1 of 2 branches missed.">        if (precede != null) {</span>
+<span class="fc" id="L445">          addDependency(nonFight, precede);</span>
+        }
+<span class="fc" id="L447">      } else {</span>
+<span class="pc bpc" id="L448" title="1 of 2 branches missed.">        if (Matches.isTerritoryEnemy(id, data).match(route.getEnd())) {</span>
+<span class="fc bfc" id="L449" title="All 2 branches covered.">          if (Matches.TerritoryIsBlitzable(id, data).match(route.getEnd())) {</span>
+<span class="fc" id="L450">            m_blitzed.add(route.getEnd());</span>
+          }
+<span class="fc" id="L452">          m_conquered.add(route.getEnd());</span>
+        }
+<span class="fc" id="L454">        IBattle nonFight = getPendingBattle(route.getEnd(), false, BattleType.NORMAL);</span>
+<span class="pc bpc" id="L455" title="1 of 2 branches missed.">        if (nonFight == null) {</span>
+<span class="fc" id="L456">          nonFight = new FinishedBattle(route.getEnd(), id, this, false, BattleType.NORMAL, data,</span>
+<span class="fc" id="L457">              BattleRecord.BattleResultDescription.CONQUERED, WhoWon.ATTACKER);</span>
+<span class="fc" id="L458">          m_pendingBattles.add(nonFight);</span>
+<span class="fc" id="L459">          getBattleRecords().addBattle(id, nonFight.getBattleID(), route.getEnd(), nonFight.getBattleType());</span>
+        }
+<span class="fc" id="L461">        final Change change = nonFight.addAttackChange(route, units, null);</span>
+<span class="fc" id="L462">        bridge.addChange(change);</span>
+<span class="pc bpc" id="L463" title="1 of 2 branches missed.">        if (changeTracker != null) {</span>
+<span class="fc" id="L464">          changeTracker.addChange(change);</span>
+        }
+<span class="fc" id="L466">        takeOver(route.getEnd(), id, bridge, changeTracker, units);</span>
+      }
+    }
+    // TODO: else what?
+<span class="fc" id="L470">  }</span>
+
+  public void takeOver(final Territory territory, final PlayerID id, final IDelegateBridge bridge,
+      final UndoableMove changeTracker, final Collection&lt;Unit&gt; arrivingUnits) {
+    // This could be NULL if unowned water
+<span class="fc" id="L475">    final TerritoryAttachment ta = TerritoryAttachment.get(territory);</span>
+<span class="fc bfc" id="L476" title="All 2 branches covered.">    if (ta == null) {</span>
+      // TODO: allow capture/destroy of infrastructure on unowned water
+<span class="fc" id="L478">      return;</span>
+    }
+<span class="fc" id="L480">    final GameData data = bridge.getData();</span>
+<span class="pc bpc" id="L481" title="1 of 2 branches missed.">    final Collection&lt;Unit&gt; arrivedUnits = (arrivingUnits == null ? null : new ArrayList&lt;&gt;(arrivingUnits));</span>
+<span class="fc" id="L482">    final RelationshipTracker relationshipTracker = data.getRelationshipTracker();</span>
+<span class="fc" id="L483">    final boolean isTerritoryOwnerAnEnemy = relationshipTracker.canTakeOverOwnedTerritory(id, territory.getOwner());</span>
+    // If this is a convoy (we wouldn't be in this method otherwise)
+    // check to make sure attackers have more than just transports. If they don't, exit here.
+<span class="pc bpc" id="L486" title="3 of 4 branches missed.">    if (territory.isWater() &amp;&amp; arrivedUnits != null) {</span>
+<span class="nc" id="L487">      int totalMatches = 0;</span>
+      // Total Attacking Sea units = all units - land units - air units - submerged subs
+      // Also subtract transports &amp; subs (if they can't control sea zones)
+<span class="nc" id="L490">      totalMatches = arrivedUnits.size() - Match.countMatches(arrivedUnits, Matches.UnitIsLand)</span>
+<span class="nc" id="L491">          - Match.countMatches(arrivedUnits, Matches.UnitIsAir)</span>
+<span class="nc" id="L492">          - Match.countMatches(arrivedUnits, Matches.unitIsSubmerged(data));</span>
+      // If transports are restricted from controlling sea zones, subtract them
+<span class="nc" id="L494">      final CompositeMatch&lt;Unit&gt; transportsCanNotControl = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L495">      transportsCanNotControl.add(Matches.UnitIsTransportAndNotDestroyer);</span>
+<span class="nc" id="L496">      transportsCanNotControl.add(Matches.UnitIsTransportButNotCombatTransport);</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">      if (!games.strategy.triplea.Properties.getTransportControlSeaZone(data)) {</span>
+<span class="nc" id="L498">        totalMatches -= Match.countMatches(arrivedUnits, transportsCanNotControl);</span>
+      }
+      // TODO check if istrn and NOT isDD
+      // If subs are restricted from controlling sea zones, subtract them
+<span class="nc bnc" id="L502" title="All 2 branches missed.">      if (games.strategy.triplea.Properties.getSubControlSeaZoneRestricted(data)) {</span>
+<span class="nc" id="L503">        totalMatches -= Match.countMatches(arrivedUnits, Matches.UnitIsSub);</span>
+      }
+<span class="nc bnc" id="L505" title="All 2 branches missed.">      if (totalMatches == 0) {</span>
+<span class="nc" id="L506">        return;</span>
+      }
+    }
+    // If it was a Convoy Route- check ownership of the associated neighboring territory and set message
+<span class="pc bpc" id="L510" title="2 of 4 branches missed.">    if (ta != null &amp;&amp; ta.getConvoyRoute()) {</span>
+      // we could be part of a convoy route for another territory
+<span class="nc" id="L512">      final Collection&lt;Territory&gt; attachedConvoyTo =</span>
+<span class="nc" id="L513">          TerritoryAttachment.getWhatTerritoriesThisIsUsedInConvoysFor(territory, data);</span>
+<span class="nc bnc" id="L514" title="All 2 branches missed.">      for (final Territory convoy : attachedConvoyTo) {</span>
+<span class="nc" id="L515">        final TerritoryAttachment cta = TerritoryAttachment.get(convoy);</span>
+<span class="nc bnc" id="L516" title="All 2 branches missed.">        if (!cta.getConvoyRoute()) {</span>
+<span class="nc" id="L517">          continue;</span>
+        }
+<span class="nc" id="L519">        final PlayerID convoyOwner = convoy.getOwner();</span>
+<span class="nc bnc" id="L520" title="All 2 branches missed.">        if (relationshipTracker.isAllied(id, convoyOwner)) {</span>
+<span class="nc bnc" id="L521" title="All 2 branches missed.">          if (Match.getMatches(cta.getConvoyAttached(), Matches.isTerritoryAllied(convoyOwner, data)).size() &lt;= 0) {</span>
+<span class="nc" id="L522">            bridge.getHistoryWriter()</span>
+<span class="nc" id="L523">                .addChildToEvent(convoyOwner.getName() + &quot; gains &quot; + cta.getProduction() + &quot; production in &quot;</span>
+<span class="nc" id="L524">                    + convoy.getName() + &quot; for the liberation the convoy route in &quot; + territory.getName());</span>
+          }
+<span class="nc bnc" id="L526" title="All 2 branches missed.">        } else if (relationshipTracker.isAtWar(id, convoyOwner)) {</span>
+<span class="nc bnc" id="L527" title="All 2 branches missed.">          if (Match.getMatches(cta.getConvoyAttached(), Matches.isTerritoryAllied(convoyOwner, data)).size() == 1) {</span>
+<span class="nc" id="L528">            bridge.getHistoryWriter()</span>
+<span class="nc" id="L529">                .addChildToEvent(convoyOwner.getName() + &quot; loses &quot; + cta.getProduction() + &quot; production in &quot;</span>
+<span class="nc" id="L530">                    + convoy.getName() + &quot; due to the capture of the convoy route in &quot; + territory.getName());</span>
+          }
+        }
+      }
+    }
+    // if neutral, we may charge money to enter
+<span class="pc bpc" id="L536" title="1 of 4 branches missed.">    if (territory.getOwner().isNull() &amp;&amp; !territory.isWater()</span>
+<span class="pc bpc" id="L537" title="1 of 2 branches missed.">        &amp;&amp; games.strategy.triplea.Properties.getNeutralCharge(data) &gt;= 0) {</span>
+<span class="fc" id="L538">      final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="fc" id="L539">      final int PUChargeIdeal = -games.strategy.triplea.Properties.getNeutralCharge(data);</span>
+<span class="fc" id="L540">      final int PUChargeReal = Math.min(0, Math.max(PUChargeIdeal, -id.getResources().getQuantity(PUs)));</span>
+<span class="fc" id="L541">      final Change neutralFee = ChangeFactory.changeResourcesChange(id, PUs, PUChargeReal);</span>
+<span class="fc" id="L542">      bridge.addChange(neutralFee);</span>
+<span class="pc bpc" id="L543" title="1 of 2 branches missed.">      if (changeTracker != null) {</span>
+<span class="fc" id="L544">        changeTracker.addChange(neutralFee);</span>
+      }
+<span class="pc bpc" id="L546" title="1 of 2 branches missed.">      if (PUChargeIdeal == PUChargeReal) {</span>
+<span class="fc" id="L547">        bridge.getHistoryWriter().addChildToEvent(id.getName() + &quot; loses &quot; + -PUChargeReal + &quot; &quot;</span>
+<span class="fc" id="L548">            + MyFormatter.pluralize(&quot;PU&quot;, -PUChargeReal) + &quot; for violating &quot; + territory.getName() + &quot;s neutrality.&quot;);</span>
+<span class="fc" id="L549">      } else {</span>
+<span class="nc" id="L550">        System.out.println(&quot;Player, &quot; + id.getName() + &quot; attacks a Neutral territory, and should have had to pay &quot;</span>
+<span class="nc" id="L551">            + PUChargeIdeal + &quot;, but did not have enough PUs to pay! This is a bug.&quot;);</span>
+<span class="nc" id="L552">        bridge.getHistoryWriter()</span>
+<span class="nc" id="L553">            .addChildToEvent(id.getName() + &quot; loses &quot; + -PUChargeReal + &quot; &quot; + MyFormatter.pluralize(&quot;PU&quot;, -PUChargeReal)</span>
+<span class="nc" id="L554">                + &quot; for violating &quot; + territory.getName() + &quot;s neutrality.  Correct amount to charge is: &quot;</span>
+<span class="nc" id="L555">                + PUChargeIdeal + &quot;.  Player should not have been able to make this attack!&quot;);</span>
+      }
+    }
+    // if its a capital we take the money
+    // NOTE: this is not checking to see if it is an enemy.
+    // instead it is relying on the fact that the capital should be owned by the person it is attached to
+<span class="pc bpc" id="L561" title="2 of 6 branches missed.">    if (ta != null &amp;&amp; isTerritoryOwnerAnEnemy &amp;&amp; ta.getCapital() != null) {</span>
+      // if the capital is owned by the capitols player take the money
+<span class="fc" id="L563">      final PlayerID whoseCapital = data.getPlayerList().getPlayerID(ta.getCapital());</span>
+<span class="fc" id="L564">      final PlayerAttachment pa = PlayerAttachment.get(id);</span>
+<span class="fc" id="L565">      final PlayerAttachment paWhoseCapital = PlayerAttachment.get(whoseCapital);</span>
+<span class="fc" id="L566">      final List&lt;Territory&gt; capitalsList =</span>
+<span class="fc" id="L567">          new ArrayList&lt;&gt;(TerritoryAttachment.getAllCurrentlyOwnedCapitals(whoseCapital, data));</span>
+      // we are losing one right now, so it is &lt; not &lt;=
+<span class="pc bpc" id="L569" title="3 of 4 branches missed.">      if (paWhoseCapital != null &amp;&amp; paWhoseCapital.getRetainCapitalNumber() &lt; capitalsList.size()) {</span>
+        // do nothing, we keep our money since we still control enough capitals
+<span class="nc" id="L571">        bridge.getHistoryWriter()</span>
+<span class="nc" id="L572">            .addChildToEvent(id.getName() + &quot; captures one of &quot; + whoseCapital.getName() + &quot; capitals&quot;);</span>
+<span class="pc bpc" id="L573" title="1 of 2 branches missed.">      } else if (whoseCapital.equals(territory.getOwner())) {</span>
+<span class="nc" id="L574">        final Resource PUs = data.getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L575">        final int capturedPUCount = whoseCapital.getResources().getQuantity(PUs);</span>
+<span class="nc bnc" id="L576" title="All 2 branches missed.">        if (pa != null) {</span>
+<span class="nc bnc" id="L577" title="All 2 branches missed.">          if (isPacificTheater(data)) {</span>
+<span class="nc" id="L578">            final Change changeVP =</span>
+<span class="nc" id="L579">                ChangeFactory.attachmentPropertyChange(pa, (capturedPUCount + pa.getCaptureVps()), &quot;captureVps&quot;);</span>
+<span class="nc" id="L580">            bridge.addChange(changeVP);</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">            if (changeTracker != null) {</span>
+<span class="nc" id="L582">              changeTracker.addChange(changeVP);</span>
+            }
+          }
+        }
+<span class="nc" id="L586">        final Change remove = ChangeFactory.changeResourcesChange(whoseCapital, PUs, -capturedPUCount);</span>
+<span class="nc" id="L587">        bridge.addChange(remove);</span>
+<span class="nc bnc" id="L588" title="All 4 branches missed.">        if (paWhoseCapital != null &amp;&amp; paWhoseCapital.getDestroysPUs()) {</span>
+<span class="nc" id="L589">          bridge.getHistoryWriter().addChildToEvent(id.getName() + &quot; destroys &quot; + capturedPUCount</span>
+<span class="nc" id="L590">              + MyFormatter.pluralize(&quot;PU&quot;, capturedPUCount) + &quot; while taking &quot; + whoseCapital.getName() + &quot; capital&quot;);</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">          if (changeTracker != null) {</span>
+<span class="nc" id="L592">            changeTracker.addChange(remove);</span>
+          }
+<span class="nc" id="L594">        } else {</span>
+<span class="nc" id="L595">          bridge.getHistoryWriter().addChildToEvent(id.getName() + &quot; captures &quot; + capturedPUCount</span>
+<span class="nc" id="L596">              + MyFormatter.pluralize(&quot;PU&quot;, capturedPUCount) + &quot; while taking &quot; + whoseCapital.getName() + &quot; capital&quot;);</span>
+<span class="nc bnc" id="L597" title="All 2 branches missed.">          if (changeTracker != null) {</span>
+<span class="nc" id="L598">            changeTracker.addChange(remove);</span>
+          }
+<span class="nc" id="L600">          final Change add = ChangeFactory.changeResourcesChange(id, PUs, capturedPUCount);</span>
+<span class="nc" id="L601">          bridge.addChange(add);</span>
+<span class="nc bnc" id="L602" title="All 2 branches missed.">          if (changeTracker != null) {</span>
+<span class="nc" id="L603">            changeTracker.addChange(add);</span>
+          }
+        }
+        // remove all the tokens of the captured player
+<span class="nc" id="L607">        final Resource tokens = data.getResourceList().getResource(Constants.TECH_TOKENS);</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">        if (tokens != null) {</span>
+<span class="nc" id="L609">          final int m_currTokens = whoseCapital.getResources().getQuantity(Constants.TECH_TOKENS);</span>
+<span class="nc" id="L610">          final Change removeTokens = ChangeFactory.changeResourcesChange(whoseCapital, tokens, -m_currTokens);</span>
+<span class="nc" id="L611">          bridge.addChange(removeTokens);</span>
+<span class="nc bnc" id="L612" title="All 2 branches missed.">          if (changeTracker != null) {</span>
+<span class="nc" id="L613">            changeTracker.addChange(removeTokens);</span>
+          }
+        }
+      }
+    }
+    // is this an allied territory, revert to original owner if it is, unless they dont own there captital
+<span class="fc" id="L619">    final PlayerID terrOrigOwner = OriginalOwnerTracker.getOriginalOwner(territory);</span>
+<span class="fc" id="L620">    PlayerID newOwner = id;</span>
+    // if the original owner is the current owner, and the current owner is our enemy or canTakeOver,
+    // then we do not worry about this.
+<span class="pc bpc" id="L623" title="1 of 6 branches missed.">    if (isTerritoryOwnerAnEnemy &amp;&amp; terrOrigOwner != null &amp;&amp; relationshipTracker.isAllied(terrOrigOwner, id)</span>
+<span class="pc bpc" id="L624" title="1 of 2 branches missed.">        &amp;&amp; !terrOrigOwner.equals(territory.getOwner())) {</span>
+<span class="fc" id="L625">      final List&lt;Territory&gt; capitalsListOwned =</span>
+<span class="fc" id="L626">          new ArrayList&lt;&gt;(TerritoryAttachment.getAllCurrentlyOwnedCapitals(terrOrigOwner, data));</span>
+<span class="fc bfc" id="L627" title="All 2 branches covered.">      if (!capitalsListOwned.isEmpty()) {</span>
+<span class="fc" id="L628">        newOwner = terrOrigOwner;</span>
+<span class="fc" id="L629">      } else {</span>
+<span class="fc" id="L630">        newOwner = id;</span>
+<span class="fc" id="L631">        final List&lt;Territory&gt; capitalsListOriginal =</span>
+<span class="fc" id="L632">            new ArrayList&lt;&gt;(TerritoryAttachment.getAllCapitals(terrOrigOwner, data));</span>
+<span class="fc bfc" id="L633" title="All 2 branches covered.">        for (final Territory current : capitalsListOriginal) {</span>
+<span class="pc bpc" id="L634" title="1 of 4 branches missed.">          if (territory.equals(current) || current.getOwner().equals(PlayerID.NULL_PLAYERID)) {</span>
+            // if a neutral controls our capital, our territories get liberated (ie: china in ww2v3)
+<span class="fc" id="L636">            newOwner = terrOrigOwner;</span>
+          }
+        }
+      }
+    }
+    // if we have specially set this territory to have whenCapturedByGoesTo,
+    // then we set that here (except we don't set it if we are liberating allied owned territory)
+<span class="pc bpc" id="L643" title="2 of 6 branches missed.">    if (ta != null &amp;&amp; isTerritoryOwnerAnEnemy &amp;&amp; newOwner.equals(id)</span>
+<span class="pc bpc" id="L644" title="1 of 2 branches missed.">        &amp;&amp; Matches.TerritoryHasWhenCapturedByGoesTo().match(territory)) {</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">      for (final String value : ta.getWhenCapturedByGoesTo()) {</span>
+<span class="nc" id="L646">        final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc" id="L647">        final PlayerID capturingPlayer = data.getPlayerList().getPlayerID(s[0]);</span>
+<span class="nc" id="L648">        final PlayerID goesToPlayer = data.getPlayerList().getPlayerID(s[1]);</span>
+<span class="nc bnc" id="L649" title="All 2 branches missed.">        if (capturingPlayer.equals(goesToPlayer)) {</span>
+<span class="nc" id="L650">          continue;</span>
+        }
+<span class="nc bnc" id="L652" title="All 2 branches missed.">        if (capturingPlayer.equals(id)) {</span>
+<span class="nc" id="L653">          newOwner = goesToPlayer;</span>
+<span class="nc" id="L654">          break;</span>
+        }
+      }
+    }
+<span class="pc bpc" id="L658" title="2 of 4 branches missed.">    if (isTerritoryOwnerAnEnemy &amp;&amp; ta != null) {</span>
+<span class="fc" id="L659">      final Change takeOver = ChangeFactory.changeOwner(territory, newOwner);</span>
+<span class="fc" id="L660">      bridge.getHistoryWriter().addChildToEvent(takeOver.toString());</span>
+<span class="fc" id="L661">      bridge.addChange(takeOver);</span>
+<span class="fc bfc" id="L662" title="All 2 branches covered.">      if (changeTracker != null) {</span>
+<span class="fc" id="L663">        changeTracker.addChange(takeOver);</span>
+<span class="fc" id="L664">        changeTracker.addToConquered(territory);</span>
+      }
+      // play a sound
+<span class="pc bpc" id="L667" title="1 of 2 branches missed.">      if (territory.isWater()) {</span>
+        // should probably see if there is something actually happening for water
+<span class="nc" id="L669">        bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_TERRITORY_CAPTURE_SEA, id);</span>
+<span class="pc bpc" id="L670" title="1 of 4 branches missed.">      } else if (ta != null &amp;&amp; ta.getCapital() != null) {</span>
+<span class="fc" id="L671">        bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_TERRITORY_CAPTURE_CAPITAL, id);</span>
+<span class="fc bfc" id="L672" title="All 4 branches covered.">      } else if (m_blitzed.contains(territory) &amp;&amp; Match.someMatch(arrivedUnits, Matches.UnitCanBlitz)) {</span>
+<span class="fc" id="L673">        bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_TERRITORY_CAPTURE_BLITZ, id);</span>
+<span class="fc" id="L674">      } else {</span>
+<span class="fc" id="L675">        bridge.getSoundChannelBroadcaster().playSoundForAll(SoundPath.CLIP_TERRITORY_CAPTURE_LAND, id);</span>
+      }
+    }
+    // Remove any bombing raids against captured territory
+    // TODO: see if necessary
+<span class="fc" id="L680">    if (Match.someMatch(territory.getUnits().getUnits(),</span>
+<span class="fc bfc" id="L681" title="All 2 branches covered.">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, id), Matches.UnitCanBeDamaged))) {</span>
+<span class="fc" id="L682">      final IBattle bombingBattle = getPendingBattle(territory, true, null);</span>
+<span class="pc bpc" id="L683" title="1 of 2 branches missed.">      if (bombingBattle != null) {</span>
+<span class="nc" id="L684">        final BattleResults results = new BattleResults(bombingBattle, WhoWon.DRAW, data);</span>
+<span class="nc" id="L685">        getBattleRecords().addResultToBattle(id, bombingBattle.getBattleID(), null, 0, 0,</span>
+<span class="nc" id="L686">            BattleRecord.BattleResultDescription.NO_BATTLE, results);</span>
+<span class="nc" id="L687">        bombingBattle.cancelBattle(bridge);</span>
+<span class="nc" id="L688">        removeBattle(bombingBattle);</span>
+<span class="nc" id="L689">        throw new IllegalStateException(</span>
+<span class="nc" id="L690">            &quot;Bombing Raids should be dealt with first! Be sure the battle has dependencies set correctly!&quot;);</span>
+      }
+    }
+<span class="fc" id="L693">    captureOrDestroyUnits(territory, id, newOwner, bridge, changeTracker);</span>
+    // is this territory our capitol or a capitol of our ally
+    // Also check to make sure playerAttachment even HAS a capital to fix abend
+<span class="pc bpc" id="L696" title="2 of 8 branches missed.">    if (isTerritoryOwnerAnEnemy &amp;&amp; terrOrigOwner != null &amp;&amp; ta != null &amp;&amp; ta.getCapital() != null</span>
+<span class="pc bpc" id="L697" title="1 of 2 branches missed.">        &amp;&amp; TerritoryAttachment.getAllCapitals(terrOrigOwner, data).contains(territory)</span>
+<span class="pc bpc" id="L698" title="1 of 2 branches missed.">        &amp;&amp; relationshipTracker.isAllied(terrOrigOwner, id)) {</span>
+      // if it is give it back to the original owner
+<span class="fc" id="L700">      final Collection&lt;Territory&gt; originallyOwned = OriginalOwnerTracker.getOriginallyOwned(data, terrOrigOwner);</span>
+<span class="fc" id="L701">      final List&lt;Territory&gt; friendlyTerritories =</span>
+<span class="fc" id="L702">          Match.getMatches(originallyOwned, Matches.isTerritoryAllied(terrOrigOwner, data));</span>
+      // give back the factories as well.
+<span class="fc bfc" id="L704" title="All 2 branches covered.">      for (final Territory item : friendlyTerritories) {</span>
+<span class="pc bpc" id="L705" title="1 of 2 branches missed.">        if (item.getOwner() == terrOrigOwner) {</span>
+<span class="fc" id="L706">          continue;</span>
+        }
+<span class="nc" id="L708">        final Change takeOverFriendlyTerritories = ChangeFactory.changeOwner(item, terrOrigOwner);</span>
+<span class="nc" id="L709">        bridge.addChange(takeOverFriendlyTerritories);</span>
+<span class="nc" id="L710">        bridge.getHistoryWriter().addChildToEvent(takeOverFriendlyTerritories.toString());</span>
+<span class="nc bnc" id="L711" title="All 2 branches missed.">        if (changeTracker != null) {</span>
+<span class="nc" id="L712">          changeTracker.addChange(takeOverFriendlyTerritories);</span>
+        }
+<span class="nc" id="L714">        final Collection&lt;Unit&gt; units = Match.getMatches(item.getUnits().getUnits(), Matches.UnitIsInfrastructure);</span>
+<span class="nc bnc" id="L715" title="All 2 branches missed.">        if (!units.isEmpty()) {</span>
+<span class="nc" id="L716">          final Change takeOverNonComUnits = ChangeFactory.changeOwner(units, terrOrigOwner, territory);</span>
+<span class="nc" id="L717">          bridge.addChange(takeOverNonComUnits);</span>
+<span class="nc bnc" id="L718" title="All 2 branches missed.">          if (changeTracker != null) {</span>
+<span class="nc" id="L719">            changeTracker.addChange(takeOverNonComUnits);</span>
+          }
+        }
+      }
+    }
+    // say they were in combat
+    // if the territory being taken over is water, then do not say any land units were in combat
+    // (they may want to unload from the transport and attack)
+<span class="pc bpc" id="L727" title="3 of 4 branches missed.">    if (Matches.TerritoryIsWater.match(territory) &amp;&amp; arrivedUnits != null) {</span>
+<span class="nc" id="L728">      arrivedUnits.removeAll(Match.getMatches(arrivedUnits, Matches.UnitIsLand));</span>
+    }
+<span class="fc" id="L730">    markWasInCombat(arrivedUnits, bridge, changeTracker);</span>
+<span class="fc" id="L731">  }</span>
+
+  public static void captureOrDestroyUnits(final Territory territory, final PlayerID id, final PlayerID newOwner,
+      final IDelegateBridge bridge, final UndoableMove changeTracker) {
+<span class="fc" id="L735">    final GameData data = bridge.getData();</span>
+    // destroy any units that should be destroyed on capture
+<span class="fc bfc" id="L737" title="All 2 branches covered.">    if (games.strategy.triplea.Properties.getUnitsCanBeDestroyedInsteadOfCaptured(data)) {</span>
+<span class="fc" id="L738">      final CompositeMatch&lt;Unit&gt; enemyToBeDestroyed =</span>
+<span class="fc" id="L739">          new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(id, data), Matches.UnitDestroyedWhenCapturedByOrFrom(id));</span>
+<span class="fc" id="L740">      final Collection&lt;Unit&gt; destroyed = territory.getUnits().getMatches(enemyToBeDestroyed);</span>
+<span class="pc bpc" id="L741" title="1 of 2 branches missed.">      if (!destroyed.isEmpty()) {</span>
+<span class="nc" id="L742">        final Change destroyUnits = ChangeFactory.removeUnits(territory, destroyed);</span>
+<span class="nc" id="L743">        bridge.getHistoryWriter().addChildToEvent(&quot;Some non-combat units are destroyed: &quot;, destroyed);</span>
+<span class="nc" id="L744">        bridge.addChange(destroyUnits);</span>
+<span class="nc bnc" id="L745" title="All 2 branches missed.">        if (changeTracker != null) {</span>
+<span class="nc" id="L746">          changeTracker.addChange(destroyUnits);</span>
+        }
+      }
+    }
+    // destroy any capture on entering units, IF the property to destroy them instead of capture is turned on
+<span class="pc bpc" id="L751" title="1 of 2 branches missed.">    if (games.strategy.triplea.Properties.getOnEnteringUnitsDestroyedInsteadOfCaptured(data)) {</span>
+<span class="nc" id="L752">      final Collection&lt;Unit&gt; destroyed =</span>
+<span class="nc" id="L753">          territory.getUnits().getMatches(Matches.UnitCanBeCapturedOnEnteringToInThisTerritory(id, territory, data));</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">      if (!destroyed.isEmpty()) {</span>
+<span class="nc" id="L755">        final Change destroyUnits = ChangeFactory.removeUnits(territory, destroyed);</span>
+<span class="nc" id="L756">        bridge.getHistoryWriter().addChildToEvent(id.getName() + &quot; destroys some units instead of capturing them&quot;,</span>
+<span class="nc" id="L757">            destroyed);</span>
+<span class="nc" id="L758">        bridge.addChange(destroyUnits);</span>
+<span class="nc bnc" id="L759" title="All 2 branches missed.">        if (changeTracker != null) {</span>
+<span class="nc" id="L760">          changeTracker.addChange(destroyUnits);</span>
+        }
+      }
+    }
+    // destroy any disabled units owned by the enemy that are NOT infrastructure or factories
+<span class="fc" id="L765">    final CompositeMatch&lt;Unit&gt; enemyToBeDestroyed = new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(id, data),</span>
+<span class="fc" id="L766">        Matches.UnitIsDisabled, Matches.UnitIsInfrastructure.invert());</span>
+<span class="fc" id="L767">    final Collection&lt;Unit&gt; destroyed = territory.getUnits().getMatches(enemyToBeDestroyed);</span>
+<span class="pc bpc" id="L768" title="1 of 2 branches missed.">    if (!destroyed.isEmpty()) {</span>
+<span class="nc" id="L769">      final Change destroyUnits = ChangeFactory.removeUnits(territory, destroyed);</span>
+<span class="nc" id="L770">      bridge.getHistoryWriter().addChildToEvent(id.getName() + &quot; destroys some disabled combat units&quot;, destroyed);</span>
+<span class="nc" id="L771">      bridge.addChange(destroyUnits);</span>
+<span class="nc bnc" id="L772" title="All 2 branches missed.">      if (changeTracker != null) {</span>
+<span class="nc" id="L773">        changeTracker.addChange(destroyUnits);</span>
+      }
+    }
+    // take over non combatants
+<span class="fc" id="L777">    final CompositeMatch&lt;Unit&gt; enemyNonCom =</span>
+<span class="fc" id="L778">        new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(id, data), Matches.UnitIsInfrastructure);</span>
+<span class="fc" id="L779">    final CompositeMatch&lt;Unit&gt; willBeCaptured = new CompositeMatchOr&lt;&gt;(enemyNonCom,</span>
+<span class="fc" id="L780">        Matches.UnitCanBeCapturedOnEnteringToInThisTerritory(id, territory, data));</span>
+<span class="fc" id="L781">    final Collection&lt;Unit&gt; nonCom = territory.getUnits().getMatches(willBeCaptured);</span>
+    // change any units that change unit types on capture
+<span class="fc bfc" id="L783" title="All 2 branches covered.">    if (games.strategy.triplea.Properties.getUnitsCanBeChangedOnCapture(data)) {</span>
+<span class="fc" id="L784">      final Collection&lt;Unit&gt; toReplace =</span>
+<span class="fc" id="L785">          Match.getMatches(nonCom, Matches.UnitWhenCapturedChangesIntoDifferentUnitType());</span>
+<span class="pc bpc" id="L786" title="1 of 2 branches missed.">      for (final Unit u : toReplace) {</span>
+<span class="nc" id="L787">        final LinkedHashMap&lt;String, Tuple&lt;String, IntegerMap&lt;UnitType&gt;&gt;&gt; map =</span>
+<span class="nc" id="L788">            UnitAttachment.get(u.getType()).getWhenCapturedChangesInto();</span>
+<span class="nc" id="L789">        final PlayerID currentOwner = u.getOwner();</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">        for (final String value : map.keySet()) {</span>
+<span class="nc" id="L791">          final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L792" title="All 4 branches missed.">          if (!(s[0].equals(&quot;any&quot;) || data.getPlayerList().getPlayerID(s[0]).equals(currentOwner))) {</span>
+<span class="nc" id="L793">            continue;</span>
+          }
+          // we could use &quot;id&quot; or &quot;newOwner&quot; here... not sure which to use
+<span class="nc bnc" id="L796" title="All 4 branches missed.">          if (!(s[1].equals(&quot;any&quot;) || data.getPlayerList().getPlayerID(s[1]).equals(id))) {</span>
+<span class="nc" id="L797">            continue;</span>
+          }
+<span class="nc" id="L799">          final CompositeChange changes = new CompositeChange();</span>
+<span class="nc" id="L800">          final Collection&lt;Unit&gt; toAdd = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L801">          final Tuple&lt;String, IntegerMap&lt;UnitType&gt;&gt; toCreate = map.get(value);</span>
+<span class="nc" id="L802">          final boolean translateAttributes = toCreate.getFirst().equalsIgnoreCase(&quot;true&quot;);</span>
+<span class="nc bnc" id="L803" title="All 2 branches missed.">          for (final UnitType ut : toCreate.getSecond().keySet()) {</span>
+<span class="nc" id="L804">            toAdd.addAll(ut.create(toCreate.getSecond().getInt(ut), newOwner));</span>
+          }
+<span class="nc bnc" id="L806" title="All 2 branches missed.">          if (!toAdd.isEmpty()) {</span>
+<span class="nc bnc" id="L807" title="All 2 branches missed.">            if (translateAttributes) {</span>
+<span class="nc" id="L808">              final Change translate = TripleAUnit.translateAttributesToOtherUnits(u, toAdd, territory);</span>
+<span class="nc bnc" id="L809" title="All 2 branches missed.">              if (!translate.isEmpty()) {</span>
+<span class="nc" id="L810">                changes.add(translate);</span>
+              }
+            }
+<span class="nc" id="L813">            changes.add(ChangeFactory.removeUnits(territory, Collections.singleton(u)));</span>
+<span class="nc" id="L814">            changes.add(ChangeFactory.addUnits(territory, toAdd));</span>
+<span class="nc" id="L815">            changes.add(ChangeFactory.markNoMovementChange(toAdd));</span>
+<span class="nc" id="L816">            bridge.getHistoryWriter()</span>
+<span class="nc" id="L817">                .addChildToEvent(id.getName() + &quot; converts &quot; + u.toStringNoOwner() + &quot; into different units&quot;, toAdd);</span>
+<span class="nc" id="L818">            bridge.addChange(changes);</span>
+<span class="nc bnc" id="L819" title="All 2 branches missed.">            if (changeTracker != null) {</span>
+<span class="nc" id="L820">              changeTracker.addChange(changes);</span>
+            }
+            // don't forget to remove this unit from the list
+<span class="nc" id="L823">            nonCom.remove(u);</span>
+<span class="nc" id="L824">            break;</span>
+          }
+        }
+      }
+    }
+<span class="fc bfc" id="L829" title="All 2 branches covered.">    if (!nonCom.isEmpty()) {</span>
+      // FYI: a dummy delegate will not do anything with this change,
+      // meaning that the battle calculator will think this unit lived,
+      // even though it died or was captured, etc!
+<span class="fc" id="L833">      final Change capture = ChangeFactory.changeOwner(nonCom, newOwner, territory);</span>
+<span class="fc" id="L834">      bridge.addChange(capture);</span>
+<span class="fc bfc" id="L835" title="All 2 branches covered.">      if (changeTracker != null) {</span>
+<span class="fc" id="L836">        changeTracker.addChange(capture);</span>
+      }
+<span class="fc" id="L838">      final Change noMovementChange = ChangeFactory.markNoMovementChange(nonCom);</span>
+<span class="fc" id="L839">      bridge.addChange(noMovementChange);</span>
+<span class="fc bfc" id="L840" title="All 2 branches covered.">      if (changeTracker != null) {</span>
+<span class="fc" id="L841">        changeTracker.addChange(noMovementChange);</span>
+      }
+    }
+<span class="fc" id="L844">  }</span>
+
+  private Change addMustFightBattleChange(final Route route, final Collection&lt;Unit&gt; units, final PlayerID id,
+      final GameData data) {
+    // it is possible to add a battle with a route that is just
+    // the start territory, ie the units did not move into the country
+    // they were there to start with
+    // this happens when you have submerged subs emerging
+<span class="fc" id="L852">    Territory site = route.getEnd();</span>
+<span class="pc bpc" id="L853" title="1 of 2 branches missed.">    if (site == null) {</span>
+<span class="nc" id="L854">      site = route.getStart();</span>
+    }
+    // this will be taken care of by the non fighting battle
+<span class="fc bfc" id="L857" title="All 2 branches covered.">    if (!Matches.territoryHasEnemyUnits(id, data).match(site)) {</span>
+<span class="fc" id="L858">      return ChangeFactory.EMPTY_CHANGE;</span>
+    }
+    // if just an enemy factory &amp;/or AA then no battle
+<span class="fc" id="L861">    final Collection&lt;Unit&gt; enemyUnits = Match.getMatches(site.getUnits().getUnits(), Matches.enemyUnit(id, data));</span>
+<span class="pc bpc" id="L862" title="1 of 4 branches missed.">    if (route.getEnd() != null &amp;&amp; Match.allMatch(enemyUnits, Matches.UnitIsInfrastructure)) {</span>
+<span class="fc" id="L863">      return ChangeFactory.EMPTY_CHANGE;</span>
+    }
+<span class="fc" id="L865">    IBattle battle = getPendingBattle(site, false, BattleType.NORMAL);</span>
+    // If there are no pending battles- add one for units already in the combat zone
+<span class="fc bfc" id="L867" title="All 2 branches covered.">    if (battle == null) {</span>
+<span class="fc" id="L868">      battle = new MustFightBattle(site, id, data, this);</span>
+<span class="fc" id="L869">      m_pendingBattles.add(battle);</span>
+<span class="fc" id="L870">      getBattleRecords().addBattle(id, battle.getBattleID(), site, battle.getBattleType());</span>
+    }
+    // Add the units that moved into the battle
+<span class="fc" id="L873">    final Change change = battle.addAttackChange(route, units, null);</span>
+    // make amphibious assaults dependent on possible naval invasions
+    // its only a dependency if we are unloading
+<span class="fc" id="L876">    final IBattle precede = getDependentAmphibiousAssault(route);</span>
+<span class="pc bpc" id="L877" title="1 of 4 branches missed.">    if (precede != null &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L878">      addDependency(battle, precede);</span>
+    }
+    // dont let land battles in the same territory occur before bombing
+    // battles
+<span class="fc" id="L882">    final IBattle bombing = getPendingBattle(route.getEnd(), true, null);</span>
+<span class="pc bpc" id="L883" title="1 of 2 branches missed.">    if (bombing != null) {</span>
+<span class="nc" id="L884">      addDependency(battle, bombing);</span>
+    }
+<span class="fc" id="L886">    final IBattle airBattle = getPendingBattle(route.getEnd(), false, BattleType.AIR_BATTLE);</span>
+<span class="pc bpc" id="L887" title="1 of 2 branches missed.">    if (airBattle != null) {</span>
+<span class="nc" id="L888">      addDependency(battle, airBattle);</span>
+    }
+<span class="fc" id="L890">    return change;</span>
+  }
+
+  private IBattle getDependentAmphibiousAssault(final Route route) {
+<span class="fc bfc" id="L894" title="All 2 branches covered.">    if (!route.isUnload()) {</span>
+<span class="fc" id="L895">      return null;</span>
+    }
+<span class="fc" id="L897">    return getPendingBattle(route.getStart(), false, BattleType.NORMAL);</span>
+  }
+
+  public IBattle getPendingBattle(final Territory t, final boolean bombing, final BattleType type) {
+<span class="fc bfc" id="L901" title="All 2 branches covered.">    for (final IBattle battle : m_pendingBattles) {</span>
+<span class="fc bfc" id="L902" title="All 4 branches covered.">      if (battle.getTerritory().equals(t) &amp;&amp; battle.isBombingRun() == bombing) {</span>
+<span class="fc bfc" id="L903" title="All 4 branches covered.">        if (type == null || type.equals(battle.getBattleType())) {</span>
+<span class="fc" id="L904">          return battle;</span>
+        }
+      }
+    }
+<span class="fc" id="L908">    return null;</span>
+  }
+
+  public Collection&lt;IBattle&gt; getPendingBattles(final Territory t, final BattleType type) {
+<span class="fc" id="L912">    final Collection&lt;IBattle&gt; battles = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L913" title="All 2 branches covered.">    for (final IBattle battle : m_pendingBattles) {</span>
+<span class="pc bpc" id="L914" title="3 of 6 branches missed.">      if (battle.getTerritory().equals(t) &amp;&amp; (type == null || type.equals(battle.getBattleType()))) {</span>
+<span class="fc" id="L915">        battles.add(battle);</span>
+      }
+    }
+<span class="fc" id="L918">    return battles;</span>
+  }
+
+  public IBattle getPendingBattle(final GUID guid) {
+<span class="nc bnc" id="L922" title="All 2 branches missed.">    if (guid == null) {</span>
+<span class="nc" id="L923">      return null;</span>
+    }
+<span class="nc bnc" id="L925" title="All 2 branches missed.">    for (final IBattle battle : m_pendingBattles) {</span>
+<span class="nc bnc" id="L926" title="All 2 branches missed.">      if (guid.equals(battle.getBattleID())) {</span>
+<span class="nc" id="L927">        return battle;</span>
+      }
+    }
+<span class="nc" id="L930">    return null;</span>
+  }
+
+  /**
+   * @param bombing
+   *        whether only battles where there is bombing
+   * @return a collection of territories where battles are pending
+   */
+  public Collection&lt;Territory&gt; getPendingBattleSites(final boolean bombing) {
+<span class="fc" id="L939">    final Collection&lt;IBattle&gt; pending = new HashSet&lt;&gt;(m_pendingBattles);</span>
+<span class="fc" id="L940">    final Collection&lt;Territory&gt; battles = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L941" title="All 2 branches covered.">    for (final IBattle battle : pending) {</span>
+<span class="pc bpc" id="L942" title="2 of 6 branches missed.">      if (battle != null &amp;&amp; !battle.isEmpty() &amp;&amp; battle.isBombingRun() == bombing) {</span>
+<span class="fc" id="L943">        battles.add(battle.getTerritory());</span>
+      }
+    }
+<span class="fc" id="L946">    return battles;</span>
+  }
+
+  public BattleListing getPendingBattleSites() {
+<span class="fc" id="L950">    final Map&lt;BattleType, Collection&lt;Territory&gt;&gt; battles = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L951">    final Collection&lt;IBattle&gt; pending = new HashSet&lt;&gt;(m_pendingBattles);</span>
+<span class="fc bfc" id="L952" title="All 2 branches covered.">    for (final IBattle battle : pending) {</span>
+<span class="pc bpc" id="L953" title="2 of 4 branches missed.">      if (battle != null &amp;&amp; !battle.isEmpty()) {</span>
+<span class="fc" id="L954">        Collection&lt;Territory&gt; territories = battles.get(battle.getBattleType());</span>
+<span class="fc bfc" id="L955" title="All 2 branches covered.">        if (territories == null) {</span>
+<span class="fc" id="L956">          territories = new HashSet&lt;&gt;();</span>
+        }
+<span class="fc" id="L958">        territories.add(battle.getTerritory());</span>
+<span class="fc" id="L959">        battles.put(battle.getBattleType(), territories);</span>
+      }
+    }
+<span class="fc" id="L962">    return new BattleListing(battles);</span>
+  }
+
+  /**
+   * @param blocked
+   *        the battle that is blocked
+   * @return the battle that must occur before dependent can occur
+   */
+  public Collection&lt;IBattle&gt; getDependentOn(final IBattle blocked) {
+<span class="fc" id="L971">    final Collection&lt;IBattle&gt; dependent = m_dependencies.get(blocked);</span>
+<span class="fc bfc" id="L972" title="All 2 branches covered.">    if (dependent == null) {</span>
+<span class="fc" id="L973">      return Collections.emptyList();</span>
+    }
+<span class="fc" id="L975">    return Match.getMatches(dependent, new InverseMatch&lt;&gt;(Matches.BattleIsEmpty));</span>
+  }
+
+  /**
+   * @param blocking
+   *        the battle that is blocking the other battles
+   * @return the battles that cannot occur until the given battle occurs
+   */
+  public Collection&lt;IBattle&gt; getBlocked(final IBattle blocking) {
+<span class="fc" id="L984">    final Iterator&lt;IBattle&gt; iter = m_dependencies.keySet().iterator();</span>
+<span class="fc" id="L985">    final Collection&lt;IBattle&gt; allBlocked = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L986" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L987">      final IBattle current = iter.next();</span>
+<span class="fc" id="L988">      final Collection&lt;IBattle&gt; currentBlockedBy = getDependentOn(current);</span>
+<span class="fc bfc" id="L989" title="All 2 branches covered.">      if (currentBlockedBy.contains(blocking)) {</span>
+<span class="fc" id="L990">        allBlocked.add(current);</span>
+      }
+    }
+<span class="fc" id="L993">    return allBlocked;</span>
+  }
+
+  public void addDependency(final IBattle blocked, final IBattle blocking) {
+<span class="fc" id="L997">    m_dependencies.putIfAbsent(blocked, new HashSet&lt;&gt;());</span>
+<span class="fc" id="L998">    m_dependencies.get(blocked).add(blocking);</span>
+<span class="fc" id="L999">  }</span>
+
+  private void removeDependency(final IBattle blocked, final IBattle blocking) {
+<span class="nc" id="L1002">    final Collection&lt;IBattle&gt; dependencies = m_dependencies.get(blocked);</span>
+<span class="nc" id="L1003">    dependencies.remove(blocking);</span>
+<span class="nc bnc" id="L1004" title="All 2 branches missed.">    if (dependencies.isEmpty()) {</span>
+<span class="nc" id="L1005">      m_dependencies.remove(blocked);</span>
+    }
+<span class="nc" id="L1007">  }</span>
+
+  public void removeBattle(final IBattle battle) {
+<span class="pc bpc" id="L1010" title="1 of 2 branches missed.">    if (battle != null) {</span>
+<span class="fc" id="L1011">      final Iterator&lt;IBattle&gt; blocked = getBlocked(battle).iterator();</span>
+<span class="pc bpc" id="L1012" title="1 of 2 branches missed.">      while (blocked.hasNext()) {</span>
+<span class="nc" id="L1013">        final IBattle current = blocked.next();</span>
+<span class="nc" id="L1014">        removeDependency(current, battle);</span>
+      }
+<span class="fc" id="L1016">      m_pendingBattles.remove(battle);</span>
+<span class="fc" id="L1017">      m_foughBattles.add(battle.getTerritory());</span>
+    }
+<span class="fc" id="L1019">  }</span>
+
+  /**
+   * Marks the set of territories as having been the source of a naval
+   * bombardment.
+   *
+   * @param territories
+   *        a collection of territories
+   */
+  public void addPreviouslyNavalBombardmentSource(final Collection&lt;Territory&gt; territories) {
+<span class="nc" id="L1029">    m_bombardedFromTerritories.addAll(territories);</span>
+<span class="nc" id="L1030">  }</span>
+
+  public boolean wasNavalBombardmentSource(final Territory territory) {
+<span class="nc" id="L1033">    return m_bombardedFromTerritories.contains(territory);</span>
+  }
+
+  private boolean isPacificTheater(final GameData data) {
+<span class="nc" id="L1037">    return data.getProperties().get(Constants.PACIFIC_THEATER, false);</span>
+  }
+
+  public void clear() {
+<span class="fc" id="L1041">    m_finishedBattlesUnitAttackFromMap.clear();</span>
+<span class="fc" id="L1042">    m_bombardedFromTerritories.clear();</span>
+<span class="fc" id="L1043">    m_pendingBattles.clear();</span>
+<span class="fc" id="L1044">    m_blitzed.clear();</span>
+<span class="fc" id="L1045">    m_foughBattles.clear();</span>
+<span class="fc" id="L1046">    m_conquered.clear();</span>
+<span class="fc" id="L1047">    m_dependencies.clear();</span>
+<span class="fc" id="L1048">    m_defendingAirThatCanNotLand.clear();</span>
+<span class="fc" id="L1049">    m_noBombardAllowed.clear();</span>
+<span class="fc" id="L1050">    m_relationshipChangesThisTurn.clear();</span>
+<span class="fc" id="L1051">  }</span>
+
+  public void addToDefendingAirThatCanNotLand(final Collection&lt;Unit&gt; units, final Territory szTerritoryTheyAreIn) {
+<span class="fc" id="L1054">    Collection&lt;Unit&gt; current = m_defendingAirThatCanNotLand.get(szTerritoryTheyAreIn);</span>
+<span class="pc bpc" id="L1055" title="1 of 2 branches missed.">    if (current == null) {</span>
+<span class="fc" id="L1056">      current = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc" id="L1058">    current.addAll(units);</span>
+<span class="fc" id="L1059">    m_defendingAirThatCanNotLand.put(szTerritoryTheyAreIn, current);</span>
+<span class="fc" id="L1060">  }</span>
+
+  public Map&lt;Territory, Collection&lt;Unit&gt;&gt; getDefendingAirThatCanNotLand() {
+<span class="fc" id="L1063">    return m_defendingAirThatCanNotLand;</span>
+  }
+
+  public void clearBattleRecords() {
+<span class="fc bfc" id="L1067" title="All 2 branches covered.">    if (m_battleRecords != null) {</span>
+<span class="fc" id="L1068">      m_battleRecords.clear();</span>
+<span class="fc" id="L1069">      m_battleRecords = null;</span>
+    }
+<span class="fc" id="L1071">  }</span>
+
+  public BattleRecords getBattleRecords() {
+<span class="fc bfc" id="L1074" title="All 2 branches covered.">    if (m_battleRecords == null) {</span>
+<span class="fc" id="L1075">      m_battleRecords = new BattleRecords();</span>
+    }
+<span class="fc" id="L1077">    return m_battleRecords;</span>
+  }
+
+  public void sendBattleRecordsToGameData(final IDelegateBridge aBridge) {
+<span class="pc bpc" id="L1081" title="2 of 4 branches missed.">    if (m_battleRecords != null &amp;&amp; !m_battleRecords.isEmpty()) {</span>
+<span class="fc" id="L1082">      aBridge.getHistoryWriter().startEvent(&quot;Recording Battle Statistics&quot;);</span>
+<span class="fc" id="L1083">      aBridge.addChange(ChangeFactory.addBattleRecords(m_battleRecords, aBridge.getData()));</span>
+    }
+<span class="fc" id="L1085">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L1089">    return &quot;BattleTracker:&quot; + &quot;\n&quot; + &quot;Conquered:&quot; + m_conquered + &quot;\n&quot; + &quot;Blitzed:&quot; + m_blitzed + &quot;\n&quot; + &quot;Fought:&quot;</span>
+<span class="nc" id="L1090">        + m_foughBattles + &quot;\n&quot; + &quot;Pending:&quot; + m_pendingBattles;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

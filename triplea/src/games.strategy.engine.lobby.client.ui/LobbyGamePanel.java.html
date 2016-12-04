@@ -1,0 +1,627 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>LobbyGamePanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.client.ui</a> &gt; <span class="el_source">LobbyGamePanel.java</span></div><h1>LobbyGamePanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.lobby.client.ui;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Toolkit;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+import javax.swing.Action;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.JTextPane;
+import javax.swing.JToolBar;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingUtilities;
+import javax.swing.table.DefaultTableCellRenderer;
+
+import games.strategy.ui.SwingAction;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.framework.startup.ui.InGameLobbyWatcher;
+import games.strategy.engine.framework.startup.ui.ServerOptions;
+import games.strategy.engine.lobby.server.AbstractModeratorController;
+import games.strategy.engine.lobby.server.GameDescription;
+import games.strategy.engine.lobby.server.IModeratorController;
+import games.strategy.net.INode;
+import games.strategy.net.Messengers;
+import games.strategy.net.Node;
+import games.strategy.util.MD5Crypt;
+
+public class LobbyGamePanel extends JPanel {
+  private static final long serialVersionUID = -2576314388949606337L;
+  private JButton m_hostGame;
+  private JButton m_joinGame;
+  private JButton m_bootGame;
+  private LobbyGameTableModel m_gameTableModel;
+  private final Messengers m_messengers;
+  private JTable m_gameTable;
+  private TableSorter m_tableSorter;
+
+<span class="nc" id="L51">  public LobbyGamePanel(final Messengers messengers) {</span>
+<span class="nc" id="L52">    m_messengers = messengers;</span>
+<span class="nc" id="L53">    createComponents();</span>
+<span class="nc" id="L54">    layoutComponents();</span>
+<span class="nc" id="L55">    setupListeners();</span>
+<span class="nc" id="L56">    setWidgetActivation();</span>
+<span class="nc" id="L57">  }</span>
+
+  private void createComponents() {
+<span class="nc" id="L60">    m_hostGame = new JButton(&quot;Host Game&quot;);</span>
+<span class="nc" id="L61">    m_joinGame = new JButton(&quot;Join Game&quot;);</span>
+<span class="nc" id="L62">    m_bootGame = new JButton(&quot;Boot Game&quot;);</span>
+<span class="nc" id="L63">    m_gameTableModel = new LobbyGameTableModel(m_messengers.getMessenger(), m_messengers.getChannelMessenger(),</span>
+<span class="nc" id="L64">        m_messengers.getRemoteMessenger());</span>
+<span class="nc" id="L65">    m_tableSorter = new TableSorter(m_gameTableModel);</span>
+<span class="nc" id="L66">    m_gameTable = new LobbyGameTable(m_tableSorter);</span>
+<span class="nc" id="L67">    m_tableSorter.setTableHeader(m_gameTable.getTableHeader());</span>
+    // only allow one row to be selected
+<span class="nc" id="L69">    m_gameTable.setColumnSelectionAllowed(false);</span>
+<span class="nc" id="L70">    m_gameTable.setRowSelectionAllowed(true);</span>
+<span class="nc" id="L71">    m_gameTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);</span>
+    // by default, sort newest first
+<span class="nc" id="L73">    final int dateColumn = m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Started);</span>
+<span class="nc" id="L74">    m_tableSorter.setSortingStatus(dateColumn, TableSorter.DESCENDING);</span>
+    // these should add up to 700 at most
+<span class="nc" id="L76">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Players))</span>
+<span class="nc" id="L77">        .setPreferredWidth(42);</span>
+<span class="nc" id="L78">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Round))</span>
+<span class="nc" id="L79">        .setPreferredWidth(40);</span>
+<span class="nc" id="L80">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.P))</span>
+<span class="nc" id="L81">        .setPreferredWidth(12);</span>
+<span class="nc" id="L82">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.B))</span>
+<span class="nc" id="L83">        .setPreferredWidth(12);</span>
+<span class="nc" id="L84">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.GV))</span>
+<span class="nc" id="L85">        .setPreferredWidth(32);</span>
+<span class="nc" id="L86">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.EV))</span>
+<span class="nc" id="L87">        .setPreferredWidth(42);</span>
+<span class="nc" id="L88">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Started))</span>
+<span class="nc" id="L89">        .setPreferredWidth(55);</span>
+<span class="nc" id="L90">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Status))</span>
+<span class="nc" id="L91">        .setPreferredWidth(112);</span>
+<span class="nc" id="L92">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Name))</span>
+<span class="nc" id="L93">        .setPreferredWidth(156);</span>
+<span class="nc" id="L94">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Comments))</span>
+<span class="nc" id="L95">        .setPreferredWidth(130);</span>
+<span class="nc" id="L96">    m_gameTable.getColumnModel().getColumn(m_gameTableModel.getColumnIndex(LobbyGameTableModel.Column.Host))</span>
+<span class="nc" id="L97">        .setPreferredWidth(67);</span>
+<span class="nc" id="L98">    m_gameTable.setDefaultRenderer(Date.class, new DefaultTableCellRenderer() {</span>
+      private static final long serialVersionUID = -2807387751127250972L;
+<span class="nc" id="L100">      private final SimpleDateFormat format = new SimpleDateFormat(&quot;hh:mm a&quot;);</span>
+
+      @Override
+      public Component getTableCellRendererComponent(final JTable table, final Object value, final boolean isSelected,
+          final boolean hasFocus, final int row, final int column) {
+<span class="nc" id="L105">        super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);</span>
+<span class="nc" id="L106">        setText(format.format((Date) value));</span>
+<span class="nc" id="L107">        return this;</span>
+      }
+    });
+<span class="nc" id="L110">  }</span>
+
+  private void layoutComponents() {
+<span class="nc" id="L113">    final JScrollPane scroll = new JScrollPane(m_gameTable);</span>
+<span class="nc" id="L114">    setLayout(new BorderLayout());</span>
+<span class="nc" id="L115">    add(scroll, BorderLayout.CENTER);</span>
+<span class="nc" id="L116">    final JToolBar toolBar = new JToolBar();</span>
+<span class="nc" id="L117">    toolBar.add(m_hostGame);</span>
+<span class="nc" id="L118">    toolBar.add(m_joinGame);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">    if (isAdmin()) {</span>
+<span class="nc" id="L120">      toolBar.add(m_bootGame);</span>
+    }
+<span class="nc" id="L122">    toolBar.setFloatable(false);</span>
+<span class="nc" id="L123">    add(toolBar, BorderLayout.SOUTH);</span>
+<span class="nc" id="L124">  }</span>
+
+  public boolean isAdmin() {
+<span class="nc" id="L127">    return ((IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L128">        .getRemote(AbstractModeratorController.getModeratorControllerName())).isAdmin();</span>
+  }
+
+  private void setupListeners() {
+<span class="nc" id="L132">    m_hostGame.addActionListener(e -&gt; hostGame());</span>
+<span class="nc" id="L133">    m_joinGame.addActionListener(e -&gt; joinGame());</span>
+<span class="nc" id="L134">    m_bootGame.addActionListener(e -&gt; bootGame());</span>
+<span class="nc" id="L135">    m_gameTable.getSelectionModel().addListSelectionListener(e -&gt; setWidgetActivation());</span>
+<span class="nc" id="L136">    m_gameTable.addMouseListener(new MouseListener() {</span>
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        if (e.getClickCount() == 2) {</span>
+<span class="nc" id="L140">          joinGame();</span>
+        }
+<span class="nc" id="L142">        mouseOnGamesList(e);</span>
+<span class="nc" id="L143">      }</span>
+
+      @Override
+      public void mousePressed(final MouseEvent e) {
+        // right clicks do not 'select' a row by default. so force a row selection at the mouse point.
+<span class="nc" id="L148">        final int r = m_gameTable.rowAtPoint(e.getPoint());</span>
+<span class="nc bnc" id="L149" title="All 4 branches missed.">        if (r &gt;= 0 &amp;&amp; r &lt; m_gameTable.getRowCount()) {</span>
+<span class="nc" id="L150">          m_gameTable.setRowSelectionInterval(r, r);</span>
+<span class="nc" id="L151">        } else {</span>
+<span class="nc" id="L152">          m_gameTable.clearSelection();</span>
+        }
+<span class="nc" id="L154">        mouseOnGamesList(e);</span>
+<span class="nc" id="L155">      }</span>
+
+      @Override
+      public void mouseReleased(final MouseEvent e) {
+<span class="nc" id="L159">        mouseOnGamesList(e);</span>
+<span class="nc" id="L160">      }</span>
+
+      @Override
+<span class="nc" id="L163">      public void mouseEntered(final MouseEvent e) {} // ignore</span>
+
+      @Override
+<span class="nc" id="L166">      public void mouseExited(final MouseEvent e) {} // ignore</span>
+    });
+<span class="nc" id="L168">  }</span>
+
+  private void mouseOnGamesList(final MouseEvent e) {
+<span class="nc bnc" id="L171" title="All 2 branches missed.">    if (!e.isPopupTrigger()) {</span>
+<span class="nc" id="L172">      return;</span>
+    }
+<span class="nc bnc" id="L174" title="All 2 branches missed.">    if (!SwingUtilities.isRightMouseButton(e)) {</span>
+<span class="nc" id="L175">      return;</span>
+    }
+<span class="nc" id="L177">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L179">      return;</span>
+    }
+    // we sort the table, so get the correct index
+<span class="nc" id="L182">    final int modelIndex = m_tableSorter.modelIndex(selectedIndex);</span>
+<span class="nc" id="L183">    final GameDescription description = m_gameTableModel.get(modelIndex);</span>
+<span class="nc" id="L184">    final JPopupMenu menu = new JPopupMenu();</span>
+<span class="nc" id="L185">    boolean hasActions = false;</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    for (final Action a : getGamesListRightClickActions(description)) {</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">      if (a == null) {</span>
+<span class="nc" id="L188">        continue;</span>
+      }
+<span class="nc" id="L190">      hasActions = true;</span>
+<span class="nc" id="L191">      menu.add(a);</span>
+    }
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    if (hasActions) {</span>
+<span class="nc" id="L194">      menu.show(m_gameTable, e.getX(), e.getY());</span>
+    }
+<span class="nc" id="L196">  }</span>
+
+  private List&lt;Action&gt; getGamesListRightClickActions(final GameDescription description) {
+<span class="nc" id="L199">    final List&lt;Action&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L200">    rVal.add(getJoinGameAction());</span>
+<span class="nc" id="L201">    rVal.add(getHostGameAction());</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">    if (isAdmin()) {</span>
+<span class="nc" id="L203">      rVal.add(getHostSupportInfoAction(description));</span>
+<span class="nc" id="L204">      rVal.add(getHostInfoAction());</span>
+<span class="nc" id="L205">      rVal.add(getChatLogOfHeadlessHostBotAction(description));</span>
+<span class="nc" id="L206">      rVal.add(getMutePlayerHeadlessHostBotAction(description));</span>
+<span class="nc" id="L207">      rVal.add(getBootPlayerHeadlessHostBotAction(description));</span>
+<span class="nc" id="L208">      rVal.add(getBanPlayerHeadlessHostBotAction(description));</span>
+<span class="nc" id="L209">      rVal.add(getStopGameHeadlessHostBotAction(description));</span>
+<span class="nc" id="L210">      rVal.add(getShutDownHeadlessHostBotAction(description));</span>
+<span class="nc" id="L211">      rVal.add(getBootGameAction());</span>
+    }
+<span class="nc" id="L213">    return rVal;</span>
+  }
+
+  private static Action getHostSupportInfoAction(final GameDescription description) {
+<span class="nc" id="L217">    final String supportEmail =</span>
+<span class="nc bnc" id="L218" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L220">      return null;</span>
+    }
+<span class="nc" id="L222">    final String text = &quot;Support Email for this Host is as follows. &quot;</span>
+        + &quot;\n(Please copy the email address below and manually email them ONLY if something is seriously &quot;
+        + &quot;\nwrong with the host, like it needs to be restarted because it is down and not working at all.) &quot;
+<span class="nc" id="L225">        + &quot;\n\nEmail: \n&quot; + supportEmail;</span>
+<span class="nc" id="L226">    return SwingAction.of(&quot;Show Host Support Information/Email&quot;, e -&gt; {</span>
+<span class="nc" id="L227">      final JTextPane textPane = new JTextPane();</span>
+<span class="nc" id="L228">      textPane.setEditable(false);</span>
+<span class="nc" id="L229">      textPane.setText(text);</span>
+<span class="nc" id="L230">      JOptionPane.showMessageDialog(null, textPane, &quot;Host Support Info&quot;, JOptionPane.INFORMATION_MESSAGE);</span>
+<span class="nc" id="L231">    });</span>
+  }
+
+  private Action getJoinGameAction() {
+<span class="nc" id="L235">    return SwingAction.of(&quot;Join Game&quot;, e -&gt; joinGame());</span>
+  }
+
+  private Action getHostGameAction() {
+<span class="nc" id="L239">    return SwingAction.of(&quot;Host Game&quot;, e -&gt; hostGame());</span>
+  }
+
+  private Action getBootGameAction() {
+<span class="nc" id="L243">    return SwingAction.of(&quot;Boot Game&quot;, e -&gt; bootGame());</span>
+  }
+
+  private Action getHostInfoAction() {
+<span class="nc" id="L247">    return SwingAction.of(&quot;Host Information&quot;, e -&gt; getHostInfo());</span>
+  }
+
+  private Action getChatLogOfHeadlessHostBotAction(final GameDescription description) {
+<span class="nc" id="L251">    final String supportEmail =</span>
+<span class="nc bnc" id="L252" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L253" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L254">      return null;</span>
+    }
+<span class="nc" id="L256">    return SwingAction.of(&quot;Get Chat Log Of Headless Host Bot&quot;, e -&gt; getChatLogOfHeadlessHostBot());</span>
+  }
+
+  private Action getMutePlayerHeadlessHostBotAction(final GameDescription description) {
+<span class="nc" id="L260">    final String supportEmail =</span>
+<span class="nc bnc" id="L261" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L263">      return null;</span>
+    }
+<span class="nc" id="L265">    return SwingAction.of(&quot;Mute Player In Headless Host Bot&quot;, e -&gt; mutePlayerInHeadlessHostBot());</span>
+  }
+
+  private Action getBootPlayerHeadlessHostBotAction(final GameDescription description) {
+<span class="nc" id="L269">    final String supportEmail =</span>
+<span class="nc bnc" id="L270" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L272">      return null;</span>
+    }
+<span class="nc" id="L274">    return SwingAction.of(&quot;Boot Player In Headless Host Bot&quot;, e -&gt; bootPlayerInHeadlessHostBot());</span>
+  }
+
+  private Action getBanPlayerHeadlessHostBotAction(final GameDescription description) {
+<span class="nc" id="L278">    final String supportEmail =</span>
+<span class="nc bnc" id="L279" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L281">      return null;</span>
+    }
+<span class="nc" id="L283">    return SwingAction.of(&quot;Ban Player In Headless Host Bot&quot;, e -&gt; banPlayerInHeadlessHostBot());</span>
+  }
+
+  private Action getShutDownHeadlessHostBotAction(final GameDescription description) {
+<span class="nc" id="L287">    final String supportEmail =</span>
+<span class="nc bnc" id="L288" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L290">      return null;</span>
+    }
+<span class="nc" id="L292">    return SwingAction.of(&quot;Remote Shutdown Headless Host Bot&quot;, e -&gt; shutDownHeadlessHostBot());</span>
+  }
+
+  private Action getStopGameHeadlessHostBotAction(final GameDescription description) {
+<span class="nc" id="L296">    final String supportEmail =</span>
+<span class="nc bnc" id="L297" title="All 4 branches missed.">        description == null ? &quot;&quot; : description.getBotSupportEmail() == null ? &quot;&quot; : description.getBotSupportEmail();</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">    if (supportEmail.length() == 0) {</span>
+<span class="nc" id="L299">      return null;</span>
+    }
+<span class="nc" id="L301">    return SwingAction.of(&quot;Remote Stop Game Headless Host Bot&quot;, e -&gt; stopGameHeadlessHostBot());</span>
+  }
+
+  private void joinGame() {
+<span class="nc" id="L305">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L307">      return;</span>
+    }
+    // we sort the table, so get the correct index
+<span class="nc" id="L310">    final int modelIndex = m_tableSorter.modelIndex(selectedIndex);</span>
+<span class="nc" id="L311">    final GameDescription description = m_gameTableModel.get(modelIndex);</span>
+<span class="nc" id="L312">    GameRunner.joinGame(description, m_messengers, getParent());</span>
+<span class="nc" id="L313">  }</span>
+
+  protected void hostGame() {
+<span class="nc" id="L316">    final ServerOptions options = new ServerOptions(JOptionPane.getFrameForComponent(this),</span>
+<span class="nc" id="L317">        m_messengers.getMessenger().getLocalNode().getName(), 3300, true);</span>
+<span class="nc" id="L318">    options.setLocationRelativeTo(JOptionPane.getFrameForComponent(this));</span>
+<span class="nc" id="L319">    options.setNameEditable(false);</span>
+<span class="nc" id="L320">    options.setVisible(true);</span>
+<span class="nc bnc" id="L321" title="All 2 branches missed.">    if (!options.getOKPressed()) {</span>
+<span class="nc" id="L322">      return;</span>
+    }
+<span class="nc" id="L324">    GameRunner.hostGame(options.getPort(), options.getName(), options.getComments(), options.getPassword(),</span>
+<span class="nc" id="L325">        m_messengers);</span>
+<span class="nc" id="L326">  }</span>
+
+  private void bootGame() {
+<span class="nc" id="L329">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L330" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L331">      return;</span>
+    }
+<span class="nc" id="L333">    final int result = JOptionPane.showConfirmDialog(null, &quot;Are you sure you want to disconnect the selected game?&quot;,</span>
+<span class="nc" id="L334">        &quot;Remove Game From Lobby&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L336">      return;</span>
+    }
+<span class="nc" id="L338">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L339">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L340">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L341">    controller.boot(lobbyWatcherNode);</span>
+<span class="nc" id="L342">    JOptionPane.showMessageDialog(null, &quot;The game you selected has been disconnected from the lobby.&quot;);</span>
+<span class="nc" id="L343">  }</span>
+
+  private void getHostInfo() {
+<span class="nc" id="L346">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L348">      return;</span>
+    }
+<span class="nc" id="L350">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L351">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L352">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L353">    final String text = controller.getInformationOn(lobbyWatcherNode);</span>
+<span class="nc" id="L354">    final String connections = controller.getHostConnections(lobbyWatcherNode);</span>
+<span class="nc" id="L355">    final JTextPane textPane = new JTextPane();</span>
+<span class="nc" id="L356">    textPane.setEditable(false);</span>
+<span class="nc" id="L357">    textPane.setText(text + &quot;\n\n&quot; + connections);</span>
+<span class="nc" id="L358">    JOptionPane.showMessageDialog(null, textPane, &quot;Player Info&quot;, JOptionPane.INFORMATION_MESSAGE);</span>
+<span class="nc" id="L359">  }</span>
+
+  private void getChatLogOfHeadlessHostBot() {
+<span class="nc" id="L362">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L363" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L364">      return;</span>
+    }
+<span class="nc" id="L366">    final int result =</span>
+<span class="nc" id="L367">        JOptionPane.showConfirmDialog(null, &quot;Are you sure you want to perform a remote get chat log this host?&quot;,</span>
+<span class="nc" id="L368">            &quot;Remote Get Chat Log Headless Host Bot&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L369" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L370">      return;</span>
+    }
+    // we sort the table, so get the correct index
+<span class="nc" id="L373">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L374">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L375">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L376">    final JLabel label = new JLabel(&quot;Enter Host Remote Access Password, (Leave blank for no password).&quot;);</span>
+<span class="nc" id="L377">    final JPasswordField passwordField = new JPasswordField();</span>
+<span class="nc" id="L378">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L379">    panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L380">    panel.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L381">    panel.add(passwordField, BorderLayout.CENTER);</span>
+<span class="nc" id="L382">    final int rVal = JOptionPane.showOptionDialog(getTopLevelAncestor(), panel, &quot;Host Remote Access Password?&quot;,</span>
+<span class="nc" id="L383">        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L384" title="All 4 branches missed.">    if (rVal != JOptionPane.OK_OPTION || passwordField.getPassword() == null) {</span>
+<span class="nc" id="L385">      return;</span>
+    }
+<span class="nc" id="L387">    final String password = new String(passwordField.getPassword());</span>
+<span class="nc" id="L388">    final String salt = controller.getHeadlessHostBotSalt(lobbyWatcherNode);</span>
+<span class="nc" id="L389">    final String hashedPassword = MD5Crypt.crypt(password, salt);</span>
+<span class="nc" id="L390">    final String response = controller.getChatLogHeadlessHostBot(lobbyWatcherNode, hashedPassword, salt);</span>
+<span class="nc" id="L391">    final JTextPane textPane = new JTextPane();</span>
+<span class="nc" id="L392">    textPane.setEditable(false);</span>
+<span class="nc bnc" id="L393" title="All 2 branches missed.">    textPane.setText(response == null ? &quot;Failed to get chat log!&quot; : response);</span>
+<span class="nc" id="L394">    textPane.setCaretPosition(textPane.getText().length());</span>
+<span class="nc" id="L395">    final JScrollPane scroll = new JScrollPane(textPane);</span>
+<span class="nc" id="L396">    final Dimension screenResolution = Toolkit.getDefaultToolkit().getScreenSize();</span>
+<span class="nc" id="L397">    final int availWidth = screenResolution.width - 100;</span>
+<span class="nc" id="L398">    final int availHeight = screenResolution.height - 140;</span>
+<span class="nc" id="L399">    scroll.setPreferredSize(new Dimension(Math.min(availWidth, scroll.getPreferredSize().width),</span>
+<span class="nc" id="L400">        Math.min(availHeight, scroll.getPreferredSize().height)));</span>
+<span class="nc" id="L401">    JOptionPane.showMessageDialog(null, scroll, &quot;Bot Chat Log&quot;, JOptionPane.INFORMATION_MESSAGE);</span>
+<span class="nc" id="L402">  }</span>
+
+  private INode getLobbyWatcherNodeForTableRow(final int selectedIndex) {
+<span class="nc" id="L405">    final int modelIndex = m_tableSorter.modelIndex(selectedIndex);</span>
+<span class="nc" id="L406">    final GameDescription description = m_gameTableModel.get(modelIndex);</span>
+<span class="nc" id="L407">    final String hostedByName = description.getHostedBy().getName();</span>
+<span class="nc" id="L408">    final INode lobbyWatcherNode = new Node(</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">        (hostedByName.endsWith(&quot;_&quot; + InGameLobbyWatcher.LOBBY_WATCHER_NAME) ? hostedByName</span>
+<span class="nc" id="L410">            : hostedByName + &quot;_&quot; + InGameLobbyWatcher.LOBBY_WATCHER_NAME),</span>
+<span class="nc" id="L411">        description.getHostedBy().getAddress(), description.getHostedBy().getPort());</span>
+<span class="nc" id="L412">    return lobbyWatcherNode;</span>
+  }
+
+  private void mutePlayerInHeadlessHostBot() {
+<span class="nc" id="L416">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L417" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L418">      return;</span>
+    }
+<span class="nc" id="L420">    final int result =</span>
+<span class="nc" id="L421">        JOptionPane.showConfirmDialog(null, &quot;Are you sure you want to perform a remote mute player on this host?&quot;,</span>
+<span class="nc" id="L422">            &quot;Remote Player Mute Headless Host Bot&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L423" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L424">      return;</span>
+    }
+<span class="nc" id="L426">    final String playerToBeMuted = JOptionPane.showInputDialog(getTopLevelAncestor(), &quot;Player Name To Be Muted?&quot;,</span>
+<span class="nc" id="L427">        &quot;Player Name To Be Muted?&quot;, JOptionPane.QUESTION_MESSAGE);</span>
+<span class="nc bnc" id="L428" title="All 2 branches missed.">    if (playerToBeMuted == null) {</span>
+<span class="nc" id="L429">      return;</span>
+    }
+<span class="nc" id="L431">    final Object minutes = JOptionPane.showInputDialog(getTopLevelAncestor(),</span>
+<span class="nc" id="L432">        &quot;Minutes to Mute for?  (between 0 and 2880, choose zero to unmute [works only if players is in the host])&quot;,</span>
+<span class="nc" id="L433">        &quot;Minutes to Mute for?&quot;, JOptionPane.QUESTION_MESSAGE, null, null, 10);</span>
+<span class="nc bnc" id="L434" title="All 2 branches missed.">    if (minutes == null) {</span>
+<span class="nc" id="L435">      return;</span>
+    }
+    int min;
+    try {
+<span class="nc" id="L439">      min = Math.max(0, Math.min(60 * 24 * 2, Integer.parseInt((String) minutes)));</span>
+<span class="nc" id="L440">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L441">      return;</span>
+    }
+<span class="nc" id="L443">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L444">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L445">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L446">    final JLabel label = new JLabel(&quot;Enter Host Remote Access Password, (Leave blank for no password).&quot;);</span>
+<span class="nc" id="L447">    final JPasswordField passwordField = new JPasswordField();</span>
+<span class="nc" id="L448">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L449">    panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L450">    panel.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L451">    panel.add(passwordField, BorderLayout.CENTER);</span>
+<span class="nc" id="L452">    final int rVal = JOptionPane.showOptionDialog(getTopLevelAncestor(), panel, &quot;Host Remote Access Password?&quot;,</span>
+<span class="nc" id="L453">        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L454" title="All 4 branches missed.">    if (rVal != JOptionPane.OK_OPTION || passwordField.getPassword() == null) {</span>
+<span class="nc" id="L455">      return;</span>
+    }
+<span class="nc" id="L457">    final String password = new String(passwordField.getPassword());</span>
+<span class="nc" id="L458">    final String salt = controller.getHeadlessHostBotSalt(lobbyWatcherNode);</span>
+<span class="nc" id="L459">    final String hashedPassword = MD5Crypt.crypt(password, salt);</span>
+<span class="nc" id="L460">    final String response =</span>
+<span class="nc" id="L461">        controller.mutePlayerHeadlessHostBot(lobbyWatcherNode, playerToBeMuted, min, hashedPassword, salt);</span>
+<span class="nc bnc" id="L462" title="All 2 branches missed.">    JOptionPane.showMessageDialog(null, (response == null</span>
+<span class="nc" id="L463">        ? &quot;Successfully attempted to mute player (&quot; + playerToBeMuted + &quot;) on host&quot; : &quot;Failed: &quot; + response));</span>
+<span class="nc" id="L464">  }</span>
+
+  private void bootPlayerInHeadlessHostBot() {
+<span class="nc" id="L467">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L468" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L469">      return;</span>
+    }
+<span class="nc" id="L471">    final int result =</span>
+<span class="nc" id="L472">        JOptionPane.showConfirmDialog(null, &quot;Are you sure you want to perform a remote boot player on this host?&quot;,</span>
+<span class="nc" id="L473">            &quot;Remote Player Boot Headless Host Bot&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L474" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L475">      return;</span>
+    }
+<span class="nc" id="L477">    final String playerToBeBooted = JOptionPane.showInputDialog(getTopLevelAncestor(), &quot;Player Name To Be Booted?&quot;,</span>
+<span class="nc" id="L478">        &quot;Player Name To Be Booted?&quot;, JOptionPane.QUESTION_MESSAGE);</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">    if (playerToBeBooted == null) {</span>
+<span class="nc" id="L480">      return;</span>
+    }
+<span class="nc" id="L482">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L483">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L484">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L485">    final JLabel label = new JLabel(&quot;Enter Host Remote Access Password, (Leave blank for no password).&quot;);</span>
+<span class="nc" id="L486">    final JPasswordField passwordField = new JPasswordField();</span>
+<span class="nc" id="L487">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L488">    panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L489">    panel.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L490">    panel.add(passwordField, BorderLayout.CENTER);</span>
+<span class="nc" id="L491">    final int rVal = JOptionPane.showOptionDialog(getTopLevelAncestor(), panel, &quot;Host Remote Access Password?&quot;,</span>
+<span class="nc" id="L492">        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L493" title="All 4 branches missed.">    if (rVal != JOptionPane.OK_OPTION || passwordField.getPassword() == null) {</span>
+<span class="nc" id="L494">      return;</span>
+    }
+<span class="nc" id="L496">    final String password = new String(passwordField.getPassword());</span>
+<span class="nc" id="L497">    final String salt = controller.getHeadlessHostBotSalt(lobbyWatcherNode);</span>
+<span class="nc" id="L498">    final String hashedPassword = MD5Crypt.crypt(password, salt);</span>
+<span class="nc" id="L499">    final String response =</span>
+<span class="nc" id="L500">        controller.bootPlayerHeadlessHostBot(lobbyWatcherNode, playerToBeBooted, hashedPassword, salt);</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">    JOptionPane.showMessageDialog(null, (response == null</span>
+<span class="nc" id="L502">        ? &quot;Successfully attempted to boot player (&quot; + playerToBeBooted + &quot;) on host&quot; : &quot;Failed: &quot; + response));</span>
+<span class="nc" id="L503">  }</span>
+
+  private void banPlayerInHeadlessHostBot() {
+<span class="nc" id="L506">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L508">      return;</span>
+    }
+<span class="nc" id="L510">    final int result = JOptionPane.showConfirmDialog(null,</span>
+<span class="nc" id="L511">        &quot;Are you sure you want to perform a (permanent) remote ban player on this host?&quot;,</span>
+<span class="nc" id="L512">        &quot;Remote Player Ban Headless Host Bot&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L514">      return;</span>
+    }
+<span class="nc" id="L516">    final String playerToBeBanned = JOptionPane.showInputDialog(getTopLevelAncestor(), &quot;Player Name To Be Banned?&quot;,</span>
+<span class="nc" id="L517">        &quot;Player Name To Be Banned?&quot;, JOptionPane.QUESTION_MESSAGE);</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">    if (playerToBeBanned == null) {</span>
+<span class="nc" id="L519">      return;</span>
+    }
+<span class="nc" id="L521">    final Object hours = JOptionPane.showInputDialog(getTopLevelAncestor(),</span>
+<span class="nc" id="L522">        &quot;Hours to Ban for?  (between 0 and 720, this is permanent and only a restart of the host will undo it!)&quot;,</span>
+<span class="nc" id="L523">        &quot;Hours to Ban for?&quot;, JOptionPane.QUESTION_MESSAGE, null, null, 24);</span>
+<span class="nc bnc" id="L524" title="All 2 branches missed.">    if (hours == null) {</span>
+<span class="nc" id="L525">      return;</span>
+    }
+    int hrs;
+    try {
+<span class="nc" id="L529">      hrs = Math.max(0, Math.min(24 * 30, Integer.parseInt((String) hours)));</span>
+<span class="nc" id="L530">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L531">      return;</span>
+    }
+<span class="nc" id="L533">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L534">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L535">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L536">    final JLabel label = new JLabel(&quot;Enter Host Remote Access Password, (Leave blank for no password).&quot;);</span>
+<span class="nc" id="L537">    final JPasswordField passwordField = new JPasswordField();</span>
+<span class="nc" id="L538">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L539">    panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L540">    panel.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L541">    panel.add(passwordField, BorderLayout.CENTER);</span>
+<span class="nc" id="L542">    final int rVal = JOptionPane.showOptionDialog(getTopLevelAncestor(), panel, &quot;Host Remote Access Password?&quot;,</span>
+<span class="nc" id="L543">        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L544" title="All 4 branches missed.">    if (rVal != JOptionPane.OK_OPTION || passwordField.getPassword() == null) {</span>
+<span class="nc" id="L545">      return;</span>
+    }
+<span class="nc" id="L547">    final String password = new String(passwordField.getPassword());</span>
+<span class="nc" id="L548">    final String salt = controller.getHeadlessHostBotSalt(lobbyWatcherNode);</span>
+<span class="nc" id="L549">    final String hashedPassword = MD5Crypt.crypt(password, salt);</span>
+<span class="nc" id="L550">    final String response =</span>
+<span class="nc" id="L551">        controller.banPlayerHeadlessHostBot(lobbyWatcherNode, playerToBeBanned, hrs, hashedPassword, salt);</span>
+<span class="nc bnc" id="L552" title="All 2 branches missed.">    JOptionPane.showMessageDialog(null, (response == null</span>
+<span class="nc" id="L553">        ? &quot;Successfully attempted banned player (&quot; + playerToBeBanned + &quot;) on host&quot; : &quot;Failed: &quot; + response));</span>
+<span class="nc" id="L554">  }</span>
+
+  private void stopGameHeadlessHostBot() {
+<span class="nc" id="L557">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L558" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L559">      return;</span>
+    }
+<span class="nc" id="L561">    final int result =</span>
+<span class="nc" id="L562">        JOptionPane.showConfirmDialog(null, &quot;Are you sure you want to perform a remote stop game on this host?&quot;,</span>
+<span class="nc" id="L563">            &quot;Remote Stopgame Headless Host Bot&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L565">      return;</span>
+    }
+<span class="nc" id="L567">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L568">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L569">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L570">    final JLabel label = new JLabel(&quot;Enter Host Remote Access Password, (Leave blank for no password).&quot;);</span>
+<span class="nc" id="L571">    final JPasswordField passwordField = new JPasswordField();</span>
+<span class="nc" id="L572">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L573">    panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L574">    panel.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L575">    panel.add(passwordField, BorderLayout.CENTER);</span>
+<span class="nc" id="L576">    final int rVal = JOptionPane.showOptionDialog(getTopLevelAncestor(), panel, &quot;Host Remote Access Password?&quot;,</span>
+<span class="nc" id="L577">        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L578" title="All 4 branches missed.">    if (rVal != JOptionPane.OK_OPTION || passwordField.getPassword() == null) {</span>
+<span class="nc" id="L579">      return;</span>
+    }
+<span class="nc" id="L581">    final String password = new String(passwordField.getPassword());</span>
+<span class="nc" id="L582">    final String salt = controller.getHeadlessHostBotSalt(lobbyWatcherNode);</span>
+<span class="nc" id="L583">    final String hashedPassword = MD5Crypt.crypt(password, salt);</span>
+<span class="nc" id="L584">    final String response = controller.stopGameHeadlessHostBot(lobbyWatcherNode, hashedPassword, salt);</span>
+<span class="nc" id="L585">    JOptionPane.showMessageDialog(null,</span>
+<span class="nc bnc" id="L586" title="All 2 branches missed.">        (response == null ? &quot;Successfully attempted stop of current game on host&quot; : &quot;Failed: &quot; + response));</span>
+<span class="nc" id="L587">  }</span>
+
+  private void shutDownHeadlessHostBot() {
+<span class="nc" id="L590">    final int selectedIndex = m_gameTable.getSelectedRow();</span>
+<span class="nc bnc" id="L591" title="All 2 branches missed.">    if (selectedIndex == -1) {</span>
+<span class="nc" id="L592">      return;</span>
+    }
+<span class="nc" id="L594">    final int result = JOptionPane.showConfirmDialog(null,</span>
+<span class="nc" id="L595">        &quot;Are you sure you want to perform a remote shutdown of this host? \n\nYou MUST email the host's owner FIRST!!&quot;,</span>
+<span class="nc" id="L596">        &quot;Remote Shutdown Headless Host Bot&quot;, JOptionPane.OK_CANCEL_OPTION);</span>
+<span class="nc bnc" id="L597" title="All 2 branches missed.">    if (result != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L598">      return;</span>
+    }
+<span class="nc" id="L600">    final INode lobbyWatcherNode = getLobbyWatcherNodeForTableRow(selectedIndex);</span>
+<span class="nc" id="L601">    final IModeratorController controller = (IModeratorController) m_messengers.getRemoteMessenger()</span>
+<span class="nc" id="L602">        .getRemote(AbstractModeratorController.getModeratorControllerName());</span>
+<span class="nc" id="L603">    final JLabel label = new JLabel(&quot;Enter Host Remote Access Password, (Leave blank for no password).&quot;);</span>
+<span class="nc" id="L604">    final JPasswordField passwordField = new JPasswordField();</span>
+<span class="nc" id="L605">    final JPanel panel = new JPanel();</span>
+<span class="nc" id="L606">    panel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L607">    panel.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L608">    panel.add(passwordField, BorderLayout.CENTER);</span>
+<span class="nc" id="L609">    final int rVal = JOptionPane.showOptionDialog(getTopLevelAncestor(), panel, &quot;Host Remote Access Password?&quot;,</span>
+<span class="nc" id="L610">        JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L611" title="All 4 branches missed.">    if (rVal != JOptionPane.OK_OPTION || passwordField.getPassword() == null) {</span>
+<span class="nc" id="L612">      return;</span>
+    }
+<span class="nc" id="L614">    final String password = new String(passwordField.getPassword());</span>
+<span class="nc" id="L615">    final String salt = controller.getHeadlessHostBotSalt(lobbyWatcherNode);</span>
+<span class="nc" id="L616">    final String hashedPassword = MD5Crypt.crypt(password, salt);</span>
+<span class="nc" id="L617">    final String response = controller.shutDownHeadlessHostBot(lobbyWatcherNode, hashedPassword, salt);</span>
+<span class="nc" id="L618">    JOptionPane.showMessageDialog(null,</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">        (response == null ? &quot;Successfully attempted to shut down host&quot; : &quot;Failed: &quot; + response));</span>
+<span class="nc" id="L620">  }</span>
+
+  private void setWidgetActivation() {
+<span class="nc bnc" id="L623" title="All 2 branches missed.">    final boolean selected = m_gameTable.getSelectedRow() &gt;= 0;</span>
+<span class="nc" id="L624">    m_joinGame.setEnabled(selected);</span>
+<span class="nc" id="L625">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

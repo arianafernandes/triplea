@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TripleA.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea</a> &gt; <span class="el_source">TripleA.java</span></div><h1>TripleA.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea;</span>
+
+import java.awt.Frame;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.IUnitFactory;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.framework.IGame;
+import games.strategy.engine.framework.IGameLoader;
+import games.strategy.engine.framework.LocalPlayers;
+import games.strategy.engine.framework.ServerGame;
+import games.strategy.engine.gamePlayer.IGamePlayer;
+import games.strategy.engine.message.IChannelSubscribor;
+import games.strategy.engine.message.IRemote;
+import games.strategy.sound.ClipPlayer;
+import games.strategy.sound.DefaultSoundChannel;
+import games.strategy.sound.HeadlessSoundChannel;
+import games.strategy.sound.ISound;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.ai.fastAI.FastAI;
+import games.strategy.triplea.ai.proAI.ProAI;
+import games.strategy.triplea.ai.weakAI.DoesNothingAI;
+import games.strategy.triplea.ai.weakAI.WeakAI;
+import games.strategy.triplea.delegate.EditDelegate;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.ui.HeadlessUIContext;
+import games.strategy.triplea.ui.IUIContext;
+import games.strategy.triplea.ui.TripleAFrame;
+import games.strategy.triplea.ui.display.HeadlessDisplay;
+import games.strategy.triplea.ui.display.ITripleADisplay;
+import games.strategy.triplea.ui.display.TripleADisplay;
+import games.strategy.ui.SwingAction;
+
+@MapSupport
+<span class="fc" id="L40">public class TripleA implements IGameLoader {</span>
+  private static final long serialVersionUID = -8374315848374732436L;
+  public static final String HUMAN_PLAYER_TYPE = &quot;Human&quot;;
+  public static final String WEAK_COMPUTER_PLAYER_TYPE = &quot;Easy (AI)&quot;;
+  public static final String FAST_COMPUTER_PLAYER_TYPE = &quot;Fast (AI)&quot;;
+  public static final String PRO_COMPUTER_PLAYER_TYPE = &quot;Hard (AI)&quot;;
+  public static final String DOESNOTHINGAI_COMPUTER_PLAYER_TYPE = &quot;Does Nothing (AI)&quot;;
+  protected transient ITripleADisplay display;
+
+  protected transient ISound soundChannel;
+  protected transient IGame game;
+
+  @Override
+  public Set&lt;IGamePlayer&gt; createPlayers(final Map&lt;String, String&gt; playerNames) {
+<span class="nc" id="L54">    final Set&lt;IGamePlayer&gt; players = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">    for (final String name : playerNames.keySet()) {</span>
+<span class="nc" id="L56">      final String type = playerNames.get(name);</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">      if (type.equals(WEAK_COMPUTER_PLAYER_TYPE)) {</span>
+<span class="nc" id="L58">        players.add(new WeakAI(name, type));</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">      } else if (type.equals(FAST_COMPUTER_PLAYER_TYPE)) {</span>
+<span class="nc" id="L60">        players.add(new FastAI(name, type));</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">      } else if (type.equals(PRO_COMPUTER_PLAYER_TYPE)) {</span>
+<span class="nc" id="L62">        players.add(new ProAI(name, type));</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">      } else if (type.equals(DOESNOTHINGAI_COMPUTER_PLAYER_TYPE)) {</span>
+<span class="nc" id="L64">        players.add(new DoesNothingAI(name, type));</span>
+<span class="nc bnc" id="L65" title="All 4 branches missed.">      } else if (type.equals(HUMAN_PLAYER_TYPE) || type.equals(CLIENT_PLAYER_TYPE)) {</span>
+<span class="nc" id="L66">        final TripleAPlayer player = new TripleAPlayer(name, type);</span>
+<span class="nc" id="L67">        players.add(player);</span>
+<span class="nc" id="L68">      } else {</span>
+<span class="nc" id="L69">        throw new IllegalStateException(&quot;Player type not recognized:&quot; + type);</span>
+      }
+    }
+<span class="nc" id="L72">    return players;</span>
+  }
+
+  @Override
+  public void shutDown() {
+<span class="nc bnc" id="L77" title="All 4 branches missed.">    if (game != null &amp;&amp; soundChannel != null) {</span>
+<span class="nc" id="L78">      game.removeSoundChannel(soundChannel);</span>
+      // set sound channel to null to handle the case of shutdown being called multiple times.
+      // If/when shutdown is called exactly once, then the null assignment should be unnecessary.
+<span class="nc" id="L81">      soundChannel = null;</span>
+    }
+
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (display != null) {</span>
+<span class="nc" id="L85">      game.removeDisplay(display);</span>
+<span class="nc" id="L86">      display.shutDown();</span>
+<span class="nc" id="L87">      display = null;</span>
+    }
+<span class="nc" id="L89">  }</span>
+
+
+  @Override
+  public void startGame(final IGame game, final Set&lt;IGamePlayer&gt; players, final boolean headless) {
+<span class="nc" id="L94">    this.game = game;</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    if (game.getData().getDelegateList().getDelegate(&quot;edit&quot;) == null) {</span>
+      // An evil hack: instead of modifying the XML, force an EditDelegate by adding one here
+<span class="nc" id="L97">      final EditDelegate delegate = new EditDelegate();</span>
+<span class="nc" id="L98">      delegate.initialize(&quot;edit&quot;, &quot;edit&quot;);</span>
+<span class="nc" id="L99">      game.getData().getDelegateList().addDelegate(delegate);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">      if (game instanceof ServerGame) {</span>
+<span class="nc" id="L101">        ((ServerGame) game).addDelegateMessenger(delegate);</span>
+      }
+    }
+<span class="nc" id="L104">    final LocalPlayers localPlayers = new LocalPlayers(players);</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    if (headless) {</span>
+<span class="nc" id="L106">      final IUIContext uiContext = new HeadlessUIContext();</span>
+<span class="nc" id="L107">      uiContext.setDefaultMapDir(game.getData());</span>
+<span class="nc" id="L108">      uiContext.setLocalPlayers(localPlayers);</span>
+<span class="nc" id="L109">      display = new HeadlessDisplay();</span>
+<span class="nc" id="L110">      soundChannel = new HeadlessSoundChannel();</span>
+<span class="nc" id="L111">      game.addDisplay(display);</span>
+<span class="nc" id="L112">      game.addSoundChannel(soundChannel);</span>
+
+      // technically not needed because we won't have any &quot;local human players&quot; in a headless game.
+<span class="nc" id="L115">      connectPlayers(players, null);</span>
+<span class="nc" id="L116">    } else {</span>
+<span class="nc" id="L117">      SwingAction.invokeAndWait(() -&gt; {</span>
+        final TripleAFrame frame;
+<span class="nc" id="L119">        frame = new TripleAFrame(game, localPlayers);</span>
+<span class="nc" id="L120">        display = new TripleADisplay(frame);</span>
+<span class="nc" id="L121">        game.addDisplay(display);</span>
+<span class="nc" id="L122">        soundChannel = new DefaultSoundChannel(localPlayers);</span>
+<span class="nc" id="L123">        game.addSoundChannel(soundChannel);</span>
+<span class="nc" id="L124">        frame.setSize(700, 400);</span>
+<span class="nc" id="L125">        frame.setVisible(true);</span>
+<span class="nc" id="L126">        ClipPlayer.play(SoundPath.CLIP_GAME_START);</span>
+<span class="nc" id="L127">        connectPlayers(players, frame);</span>
+<span class="nc" id="L128">        frame.setExtendedState(Frame.MAXIMIZED_BOTH);</span>
+<span class="nc" id="L129">        frame.toFront();</span>
+<span class="nc" id="L130">      });</span>
+
+    }
+
+<span class="nc" id="L134">  }</span>
+
+  private static void connectPlayers(final Set&lt;IGamePlayer&gt; players, final TripleAFrame frame) {
+<span class="nc bnc" id="L137" title="All 2 branches missed.">    for (final IGamePlayer player : players) {</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">      if (player instanceof TripleAPlayer) {</span>
+<span class="nc" id="L139">        ((TripleAPlayer) player).setFrame(frame);</span>
+      }
+    }
+<span class="nc" id="L142">  }</span>
+
+  /**
+   * Return an array of player types that can play on the server.
+   */
+  @Override
+  public String[] getServerPlayerTypes() {
+<span class="nc" id="L149">    return new String[] {HUMAN_PLAYER_TYPE, WEAK_COMPUTER_PLAYER_TYPE, FAST_COMPUTER_PLAYER_TYPE,</span>
+<span class="nc" id="L150">        PRO_COMPUTER_PLAYER_TYPE, DOESNOTHINGAI_COMPUTER_PLAYER_TYPE};</span>
+  }
+
+  @Override
+  public Class&lt;? extends IChannelSubscribor&gt; getDisplayType() {
+<span class="nc" id="L155">    return ITripleADisplay.class;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IChannelSubscribor&gt; getSoundType() {
+<span class="nc" id="L160">    return ISound.class;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemotePlayerType() {
+<span class="nc" id="L165">    return ITripleAPlayer.class;</span>
+  }
+
+  @Override
+  public IUnitFactory getUnitFactory() {
+<span class="fc" id="L170">    return new IUnitFactory() {</span>
+      private static final long serialVersionUID = 5684926837825766505L;
+
+      @Override
+      public Unit createUnit(final UnitType type, final PlayerID owner, final GameData data) {
+<span class="fc" id="L175">        return new TripleAUnit(type, owner, data);</span>
+      }
+    };
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

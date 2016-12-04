@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>LobbyServer.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server</a> &gt; <span class="el_source">LobbyServer.java</span></div><h1>LobbyServer.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintStream;
+import java.util.logging.Level;
+import java.util.logging.LogManager;
+import java.util.logging.Logger;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.chat.ChatController;
+import games.strategy.engine.chat.StatusManager;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.lobby.server.headless.HeadlessLobbyConsole;
+import games.strategy.engine.lobby.server.login.LobbyLoginValidator;
+import games.strategy.engine.lobby.server.ui.LobbyAdminConsole;
+import games.strategy.engine.lobby.server.userDB.Database;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.Messengers;
+import games.strategy.net.ServerMessenger;
+import games.strategy.sound.ClipPlayer;
+import games.strategy.triplea.util.LoggingPrintStream;
+import games.strategy.util.Version;
+
+/**
+ * LobbyServer.java
+ * Created on May 23, 2006, 6:44 PM
+ */
+public class LobbyServer {
+  // System properties for the lobby
+  // what port should the lobby use
+  public static final String TRIPLEA_LOBBY_PORT_PROPERTY = &quot;triplea.lobby.port&quot;;
+  // should the lobby start a ui, set to true to enable
+  private static final String TRIPLEA_LOBBY_UI_PROPERTY = &quot;triplea.lobby.ui&quot;;
+  // should the lobby take commands from stdin,
+  // set to true to enable
+  private static final String TRIPLEA_LOBBY_CONSOLE_PROPERTY = &quot;triplea.lobby.console&quot;;
+  public static final String ADMIN_USERNAME = &quot;Admin&quot;;
+<span class="fc" id="L39">  private final static Logger s_logger = Logger.getLogger(LobbyServer.class.getName());</span>
+  public static final String LOBBY_CHAT = &quot;_LOBBY_CHAT&quot;;
+<span class="fc" id="L41">  public static final Version LOBBY_VERSION = new Version(1, 0, 0);</span>
+  private final Messengers m_messengers;
+
+  public static String[] getProperties() {
+<span class="nc" id="L45">    return new String[] {TRIPLEA_LOBBY_PORT_PROPERTY, TRIPLEA_LOBBY_CONSOLE_PROPERTY, TRIPLEA_LOBBY_UI_PROPERTY};</span>
+  }
+
+  /** Creates a new instance of LobbyServer */
+<span class="nc" id="L49">  public LobbyServer(final int port) {</span>
+    IServerMessenger server;
+    try {
+<span class="nc" id="L52">      server = new ServerMessenger(ADMIN_USERNAME, port);</span>
+<span class="nc" id="L53">    } catch (final IOException ex) {</span>
+<span class="nc" id="L54">      s_logger.log(Level.SEVERE, ex.toString());</span>
+<span class="nc" id="L55">      throw new IllegalStateException(ex.getMessage());</span>
+    }
+<span class="nc" id="L57">    m_messengers = new Messengers(server);</span>
+<span class="nc" id="L58">    server.setLoginValidator(new LobbyLoginValidator());</span>
+    // setup common objects
+<span class="nc" id="L60">    new UserManager().register(m_messengers.getRemoteMessenger());</span>
+<span class="nc" id="L61">    final ModeratorController moderatorController = new ModeratorController(server, m_messengers);</span>
+<span class="nc" id="L62">    moderatorController.register(m_messengers.getRemoteMessenger());</span>
+<span class="nc" id="L63">    new ChatController(LOBBY_CHAT, m_messengers, moderatorController);</span>
+    // register the status controller
+<span class="nc" id="L65">    final StatusManager statusManager = new StatusManager(m_messengers);</span>
+    // we dont need this manager now
+<span class="nc" id="L67">    statusManager.shutDown();</span>
+<span class="nc" id="L68">    final LobbyGameController controller = new LobbyGameController((ILobbyGameBroadcaster) m_messengers</span>
+<span class="nc" id="L69">        .getChannelMessenger().getChannelBroadcastor(ILobbyGameBroadcaster.GAME_BROADCASTER_CHANNEL), server);</span>
+<span class="nc" id="L70">    controller.register(m_messengers.getRemoteMessenger());</span>
+    // now we are open for business
+<span class="nc" id="L72">    server.setAcceptNewConnections(true);</span>
+<span class="nc" id="L73">  }</span>
+
+  private static void setUpLogging() {
+    // setup logging to read our logging.properties
+    try {
+<span class="nc" id="L78">      LogManager.getLogManager().readConfiguration(ClassLoader.getSystemResourceAsStream(&quot;server-logging.properties&quot;));</span>
+<span class="nc" id="L79">    } catch (final Exception e) {</span>
+<span class="nc" id="L80">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L82">    Logger.getAnonymousLogger().info(&quot;Redirecting std out&quot;);</span>
+<span class="nc" id="L83">    System.setErr(new LoggingPrintStream(&quot;ERROR&quot;, Level.SEVERE));</span>
+<span class="nc" id="L84">    System.setOut(new LoggingPrintStream(&quot;OUT&quot;, Level.INFO));</span>
+<span class="nc" id="L85">  }</span>
+
+  public static void main(final String args[]) {
+    try {
+      // send args to system properties
+<span class="nc" id="L90">      handleCommandLineArgs(args);</span>
+      // turn off sound if no ui
+<span class="nc" id="L92">      final boolean startUI = Boolean.parseBoolean(System.getProperty(TRIPLEA_LOBBY_UI_PROPERTY, &quot;false&quot;));</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">      if (!startUI) {</span>
+<span class="nc" id="L94">        ClipPlayer.setBeSilentInPreferencesWithoutAffectingCurrent(true);</span>
+      }
+      // grab these before we override them with the loggers
+<span class="nc" id="L97">      final InputStream in = System.in;</span>
+<span class="nc" id="L98">      final PrintStream out = System.out;</span>
+<span class="nc" id="L99">      setUpLogging();</span>
+<span class="nc" id="L100">      final int port = Integer.parseInt(System.getProperty(TRIPLEA_LOBBY_PORT_PROPERTY, &quot;3303&quot;));</span>
+<span class="nc" id="L101">      System.out.println(&quot;Trying to listen on port:&quot; + port);</span>
+<span class="nc" id="L102">      final LobbyServer server = new LobbyServer(port);</span>
+<span class="nc" id="L103">      System.out.println(&quot;Starting database&quot;);</span>
+      // initialize the database
+<span class="nc" id="L105">      Database.getConnection().close();</span>
+<span class="nc" id="L106">      s_logger.info(&quot;Lobby started&quot;);</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">      if (startUI) {</span>
+<span class="nc" id="L108">        startUI(server);</span>
+      }
+<span class="nc bnc" id="L110" title="All 2 branches missed.">      if (Boolean.parseBoolean(System.getProperty(TRIPLEA_LOBBY_CONSOLE_PROPERTY, &quot;false&quot;))) {</span>
+<span class="nc" id="L111">        startConsole(server, in, out);</span>
+      }
+<span class="nc" id="L113">    } catch (final Exception ex) {</span>
+<span class="nc" id="L114">      s_logger.log(Level.SEVERE, ex.toString(), ex);</span>
+    }
+<span class="nc" id="L116">  }</span>
+
+  private static void startConsole(final LobbyServer server, final InputStream in, final PrintStream out) {
+<span class="nc" id="L119">    System.out.println(&quot;starting console&quot;);</span>
+<span class="nc" id="L120">    new HeadlessLobbyConsole(server, in, out).start();</span>
+<span class="nc" id="L121">  }</span>
+
+  private static void startUI(final LobbyServer server) {
+<span class="nc" id="L124">    System.out.println(&quot;starting ui&quot;);</span>
+<span class="nc" id="L125">    final LobbyAdminConsole console = new LobbyAdminConsole(server);</span>
+<span class="nc" id="L126">    console.setSize(800, 700);</span>
+<span class="nc" id="L127">    console.setLocationRelativeTo(null);</span>
+<span class="nc" id="L128">    console.setVisible(true);</span>
+<span class="nc" id="L129">  }</span>
+
+  public IServerMessenger getMessenger() {
+<span class="nc" id="L132">    return (IServerMessenger) m_messengers.getMessenger();</span>
+  }
+
+  public Messengers getMessengers() {
+<span class="nc" id="L136">    return m_messengers;</span>
+  }
+
+  /**
+   * Move command line arguments to System.properties
+   */
+  private static void handleCommandLineArgs(final String[] args) {
+<span class="nc" id="L143">    System.getProperties().setProperty(GameRunner.TRIPLEA_HEADLESS, &quot;true&quot;);</span>
+<span class="nc" id="L144">    final String[] properties = getProperties();</span>
+<span class="nc" id="L145">    boolean usagePrinted = false;</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">    for (final String arg2 : args) {</span>
+<span class="nc" id="L147">      boolean found = false;</span>
+<span class="nc" id="L148">      String arg = arg2;</span>
+<span class="nc" id="L149">      final int indexOf = arg.indexOf('=');</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">      if (indexOf &gt; 0) {</span>
+<span class="nc" id="L151">        arg = arg.substring(0, indexOf);</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">        for (final String propertie : properties) {</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">          if (arg.equals(propertie)) {</span>
+<span class="nc" id="L154">            final String value = getValue(arg2);</span>
+<span class="nc" id="L155">            System.getProperties().setProperty(propertie, value);</span>
+<span class="nc" id="L156">            System.out.println(propertie + &quot;:&quot; + value);</span>
+<span class="nc" id="L157">            found = true;</span>
+<span class="nc" id="L158">            break;</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L162" title="All 2 branches missed.">      if (!found) {</span>
+<span class="nc" id="L163">        System.out.println(&quot;Unrecogized:&quot; + arg2);</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">        if (!usagePrinted) {</span>
+<span class="nc" id="L165">          usagePrinted = true;</span>
+<span class="nc" id="L166">          usage();</span>
+        }
+      }
+    }
+<span class="nc" id="L170">  }</span>
+
+  private static String getValue(final String arg) {
+<span class="nc" id="L173">    final int index = arg.indexOf('=');</span>
+<span class="nc bnc" id="L174" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L175">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L177">    return arg.substring(index + 1);</span>
+  }
+
+  private static void usage() {
+<span class="nc" id="L181">    System.out.println(&quot;Arguments\n&quot; + &quot;   &quot; + TRIPLEA_LOBBY_PORT_PROPERTY + &quot;=&lt;port number (ex: 3303)&gt;\n&quot; + &quot;   &quot;</span>
+        + TRIPLEA_LOBBY_UI_PROPERTY + &quot;=&lt;true/false&gt;\n&quot; + &quot;   &quot; + TRIPLEA_LOBBY_CONSOLE_PROPERTY + &quot;=&lt;true/false&gt;\n&quot;);
+<span class="nc" id="L183">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

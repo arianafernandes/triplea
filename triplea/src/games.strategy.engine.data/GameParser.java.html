@@ -1,0 +1,1477 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>GameParser.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.data</a> &gt; <span class="el_source">GameParser.java</span></div><h1>GameParser.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.engine.data;</span>
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Properties;
+import java.util.Set;
+import java.util.StringTokenizer;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+
+import games.strategy.engine.data.gameparser.XmlGameElementMapper;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.data.properties.BooleanProperty;
+import games.strategy.engine.data.properties.ColorProperty;
+import games.strategy.engine.data.properties.ComboProperty;
+import games.strategy.engine.data.properties.FileProperty;
+import games.strategy.engine.data.properties.GameProperties;
+import games.strategy.engine.data.properties.IEditableProperty;
+import games.strategy.engine.data.properties.NumberProperty;
+import games.strategy.engine.data.properties.StringProperty;
+import games.strategy.engine.delegate.IDelegate;
+import games.strategy.engine.framework.IGameLoader;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.GenericTechAdvance;
+import games.strategy.triplea.delegate.TechAdvance;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.Tuple;
+import games.strategy.util.Version;
+
+public class GameParser {
+<span class="fc" id="L57">  private static final Class&lt;?&gt;[] SETTER_ARGS = {String.class};</span>
+  private GameData data;
+<span class="fc" id="L59">  private final Collection&lt;SAXParseException&gt; errorsSAX = new ArrayList&lt;&gt;();</span>
+  public static final String DTD_FILE_NAME = &quot;game.dtd&quot;;
+<span class="fc" id="L61">  private static HashMap&lt;String, String&gt; newClassesForOldNames;</span>
+  private final String mapName;
+
+<span class="fc" id="L64">  public GameParser(final String mapName) {</span>
+<span class="fc" id="L65">    this.mapName = mapName;</span>
+<span class="fc" id="L66">  }</span>
+
+  /**
+   * Parses a file into a GameData object.
+   *
+   * @param stream
+   * @param delayParsing
+   *        Should we only parse the game name, notes, and playerlist? Normally this should be &quot;false&quot;, except for the
+   *        game chooser which
+   *        should use the user set preference.
+   * @throws GameParseException
+   * @throws SAXException
+   * @throws EngineVersionException
+   */
+  public synchronized GameData parse(final InputStream stream, final AtomicReference&lt;String&gt; gameName,
+      final boolean delayParsing)
+      throws GameParseException, SAXException, EngineVersionException, IllegalArgumentException {
+<span class="pc bpc" id="L83" title="1 of 2 branches missed.">    if (stream == null) {</span>
+<span class="nc" id="L84">      throw new IllegalArgumentException(&quot;Stream must be non null&quot;);</span>
+    }
+<span class="fc" id="L86">    Document doc = null;</span>
+    try {
+<span class="fc" id="L88">      doc = getDocument(stream);</span>
+<span class="pc" id="L89">    } catch (final IOException | ParserConfigurationException e) {</span>
+<span class="nc" id="L90">      throw new IllegalStateException(&quot;Error parsing: &quot; + mapName, e);</span>
+    }
+<span class="fc" id="L92">    final Element root = doc.getDocumentElement();</span>
+<span class="fc" id="L93">    data = new GameData();</span>
+    // mandatory fields
+    // get the name of the map
+<span class="fc" id="L96">    parseInfo(getSingleChild(&quot;info&quot;, root));</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">    if (gameName != null) {</span>
+<span class="fc" id="L98">      gameName.set(data.getGameName());</span>
+    }
+    // test minimum engine version FIRST
+<span class="fc" id="L101">    parseMinimumEngineVersionNumber(getSingleChild(&quot;triplea&quot;, root, true));</span>
+<span class="fc" id="L102">    parseGameLoader(getSingleChild(&quot;loader&quot;, root));</span>
+    // if we manage to get this far, past the minimum engine version number test, AND we are still good, then check and
+    // see if we have any
+    // SAX errors we need to show
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">    if (!errorsSAX.isEmpty()) {</span>
+<span class="nc bnc" id="L107" title="All 2 branches missed.">      for (final SAXParseException error : errorsSAX) {</span>
+<span class="nc" id="L108">        System.err.println(&quot;SAXParseException: game: &quot;</span>
+<span class="nc bnc" id="L109" title="All 4 branches missed.">            + (data == null ? &quot;?&quot; : (data.getGameName() == null ? &quot;?&quot; : data.getGameName())) + &quot;, line: &quot;</span>
+<span class="nc" id="L110">            + error.getLineNumber() + &quot;, column: &quot; + error.getColumnNumber() + &quot;, error: &quot; + error.getMessage());</span>
+      }
+    }
+<span class="fc" id="L113">    parseDiceSides(getSingleChild(&quot;diceSides&quot;, root, true));</span>
+<span class="fc" id="L114">    final Element playerListNode = getSingleChild(&quot;playerList&quot;, root);</span>
+<span class="fc" id="L115">    parsePlayerList(playerListNode);</span>
+<span class="fc" id="L116">    parseAlliances(playerListNode);</span>
+<span class="fc" id="L117">    final Node properties = getSingleChild(&quot;propertyList&quot;, root, true);</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">    if (properties != null) {</span>
+<span class="fc" id="L119">      parseProperties(properties);</span>
+    }
+    // everything until here is needed to select a game, the rest can be parsed when a game is selected
+<span class="fc bfc" id="L122" title="All 2 branches covered.">    if (delayParsing) {</span>
+<span class="fc" id="L123">      return data;</span>
+    }
+<span class="fc" id="L125">    parseMap(getSingleChild(&quot;map&quot;, root));</span>
+<span class="fc" id="L126">    final Element resourceList = getSingleChild(&quot;resourceList&quot;, root, true);</span>
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">    if (resourceList != null) {</span>
+<span class="fc" id="L128">      parseResources(resourceList);</span>
+    }
+<span class="fc" id="L130">    final Element unitList = getSingleChild(&quot;unitList&quot;, root, true);</span>
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">    if (unitList != null) {</span>
+<span class="fc" id="L132">      parseUnits(unitList);</span>
+    }
+    // Parse all different relationshipTypes that are defined in the xml, for example: War, Allied, Neutral, NAP
+<span class="fc" id="L135">    final Element relationshipTypes = getSingleChild(&quot;relationshipTypes&quot;, root, true);</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">    if (relationshipTypes != null) {</span>
+<span class="fc" id="L137">      parseRelationshipTypes(relationshipTypes);</span>
+    }
+<span class="fc" id="L139">    final Element territoryEffectList = getSingleChild(&quot;territoryEffectList&quot;, root, true);</span>
+<span class="fc bfc" id="L140" title="All 2 branches covered.">    if (territoryEffectList != null) {</span>
+<span class="fc" id="L141">      parseTerritoryEffects(territoryEffectList);</span>
+    }
+<span class="fc" id="L143">    parseGamePlay(getSingleChild(&quot;gamePlay&quot;, root));</span>
+<span class="fc" id="L144">    final Element production = getSingleChild(&quot;production&quot;, root, true);</span>
+<span class="pc bpc" id="L145" title="1 of 2 branches missed.">    if (production != null) {</span>
+<span class="fc" id="L146">      parseProduction(production);</span>
+    }
+<span class="fc" id="L148">    final Element technology = getSingleChild(&quot;technology&quot;, root, true);</span>
+<span class="fc bfc" id="L149" title="All 2 branches covered.">    if (technology != null) {</span>
+<span class="fc" id="L150">      parseTechnology(technology);</span>
+<span class="fc" id="L151">    } else {</span>
+<span class="fc" id="L152">      TechAdvance.createDefaultTechAdvances(data);</span>
+    }
+<span class="fc" id="L154">    final Element attachmentList = getSingleChild(&quot;attachmentList&quot;, root, true);</span>
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">    if (attachmentList != null) {</span>
+<span class="fc" id="L156">      parseAttachments(attachmentList);</span>
+    }
+<span class="fc" id="L158">    final Node initialization = getSingleChild(&quot;initialize&quot;, root, true);</span>
+<span class="pc bpc" id="L159" title="1 of 2 branches missed.">    if (initialization != null) {</span>
+<span class="fc" id="L160">      parseInitialization(initialization);</span>
+    }
+    // set &amp; override default relationships
+    // sets the relationship between all players and the NullPlayer to NullRelation
+    // (with archeType War)
+<span class="fc" id="L165">    data.getRelationshipTracker().setNullPlayerRelations();</span>
+    // sets the relationship for all players with themselfs to the SelfRelation (with archeType Allied)
+<span class="fc" id="L167">    data.getRelationshipTracker().setSelfRelations();</span>
+    // set default tech attachments (comes after we parse all technologies, parse all attachments, and parse all game
+    // options/properties)
+<span class="fc bfc" id="L170" title="All 2 branches covered.">    if (data.getGameLoader() instanceof games.strategy.triplea.TripleA) {</span>
+<span class="fc" id="L171">      checkThatAllUnitsHaveAttachments(data);</span>
+<span class="fc" id="L172">      TechAbilityAttachment.setDefaultTechnologyAttachments(data);</span>
+    }
+    try {
+<span class="fc" id="L175">      validate();</span>
+<span class="pc" id="L176">    } catch (final Exception e) {</span>
+<span class="nc" id="L177">      ClientLogger.logQuietly(&quot;Error parsing: &quot; + mapName, e);</span>
+<span class="nc" id="L178">      throw new GameParseException(mapName, e.getMessage());</span>
+    }
+<span class="fc" id="L180">    return data;</span>
+  }
+
+  private void parseDiceSides(final Node diceSides) {
+<span class="fc bfc" id="L184" title="All 2 branches covered.">    if (diceSides == null) {</span>
+<span class="fc" id="L185">      data.setDiceSides(6);</span>
+<span class="fc" id="L186">    } else {</span>
+<span class="fc" id="L187">      data.setDiceSides(Integer.parseInt(((Element) diceSides).getAttribute(&quot;value&quot;)));</span>
+    }
+<span class="fc" id="L189">  }</span>
+
+  private void parseMinimumEngineVersionNumber(final Node minimumVersion) throws EngineVersionException {
+<span class="fc bfc" id="L192" title="All 2 branches covered.">    if (minimumVersion == null) {</span>
+<span class="fc" id="L193">      return;</span>
+    }
+<span class="fc" id="L195">    final Version mapCompatibleWithTripleaVersion =</span>
+<span class="fc" id="L196">        new Version(((Element) minimumVersion).getAttribute(&quot;minimumVersion&quot;));</span>
+<span class="pc bpc" id="L197" title="1 of 2 branches missed.">    if (mapCompatibleWithTripleaVersion.isGreaterThan(ClientContext.engineVersion().getVersion(), true)) {</span>
+<span class="nc" id="L198">      throw new EngineVersionException(&quot;Trying to play a map made for a newer version of TripleA. Map named '&quot;</span>
+<span class="nc" id="L199">          + data.getGameName() + &quot;' requires at least TripleA version &quot; + mapCompatibleWithTripleaVersion.toString());</span>
+    }
+<span class="fc" id="L201">  }</span>
+
+  private void validate() throws GameParseException {
+    // validate unit attachments
+<span class="fc bfc" id="L205" title="All 2 branches covered.">    for (final UnitType u : data.getUnitTypeList()) {</span>
+<span class="fc" id="L206">      validateAttachments(u);</span>
+    }
+<span class="fc bfc" id="L208" title="All 2 branches covered.">    for (final Territory t : data.getMap()) {</span>
+<span class="fc" id="L209">      validateAttachments(t);</span>
+    }
+<span class="fc bfc" id="L211" title="All 2 branches covered.">    for (final Resource r : data.getResourceList().getResources()) {</span>
+<span class="fc" id="L212">      validateAttachments(r);</span>
+    }
+<span class="fc bfc" id="L214" title="All 2 branches covered.">    for (final PlayerID r : data.getPlayerList().getPlayers()) {</span>
+<span class="fc" id="L215">      validateAttachments(r);</span>
+    }
+<span class="fc bfc" id="L217" title="All 2 branches covered.">    for (final RelationshipType r : data.getRelationshipTypeList().getAllRelationshipTypes()) {</span>
+<span class="fc" id="L218">      validateAttachments(r);</span>
+    }
+<span class="fc bfc" id="L220" title="All 2 branches covered.">    for (final TerritoryEffect r : data.getTerritoryEffectList().values()) {</span>
+<span class="fc" id="L221">      validateAttachments(r);</span>
+    }
+<span class="fc bfc" id="L223" title="All 2 branches covered.">    for (final TechAdvance r : data.getTechnologyFrontier().getTechs()) {</span>
+<span class="fc" id="L224">      validateAttachments(r);</span>
+    }
+    // if relationships are used, every player should have a relationship with every other player
+<span class="fc" id="L227">    validateRelationships();</span>
+<span class="fc" id="L228">  }</span>
+
+  private void validateRelationships() throws GameParseException {
+    // for every player
+<span class="fc bfc" id="L232" title="All 2 branches covered.">    for (final PlayerID player : data.getPlayerList()) {</span>
+      // in relation to every player
+<span class="fc bfc" id="L234" title="All 2 branches covered.">      for (final PlayerID player2 : data.getPlayerList()) {</span>
+        // See if there is a relationship between them
+<span class="pc bpc" id="L236" title="1 of 2 branches missed.">        if ((data.getRelationshipTracker().getRelationshipType(player, player2) == null)) {</span>
+<span class="nc" id="L237">          throw new GameParseException(mapName,</span>
+<span class="nc" id="L238">              &quot;No relation set for: &quot; + player.getName() + &quot; and &quot; + player2.getName());</span>
+          // or else throw an exception!
+        }
+      }
+    }
+<span class="fc" id="L243">  }</span>
+
+  private void validateAttachments(final Attachable attachable) throws GameParseException {
+<span class="fc bfc" id="L246" title="All 2 branches covered.">    for (final IAttachment a : attachable.getAttachments().values()) {</span>
+<span class="fc" id="L247">      a.validate(data);</span>
+    }
+<span class="fc" id="L249">  }</span>
+
+  public Document getDocument(final InputStream input) throws SAXException, IOException, ParserConfigurationException {
+<span class="fc" id="L252">    final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();</span>
+<span class="fc" id="L253">    factory.setValidating(true);</span>
+    // get the dtd location
+<span class="fc" id="L255">    final String dtdFile = &quot;/games/strategy/engine/xml/&quot; + DTD_FILE_NAME;</span>
+<span class="fc" id="L256">    final URL url = GameParser.class.getResource(dtdFile);</span>
+<span class="pc bpc" id="L257" title="1 of 2 branches missed.">    if (url == null) {</span>
+<span class="nc" id="L258">      throw new RuntimeException(&quot;Map: &quot; + mapName + &quot;, &quot; + String.format(&quot;Could not find in classpath %s&quot;, dtdFile));</span>
+    }
+<span class="fc" id="L260">    final String dtdSystem = url.toExternalForm();</span>
+<span class="fc" id="L261">    final String system = dtdSystem.substring(0, dtdSystem.length() - 8);</span>
+<span class="fc" id="L262">    final DocumentBuilder builder = factory.newDocumentBuilder();</span>
+<span class="fc" id="L263">    builder.setErrorHandler(new ErrorHandler() {</span>
+      @Override
+      public void fatalError(final SAXParseException exception) {
+<span class="nc" id="L266">        errorsSAX.add(exception);</span>
+<span class="nc" id="L267">      }</span>
+
+      @Override
+      public void error(final SAXParseException exception) {
+<span class="nc" id="L271">        errorsSAX.add(exception);</span>
+<span class="nc" id="L272">      }</span>
+
+      @Override
+      public void warning(final SAXParseException exception) {
+<span class="nc" id="L276">        errorsSAX.add(exception);</span>
+<span class="nc" id="L277">      }</span>
+    });
+<span class="fc" id="L279">    return builder.parse(input, system);</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the player an exception will be thrown.
+   */
+  private PlayerID getPlayerID(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L287">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L288">    final PlayerID player = data.getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L289" title="1 of 4 branches missed.">    if (player == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L290">      throw new GameParseException(mapName, &quot;Could not find player. name:&quot; + name);</span>
+    }
+<span class="fc" id="L292">    return player;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the player an exception will be thrown.
+   *
+   * @return a RelationshipType from the relationshipTypeList, at this point all relationshipTypes should have been
+   *         declared
+   * @throws GameParseException
+   *         when
+   */
+  private RelationshipType getRelationshipType(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L305">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L306">    final RelationshipType relation = data.getRelationshipTypeList().getRelationshipType(name);</span>
+<span class="pc bpc" id="L307" title="3 of 4 branches missed.">    if (relation == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L308">      throw new GameParseException(mapName, &quot;Could not find relation name:&quot; + name);</span>
+    }
+<span class="fc" id="L310">    return relation;</span>
+  }
+
+  private TerritoryEffect getTerritoryEffect(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L315">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L316">    final TerritoryEffect effect = data.getTerritoryEffectList().get(name);</span>
+<span class="pc bpc" id="L317" title="3 of 4 branches missed.">    if (effect == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L318">      throw new GameParseException(mapName, &quot;Could not find territoryEffect name:&quot; + name);</span>
+    }
+<span class="fc" id="L320">    return effect;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the productionRule an exception will be thrown.
+   */
+  private ProductionRule getProductionRule(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L328">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L329">    final ProductionRule productionRule = data.getProductionRuleList().getProductionRule(name);</span>
+<span class="pc bpc" id="L330" title="3 of 4 branches missed.">    if (productionRule == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L331">      throw new GameParseException(mapName, &quot;Could not find production rule. name:&quot; + name);</span>
+    }
+<span class="fc" id="L333">    return productionRule;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the productionRule an exception will be thrown.
+   */
+  private RepairRule getRepairRule(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L341">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L342">    final RepairRule repairRule = data.getRepairRuleList().getRepairRule(name);</span>
+<span class="pc bpc" id="L343" title="3 of 4 branches missed.">    if (repairRule == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L344">      throw new GameParseException(mapName, &quot;Could not find production rule. name:&quot; + name);</span>
+    }
+<span class="fc" id="L346">    return repairRule;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the territory an exception will be thrown.
+   */
+  private Territory getTerritory(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L354">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L355">    final Territory territory = data.getMap().getTerritory(name);</span>
+<span class="pc bpc" id="L356" title="3 of 4 branches missed.">    if (territory == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L357">      throw new GameParseException(mapName, &quot;Could not find territory. name:&quot; + name);</span>
+    }
+<span class="fc" id="L359">    return territory;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the unitType an exception will be thrown.
+   */
+  private UnitType getUnitType(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L367">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L368">    final UnitType type = data.getUnitTypeList().getUnitType(name);</span>
+<span class="pc bpc" id="L369" title="3 of 4 branches missed.">    if (type == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L370">      throw new GameParseException(mapName, &quot;Could not find unitType. name:&quot; + name);</span>
+    }
+<span class="fc" id="L372">    return type;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the technology an exception will be thrown.
+   */
+  private TechAdvance getTechnology(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L380">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L381">    TechAdvance type = data.getTechnologyFrontier().getAdvanceByName(name);</span>
+<span class="fc bfc" id="L382" title="All 2 branches covered.">    if (type == null) {</span>
+<span class="fc" id="L383">      type = data.getTechnologyFrontier().getAdvanceByProperty(name);</span>
+    }
+<span class="pc bpc" id="L385" title="3 of 4 branches missed.">    if (type == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L386">      throw new GameParseException(mapName, &quot;Could not find technology. name:&quot; + name);</span>
+    }
+<span class="fc" id="L388">    return type;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the Delegate an exception will be thrown.
+   */
+  private IDelegate getDelegate(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L396">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L397">    final IDelegate delegate = data.getDelegateList().getDelegate(name);</span>
+<span class="pc bpc" id="L398" title="3 of 4 branches missed.">    if (delegate == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L399">      throw new GameParseException(mapName, &quot;Could not find delegate. name:&quot; + name);</span>
+    }
+<span class="fc" id="L401">    return delegate;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the Resource an exception will be thrown.
+   */
+  private Resource getResource(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L409">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L410">    final Resource resource = data.getResourceList().getResource(name);</span>
+<span class="pc bpc" id="L411" title="1 of 4 branches missed.">    if (resource == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L412">      throw new GameParseException(mapName, &quot;Could not find resource. name:&quot; + name);</span>
+    }
+<span class="fc" id="L414">    return resource;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the productionRule an exception will be thrown.
+   */
+  private ProductionFrontier getProductionFrontier(final Element element, final String attribute,
+      final boolean mustFind) throws GameParseException {
+<span class="fc" id="L422">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L423">    final ProductionFrontier productionFrontier = data.getProductionFrontierList().getProductionFrontier(name);</span>
+<span class="pc bpc" id="L424" title="3 of 4 branches missed.">    if (productionFrontier == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L425">      throw new GameParseException(mapName, &quot;Could not find production frontier. name:&quot; + name);</span>
+    }
+<span class="fc" id="L427">    return productionFrontier;</span>
+  }
+
+  /**
+   * If mustfind is true and cannot find the productionRule an exception will be thrown.
+   */
+  private RepairFrontier getRepairFrontier(final Element element, final String attribute, final boolean mustFind)
+      throws GameParseException {
+<span class="fc" id="L435">    final String name = element.getAttribute(attribute);</span>
+<span class="fc" id="L436">    final RepairFrontier repairFrontier = data.getRepairFrontierList().getRepairFrontier(name);</span>
+<span class="pc bpc" id="L437" title="3 of 4 branches missed.">    if (repairFrontier == null &amp;&amp; mustFind) {</span>
+<span class="nc" id="L438">      throw new GameParseException(mapName, &quot;Could not find production frontier. name:&quot; + name);</span>
+    }
+<span class="fc" id="L440">    return repairFrontier;</span>
+  }
+
+  /**
+   * Loads an instance of the given class.
+   * Assumes a zero argument constructor.
+   */
+  private Object getInstance(final String className) throws GameParseException {
+<span class="fc" id="L448">    Object instance = null;</span>
+    try {
+<span class="fc" id="L450">      final Class&lt;?&gt; instanceClass = Class.forName(className);</span>
+<span class="fc" id="L451">      instance = instanceClass.newInstance();</span>
+<span class="fc" id="L452">    }</span>
+    // a lot can go wrong, the following list is just a subset of potential pitfalls
+<span class="nc" id="L454">    catch (final ClassNotFoundException cnfe) {</span>
+<span class="nc" id="L455">      throw new GameParseException(mapName, &quot;Class &lt;&quot; + className + &quot;&gt; could not be found.&quot;);</span>
+<span class="nc" id="L456">    } catch (final InstantiationException ie) {</span>
+<span class="nc" id="L457">      throw new GameParseException(mapName,</span>
+<span class="nc" id="L458">          &quot;Class &lt;&quot; + className + &quot;&gt; could not be instantiated. -&gt;&quot; + ie.getMessage());</span>
+<span class="nc" id="L459">    } catch (final IllegalAccessException iae) {</span>
+<span class="nc" id="L460">      throw new GameParseException(mapName, &quot;Constructor could not be accessed -&gt;&quot; + iae.getMessage());</span>
+    }
+<span class="fc" id="L462">    return instance;</span>
+  }
+
+  /**
+   * Loads a given class.
+   */
+  private Class&lt;?&gt; getClassByName(final String className) throws GameParseException {
+    try {
+<span class="nc" id="L470">      return Class.forName(className);</span>
+<span class="nc" id="L471">    } catch (final ClassNotFoundException e) {</span>
+<span class="nc" id="L472">      throw new GameParseException(mapName, &quot;Class &lt;&quot; + className + &quot;&gt; could not be found: &quot; + e);</span>
+    }
+  }
+
+  /**
+   * Get the given child.
+   * If there is not exactly one child throw a SAXExcpetion
+   */
+  private Element getSingleChild(final String name, final Element node) throws GameParseException {
+<span class="fc" id="L481">    return getSingleChild(name, node, false);</span>
+  }
+
+  /**
+   * If optional is true, will not throw an exception if there are 0 children
+   */
+  private Element getSingleChild(final String name, final Node node, final boolean optional) throws GameParseException {
+<span class="fc" id="L488">    final List&lt;Element&gt; children = getChildren(name, node);</span>
+    // none found
+<span class="fc bfc" id="L490" title="All 2 branches covered.">    if (children.size() == 0) {</span>
+<span class="pc bpc" id="L491" title="1 of 2 branches missed.">      if (optional) {</span>
+<span class="fc" id="L492">        return null;</span>
+      }
+<span class="nc" id="L494">      throw new GameParseException(mapName, &quot;No child called &quot; + name);</span>
+    }
+    // too many found
+<span class="pc bpc" id="L497" title="1 of 2 branches missed.">    if (children.size() &gt; 1) {</span>
+<span class="nc" id="L498">      throw new GameParseException(mapName, &quot;Too many children named &quot; + name);</span>
+    }
+<span class="fc" id="L500">    return children.get(0);</span>
+  }
+
+  private List&lt;Element&gt; getChildren(final String name, final Node node) {
+<span class="fc" id="L504">    final ArrayList&lt;Element&gt; found = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L505">    final NodeList children = node.getChildNodes();</span>
+<span class="fc bfc" id="L506" title="All 2 branches covered.">    for (int i = 0; i &lt; children.getLength(); i++) {</span>
+<span class="fc" id="L507">      final Node current = children.item(i);</span>
+<span class="fc bfc" id="L508" title="All 2 branches covered.">      if (current.getNodeName().equals(name)) {</span>
+<span class="fc" id="L509">        found.add((Element) current);</span>
+      }
+    }
+<span class="fc" id="L512">    return found;</span>
+  }
+
+  private List&lt;Node&gt; getNonTextNodesIgnoring(final Node node, final String ignore) {
+<span class="fc" id="L516">    final List&lt;Node&gt; rVal = getNonTextNodes(node);</span>
+<span class="fc" id="L517">    final Iterator&lt;Node&gt; iter = rVal.iterator();</span>
+<span class="fc bfc" id="L518" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc bfc" id="L519" title="All 2 branches covered.">      if (((Element) iter.next()).getTagName().equals(ignore)) {</span>
+<span class="fc" id="L520">        iter.remove();</span>
+      }
+    }
+<span class="fc" id="L523">    return rVal;</span>
+  }
+
+  private List&lt;Node&gt; getNonTextNodes(final Node node) {
+<span class="fc" id="L527">    final ArrayList&lt;Node&gt; found = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L528">    final NodeList children = node.getChildNodes();</span>
+<span class="fc bfc" id="L529" title="All 2 branches covered.">    for (int i = 0; i &lt; children.getLength(); ++i) {</span>
+<span class="fc" id="L530">      final Node current = children.item(i);</span>
+<span class="fc bfc" id="L531" title="All 2 branches covered.">      if (!(current.getNodeType() == Node.TEXT_NODE)) {</span>
+<span class="fc" id="L532">        found.add(current);</span>
+      }
+    }
+<span class="fc" id="L535">    return found;</span>
+  }
+
+  private void parseInfo(final Node info) {
+<span class="fc" id="L539">    final String gameName = ((Element) info).getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L540">    data.setGameName(gameName);</span>
+<span class="fc" id="L541">    final String version = ((Element) info).getAttribute(&quot;version&quot;);</span>
+<span class="fc" id="L542">    data.setGameVersion(new Version(version));</span>
+<span class="fc" id="L543">  }</span>
+
+  private void parseGameLoader(final Node loader) throws GameParseException {
+<span class="fc" id="L546">    final String className = ((Element) loader).getAttribute(&quot;javaClass&quot;);</span>
+<span class="fc" id="L547">    final Object instance = getInstance(className);</span>
+<span class="pc bpc" id="L548" title="1 of 2 branches missed.">    if (!(instance instanceof IGameLoader)) {</span>
+<span class="nc" id="L549">      throw new GameParseException(mapName, &quot;Loader must implement IGameLoader.  Class Name:&quot; + className);</span>
+    }
+<span class="fc" id="L551">    data.setGameLoader((IGameLoader) instance);</span>
+<span class="fc" id="L552">  }</span>
+
+  private void parseMap(final Node map) throws GameParseException {
+<span class="fc" id="L555">    final List&lt;Element&gt; grids = getChildren(&quot;grid&quot;, map);</span>
+<span class="fc" id="L556">    parseGrids(grids);</span>
+    // get the Territories
+<span class="fc" id="L558">    final List&lt;Element&gt; territories = getChildren(&quot;territory&quot;, map);</span>
+<span class="fc" id="L559">    parseTerritories(territories);</span>
+<span class="fc" id="L560">    final List&lt;Element&gt; connections = getChildren(&quot;connection&quot;, map);</span>
+<span class="fc" id="L561">    parseConnections(connections);</span>
+<span class="fc" id="L562">  }</span>
+
+  private void parseGrids(final List&lt;Element&gt; grids) throws GameParseException {
+<span class="pc bpc" id="L565" title="1 of 2 branches missed.">    for (final Element current : grids) {</span>
+<span class="nc" id="L566">      final String gridType = current.getAttribute(&quot;type&quot;);</span>
+<span class="nc" id="L567">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="nc" id="L568">      final String xs = current.getAttribute(&quot;x&quot;);</span>
+<span class="nc" id="L569">      final String ys = current.getAttribute(&quot;y&quot;);</span>
+<span class="nc" id="L570">      final List&lt;Element&gt; waterNodes = getChildren(&quot;water&quot;, current);</span>
+<span class="nc" id="L571">      final Set&lt;String&gt; water = parseGridWater(waterNodes);</span>
+<span class="nc" id="L572">      final String horizontalConnections = current.getAttribute(&quot;horizontal-connections&quot;);</span>
+<span class="nc" id="L573">      final String verticalConnections = current.getAttribute(&quot;vertical-connections&quot;);</span>
+<span class="nc" id="L574">      final String diagonalConnections = current.getAttribute(&quot;diagonal-connections&quot;);</span>
+<span class="nc" id="L575">      setGrids(data, gridType, name, xs, ys, water, horizontalConnections, verticalConnections, diagonalConnections,</span>
+<span class="nc" id="L576">          false);</span>
+    }
+<span class="fc" id="L578">  }</span>
+
+  /**
+   * Creates and adds new territories and their connections to their map, based on a grid.
+   */
+  private void setGrids(final GameData data, final String gridType, final String name, final String xs,
+      final String ys, final Set&lt;String&gt; water, final String horizontalConnections, final String verticalConnections,
+      final String diagonalConnections, final boolean addingOntoExistingMap) throws GameParseException {
+<span class="nc" id="L586">    final GameMap map = data.getMap();</span>
+    boolean horizontalConnectionsImplict;
+<span class="nc bnc" id="L588" title="All 2 branches missed.">    if (horizontalConnections.equals(&quot;implicit&quot;)) {</span>
+<span class="nc" id="L589">      horizontalConnectionsImplict = true;</span>
+<span class="nc bnc" id="L590" title="All 2 branches missed.">    } else if (horizontalConnections.equals(&quot;explicit&quot;)) {</span>
+<span class="nc" id="L591">      horizontalConnectionsImplict = false;</span>
+<span class="nc" id="L592">    } else {</span>
+<span class="nc" id="L593">      throw new GameParseException(mapName,</span>
+<span class="nc" id="L594">          &quot;horizontal-connections attribute must be either \&quot;explicit\&quot; or \&quot;implicit\&quot;&quot;);</span>
+    }
+    boolean verticalConnectionsImplict;
+<span class="nc bnc" id="L597" title="All 2 branches missed.">    if (verticalConnections.equals(&quot;implicit&quot;)) {</span>
+<span class="nc" id="L598">      verticalConnectionsImplict = true;</span>
+<span class="nc bnc" id="L599" title="All 2 branches missed.">    } else if (verticalConnections.equals(&quot;explicit&quot;)) {</span>
+<span class="nc" id="L600">      verticalConnectionsImplict = false;</span>
+<span class="nc" id="L601">    } else {</span>
+<span class="nc" id="L602">      throw new GameParseException(mapName,</span>
+<span class="nc" id="L603">          &quot;vertical-connections attribute must be either \&quot;explicit\&quot; or \&quot;implicit\&quot;&quot;);</span>
+    }
+    boolean diagonalConnectionsImplict;
+<span class="nc bnc" id="L606" title="All 2 branches missed.">    if (diagonalConnections.equals(&quot;implicit&quot;)) {</span>
+<span class="nc" id="L607">      diagonalConnectionsImplict = true;</span>
+<span class="nc bnc" id="L608" title="All 2 branches missed.">    } else if (diagonalConnections.equals(&quot;explicit&quot;)) {</span>
+<span class="nc" id="L609">      diagonalConnectionsImplict = false;</span>
+<span class="nc" id="L610">    } else {</span>
+<span class="nc" id="L611">      throw new GameParseException(mapName,</span>
+<span class="nc" id="L612">          &quot;diagonal-connections attribute must be either \&quot;explicit\&quot; or \&quot;implicit\&quot;&quot;);</span>
+    }
+<span class="nc" id="L614">    final int x_size = Integer.valueOf(xs);</span>
+    int y_size;
+<span class="nc bnc" id="L616" title="All 2 branches missed.">    if (ys != null) {</span>
+<span class="nc" id="L617">      y_size = Integer.valueOf(ys);</span>
+<span class="nc" id="L618">    } else {</span>
+<span class="nc" id="L619">      y_size = 0;</span>
+    }
+<span class="nc" id="L621">    map.setGridDimensions(x_size, y_size);</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">    if (gridType.equals(&quot;square&quot;)) {</span>
+      // Add territories
+<span class="nc bnc" id="L624" title="All 2 branches missed.">      for (int y = 0; y &lt; y_size; y++) {</span>
+<span class="nc bnc" id="L625" title="All 2 branches missed.">        for (int x = 0; x &lt; x_size; x++) {</span>
+          boolean isWater;
+<span class="nc" id="L627">          isWater = water.contains(x + &quot;-&quot; + y);</span>
+<span class="nc" id="L628">          final Territory newTerritory = new Territory(name + &quot;_&quot; + x + &quot;_&quot; + y, isWater, data, x, y);</span>
+<span class="nc bnc" id="L629" title="All 4 branches missed.">          if (addingOntoExistingMap &amp;&amp; map.getTerritories().contains(newTerritory)) {</span>
+<span class="nc" id="L630">            continue;</span>
+          }
+<span class="nc" id="L632">          map.addTerritory(newTerritory);</span>
+        }
+      }
+<span class="nc bnc" id="L635" title="All 2 branches missed.">      if (addingOntoExistingMap) {</span>
+<span class="nc" id="L636">        map.reorderTerritoryList();</span>
+      }
+      // Add any implicit horizontal connections
+<span class="nc bnc" id="L639" title="All 2 branches missed.">      if (horizontalConnectionsImplict) {</span>
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        for (int y = 0; y &lt; y_size; y++) {</span>
+<span class="nc bnc" id="L641" title="All 2 branches missed.">          for (int x = 0; x &lt; x_size - 1; x++) {</span>
+<span class="nc" id="L642">            map.addConnection(map.getTerritoryFromCoordinates(x, y), map.getTerritoryFromCoordinates(x + 1, y));</span>
+          }
+        }
+      }
+      // Add any implicit vertical connections
+<span class="nc bnc" id="L647" title="All 2 branches missed.">      if (verticalConnectionsImplict) {</span>
+<span class="nc bnc" id="L648" title="All 2 branches missed.">        for (int x = 0; x &lt; x_size; x++) {</span>
+<span class="nc bnc" id="L649" title="All 2 branches missed.">          for (int y = 0; y &lt; y_size - 1; y++) {</span>
+<span class="nc" id="L650">            map.addConnection(map.getTerritoryFromCoordinates(x, y), map.getTerritoryFromCoordinates(x, y + 1));</span>
+          }
+        }
+      }
+      // Add any implicit acute diagonal connections
+<span class="nc bnc" id="L655" title="All 2 branches missed.">      if (diagonalConnectionsImplict) {</span>
+<span class="nc bnc" id="L656" title="All 2 branches missed.">        for (int y = 0; y &lt; y_size - 1; y++) {</span>
+<span class="nc bnc" id="L657" title="All 2 branches missed.">          for (int x = 0; x &lt; x_size - 1; x++) {</span>
+<span class="nc" id="L658">            map.addConnection(map.getTerritoryFromCoordinates(x, y), map.getTerritoryFromCoordinates(x + 1, y + 1));</span>
+          }
+        }
+      }
+      // Add any implicit obtuse diagonal connections
+<span class="nc bnc" id="L663" title="All 2 branches missed.">      if (diagonalConnectionsImplict) {</span>
+<span class="nc bnc" id="L664" title="All 2 branches missed.">        for (int y = 0; y &lt; y_size - 1; y++) {</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">          for (int x = 1; x &lt; x_size; x++) {</span>
+<span class="nc" id="L666">            map.addConnection(map.getTerritoryFromCoordinates(x, y), map.getTerritoryFromCoordinates(x - 1, y + 1));</span>
+          }
+        }
+      }
+      // This type is a triangular grid of points and lines, used for in several rail games
+<span class="nc bnc" id="L671" title="All 2 branches missed.">    } else if (gridType.equals(&quot;points-and-lines&quot;)) {</span>
+      // Add territories
+<span class="nc bnc" id="L673" title="All 2 branches missed.">      for (int y = 0; y &lt; y_size; y++) {</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">        for (int x = 0; x &lt; x_size; x++) {</span>
+<span class="nc" id="L675">          final boolean isWater = false;</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">          if (!water.contains(x + &quot;-&quot; + y)) {</span>
+<span class="nc" id="L677">            final Territory newTerritory = new Territory(name + &quot;_&quot; + x + &quot;_&quot; + y, isWater, data, x, y);</span>
+<span class="nc bnc" id="L678" title="All 4 branches missed.">            if (addingOntoExistingMap &amp;&amp; map.getTerritories().contains(newTerritory)) {</span>
+<span class="nc" id="L679">              continue;</span>
+            }
+<span class="nc" id="L681">            map.addTerritory(newTerritory);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L685" title="All 2 branches missed.">      if (addingOntoExistingMap) {</span>
+<span class="nc" id="L686">        map.reorderTerritoryList();</span>
+      }
+      // Add any implicit horizontal connections
+<span class="nc bnc" id="L689" title="All 2 branches missed.">      if (horizontalConnectionsImplict) {</span>
+<span class="nc bnc" id="L690" title="All 2 branches missed.">        for (int y = 0; y &lt; y_size; y++) {</span>
+<span class="nc bnc" id="L691" title="All 2 branches missed.">          for (int x = 0; x &lt; x_size - 1; x++) {</span>
+<span class="nc" id="L692">            final Territory from = map.getTerritoryFromCoordinates(x, y);</span>
+<span class="nc" id="L693">            final Territory to = map.getTerritoryFromCoordinates(x + 1, y);</span>
+<span class="nc bnc" id="L694" title="All 4 branches missed.">            if (from != null &amp;&amp; to != null) {</span>
+<span class="nc" id="L695">              map.addConnection(from, to);</span>
+            }
+          }
+        }
+      }
+      // Add any implicit acute diagonal connections
+<span class="nc bnc" id="L701" title="All 2 branches missed.">      if (diagonalConnectionsImplict) {</span>
+<span class="nc bnc" id="L702" title="All 2 branches missed.">        for (int y = 1; y &lt; y_size; y++) {</span>
+<span class="nc bnc" id="L703" title="All 2 branches missed.">          for (int x = 0; x &lt; x_size - 1; x++) {</span>
+<span class="nc bnc" id="L704" title="All 4 branches missed.">            if (y % 4 == 0 || (y + 1) % 4 == 0) {</span>
+<span class="nc" id="L705">              final Territory from = map.getTerritoryFromCoordinates(x, y);</span>
+<span class="nc" id="L706">              final Territory to = map.getTerritoryFromCoordinates(x, y - 1);</span>
+<span class="nc bnc" id="L707" title="All 4 branches missed.">              if (from != null &amp;&amp; to != null) {</span>
+<span class="nc" id="L708">                map.addConnection(from, to);</span>
+              }
+<span class="nc" id="L710">            } else {</span>
+<span class="nc" id="L711">              final Territory from = map.getTerritoryFromCoordinates(x, y);</span>
+<span class="nc" id="L712">              final Territory to = map.getTerritoryFromCoordinates(x + 1, y - 1);</span>
+<span class="nc bnc" id="L713" title="All 4 branches missed.">              if (from != null &amp;&amp; to != null) {</span>
+<span class="nc" id="L714">                map.addConnection(from, to);</span>
+              }
+            }
+          }
+        }
+      }
+      // Add any implicit obtuse diagonal connections
+<span class="nc bnc" id="L721" title="All 2 branches missed.">      if (diagonalConnectionsImplict) {</span>
+<span class="nc bnc" id="L722" title="All 2 branches missed.">        for (int y = 1; y &lt; y_size; y++) {</span>
+<span class="nc bnc" id="L723" title="All 2 branches missed.">          for (int x = 0; x &lt; x_size - 1; x++) {</span>
+<span class="nc bnc" id="L724" title="All 4 branches missed.">            if (y % 4 == 0 || (y + 1) % 4 == 0) {</span>
+<span class="nc" id="L725">              final Territory from = map.getTerritoryFromCoordinates(x, y);</span>
+<span class="nc" id="L726">              final Territory to = map.getTerritoryFromCoordinates(x - 1, y - 1);</span>
+<span class="nc bnc" id="L727" title="All 4 branches missed.">              if (from != null &amp;&amp; to != null) {</span>
+<span class="nc" id="L728">                map.addConnection(from, to);</span>
+              }
+<span class="nc" id="L730">            } else {</span>
+<span class="nc" id="L731">              final Territory from = map.getTerritoryFromCoordinates(x, y);</span>
+<span class="nc" id="L732">              final Territory to = map.getTerritoryFromCoordinates(x, y - 1);</span>
+<span class="nc bnc" id="L733" title="All 4 branches missed.">              if (from != null &amp;&amp; to != null) {</span>
+<span class="nc" id="L734">                map.addConnection(from, to);</span>
+              }
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L741">  }</span>
+
+  private Set&lt;String&gt; parseGridWater(final List&lt;Element&gt; waterNodes) {
+<span class="nc" id="L744">    final Set&lt;String&gt; set = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L745" title="All 2 branches missed.">    for (final Element current : waterNodes) {</span>
+<span class="nc" id="L746">      final int x = Integer.valueOf(current.getAttribute(&quot;x&quot;));</span>
+<span class="nc" id="L747">      final int y = Integer.valueOf(current.getAttribute(&quot;y&quot;));</span>
+<span class="nc" id="L748">      set.add(x + &quot;-&quot; + y);</span>
+    }
+<span class="nc" id="L750">    return set;</span>
+  }
+
+  private void parseTerritories(final List&lt;Element&gt; territories) {
+<span class="fc" id="L754">    final GameMap map = data.getMap();</span>
+<span class="fc bfc" id="L755" title="All 2 branches covered.">    for (final Element current : territories) {</span>
+<span class="fc" id="L756">      final boolean water = current.getAttribute(&quot;water&quot;).trim().equalsIgnoreCase(&quot;true&quot;);</span>
+<span class="fc" id="L757">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L758">      final Territory newTerritory = new Territory(name, water, data);</span>
+<span class="fc" id="L759">      map.addTerritory(newTerritory);</span>
+    }
+<span class="fc" id="L761">  }</span>
+
+  private void parseConnections(final List&lt;Element&gt; connections) throws GameParseException {
+<span class="fc" id="L764">    final GameMap map = data.getMap();</span>
+<span class="fc bfc" id="L765" title="All 2 branches covered.">    for (final Element current : connections) {</span>
+<span class="fc" id="L766">      final Territory t1 = getTerritory(current, &quot;t1&quot;, true);</span>
+<span class="fc" id="L767">      final Territory t2 = getTerritory(current, &quot;t2&quot;, true);</span>
+<span class="fc" id="L768">      map.addConnection(t1, t2);</span>
+    }
+<span class="fc" id="L770">  }</span>
+
+  private void parseResources(final Element root) {
+<span class="fc" id="L773">    final Iterator&lt;Element&gt; iter = getChildren(&quot;resource&quot;, root).iterator();</span>
+<span class="fc bfc" id="L774" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L775">      data.getResourceList().addResource(new Resource(iter.next().getAttribute(&quot;name&quot;), data));</span>
+    }
+<span class="fc" id="L777">  }</span>
+
+  private void parseRelationshipTypes(final Element root) {
+<span class="fc" id="L780">    final Iterator&lt;Element&gt; iter = getChildren(&quot;relationshipType&quot;, root).iterator();</span>
+<span class="fc bfc" id="L781" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L782">      data.getRelationshipTypeList().addRelationshipType(new RelationshipType(iter.next().getAttribute(&quot;name&quot;), data));</span>
+    }
+<span class="fc" id="L784">  }</span>
+
+  private void parseTerritoryEffects(final Element root) {
+<span class="fc" id="L787">    final Iterator&lt;Element&gt; iter = getChildren(&quot;territoryEffect&quot;, root).iterator();</span>
+<span class="fc bfc" id="L788" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L789">      final String name = iter.next().getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L790">      data.getTerritoryEffectList().put(name, new TerritoryEffect(name, data));</span>
+    }
+<span class="fc" id="L792">  }</span>
+
+  private void parseUnits(final Element root) {
+<span class="fc" id="L795">    final Iterator&lt;Element&gt; iter = getChildren(&quot;unit&quot;, root).iterator();</span>
+<span class="fc bfc" id="L796" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L797">      data.getUnitTypeList().addUnitType(new UnitType(iter.next().getAttribute(&quot;name&quot;), data));</span>
+    }
+<span class="fc" id="L799">  }</span>
+
+  /**
+   * @param root
+   *        root node containing the playerList
+   * @throws GameParseException
+   */
+  private void parsePlayerList(final Element root) {
+<span class="fc" id="L807">    final PlayerList playerList = data.getPlayerList();</span>
+<span class="fc bfc" id="L808" title="All 2 branches covered.">    for (final Element current : getChildren(&quot;player&quot;, root)) {</span>
+<span class="fc" id="L809">      final String name = current.getAttribute(&quot;name&quot;);</span>
+      // It appears the commented line ALWAYS returns false regardless of the value of current.getAttribute(&quot;optional&quot;)
+      // boolean isOptional = Boolean.getBoolean(current.getAttribute(&quot;optional&quot;));
+<span class="fc" id="L812">      final boolean isOptional = current.getAttribute(&quot;optional&quot;).equals(&quot;true&quot;);</span>
+<span class="fc" id="L813">      final boolean canBeDisabled = current.getAttribute(&quot;canBeDisabled&quot;).equals(&quot;true&quot;);</span>
+<span class="fc" id="L814">      final PlayerID newPlayer = new PlayerID(name, isOptional, canBeDisabled, data);</span>
+<span class="fc" id="L815">      playerList.addPlayerID(newPlayer);</span>
+    }
+<span class="fc" id="L817">  }</span>
+
+  private void parseAlliances(final Element root) throws GameParseException {
+<span class="fc" id="L820">    final AllianceTracker allianceTracker = data.getAllianceTracker();</span>
+<span class="fc" id="L821">    final Collection&lt;PlayerID&gt; players = data.getPlayerList().getPlayers();</span>
+<span class="fc bfc" id="L822" title="All 2 branches covered.">    for (final Element current : getChildren(&quot;alliance&quot;, root)) {</span>
+<span class="fc" id="L823">      final PlayerID p1 = getPlayerID(current, &quot;player&quot;, true);</span>
+<span class="fc" id="L824">      final String alliance = current.getAttribute(&quot;alliance&quot;);</span>
+<span class="fc" id="L825">      allianceTracker.addToAlliance(p1, alliance);</span>
+    }
+    // if relationships aren't initialized based on relationshipInitialize we use the alliances to set the relationships
+<span class="pc bpc" id="L828" title="1 of 2 branches missed.">    if (getSingleChild(&quot;relationshipInitialize&quot;, root, true) == null) {</span>
+<span class="fc" id="L829">      final RelationshipTracker relationshipTracker = data.getRelationshipTracker();</span>
+<span class="fc" id="L830">      final RelationshipTypeList relationshipTypeList = data.getRelationshipTypeList();</span>
+      // iterate through all players to get known allies and enemies
+<span class="fc bfc" id="L832" title="All 2 branches covered.">      for (final PlayerID currentPlayer : players) {</span>
+        // start with all players as enemies
+        // start with no players as allies
+<span class="fc" id="L835">        final Set&lt;PlayerID&gt; allies = allianceTracker.getAllies(currentPlayer);</span>
+<span class="fc" id="L836">        final Set&lt;PlayerID&gt; enemies = new HashSet&lt;&gt;(players);</span>
+<span class="fc" id="L837">        enemies.removeAll(allies);</span>
+
+        // remove self from enemieslist (in case of free-for-all)
+<span class="fc" id="L840">        enemies.remove(currentPlayer);</span>
+        // remove self from allieslist (in case you are a member of an alliance)
+<span class="fc" id="L842">        allies.remove(currentPlayer);</span>
+        // At this point enemies and allies should be set for this player.
+<span class="fc bfc" id="L844" title="All 2 branches covered.">        for (final PlayerID alliedPLayer : allies) {</span>
+<span class="fc" id="L845">          relationshipTracker.setRelationship(currentPlayer, alliedPLayer,</span>
+<span class="fc" id="L846">              relationshipTypeList.getDefaultAlliedRelationship());</span>
+        }
+<span class="fc bfc" id="L848" title="All 2 branches covered.">        for (final PlayerID enemyPlayer : enemies) {</span>
+<span class="fc" id="L849">          relationshipTracker.setRelationship(currentPlayer, enemyPlayer,</span>
+<span class="fc" id="L850">              relationshipTypeList.getDefaultWarRelationship());</span>
+        }
+      }
+    }
+<span class="fc" id="L854">  }</span>
+
+  private void parseRelationInitialize(final List&lt;Element&gt; relations) throws GameParseException {
+<span class="pc bpc" id="L857" title="1 of 2 branches missed.">    if (relations.size() &gt; 0) {</span>
+<span class="fc" id="L858">      final RelationshipTracker tracker = data.getRelationshipTracker();</span>
+<span class="fc bfc" id="L859" title="All 2 branches covered.">      for (final Element current : relations) {</span>
+<span class="fc" id="L860">        final PlayerID p1 = getPlayerID(current, &quot;player1&quot;, true);</span>
+<span class="fc" id="L861">        final PlayerID p2 = getPlayerID(current, &quot;player2&quot;, true);</span>
+<span class="fc" id="L862">        final RelationshipType r = getRelationshipType(current, &quot;type&quot;, true);</span>
+<span class="fc" id="L863">        final int roundValue = Integer.valueOf(current.getAttribute(&quot;roundValue&quot;));</span>
+<span class="fc" id="L864">        tracker.setRelationship(p1, p2, r, roundValue);</span>
+      }
+    }
+<span class="fc" id="L867">  }</span>
+
+  private void parseGamePlay(final Element root) throws GameParseException {
+<span class="fc" id="L870">    parseDelegates(getChildren(&quot;delegate&quot;, root));</span>
+<span class="fc" id="L871">    parseSequence(getSingleChild(&quot;sequence&quot;, root));</span>
+<span class="fc" id="L872">    parseOffset(getSingleChild(&quot;offset&quot;, root, true));</span>
+<span class="fc" id="L873">  }</span>
+
+  private void parseProperties(final Node root) throws GameParseException {
+<span class="fc" id="L876">    final Collection&lt;String&gt; runningList = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L877">    final GameProperties properties = data.getProperties();</span>
+<span class="fc" id="L878">    final Iterator&lt;Element&gt; children = getChildren(&quot;property&quot;, root).iterator();</span>
+<span class="fc bfc" id="L879" title="All 2 branches covered.">    while (children.hasNext()) {</span>
+<span class="fc" id="L880">      final Element current = children.next();</span>
+<span class="fc" id="L881">      final String editable = current.getAttribute(&quot;editable&quot;);</span>
+<span class="fc" id="L882">      final String property = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L883">      String value = current.getAttribute(&quot;value&quot;);</span>
+<span class="fc" id="L884">      runningList.add(property);</span>
+<span class="pc bpc" id="L885" title="1 of 4 branches missed.">      if (value == null || value.length() == 0) {</span>
+<span class="fc" id="L886">        final List&lt;Element&gt; valueChildren = getChildren(&quot;value&quot;, current);</span>
+<span class="pc bpc" id="L887" title="1 of 2 branches missed.">        if (!valueChildren.isEmpty()) {</span>
+<span class="fc" id="L888">          final Element valueNode = valueChildren.get(0);</span>
+<span class="pc bpc" id="L889" title="1 of 2 branches missed.">          if (valueNode != null) {</span>
+<span class="fc" id="L890">            value = valueNode.getTextContent();</span>
+          }
+        }
+      }
+<span class="pc bpc" id="L894" title="1 of 4 branches missed.">      if (editable != null &amp;&amp; editable.equalsIgnoreCase(&quot;true&quot;)) {</span>
+<span class="fc" id="L895">        parseEditableProperty(current, property, value);</span>
+<span class="fc" id="L896">      } else {</span>
+<span class="fc" id="L897">        final List&lt;Node&gt; children2 = getNonTextNodesIgnoring(current, &quot;value&quot;);</span>
+<span class="fc bfc" id="L898" title="All 2 branches covered.">        if (children2.size() == 0) {</span>
+          // we don't know what type this property is!!, it appears like only numbers and string may be represented
+          // without proper type
+          // definition
+          try {
+            // test if it is an integer
+<span class="fc" id="L904">            final int integer = Integer.parseInt(value);</span>
+<span class="fc" id="L905">            properties.set(property, integer);</span>
+<span class="fc" id="L906">          } catch (final NumberFormatException e) {</span>
+            // then it must be a string
+<span class="fc" id="L908">            properties.set(property, value);</span>
+          }
+<span class="fc" id="L910">        } else {</span>
+<span class="fc" id="L911">          final String type = children2.get(0).getNodeName();</span>
+<span class="fc bfc" id="L912" title="All 2 branches covered.">          if (type.equals(&quot;boolean&quot;)) {</span>
+<span class="fc" id="L913">            properties.set(property, Boolean.valueOf(value));</span>
+<span class="pc bpc" id="L914" title="1 of 2 branches missed.">          } else if (type.equals(&quot;file&quot;)) {</span>
+<span class="nc" id="L915">            properties.set(property, new File(value));</span>
+<span class="pc bfc" id="L916" title="All 2 branches covered.">          } else if (type.equals(&quot;number&quot;)) {</span>
+<span class="fc" id="L917">            int intValue = 0;</span>
+<span class="pc bpc" id="L918" title="1 of 2 branches missed.">            if (value != null) {</span>
+              try {
+<span class="fc" id="L920">                intValue = Integer.parseInt(value);</span>
+<span class="pc" id="L921">              } catch (final NumberFormatException e) {</span>
+                // value already 0
+              }
+            }
+<span class="fc" id="L925">            properties.set(property, intValue);</span>
+<span class="fc" id="L926">          } else {</span>
+<span class="fc" id="L927">            properties.set(property, value);</span>
+          }
+        }
+      }
+    }
+    // add properties for all triplea related maps here:
+<span class="fc bfc" id="L933" title="All 2 branches covered.">    if (!runningList.contains(Constants.AI_BONUS_INCOME_FLAT_RATE)) {</span>
+<span class="fc" id="L934">      data.getProperties()</span>
+<span class="fc" id="L935">          .addEditableProperty(new NumberProperty(Constants.AI_BONUS_INCOME_FLAT_RATE, null, 40, -20, 0));</span>
+    }
+<span class="fc bfc" id="L937" title="All 2 branches covered.">    if (!runningList.contains(Constants.AI_BONUS_INCOME_PERCENTAGE)) {</span>
+<span class="fc" id="L938">      data.getProperties()</span>
+<span class="fc" id="L939">          .addEditableProperty(new NumberProperty(Constants.AI_BONUS_INCOME_PERCENTAGE, null, 200, -100, 0));</span>
+    }
+<span class="fc bfc" id="L941" title="All 2 branches covered.">    if (!runningList.contains(Constants.AI_BONUS_ATTACK)) {</span>
+<span class="fc" id="L942">      data.getProperties()</span>
+<span class="fc" id="L943">          .addEditableProperty(new NumberProperty(Constants.AI_BONUS_ATTACK, null, data.getDiceSides(), 0, 0));</span>
+    }
+<span class="fc bfc" id="L945" title="All 2 branches covered.">    if (!runningList.contains(Constants.AI_BONUS_DEFENSE)) {</span>
+<span class="fc" id="L946">      data.getProperties()</span>
+<span class="fc" id="L947">          .addEditableProperty(new NumberProperty(Constants.AI_BONUS_DEFENSE, null, data.getDiceSides(), 0, 0));</span>
+    }
+<span class="fc" id="L949">  }</span>
+
+  private void parseEditableProperty(final Element property, final String name, final String defaultValue)
+      throws GameParseException {
+    // what type
+<span class="fc" id="L954">    final List&lt;Node&gt; children = getNonTextNodes(property);</span>
+<span class="pc bpc" id="L955" title="1 of 2 branches missed.">    if (children.size() != 1) {</span>
+<span class="nc" id="L956">      throw new GameParseException(mapName,</span>
+<span class="nc" id="L957">          &quot;Editable properties must have exactly 1 child specifying the type. Number of children found:&quot;</span>
+<span class="nc" id="L958">              + children.size() + &quot; for node:&quot; + property.getNodeName());</span>
+    }
+<span class="fc" id="L960">    final Element child = (Element) children.get(0);</span>
+<span class="fc" id="L961">    final String childName = child.getNodeName();</span>
+    IEditableProperty editableProperty;
+<span class="fc bfc" id="L963" title="All 2 branches covered.">    if (childName.equals(&quot;boolean&quot;)) {</span>
+<span class="fc" id="L964">      editableProperty = new BooleanProperty(name, null, Boolean.valueOf(defaultValue).booleanValue());</span>
+<span class="pc bpc" id="L965" title="1 of 2 branches missed.">    } else if (childName.equals(&quot;file&quot;)) {</span>
+<span class="nc" id="L966">      editableProperty = new FileProperty(name, null, defaultValue);</span>
+<span class="pc bpc" id="L967" title="2 of 4 branches missed.">    } else if (childName.equals(&quot;list&quot;) || childName.equals(&quot;combo&quot;)) {</span>
+<span class="nc" id="L968">      final StringTokenizer tokenizer = new StringTokenizer(child.getAttribute(&quot;values&quot;), &quot;,&quot;);</span>
+<span class="nc" id="L969">      final Collection&lt;String&gt; values = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L970" title="All 2 branches missed.">      while (tokenizer.hasMoreElements()) {</span>
+<span class="nc" id="L971">        values.add(tokenizer.nextToken());</span>
+      }
+<span class="nc" id="L973">      editableProperty = new ComboProperty&lt;&gt;(name, null, defaultValue, values);</span>
+<span class="pc bpc" id="L974" title="1 of 2 branches missed.">    } else if (childName.equals(&quot;number&quot;)) {</span>
+<span class="fc" id="L975">      final int max = Integer.valueOf(child.getAttribute(&quot;max&quot;)).intValue();</span>
+<span class="fc" id="L976">      final int min = Integer.valueOf(child.getAttribute(&quot;min&quot;)).intValue();</span>
+<span class="fc" id="L977">      final int def = Integer.valueOf(defaultValue).intValue();</span>
+<span class="fc" id="L978">      editableProperty = new NumberProperty(name, null, max, min, def);</span>
+<span class="pc bnc" id="L979" title="All 2 branches missed.">    } else if (childName.equals(&quot;color&quot;)) {</span>
+      // Parse the value as a hexidecimal number
+<span class="nc" id="L981">      final int def = Integer.valueOf(defaultValue, 16).intValue();</span>
+<span class="nc" id="L982">      editableProperty = new ColorProperty(name, null, def);</span>
+<span class="nc bnc" id="L983" title="All 2 branches missed.">    } else if (childName.equals(&quot;string&quot;)) {</span>
+<span class="nc" id="L984">      editableProperty = new StringProperty(name, null, defaultValue);</span>
+<span class="nc" id="L985">    } else {</span>
+<span class="nc" id="L986">      throw new GameParseException(mapName, &quot;Unrecognized property type:&quot; + childName);</span>
+    }
+<span class="fc" id="L988">    data.getProperties().addEditableProperty(editableProperty);</span>
+<span class="fc" id="L989">  }</span>
+
+  private void parseOffset(final Node offsetAttributes) {
+<span class="fc bfc" id="L992" title="All 2 branches covered.">    if (offsetAttributes == null) {</span>
+<span class="fc" id="L993">      return;</span>
+    }
+<span class="fc" id="L995">    final int roundOffset = Integer.parseInt(((Element) offsetAttributes).getAttribute(&quot;round&quot;));</span>
+<span class="fc" id="L996">    data.getSequence().setRoundOffset(roundOffset);</span>
+<span class="fc" id="L997">  }</span>
+
+  private void parseDelegates(final List&lt;Element&gt; delegateList) throws GameParseException {
+<span class="fc" id="L1000">    final DelegateList delegates = data.getDelegateList();</span>
+<span class="fc" id="L1001">    final Iterator&lt;Element&gt; iterator = delegateList.iterator();</span>
+<span class="fc bfc" id="L1002" title="All 2 branches covered.">    while (iterator.hasNext()) {</span>
+<span class="fc" id="L1003">      final Element current = iterator.next();</span>
+      // load the class
+<span class="fc" id="L1005">      final String className = current.getAttribute(&quot;javaClass&quot;);</span>
+<span class="fc" id="L1006">      XmlGameElementMapper elementMapper = new XmlGameElementMapper();</span>
+
+<span class="fc" id="L1008">      IDelegate delegate = elementMapper.getDelegate(className).orElseThrow(</span>
+<span class="pc" id="L1009">          () -&gt; new GameParseException(mapName, &quot;Class &lt;&quot; + className + &quot;&gt; is not a delegate.&quot;));</span>
+<span class="fc" id="L1010">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1011">      String displayName = current.getAttribute(&quot;display&quot;);</span>
+<span class="pc bpc" id="L1012" title="1 of 2 branches missed.">      if (displayName == null) {</span>
+<span class="nc" id="L1013">        displayName = name;</span>
+      }
+<span class="fc" id="L1015">      delegate.initialize(name, displayName);</span>
+<span class="fc" id="L1016">      delegates.addDelegate(delegate);</span>
+    }
+<span class="fc" id="L1018">  }</span>
+
+  private void parseSequence(final Node sequence) throws GameParseException {
+<span class="fc" id="L1021">    parseSteps(getChildren(&quot;step&quot;, sequence));</span>
+<span class="fc" id="L1022">  }</span>
+
+  private void parseSteps(final List&lt;Element&gt; stepList) throws GameParseException {
+<span class="fc" id="L1025">    final Iterator&lt;Element&gt; iterator = stepList.iterator();</span>
+<span class="fc bfc" id="L1026" title="All 2 branches covered.">    while (iterator.hasNext()) {</span>
+<span class="fc" id="L1027">      final Element current = iterator.next();</span>
+<span class="fc" id="L1028">      final IDelegate delegate = getDelegate(current, &quot;delegate&quot;, true);</span>
+<span class="fc" id="L1029">      final PlayerID player = getPlayerID(current, &quot;player&quot;, false);</span>
+<span class="fc" id="L1030">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1031">      String displayName = null;</span>
+<span class="fc" id="L1032">      final List&lt;Element&gt; propertyElements = getChildren(&quot;stepProperty&quot;, current);</span>
+<span class="fc" id="L1033">      final Properties stepProperties = pareStepProperties(propertyElements);</span>
+<span class="fc bfc" id="L1034" title="All 2 branches covered.">      if (current.hasAttribute(&quot;display&quot;)) {</span>
+<span class="fc" id="L1035">        displayName = current.getAttribute(&quot;display&quot;);</span>
+      }
+<span class="fc" id="L1037">      final GameStep step = new GameStep(name, displayName, player, delegate, data, stepProperties);</span>
+<span class="fc bfc" id="L1038" title="All 2 branches covered.">      if (current.hasAttribute(&quot;maxRunCount&quot;)) {</span>
+<span class="fc" id="L1039">        final int runCount = Integer.parseInt(current.getAttribute(&quot;maxRunCount&quot;));</span>
+<span class="pc bpc" id="L1040" title="1 of 2 branches missed.">        if (runCount &lt;= 0) {</span>
+<span class="nc" id="L1041">          throw new GameParseException(mapName, &quot;maxRunCount must be positive&quot;);</span>
+        }
+<span class="fc" id="L1043">        step.setMaxRunCount(runCount);</span>
+      }
+<span class="fc" id="L1045">      data.getSequence().addStep(step);</span>
+    }
+<span class="fc" id="L1047">  }</span>
+
+  private Properties pareStepProperties(final List&lt;Element&gt; properties) {
+<span class="fc" id="L1050">    final Properties rVal = new Properties();</span>
+<span class="fc bfc" id="L1051" title="All 2 branches covered.">    for (final Element stepProperty : properties) {</span>
+<span class="fc" id="L1052">      final String name = stepProperty.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1053">      final String value = stepProperty.getAttribute(&quot;value&quot;);</span>
+<span class="fc" id="L1054">      rVal.setProperty(name, value);</span>
+    }
+<span class="fc" id="L1056">    return rVal;</span>
+  }
+
+  private void parseProduction(final Node root) throws GameParseException {
+<span class="fc" id="L1060">    parseProductionRules(getChildren(&quot;productionRule&quot;, root));</span>
+<span class="fc" id="L1061">    parseProductionFrontiers(getChildren(&quot;productionFrontier&quot;, root));</span>
+<span class="fc" id="L1062">    parsePlayerProduction(getChildren(&quot;playerProduction&quot;, root));</span>
+<span class="fc" id="L1063">    parseRepairRules(getChildren(&quot;repairRule&quot;, root));</span>
+<span class="fc" id="L1064">    parseRepairFrontiers(getChildren(&quot;repairFrontier&quot;, root));</span>
+<span class="fc" id="L1065">    parsePlayerRepair(getChildren(&quot;playerRepair&quot;, root));</span>
+<span class="fc" id="L1066">  }</span>
+
+  private void parseTechnology(final Node root) throws GameParseException {
+<span class="fc" id="L1069">    parseTechnologies(getSingleChild(&quot;technologies&quot;, root, true));</span>
+<span class="fc" id="L1070">    parsePlayerTech(getChildren(&quot;playerTech&quot;, root));</span>
+<span class="fc" id="L1071">  }</span>
+
+  private void parseProductionRules(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1074" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1075">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1076">      final ProductionRule rule = new ProductionRule(name, data);</span>
+<span class="fc" id="L1077">      parseCosts(rule, getChildren(&quot;cost&quot;, current));</span>
+<span class="fc" id="L1078">      parseResults(rule, getChildren(&quot;result&quot;, current));</span>
+<span class="fc" id="L1079">      data.getProductionRuleList().addProductionRule(rule);</span>
+    }
+<span class="fc" id="L1081">  }</span>
+
+  private void parseRepairRules(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1084" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1085">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1086">      final RepairRule rule = new RepairRule(name, data);</span>
+<span class="fc" id="L1087">      parseRepairCosts(rule, getChildren(&quot;cost&quot;, current));</span>
+<span class="fc" id="L1088">      parseRepairResults(rule, getChildren(&quot;result&quot;, current));</span>
+<span class="fc" id="L1089">      data.getRepairRuleList().addRepairRule(rule);</span>
+    }
+<span class="fc" id="L1091">  }</span>
+
+  private void parseCosts(final ProductionRule rule, final List&lt;Element&gt; elements) throws GameParseException {
+<span class="pc bpc" id="L1094" title="1 of 2 branches missed.">    if (elements.size() == 0) {</span>
+<span class="nc" id="L1095">      throw new GameParseException(mapName, &quot;no costs  for rule:&quot; + rule.getName());</span>
+    }
+<span class="fc bfc" id="L1097" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1098">      final Resource resource = getResource(current, &quot;resource&quot;, true);</span>
+<span class="fc" id="L1099">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1100">      rule.addCost(resource, quantity);</span>
+    }
+<span class="fc" id="L1102">  }</span>
+
+  private void parseRepairCosts(final RepairRule rule, final List&lt;Element&gt; elements) throws GameParseException {
+<span class="pc bpc" id="L1105" title="1 of 2 branches missed.">    if (elements.size() == 0) {</span>
+<span class="nc" id="L1106">      throw new GameParseException(mapName, &quot;no costs  for rule:&quot; + rule.getName());</span>
+    }
+<span class="fc bfc" id="L1108" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1109">      final Resource resource = getResource(current, &quot;resource&quot;, true);</span>
+<span class="fc" id="L1110">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1111">      rule.addCost(resource, quantity);</span>
+    }
+<span class="fc" id="L1113">  }</span>
+
+  private void parseResults(final ProductionRule rule, final List&lt;Element&gt; elements) throws GameParseException {
+<span class="pc bpc" id="L1116" title="1 of 2 branches missed.">    if (elements.size() == 0) {</span>
+<span class="nc" id="L1117">      throw new GameParseException(mapName, &quot;no results  for rule:&quot; + rule.getName());</span>
+    }
+<span class="fc bfc" id="L1119" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+      // must find either a resource or a unit with the given name
+<span class="fc" id="L1121">      NamedAttachable result = null;</span>
+<span class="fc" id="L1122">      result = getResource(current, &quot;resourceOrUnit&quot;, false);</span>
+<span class="pc bpc" id="L1123" title="1 of 2 branches missed.">      if (result == null) {</span>
+<span class="fc" id="L1124">        result = getUnitType(current, &quot;resourceOrUnit&quot;, false);</span>
+      }
+<span class="pc bpc" id="L1126" title="1 of 2 branches missed.">      if (result == null) {</span>
+<span class="nc" id="L1127">        throw new GameParseException(</span>
+<span class="nc" id="L1128">            &quot;mapName, Could not find resource or unit&quot; + current.getAttribute(&quot;resourceOrUnit&quot;));</span>
+      }
+<span class="fc" id="L1130">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1131">      rule.addResult(result, quantity);</span>
+    }
+<span class="fc" id="L1133">  }</span>
+
+  private void parseRepairResults(final RepairRule rule, final List&lt;Element&gt; elements) throws GameParseException {
+<span class="pc bpc" id="L1136" title="1 of 2 branches missed.">    if (elements.size() == 0) {</span>
+<span class="nc" id="L1137">      throw new GameParseException(mapName, &quot;no results  for rule:&quot; + rule.getName());</span>
+    }
+<span class="fc bfc" id="L1139" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+      // must find either a resource or a unit with the given name
+<span class="fc" id="L1141">      NamedAttachable result = null;</span>
+<span class="fc" id="L1142">      result = getResource(current, &quot;resourceOrUnit&quot;, false);</span>
+<span class="pc bpc" id="L1143" title="1 of 2 branches missed.">      if (result == null) {</span>
+<span class="fc" id="L1144">        result = getUnitType(current, &quot;resourceOrUnit&quot;, false);</span>
+      }
+<span class="pc bpc" id="L1146" title="1 of 2 branches missed.">      if (result == null) {</span>
+<span class="nc" id="L1147">        throw new GameParseException(mapName,</span>
+<span class="nc" id="L1148">            &quot;Could not find resource or unit&quot; + current.getAttribute(&quot;resourceOrUnit&quot;));</span>
+      }
+<span class="fc" id="L1150">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1151">      rule.addResult(result, quantity);</span>
+    }
+<span class="fc" id="L1153">  }</span>
+
+  private void parseProductionFrontiers(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc" id="L1156">    final ProductionFrontierList frontiers = data.getProductionFrontierList();</span>
+<span class="fc bfc" id="L1157" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1158">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1159">      final ProductionFrontier frontier = new ProductionFrontier(name, data);</span>
+<span class="fc" id="L1160">      parseFrontierRules(getChildren(&quot;frontierRules&quot;, current), frontier);</span>
+<span class="fc" id="L1161">      frontiers.addProductionFrontier(frontier);</span>
+    }
+<span class="fc" id="L1163">  }</span>
+
+  private void parseTechnologies(final Node element) {
+<span class="pc bpc" id="L1166" title="1 of 2 branches missed.">    if (element == null) {</span>
+<span class="nc" id="L1167">      return;</span>
+    }
+<span class="fc" id="L1169">    final TechnologyFrontier allTechs = data.getTechnologyFrontier();</span>
+<span class="fc" id="L1170">    parseTechs(getChildren(&quot;techname&quot;, element), allTechs);</span>
+<span class="fc" id="L1171">  }</span>
+
+  private void parsePlayerTech(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1174" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1175">      final PlayerID player = getPlayerID(current, &quot;player&quot;, true);</span>
+<span class="fc" id="L1176">      final TechnologyFrontierList categories = player.getTechnologyFrontierList();</span>
+<span class="fc" id="L1177">      parseCategories(getChildren(&quot;category&quot;, current), categories);</span>
+    }
+<span class="fc" id="L1179">  }</span>
+
+  private void parseCategories(final List&lt;Element&gt; elements, final TechnologyFrontierList categories)
+      throws GameParseException {
+<span class="fc bfc" id="L1183" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1184">      final TechnologyFrontier tf = new TechnologyFrontier(current.getAttribute(&quot;name&quot;), data);</span>
+<span class="fc" id="L1185">      parseCategoryTechs(getChildren(&quot;tech&quot;, current), tf);</span>
+<span class="fc" id="L1186">      categories.addTechnologyFrontier(tf);</span>
+    }
+<span class="fc" id="L1188">  }</span>
+
+  private void parseRepairFrontiers(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc" id="L1191">    final RepairFrontierList frontiers = data.getRepairFrontierList();</span>
+<span class="fc bfc" id="L1192" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1193">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1194">      final RepairFrontier frontier = new RepairFrontier(name, data);</span>
+<span class="fc" id="L1195">      parseRepairFrontierRules(getChildren(&quot;repairRules&quot;, current), frontier);</span>
+<span class="fc" id="L1196">      frontiers.addRepairFrontier(frontier);</span>
+    }
+<span class="fc" id="L1198">  }</span>
+
+  private void parsePlayerProduction(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1201" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1202">      final PlayerID player = getPlayerID(current, &quot;player&quot;, true);</span>
+<span class="fc" id="L1203">      final ProductionFrontier frontier = getProductionFrontier(current, &quot;frontier&quot;, true);</span>
+<span class="fc" id="L1204">      player.setProductionFrontier(frontier);</span>
+    }
+<span class="fc" id="L1206">  }</span>
+
+  private void parsePlayerRepair(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1209" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1210">      final PlayerID player = getPlayerID(current, &quot;player&quot;, true);</span>
+<span class="fc" id="L1211">      final RepairFrontier repairFrontier = getRepairFrontier(current, &quot;frontier&quot;, true);</span>
+<span class="fc" id="L1212">      player.setRepairFrontier(repairFrontier);</span>
+    }
+<span class="fc" id="L1214">  }</span>
+
+  private void parseFrontierRules(final List&lt;Element&gt; elements, final ProductionFrontier frontier)
+      throws GameParseException {
+<span class="fc" id="L1218">    final Iterator&lt;Element&gt; iter = elements.iterator();</span>
+<span class="fc bfc" id="L1219" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L1220">      final ProductionRule rule = getProductionRule(iter.next(), &quot;name&quot;, true);</span>
+<span class="fc" id="L1221">      frontier.addRule(rule);</span>
+    }
+<span class="fc" id="L1223">  }</span>
+
+  private void parseTechs(final List&lt;Element&gt; elements, final TechnologyFrontier allTechsFrontier) {
+<span class="fc bfc" id="L1226" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1227">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1228">      final String tech = current.getAttribute(&quot;tech&quot;);</span>
+      TechAdvance ta;
+<span class="fc bfc" id="L1230" title="All 2 branches covered.">      if (tech.length() &gt; 0) {</span>
+<span class="fc" id="L1231">        ta = new GenericTechAdvance(name, TechAdvance.findDefinedAdvanceAndCreateAdvance(tech, data), data);</span>
+<span class="fc" id="L1232">      } else {</span>
+        try {
+<span class="fc" id="L1234">          ta = TechAdvance.findDefinedAdvanceAndCreateAdvance(name, data);</span>
+<span class="fc" id="L1235">        } catch (final IllegalArgumentException e) {</span>
+<span class="fc" id="L1236">          ta = new GenericTechAdvance(name, null, data);</span>
+        }
+      }
+<span class="fc" id="L1239">      allTechsFrontier.addAdvance(ta);</span>
+    }
+<span class="fc" id="L1241">  }</span>
+
+  private void parseCategoryTechs(final List&lt;Element&gt; elements, final TechnologyFrontier frontier)
+      throws GameParseException {
+<span class="fc bfc" id="L1245" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1246">      TechAdvance ta = data.getTechnologyFrontier().getAdvanceByProperty(current.getAttribute(&quot;name&quot;));</span>
+<span class="fc bfc" id="L1247" title="All 2 branches covered.">      if (ta == null) {</span>
+<span class="fc" id="L1248">        ta = data.getTechnologyFrontier().getAdvanceByName(current.getAttribute(&quot;name&quot;));</span>
+      }
+<span class="pc bpc" id="L1250" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L1251">        throw new GameParseException(mapName, &quot;Technology not found :&quot; + current.getAttribute(&quot;name&quot;));</span>
+      }
+<span class="fc" id="L1253">      frontier.addAdvance(ta);</span>
+    }
+<span class="fc" id="L1255">  }</span>
+
+  private void parseRepairFrontierRules(final List&lt;Element&gt; elements, final RepairFrontier frontier)
+      throws GameParseException {
+<span class="fc" id="L1259">    final Iterator&lt;Element&gt; iter = elements.iterator();</span>
+<span class="fc bfc" id="L1260" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L1261">      final RepairRule rule = getRepairRule(iter.next(), &quot;name&quot;, true);</span>
+<span class="fc" id="L1262">      frontier.addRule(rule);</span>
+    }
+<span class="fc" id="L1264">  }</span>
+
+  private void parseAttachments(final Element root) throws GameParseException {
+<span class="fc bfc" id="L1267" title="All 2 branches covered.">    for (final Element current : getChildren(&quot;attachment&quot;, root)) {</span>
+<span class="fc" id="L1268">      final String className = current.getAttribute(&quot;javaClass&quot;);</span>
+<span class="fc" id="L1269">      final Attachable attachable = findAttachment(current, current.getAttribute(&quot;type&quot;));</span>
+<span class="fc" id="L1270">      final String name = current.getAttribute(&quot;name&quot;);</span>
+<span class="fc" id="L1271">      IAttachment attachment = new XmlGameElementMapper().getAttachment(className, name, attachable, data)</span>
+<span class="fc" id="L1272">          .orElseThrow(</span>
+<span class="pc" id="L1273">              () -&gt; new GameParseException(mapName, &quot;Attachment of type &quot; + className + &quot; could not be instantiated&quot;));</span>
+<span class="fc" id="L1274">      attachable.addAttachment(name, attachment);</span>
+
+<span class="fc" id="L1276">      final List&lt;Element&gt; options = getChildren(&quot;option&quot;, current);</span>
+<span class="fc" id="L1277">      final ArrayList&lt;Tuple&lt;String, String&gt;&gt; attachmentOptionValues = setValues(attachment, options);</span>
+      // keep a list of attachment references in the order they were added
+<span class="fc" id="L1279">      data.addToAttachmentOrderAndValues(Tuple.of(attachment, attachmentOptionValues));</span>
+    }
+<span class="fc" id="L1281">  }</span>
+
+  private Attachable findAttachment(final Element element, final String type) throws GameParseException {
+    Attachable returnVal;
+<span class="fc" id="L1285">    final String name = &quot;attachTo&quot;;</span>
+<span class="fc bfc" id="L1286" title="All 2 branches covered.">    if (type.equals(&quot;unitType&quot;)) {</span>
+<span class="fc" id="L1287">      returnVal = getUnitType(element, name, true);</span>
+<span class="fc bfc" id="L1288" title="All 2 branches covered.">    } else if (type.equals(&quot;territory&quot;)) {</span>
+<span class="fc" id="L1289">      returnVal = getTerritory(element, name, true);</span>
+<span class="fc bfc" id="L1290" title="All 2 branches covered.">    } else if (type.equals(&quot;resource&quot;)) {</span>
+<span class="fc" id="L1291">      returnVal = getResource(element, name, true);</span>
+<span class="fc bfc" id="L1292" title="All 2 branches covered.">    } else if (type.equals(&quot;territoryEffect&quot;)) {</span>
+<span class="fc" id="L1293">      returnVal = getTerritoryEffect(element, name, true);</span>
+<span class="fc bfc" id="L1294" title="All 2 branches covered.">    } else if (type.equals(&quot;player&quot;)) {</span>
+<span class="fc" id="L1295">      returnVal = getPlayerID(element, name, true);</span>
+<span class="fc bfc" id="L1296" title="All 2 branches covered.">    } else if (type.equals(&quot;relationship&quot;)) {</span>
+<span class="fc" id="L1297">      returnVal = this.getRelationshipType(element, name, true);</span>
+<span class="pc bpc" id="L1298" title="1 of 2 branches missed.">    } else if (type.equals(&quot;technology&quot;)) {</span>
+<span class="fc" id="L1299">      returnVal = getTechnology(element, name, true);</span>
+<span class="fc" id="L1300">    } else {</span>
+<span class="nc" id="L1301">      throw new GameParseException(mapName, &quot;Type not found to attach to:&quot; + type);</span>
+    }
+<span class="fc" id="L1303">    return returnVal;</span>
+  }
+
+  private static String capitalizeFirstLetter(final String aString) {
+<span class="fc" id="L1307">    char first = aString.charAt(0);</span>
+<span class="fc" id="L1308">    first = Character.toUpperCase(first);</span>
+<span class="fc" id="L1309">    return first + aString.substring(1);</span>
+  }
+
+  private ArrayList&lt;Tuple&lt;String, String&gt;&gt; setValues(final IAttachment attachment, final List&lt;Element&gt; values)
+      throws GameParseException {
+<span class="fc" id="L1314">    final ArrayList&lt;Tuple&lt;String, String&gt;&gt; options = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L1315" title="All 2 branches covered.">    for (final Element current : values) {</span>
+      // find the setter
+<span class="fc" id="L1317">      String name = null;</span>
+<span class="fc" id="L1318">      Method setter = null;</span>
+      try {
+<span class="fc" id="L1320">        name = current.getAttribute(&quot;name&quot;);</span>
+<span class="pc bpc" id="L1321" title="1 of 2 branches missed.">        if (name.length() == 0) {</span>
+<span class="nc" id="L1322">          throw new GameParseException(mapName, &quot;Option name with 0 length&quot;);</span>
+        }
+<span class="fc" id="L1324">        setter = attachment.getClass().getMethod(&quot;set&quot; + capitalizeFirstLetter(name), SETTER_ARGS);</span>
+<span class="pc" id="L1325">      } catch (final NoSuchMethodException nsme) {</span>
+<span class="nc" id="L1326">        throw new GameParseException(mapName, &quot;The following option name of &quot; + attachment.getName() + &quot; of class &quot;</span>
+<span class="nc" id="L1327">            + attachment.getClass().getName().substring(attachment.getClass().getName().lastIndexOf('.') + 1)</span>
+<span class="nc" id="L1328">            + &quot; are either misspelled or exist only in a future version of TripleA. Setter: &quot; + name);</span>
+      }
+      // find the value
+<span class="fc" id="L1331">      final String value = current.getAttribute(&quot;value&quot;);</span>
+<span class="fc" id="L1332">      final String count = current.getAttribute(&quot;count&quot;);</span>
+      String itemValues;
+<span class="fc bfc" id="L1334" title="All 2 branches covered.">      if (count.length() &gt; 0) {</span>
+<span class="fc" id="L1335">        itemValues = count + &quot;:&quot; + value;</span>
+<span class="fc" id="L1336">      } else {</span>
+<span class="fc" id="L1337">        itemValues = value;</span>
+      }
+      // invoke
+      try {
+<span class="fc" id="L1341">        final Object[] args = {itemValues};</span>
+<span class="fc" id="L1342">        setter.invoke(attachment, args);</span>
+<span class="pc" id="L1343">      } catch (final IllegalAccessException iae) {</span>
+<span class="nc" id="L1344">        throw new GameParseException(mapName,</span>
+<span class="nc" id="L1345">            &quot;Setter not public. Setter:&quot; + name + &quot; Class:&quot; + attachment.getClass().getName());</span>
+<span class="nc" id="L1346">      } catch (final InvocationTargetException ite) {</span>
+<span class="nc" id="L1347">        ite.getCause().printStackTrace(System.out);</span>
+<span class="nc" id="L1348">        throw new GameParseException(mapName,</span>
+<span class="nc" id="L1349">            &quot;Error setting property:&quot; + name + &quot; cause:&quot; + ite.getCause().getMessage());</span>
+      }
+<span class="fc" id="L1351">      options.add(Tuple.of(name, itemValues));</span>
+    }
+<span class="fc" id="L1353">    return options;</span>
+  }
+
+  private void parseInitialization(final Node root) throws GameParseException {
+    // parse territory owners
+<span class="fc" id="L1358">    final Node owner = getSingleChild(&quot;ownerInitialize&quot;, root, true);</span>
+<span class="pc bpc" id="L1359" title="1 of 2 branches missed.">    if (owner != null) {</span>
+<span class="fc" id="L1360">      parseOwner(getChildren(&quot;territoryOwner&quot;, owner));</span>
+    }
+    // parse initial unit placement
+<span class="fc" id="L1363">    final Node unit = getSingleChild(&quot;unitInitialize&quot;, root, true);</span>
+<span class="pc bpc" id="L1364" title="1 of 2 branches missed.">    if (unit != null) {</span>
+<span class="fc" id="L1365">      parseUnitPlacement(getChildren(&quot;unitPlacement&quot;, unit));</span>
+<span class="fc" id="L1366">      parseHeldUnits(getChildren(&quot;heldUnits&quot;, unit));</span>
+    }
+    // parse resources given
+<span class="fc" id="L1369">    final Node resource = getSingleChild(&quot;resourceInitialize&quot;, root, true);</span>
+<span class="pc bpc" id="L1370" title="1 of 2 branches missed.">    if (resource != null) {</span>
+<span class="fc" id="L1371">      parseResourceInitialization(getChildren(&quot;resourceGiven&quot;, resource));</span>
+    }
+    // parse relationships
+<span class="fc" id="L1374">    final Node relationInitialize = getSingleChild(&quot;relationshipInitialize&quot;, root, true);</span>
+<span class="fc bfc" id="L1375" title="All 2 branches covered.">    if (relationInitialize != null) {</span>
+<span class="fc" id="L1376">      parseRelationInitialize(getChildren(&quot;relationship&quot;, relationInitialize));</span>
+    }
+<span class="fc" id="L1378">  }</span>
+
+  private void parseOwner(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1381" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1382">      final Territory territory = getTerritory(current, &quot;territory&quot;, true);</span>
+<span class="fc" id="L1383">      final PlayerID owner = getPlayerID(current, &quot;owner&quot;, true);</span>
+<span class="fc" id="L1384">      territory.setOwner(owner);</span>
+      // Set the original owner on startup.
+      // TODO Look into this
+      // The addition of this caused the automated tests to fail as TestAttachment can't be cast to TerritoryAttachment
+      // The addition of this IF to pass the tests is wrong, but works until a better solution is found.
+      // Kevin will look into it.
+<span class="fc bfc" id="L1390" title="All 2 branches covered.">      if (!territory.getData().getGameName().equals(&quot;gameExample&quot;)</span>
+<span class="fc bfc" id="L1391" title="All 2 branches covered.">          &amp;&amp; !territory.getData().getGameName().equals(&quot;test&quot;)) {</span>
+        // set the original owner
+<span class="fc" id="L1393">        final TerritoryAttachment ta = TerritoryAttachment.get(territory);</span>
+<span class="pc bpc" id="L1394" title="1 of 2 branches missed.">        if (ta != null) {</span>
+          // If we already have an original owner set (ie: we set it previously in the attachment using originalOwner or
+          // occupiedTerrOf),
+          // then we DO NOT set the original owner again.
+          // This is how we can have a game start with territories owned by 1 faction but controlled by a 2nd faction.
+<span class="fc" id="L1399">          final PlayerID currentOwner = ta.getOriginalOwner();</span>
+<span class="fc bfc" id="L1400" title="All 2 branches covered.">          if (currentOwner == null) {</span>
+<span class="fc" id="L1401">            ta.setOriginalOwner(owner);</span>
+          }
+        }
+      }
+    }
+<span class="fc" id="L1406">  }</span>
+
+  private void parseUnitPlacement(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1409" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1410">      final Territory territory = getTerritory(current, &quot;territory&quot;, true);</span>
+<span class="fc" id="L1411">      final UnitType type = getUnitType(current, &quot;unitType&quot;, true);</span>
+<span class="fc" id="L1412">      final String ownerString = current.getAttribute(&quot;owner&quot;);</span>
+<span class="fc" id="L1413">      final String hitsTakenString = current.getAttribute(&quot;hitsTaken&quot;);</span>
+<span class="fc" id="L1414">      final String unitDamageString = current.getAttribute(&quot;unitDamage&quot;);</span>
+      final PlayerID owner;
+<span class="pc bpc" id="L1416" title="1 of 4 branches missed.">      if (ownerString == null || ownerString.trim().length() == 0) {</span>
+<span class="fc" id="L1417">        owner = PlayerID.NULL_PLAYERID;</span>
+<span class="fc" id="L1418">      } else {</span>
+<span class="fc" id="L1419">        owner = getPlayerID(current, &quot;owner&quot;, false);</span>
+      }
+      final int hits;
+<span class="pc bpc" id="L1422" title="2 of 4 branches missed.">      if (hitsTakenString != null &amp;&amp; hitsTakenString.trim().length() &gt; 0) {</span>
+<span class="nc" id="L1423">        hits = Integer.parseInt(hitsTakenString);</span>
+<span class="nc bnc" id="L1424" title="All 4 branches missed.">        if (hits &lt; 0 || hits &gt; UnitAttachment.get(type).getHitPoints() - 1) {</span>
+<span class="nc" id="L1425">          throw new GameParseException(mapName,</span>
+<span class="nc" id="L1426">              &quot;hitsTaken cannot be less than zero or greater than one less than total hitpPoints&quot;);</span>
+        }
+      } else {
+<span class="fc" id="L1429">        hits = 0;</span>
+      }
+      final int unitDamage;
+<span class="pc bpc" id="L1432" title="2 of 4 branches missed.">      if (unitDamageString != null &amp;&amp; unitDamageString.trim().length() &gt; 0) {</span>
+<span class="nc" id="L1433">        unitDamage = Integer.parseInt(unitDamageString);</span>
+<span class="nc bnc" id="L1434" title="All 2 branches missed.">        if (unitDamage &lt; 0) {</span>
+<span class="nc" id="L1435">          throw new GameParseException(mapName, &quot;unitDamage cannot be less than zero&quot;);</span>
+        }
+      } else {
+<span class="fc" id="L1438">        unitDamage = 0;</span>
+      }
+<span class="fc" id="L1440">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1441">      territory.getUnits().addAllUnits(type.create(quantity, owner, false, hits, unitDamage));</span>
+    }
+<span class="fc" id="L1443">  }</span>
+
+  private void parseHeldUnits(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1446" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1447">      final PlayerID player = getPlayerID(current, &quot;player&quot;, true);</span>
+<span class="fc" id="L1448">      final UnitType type = getUnitType(current, &quot;unitType&quot;, true);</span>
+<span class="fc" id="L1449">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1450">      player.getUnits().addAllUnits(type.create(quantity, player));</span>
+    }
+<span class="fc" id="L1452">  }</span>
+
+  private void parseResourceInitialization(final List&lt;Element&gt; elements) throws GameParseException {
+<span class="fc bfc" id="L1455" title="All 2 branches covered.">    for (final Element current : elements) {</span>
+<span class="fc" id="L1456">      final PlayerID player = getPlayerID(current, &quot;player&quot;, true);</span>
+<span class="fc" id="L1457">      final Resource resource = getResource(current, &quot;resource&quot;, true);</span>
+<span class="fc" id="L1458">      final int quantity = Integer.parseInt(current.getAttribute(&quot;quantity&quot;));</span>
+<span class="fc" id="L1459">      player.getResources().addResource(resource, quantity);</span>
+    }
+<span class="fc" id="L1461">  }</span>
+
+  private void checkThatAllUnitsHaveAttachments(final GameData data) throws GameParseException {
+<span class="fc" id="L1464">    final Collection&lt;UnitType&gt; errors = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L1465" title="All 2 branches covered.">    for (final UnitType ut : data.getUnitTypeList().getAllUnitTypes()) {</span>
+<span class="fc" id="L1466">      final UnitAttachment ua = UnitAttachment.get(ut);</span>
+<span class="pc bpc" id="L1467" title="1 of 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L1468">        errors.add(ut);</span>
+      }
+    }
+<span class="pc bpc" id="L1471" title="1 of 2 branches missed.">    if (!errors.isEmpty()) {</span>
+<span class="nc" id="L1472">      throw new GameParseException(mapName,</span>
+<span class="nc" id="L1473">          data.getGameName() + &quot; does not have unit attachments for: &quot; + MyFormatter.defaultNamedToTextList(errors));</span>
+    }
+<span class="fc" id="L1475">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

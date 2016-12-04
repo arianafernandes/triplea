@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TechnologyDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">TechnologyDelegate.java</span></div><h1>TechnologyDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.TechnologyFrontier;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.attachments.AbstractTriggerAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.delegate.dataObjects.TechResults;
+import games.strategy.triplea.delegate.remote.ITechDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/**
+ * Logic for dealing with player tech rolls. This class requires the
+ * TechActivationDelegate which actually activates the tech.
+ */
+@MapSupport
+public class TechnologyDelegate extends BaseTripleADelegate implements ITechDelegate {
+  private int m_techCost;
+  private HashMap&lt;PlayerID, Collection&lt;TechAdvance&gt;&gt; m_techs;
+  private TechnologyFrontier m_techCategory;
+<span class="fc" id="L49">  private boolean m_needToInitialize = true;</span>
+
+  /** Creates new TechnolgoyDelegate */
+<span class="fc" id="L52">  public TechnologyDelegate() {}</span>
+
+  @Override
+  public void initialize(final String name, final String displayName) {
+<span class="fc" id="L56">    super.initialize(name, displayName);</span>
+<span class="fc" id="L57">    m_techs = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L58">    m_techCost = -1;</span>
+<span class="fc" id="L59">  }</span>
+
+  /**
+   * Called before the delegate will run, AND before &quot;start&quot; is called.
+   */
+  @Override
+  public void setDelegateBridgeAndPlayer(final IDelegateBridge iDelegateBridge) {
+<span class="fc" id="L66">    super.setDelegateBridgeAndPlayer(new GameDelegateBridge(iDelegateBridge));</span>
+<span class="fc" id="L67">  }</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L74">    super.start();</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">    if (!m_needToInitialize) {</span>
+<span class="nc" id="L76">      return;</span>
+    }
+<span class="pc bpc" id="L78" title="1 of 2 branches missed.">    if (games.strategy.triplea.Properties.getTriggers(getData())) {</span>
+      // First set up a match for what we want to have fire as a default in this delegate. List out as a composite match
+      // OR.
+      // use 'null, null' because this is the Default firing location for any trigger that does NOT have 'when' set.
+<span class="nc" id="L82">      final Match&lt;TriggerAttachment&gt; technologyDelegateTriggerMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L83">          AbstractTriggerAttachment.availableUses, AbstractTriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="nc" id="L84">          new CompositeMatchOr&lt;TriggerAttachment&gt;(TriggerAttachment.techAvailableMatch()));</span>
+      // get all possible triggers based on this match.
+<span class="nc" id="L86">      final HashSet&lt;TriggerAttachment&gt; toFirePossible = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="nc" id="L87">          new HashSet&lt;&gt;(Collections.singleton(m_player)), technologyDelegateTriggerMatch, m_bridge);</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">      if (!toFirePossible.isEmpty()) {</span>
+        // get all conditions possibly needed by these triggers, and then test them.
+<span class="nc" id="L90">        final HashMap&lt;ICondition, Boolean&gt; testedConditions =</span>
+<span class="nc" id="L91">            TriggerAttachment.collectTestsForAllTriggers(toFirePossible, m_bridge);</span>
+        // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L93">        final List&lt;TriggerAttachment&gt; toFireTestedAndSatisfied =</span>
+<span class="nc" id="L94">            Match.getMatches(toFirePossible, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions));</span>
+        // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L96">        TriggerAttachment.triggerAvailableTechChange(new HashSet&lt;&gt;(toFireTestedAndSatisfied), m_bridge,</span>
+<span class="nc" id="L97">            null, null, true, true, true, true);</span>
+      }
+    }
+<span class="fc" id="L100">    m_needToInitialize = false;</span>
+<span class="fc" id="L101">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L105">    super.end();</span>
+<span class="nc" id="L106">    m_needToInitialize = true;</span>
+<span class="nc" id="L107">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L111">    final TechnologyExtendedDelegateState state = new TechnologyExtendedDelegateState();</span>
+<span class="nc" id="L112">    state.superState = super.saveState();</span>
+<span class="nc" id="L113">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L114">    state.m_techs = m_techs;</span>
+<span class="nc" id="L115">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L120">    final TechnologyExtendedDelegateState s = (TechnologyExtendedDelegateState) state;</span>
+<span class="nc" id="L121">    super.loadState(s.superState);</span>
+<span class="nc" id="L122">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L123">    m_techs = s.m_techs;</span>
+<span class="nc" id="L124">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc bnc" id="L128" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getTechDevelopment(getData())) {</span>
+<span class="nc" id="L129">      return false;</span>
+    }
+<span class="nc bnc" id="L131" title="All 2 branches missed.">    if (!TerritoryAttachment.doWeHaveEnoughCapitalsToProduce(m_player, getData())) {</span>
+<span class="nc" id="L132">      return false;</span>
+    }
+<span class="nc bnc" id="L134" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getWW2V3TechModel(getData())) {</span>
+<span class="nc" id="L135">      final Resource techtokens = getData().getResourceList().getResource(Constants.TECH_TOKENS);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">      if (techtokens != null) {</span>
+<span class="nc" id="L137">        final int techTokens = m_player.getResources().getQuantity(techtokens);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (techTokens &gt; 0) {</span>
+<span class="nc" id="L139">          return true;</span>
+        }
+      }
+    }
+<span class="nc" id="L143">    final int techCost = TechTracker.getTechCost(m_player);</span>
+<span class="nc" id="L144">    int money = m_player.getResources().getQuantity(Constants.PUS);</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    if (money &lt; techCost) {</span>
+<span class="nc" id="L146">      final PlayerAttachment pa = PlayerAttachment.get(m_player);</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">      if (pa == null) {</span>
+<span class="nc" id="L148">        return false;</span>
+      }
+<span class="nc" id="L150">      final Collection&lt;PlayerID&gt; helpPay = pa.getHelpPayTechCost();</span>
+<span class="nc bnc" id="L151" title="All 4 branches missed.">      if (helpPay == null || helpPay.isEmpty()) {</span>
+<span class="nc" id="L152">        return false;</span>
+      }
+<span class="nc bnc" id="L154" title="All 2 branches missed.">      for (final PlayerID p : helpPay) {</span>
+<span class="nc" id="L155">        money += p.getResources().getQuantity(Constants.PUS);</span>
+      }
+<span class="nc bnc" id="L157" title="All 2 branches missed.">      if (money &lt; techCost) {</span>
+<span class="nc" id="L158">        return false;</span>
+      }
+    }
+<span class="nc" id="L161">    return true;</span>
+  }
+
+  public Map&lt;PlayerID, Collection&lt;TechAdvance&gt;&gt; getAdvances() {
+<span class="nc" id="L165">    return m_techs;</span>
+  }
+
+  private boolean isWW2V2() {
+<span class="fc" id="L169">    return games.strategy.triplea.Properties.getWW2V2(getData());</span>
+  }
+
+  private boolean isWW2V3TechModel() {
+<span class="fc" id="L173">    return games.strategy.triplea.Properties.getWW2V3TechModel(getData());</span>
+  }
+
+  private boolean isSelectableTechRoll() {
+<span class="fc" id="L177">    return games.strategy.triplea.Properties.getSelectableTechRoll(getData());</span>
+  }
+
+  private boolean isLL_TECH_ONLY() {
+<span class="fc" id="L181">    return games.strategy.triplea.Properties.getLL_TECH_ONLY(getData());</span>
+  }
+
+  @Override
+  public TechResults rollTech(final int techRolls, final TechnologyFrontier techToRollFor, final int newTokens,
+      final IntegerMap&lt;PlayerID&gt; whoPaysHowMuch) {
+<span class="fc" id="L187">    int rollCount = techRolls;</span>
+<span class="fc bfc" id="L188" title="All 2 branches covered.">    if (isWW2V3TechModel()) {</span>
+<span class="fc" id="L189">      rollCount = newTokens;</span>
+    }
+<span class="fc" id="L191">    final boolean canPay = checkEnoughMoney(rollCount, whoPaysHowMuch);</span>
+<span class="pc bpc" id="L192" title="1 of 2 branches missed.">    if (!canPay) {</span>
+<span class="nc" id="L193">      return new TechResults(&quot;Not enough money to pay for that many tech rolls.&quot;);</span>
+    }
+<span class="fc" id="L195">    chargeForTechRolls(rollCount, whoPaysHowMuch);</span>
+<span class="fc" id="L196">    int m_currTokens = 0;</span>
+<span class="fc bfc" id="L197" title="All 2 branches covered.">    if (isWW2V3TechModel()) {</span>
+<span class="fc" id="L198">      m_currTokens = m_player.getResources().getQuantity(Constants.TECH_TOKENS);</span>
+    }
+<span class="fc" id="L200">    final GameData data = getData();</span>
+<span class="pc bpc" id="L201" title="1 of 2 branches missed.">    if (getAvailableTechs(m_player, data).isEmpty()) {</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">      if (isWW2V3TechModel()) {</span>
+<span class="nc" id="L203">        final Resource techTokens = data.getResourceList().getResource(Constants.TECH_TOKENS);</span>
+<span class="nc" id="L204">        final String transcriptText = m_player.getName() + &quot; No more available tech advances.&quot;;</span>
+<span class="nc" id="L205">        m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L206">        final Change removeTokens =</span>
+<span class="nc" id="L207">            ChangeFactory.changeResourcesChange(m_bridge.getPlayerID(), techTokens, -m_currTokens);</span>
+<span class="nc" id="L208">        m_bridge.addChange(removeTokens);</span>
+      }
+<span class="nc" id="L210">      return new TechResults(&quot;No more available tech advances.&quot;);</span>
+    }
+<span class="fc" id="L212">    final String annotation = m_player.getName() + &quot; rolling for tech.&quot;;</span>
+    int[] random;
+<span class="fc" id="L214">    int techHits = 0;</span>
+<span class="fc" id="L215">    int remainder = 0;</span>
+<span class="fc" id="L216">    final int diceSides = data.getDiceSides();</span>
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">    if (BaseEditDelegate.getEditMode(data)) {</span>
+<span class="nc" id="L218">      final ITripleAPlayer tripleaPlayer = getRemotePlayer();</span>
+<span class="nc" id="L219">      random = tripleaPlayer.selectFixedDice(techRolls, diceSides, true, annotation, diceSides);</span>
+<span class="nc" id="L220">      techHits = getTechHits(random);</span>
+<span class="pc bpc" id="L221" title="1 of 2 branches missed.">    } else if (isLL_TECH_ONLY()) {</span>
+<span class="nc" id="L222">      techHits = techRolls / diceSides;</span>
+<span class="nc" id="L223">      remainder = techRolls % diceSides;</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">      if (remainder &gt; 0) {</span>
+<span class="nc" id="L225">        random = m_bridge.getRandom(diceSides, 1, m_player, DiceType.TECH, annotation);</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">        if (random[0] + 1 &lt;= remainder) {</span>
+<span class="nc" id="L227">          techHits++;</span>
+        }
+<span class="nc" id="L229">      } else {</span>
+<span class="nc" id="L230">        random = m_bridge.getRandom(diceSides, 1, m_player, DiceType.TECH, annotation);</span>
+<span class="nc" id="L231">        remainder = diceSides;</span>
+      }
+<span class="nc" id="L233">    } else {</span>
+<span class="fc" id="L234">      random = m_bridge.getRandom(diceSides, techRolls, m_player, DiceType.TECH, annotation);</span>
+<span class="fc" id="L235">      techHits = getTechHits(random);</span>
+    }
+<span class="pc bpc" id="L237" title="3 of 6 branches missed.">    final boolean isRevisedModel = isWW2V2() || (isSelectableTechRoll() &amp;&amp; !isWW2V3TechModel());</span>
+<span class="fc bfc" id="L238" title="All 2 branches covered.">    final String directedTechInfo = isRevisedModel ? &quot; for &quot; + techToRollFor.getTechs().get(0) : &quot;&quot;;</span>
+<span class="pc bpc" id="L239" title="1 of 2 branches missed.">    final DiceRoll renderDice = (isLL_TECH_ONLY() ? new DiceRoll(random, techHits, remainder, false)</span>
+<span class="fc" id="L240">        : new DiceRoll(random, techHits, diceSides - 1, true));</span>
+<span class="fc" id="L241">    m_bridge.getHistoryWriter()</span>
+<span class="fc" id="L242">        .startEvent(</span>
+<span class="fc bfc" id="L243" title="All 2 branches covered.">            m_player.getName() + (random.length &gt; 1 ? &quot; roll &quot; : &quot; rolls : &quot;) + MyFormatter.asDice(random)</span>
+<span class="fc" id="L244">                + directedTechInfo + &quot; and gets &quot; + techHits + &quot; &quot; + MyFormatter.pluralize(&quot;hit&quot;, techHits),</span>
+<span class="fc" id="L245">            renderDice);</span>
+<span class="fc bfc" id="L246" title="All 2 branches covered.">    if (isWW2V3TechModel()</span>
+<span class="pc bpc" id="L247" title="1 of 4 branches missed.">        &amp;&amp; (techHits &gt; 0 || games.strategy.triplea.Properties.getRemoveAllTechTokensAtEndOfTurn(data))) {</span>
+<span class="fc" id="L248">      m_techCategory = techToRollFor;</span>
+      // remove all the tokens
+<span class="fc" id="L250">      final Resource techTokens = data.getResourceList().getResource(Constants.TECH_TOKENS);</span>
+<span class="fc" id="L251">      final String transcriptText = m_player.getName() + &quot; removing all Technology Tokens after &quot;</span>
+<span class="pc bpc" id="L252" title="1 of 2 branches missed.">          + (techHits &gt; 0 ? &quot;successful&quot; : &quot;unsuccessful&quot;) + &quot; research.&quot;;</span>
+<span class="fc" id="L253">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="fc" id="L254">      final Change removeTokens =</span>
+<span class="fc" id="L255">          ChangeFactory.changeResourcesChange(m_bridge.getPlayerID(), techTokens, -m_currTokens);</span>
+<span class="fc" id="L256">      m_bridge.addChange(removeTokens);</span>
+    }
+    Collection&lt;TechAdvance&gt; advances;
+<span class="fc bfc" id="L259" title="All 2 branches covered.">    if (isRevisedModel) {</span>
+<span class="fc bfc" id="L260" title="All 2 branches covered.">      if (techHits &gt; 0) {</span>
+<span class="fc" id="L261">        advances = Collections.singletonList(techToRollFor.getTechs().get(0));</span>
+<span class="fc" id="L262">      } else {</span>
+<span class="fc" id="L263">        advances = Collections.emptyList();</span>
+      }
+<span class="fc" id="L265">    } else {</span>
+<span class="fc" id="L266">      advances = getTechAdvances(techHits);</span>
+    }
+    // Put in techs so they can be activated later.
+<span class="fc" id="L269">    m_techs.put(m_player, advances);</span>
+<span class="fc" id="L270">    final List&lt;String&gt; advancesAsString = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L271">    final Iterator&lt;TechAdvance&gt; iter = advances.iterator();</span>
+<span class="fc" id="L272">    int count = advances.size();</span>
+<span class="fc" id="L273">    final StringBuilder text = new StringBuilder();</span>
+<span class="fc bfc" id="L274" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L275">      final TechAdvance advance = iter.next();</span>
+<span class="fc" id="L276">      text.append(advance.getName());</span>
+<span class="fc" id="L277">      count--;</span>
+<span class="fc" id="L278">      advancesAsString.add(advance.getName());</span>
+<span class="pc bpc" id="L279" title="1 of 2 branches missed.">      if (count &gt; 1) {</span>
+<span class="nc" id="L280">        text.append(&quot;, &quot;);</span>
+      }
+<span class="pc bpc" id="L282" title="1 of 2 branches missed.">      if (count == 1) {</span>
+<span class="nc" id="L283">        text.append(&quot; and &quot;);</span>
+      }
+    }
+<span class="fc" id="L286">    final String transcriptText = m_player.getName() + &quot; discover &quot; + text.toString();</span>
+<span class="fc bfc" id="L287" title="All 2 branches covered.">    if (advances.size() &gt; 0) {</span>
+<span class="fc" id="L288">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+      // play a sound
+<span class="fc" id="L290">      getSoundChannel().playSoundForAll(SoundPath.CLIP_TECHNOLOGY_SUCCESSFUL, m_player);</span>
+<span class="fc" id="L291">    } else {</span>
+<span class="fc" id="L292">      getSoundChannel().playSoundForAll(SoundPath.CLIP_TECHNOLOGY_FAILURE, m_player);</span>
+    }
+<span class="fc" id="L294">    return new TechResults(random, remainder, techHits, advancesAsString, m_player);</span>
+  }
+
+  boolean checkEnoughMoney(final int rolls, final IntegerMap&lt;PlayerID&gt; whoPaysHowMuch) {
+<span class="fc" id="L298">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="fc" id="L299">    final int cost = rolls * getTechCost();</span>
+<span class="pc bpc" id="L300" title="3 of 4 branches missed.">    if (whoPaysHowMuch == null || whoPaysHowMuch.isEmpty()) {</span>
+<span class="fc" id="L301">      final int has = m_bridge.getPlayerID().getResources().getQuantity(PUs);</span>
+<span class="pc bpc" id="L302" title="1 of 2 branches missed.">      return has &gt;= cost;</span>
+    } else {
+<span class="nc" id="L304">      int runningTotal = 0;</span>
+<span class="nc bnc" id="L305" title="All 2 branches missed.">      for (final Entry&lt;PlayerID, Integer&gt; entry : whoPaysHowMuch.entrySet()) {</span>
+<span class="nc" id="L306">        final int has = entry.getKey().getResources().getQuantity(PUs);</span>
+<span class="nc" id="L307">        final int paying = entry.getValue();</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        if (paying &gt; has) {</span>
+<span class="nc" id="L309">          return false;</span>
+        }
+<span class="nc" id="L311">        runningTotal += paying;</span>
+      }
+<span class="nc bnc" id="L313" title="All 2 branches missed.">      return runningTotal &gt;= cost;</span>
+    }
+  }
+
+  private void chargeForTechRolls(final int rolls, final IntegerMap&lt;PlayerID&gt; whoPaysHowMuch) {
+<span class="fc" id="L318">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="fc" id="L319">    int cost = rolls * getTechCost();</span>
+<span class="pc bpc" id="L320" title="3 of 4 branches missed.">    if (whoPaysHowMuch == null || whoPaysHowMuch.isEmpty()) {</span>
+<span class="fc" id="L321">      final String transcriptText = m_bridge.getPlayerID().getName() + &quot; spend &quot; + cost + &quot; on tech rolls&quot;;</span>
+<span class="fc" id="L322">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="fc" id="L323">      final Change charge = ChangeFactory.changeResourcesChange(m_bridge.getPlayerID(), PUs, -cost);</span>
+<span class="fc" id="L324">      m_bridge.addChange(charge);</span>
+<span class="fc" id="L325">    } else {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">      for (final Entry&lt;PlayerID, Integer&gt; entry : whoPaysHowMuch.entrySet()) {</span>
+<span class="nc" id="L327">        final PlayerID p = entry.getKey();</span>
+<span class="nc" id="L328">        final int pays = Math.min(cost, entry.getValue());</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (pays &lt;= 0) {</span>
+<span class="nc" id="L330">          continue;</span>
+        }
+<span class="nc" id="L332">        cost -= pays;</span>
+<span class="nc" id="L333">        final String transcriptText = p.getName() + &quot; spend &quot; + pays + &quot; on tech rolls&quot;;</span>
+<span class="nc" id="L334">        m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L335">        final Change charge = ChangeFactory.changeResourcesChange(p, PUs, -pays);</span>
+<span class="nc" id="L336">        m_bridge.addChange(charge);</span>
+      }
+    }
+<span class="fc bfc" id="L339" title="All 2 branches covered.">    if (isWW2V3TechModel()) {</span>
+<span class="fc" id="L340">      final Resource tokens = getData().getResourceList().getResource(Constants.TECH_TOKENS);</span>
+<span class="fc" id="L341">      final Change newTokens = ChangeFactory.changeResourcesChange(m_bridge.getPlayerID(), tokens, rolls);</span>
+<span class="fc" id="L342">      m_bridge.addChange(newTokens);</span>
+    }
+<span class="fc" id="L344">  }</span>
+
+  private int getTechHits(final int[] random) {
+<span class="fc" id="L347">    int count = 0;</span>
+<span class="fc bfc" id="L348" title="All 2 branches covered.">    for (final int element : random) {</span>
+<span class="fc bfc" id="L349" title="All 2 branches covered.">      if (element == getData().getDiceSides() - 1) {</span>
+<span class="fc" id="L350">        count++;</span>
+      }
+    }
+<span class="fc" id="L353">    return count;</span>
+  }
+
+  private Collection&lt;TechAdvance&gt; getTechAdvances(int hits) {
+<span class="fc" id="L357">    List&lt;TechAdvance&gt; available = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L358" title="1 of 4 branches missed.">    if (hits &gt; 0 &amp;&amp; isWW2V3TechModel()) {</span>
+<span class="fc" id="L359">      available = getAvailableAdvancesForCategory(m_techCategory);</span>
+<span class="fc" id="L360">      hits = 1;</span>
+<span class="fc" id="L361">    } else {</span>
+<span class="fc" id="L362">      available = getAvailableAdvances();</span>
+    }
+<span class="pc bpc" id="L364" title="1 of 2 branches missed.">    if (available.isEmpty()) {</span>
+<span class="nc" id="L365">      return Collections.emptyList();</span>
+    }
+<span class="fc bfc" id="L367" title="All 2 branches covered.">    if (hits &gt;= available.size()) {</span>
+<span class="fc" id="L368">      return available;</span>
+    }
+<span class="pc bpc" id="L370" title="1 of 2 branches missed.">    if (hits == 0) {</span>
+<span class="fc" id="L371">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L373">    final Collection&lt;TechAdvance&gt; newAdvances = new ArrayList&lt;&gt;(hits);</span>
+<span class="nc" id="L374">    final String annotation = m_player.getName() + &quot; rolling to see what tech advances are aquired&quot;;</span>
+    int[] random;
+<span class="nc bnc" id="L376" title="All 4 branches missed.">    if (isSelectableTechRoll() || BaseEditDelegate.getEditMode(getData())) {</span>
+<span class="nc" id="L377">      final ITripleAPlayer tripleaPlayer = getRemotePlayer();</span>
+<span class="nc" id="L378">      random = tripleaPlayer.selectFixedDice(hits, 0, true, annotation, available.size());</span>
+<span class="nc" id="L379">    } else {</span>
+<span class="nc" id="L380">      random = new int[hits];</span>
+<span class="nc" id="L381">      final List&lt;Integer&gt; rolled = new ArrayList&lt;&gt;();</span>
+      // generating discrete rolls. messy, can't think of a more elegant way
+      // hits guaranteed to be less than available at this point.
+<span class="nc bnc" id="L384" title="All 2 branches missed.">      for (int i = 0; i &lt; hits; i++) {</span>
+<span class="nc" id="L385">        int roll = m_bridge.getRandom(available.size() - i, null, DiceType.ENGINE, annotation);</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">        for (final int r : rolled) {</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">          if (roll &gt;= r) {</span>
+<span class="nc" id="L388">            roll++;</span>
+          }
+        }
+<span class="nc" id="L391">        random[i] = roll;</span>
+<span class="nc" id="L392">        rolled.add(roll);</span>
+      }
+    }
+<span class="nc" id="L395">    final List&lt;Integer&gt; rolled = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">    for (final int element : random) {</span>
+<span class="nc" id="L397">      final int index = element;</span>
+      // check in case of dice chooser.
+<span class="nc bnc" id="L399" title="All 4 branches missed.">      if (!rolled.contains(index) &amp;&amp; index &lt; available.size()) {</span>
+<span class="nc" id="L400">        newAdvances.add(available.get(index));</span>
+<span class="nc" id="L401">        rolled.add(index);</span>
+      }
+    }
+<span class="nc" id="L404">    m_bridge.getHistoryWriter().startEvent(&quot;Rolls to resolve tech hits:&quot; + MyFormatter.asDice(random));</span>
+<span class="nc" id="L405">    return newAdvances;</span>
+  }
+
+  private List&lt;TechAdvance&gt; getAvailableAdvances() {
+<span class="fc" id="L409">    return getAvailableTechs(m_bridge.getPlayerID(), getData());</span>
+  }
+
+  public static List&lt;TechAdvance&gt; getAvailableTechs(final PlayerID player, final GameData data) {
+<span class="fc" id="L413">    final Collection&lt;TechAdvance&gt; currentAdvances = TechTracker.getCurrentTechAdvances(player, data);</span>
+<span class="fc" id="L414">    final Collection&lt;TechAdvance&gt; allAdvances = TechAdvance.getTechAdvances(data, player);</span>
+<span class="fc" id="L415">    return Util.difference(allAdvances, currentAdvances);</span>
+  }
+
+  private List&lt;TechAdvance&gt; getAvailableAdvancesForCategory(final TechnologyFrontier techCategory) {
+    // Collection&lt;TechAdvance&gt; allAdvances = TechAdvance.getTechAdvances(m_data, techCategory);
+<span class="fc" id="L420">    final Collection&lt;TechAdvance&gt; playersAdvances =</span>
+<span class="fc" id="L421">        TechTracker.getCurrentTechAdvances(m_bridge.getPlayerID(), getData());</span>
+<span class="fc" id="L422">    final List&lt;TechAdvance&gt; available = Util.difference(techCategory.getTechs(), playersAdvances);</span>
+<span class="fc" id="L423">    return available;</span>
+  }
+
+  public int getTechCost() {
+<span class="fc" id="L427">    m_techCost = TechTracker.getTechCost(m_player);</span>
+<span class="fc" id="L428">    return m_techCost;</span>
+  }
+
+  @Override
+  public Class&lt;ITechDelegate&gt; getRemoteType() {
+<span class="nc" id="L433">    return ITechDelegate.class;</span>
+  }
+}
+
+
+<span class="nc" id="L438">class TechnologyExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = -1375328472343199099L;
+  Serializable superState;
+  // add other variables here:
+  public boolean m_needToInitialize;
+  public HashMap&lt;PlayerID, Collection&lt;TechAdvance&gt;&gt; m_techs;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

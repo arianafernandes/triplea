@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PlacePanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">PlacePanel.java</span></div><h1>PlacePanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.Dimension;
+import java.awt.Toolkit;
+import java.awt.event.MouseEvent;
+import java.util.Collection;
+import java.util.Collections;
+
+import javax.swing.BorderFactory;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JScrollPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.gamePlayer.IPlayerBridge;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.delegate.GameStepPropertiesHelper;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.dataObjects.PlaceableUnits;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+
+public class PlacePanel extends AbstractMovePanel {
+  private static final long serialVersionUID = -4411301492537704785L;
+<span class="nc" id="L33">  private final JLabel actionLabel = new JLabel();</span>
+<span class="nc" id="L34">  private final JLabel m_leftToPlaceLabel = new JLabel();</span>
+  private PlaceData m_placeData;
+  private final SimpleUnitPanel m_unitsToPlace;
+
+  /** Creates new PlacePanel */
+  public PlacePanel(final GameData data, final MapPanel map, final TripleAFrame frame) {
+<span class="nc" id="L40">    super(data, map, frame);</span>
+<span class="nc" id="L41">    m_undoableMovesPanel = new UndoablePlacementsPanel(data, this);</span>
+<span class="nc" id="L42">    m_unitsToPlace = new SimpleUnitPanel(map.getUIContext());</span>
+<span class="nc" id="L43">    m_leftToPlaceLabel.setText(&quot;Units left to place:&quot;);</span>
+<span class="nc" id="L44">  }</span>
+
+  @Override
+  public void display(final PlayerID id) {
+<span class="nc" id="L48">    super.display(id, &quot; place&quot;);</span>
+<span class="nc" id="L49">  }</span>
+
+  private void refreshActionLabelText(final boolean bid) {
+<span class="nc" id="L52">    SwingUtilities.invokeLater(</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        () -&gt; actionLabel.setText(getCurrentPlayer().getName() + &quot; place&quot; + (bid ? &quot; for bid&quot; : &quot;&quot;)));</span>
+<span class="nc" id="L54">  }</span>
+
+  public PlaceData waitForPlace(final boolean bid, final IPlayerBridge playerBridge) {
+<span class="nc" id="L57">    setUp(playerBridge);</span>
+    // workaround: meant to be in setUpSpecific, but it requires a variable
+<span class="nc" id="L59">    refreshActionLabelText(bid);</span>
+<span class="nc" id="L60">    waitForRelease();</span>
+<span class="nc" id="L61">    cleanUp();</span>
+<span class="nc" id="L62">    return m_placeData;</span>
+  }
+
+  private boolean canProduceFightersOnCarriers() {
+<span class="nc" id="L66">    return games.strategy.triplea.Properties.getProduceFightersOnCarriers(getData());</span>
+  }
+
+  private boolean canProduceNewFightersOnOldCarriers() {
+<span class="nc" id="L70">    return games.strategy.triplea.Properties.getProduceNewFightersOnOldCarriers(getData());</span>
+  }
+
+  private boolean isLHTR_Carrier_Production_Rules() {
+<span class="nc" id="L74">    return games.strategy.triplea.Properties.getLHTRCarrierProductionRules(getData());</span>
+  }
+
+<span class="nc" id="L77">  private final MapSelectionListener PLACE_MAP_SELECTION_LISTENER = new DefaultMapSelectionListener() {</span>
+    @Override
+    public void territorySelected(final Territory territory, final MouseDetails e) {
+<span class="nc bnc" id="L80" title="All 4 branches missed.">      if (!getActive() || (e.getButton() != MouseEvent.BUTTON1)) {</span>
+<span class="nc" id="L81">        return;</span>
+      }
+<span class="nc" id="L83">      final int maxUnits[] = new int[1];</span>
+<span class="nc" id="L84">      final Collection&lt;Unit&gt; units = getUnitsToPlace(territory, maxUnits);</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">      if (units.isEmpty()) {</span>
+<span class="nc" id="L86">        return;</span>
+      }
+<span class="nc" id="L88">      final UnitChooser chooser = new UnitChooser(units, Collections.emptyMap(), getData(),</span>
+<span class="nc" id="L89">          false, getMap().getUIContext());</span>
+<span class="nc" id="L90">      final String messageText = &quot;Place units in &quot; + territory.getName();</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">      if (maxUnits[0] &gt; 0) {</span>
+<span class="nc" id="L92">        chooser.setMaxAndShowMaxButton(maxUnits[0]);</span>
+      }
+<span class="nc" id="L94">      final Dimension screenResolution = Toolkit.getDefaultToolkit().getScreenSize();</span>
+<span class="nc" id="L95">      final int availHeight = screenResolution.height - 120;</span>
+<span class="nc" id="L96">      final int availWidth = screenResolution.width - 40;</span>
+<span class="nc" id="L97">      final JScrollPane scroll = new JScrollPane(chooser);</span>
+<span class="nc" id="L98">      scroll.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc" id="L99">      scroll.setPreferredSize(new Dimension(</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">          (scroll.getPreferredSize().width &gt; availWidth ? availWidth</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">              : (scroll.getPreferredSize().width + (scroll.getPreferredSize().height &gt; availHeight ? 20 : 0))),</span>
+<span class="nc bnc" id="L102" title="All 2 branches missed.">          (scroll.getPreferredSize().height &gt; availHeight ? availHeight</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">              : (scroll.getPreferredSize().height + (scroll.getPreferredSize().width &gt; availWidth ? 26 : 0)))));</span>
+<span class="nc" id="L104">      final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), scroll, messageText,</span>
+<span class="nc" id="L105">          JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">      if (option == JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L107">        final Collection&lt;Unit&gt; choosen = chooser.getSelected();</span>
+<span class="nc" id="L108">        m_placeData = new PlaceData(choosen, territory);</span>
+<span class="nc" id="L109">        updateUnits();</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        if (choosen.containsAll(units)) {</span>
+<span class="nc" id="L111">          m_leftToPlaceLabel.setText(&quot;&quot;);</span>
+        }
+<span class="nc" id="L113">        release();</span>
+      }
+<span class="nc" id="L115">    }</span>
+  };
+
+  private Collection&lt;Unit&gt; getUnitsToPlace(final Territory territory, final int maxUnits[]) {
+<span class="nc" id="L119">    getData().acquireReadLock();</span>
+    try {
+      // not our territory
+<span class="nc bnc" id="L122" title="All 4 branches missed.">      if (!territory.isWater() &amp;&amp; !territory.getOwner().equals(getCurrentPlayer())) {</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">        if (GameStepPropertiesHelper.isBid(getData())) {</span>
+<span class="nc" id="L124">          final PlayerAttachment pa = PlayerAttachment.get(territory.getOwner());</span>
+<span class="nc bnc" id="L125" title="All 6 branches missed.">          if ((pa == null || pa.getGiveUnitControl() == null || !pa.getGiveUnitControl().contains(getCurrentPlayer()))</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">              &amp;&amp; !territory.getUnits().someMatch(Matches.unitIsOwnedBy(getCurrentPlayer()))) {</span>
+<span class="nc" id="L127">            return Collections.emptyList();</span>
+          }
+        } else {
+<span class="nc" id="L130">          return Collections.emptyList();</span>
+        }
+      }
+      // get the units that can be placed on this territory.
+<span class="nc" id="L134">      Collection&lt;Unit&gt; units = getCurrentPlayer().getUnits().getUnits();</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      if (territory.isWater()) {</span>
+<span class="nc bnc" id="L136" title="All 4 branches missed.">        if (!(canProduceFightersOnCarriers() || canProduceNewFightersOnOldCarriers()</span>
+<span class="nc bnc" id="L137" title="All 4 branches missed.">            || isLHTR_Carrier_Production_Rules() || GameStepPropertiesHelper.isBid(getData()))) {</span>
+<span class="nc" id="L138">          units = Match.getMatches(units, Matches.UnitIsSea);</span>
+<span class="nc" id="L139">        } else {</span>
+<span class="nc" id="L140">          final CompositeMatch&lt;Unit&gt; unitIsSeaOrCanLandOnCarrier =</span>
+<span class="nc" id="L141">              new CompositeMatchOr&lt;&gt;(Matches.UnitIsSea, Matches.UnitCanLandOnCarrier);</span>
+<span class="nc" id="L142">          units = Match.getMatches(units, unitIsSeaOrCanLandOnCarrier);</span>
+        }
+<span class="nc" id="L144">      } else {</span>
+<span class="nc" id="L145">        units = Match.getMatches(units, Matches.UnitIsNotSea);</span>
+      }
+<span class="nc bnc" id="L147" title="All 2 branches missed.">      if (units.isEmpty()) {</span>
+<span class="nc" id="L148">        return Collections.emptyList();</span>
+      }
+<span class="nc" id="L150">      final IAbstractPlaceDelegate placeDel = (IAbstractPlaceDelegate) getPlayerBridge().getRemoteDelegate();</span>
+<span class="nc" id="L151">      final PlaceableUnits production = placeDel.getPlaceableUnits(units, territory);</span>
+<span class="nc bnc" id="L152" title="All 2 branches missed.">      if (production.isError()) {</span>
+<span class="nc" id="L153">        JOptionPane.showMessageDialog(getTopLevelAncestor(), production.getErrorMessage(), &quot;No units&quot;,</span>
+<span class="nc" id="L154">            JOptionPane.INFORMATION_MESSAGE);</span>
+<span class="nc" id="L155">        return Collections.emptyList();</span>
+      }
+<span class="nc" id="L157">      maxUnits[0] = production.getMaxUnits();</span>
+<span class="nc" id="L158">      return production.getUnits();</span>
+<span class="nc" id="L159">    } finally {</span>
+<span class="nc" id="L160">      getData().releaseReadLock();</span>
+<span class="nc" id="L161">    }</span>
+  }
+
+  private void updateUnits() {
+<span class="nc" id="L165">    final Collection&lt;UnitCategory&gt; unitCategories = UnitSeperator.categorize(getCurrentPlayer().getUnits().getUnits());</span>
+<span class="nc" id="L166">    m_unitsToPlace.setUnitsFromCategories(unitCategories, getData());</span>
+<span class="nc" id="L167">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L171">    return &quot;PlacePanel&quot;;</span>
+  }
+
+  @Override
+  protected final void cancelMoveAction() {
+<span class="nc" id="L176">    getMap().showMouseCursor();</span>
+<span class="nc" id="L177">    getMap().setMouseShadowUnits(null);</span>
+<span class="nc" id="L178">  }</span>
+
+  @Override
+  protected final void undoMoveSpecific() {
+<span class="nc" id="L182">    m_leftToPlaceLabel.setText(&quot;Units left to place:&quot;);</span>
+<span class="nc" id="L183">    updateUnits();</span>
+<span class="nc" id="L184">  }</span>
+
+  @Override
+  protected final void cleanUpSpecific() {
+<span class="nc" id="L188">    getMap().removeMapSelectionListener(PLACE_MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L189">  }</span>
+
+  @Override
+  protected final void setUpSpecific() {
+<span class="nc" id="L193">    getMap().addMapSelectionListener(PLACE_MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L194">  }</span>
+
+  @Override
+  protected boolean doneMoveAction() {
+<span class="nc bnc" id="L198" title="All 2 branches missed.">    if (getCurrentPlayer().getUnits().size() &gt; 0) {</span>
+<span class="nc" id="L199">      final int option = JOptionPane.showConfirmDialog(getTopLevelAncestor(),</span>
+<span class="nc" id="L200">          &quot;You have not placed all your units yet.  Are you sure you want to end your turn?&quot;, &quot;TripleA&quot;,</span>
+<span class="nc" id="L201">          JOptionPane.YES_NO_OPTION, JOptionPane.PLAIN_MESSAGE);</span>
+      // TODO COMCO add code here to store the units until next time
+<span class="nc bnc" id="L203" title="All 2 branches missed.">      if (option != JOptionPane.YES_OPTION) {</span>
+<span class="nc" id="L204">        return false;</span>
+      }
+    }
+<span class="nc" id="L207">    m_placeData = null;</span>
+<span class="nc" id="L208">    return true;</span>
+  }
+
+  @Override
+  protected boolean setCancelButton() {
+<span class="nc" id="L213">    return false;</span>
+  }
+
+  @Override
+  final protected void addAdditionalButtons() {
+<span class="nc" id="L218">    add(leftBox(m_leftToPlaceLabel));</span>
+<span class="nc" id="L219">    add(m_unitsToPlace);</span>
+<span class="nc" id="L220">    updateUnits();</span>
+<span class="nc" id="L221">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

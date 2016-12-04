@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>CountUpAndDownLatch.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.util</a> &gt; <span class="el_source">CountUpAndDownLatch.java</span></div><h1>CountUpAndDownLatch.java</h1><pre class="source lang-java linenums">package games.strategy.util;
+
+import java.io.Serializable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
+
+/**
+ * This synchronization aid is very similar to {@link CountDownLatch},
+ * except that you can increment the latch.
+ * Implements AQS behind the scenes similar to CountDownLatch.
+ * Class is hobbled together from various learnings and tickets on stackexchange/stackoverflow.
+ */
+public class CountUpAndDownLatch implements Serializable {
+  private static final long serialVersionUID = -1656388212821764097L;
+  private final Sync sync;
+  private int originalCount;
+
+  /**
+   * Constructs a {@link CountUpAndDownLatch} initialized with zero.
+   */
+<span class="nc" id="L22">  public CountUpAndDownLatch() {</span>
+<span class="nc" id="L23">    sync = new Sync();</span>
+<span class="nc" id="L24">  }</span>
+
+  /**
+   * Constructs a {@link CountUpAndDownLatch} initialized with the given count.
+   *
+   * @param initialCount
+   *        the number of times {@link #countDown} must be invoked before threads can pass through {@link #await}
+   * @throws IllegalArgumentException
+   *         if {@code count} is negative
+   */
+<span class="nc" id="L34">  public CountUpAndDownLatch(final int initialCount) {</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">    if (initialCount &lt; 0) {</span>
+<span class="nc" id="L36">      throw new IllegalArgumentException(&quot;count &lt; 0&quot;);</span>
+    }
+<span class="nc" id="L38">    sync = new Sync(initialCount);</span>
+<span class="nc" id="L39">    originalCount = initialCount;</span>
+<span class="nc" id="L40">  }</span>
+
+  /**
+   * Increment the count by one.
+   */
+  public void increment() {
+<span class="nc" id="L46">    sync.releaseShared(1);</span>
+<span class="nc" id="L47">  }</span>
+
+  /**
+   * @see CountDownLatch#countDown()
+   */
+  public void countDown() {
+<span class="nc" id="L53">    sync.releaseShared(-1);</span>
+<span class="nc" id="L54">  }</span>
+
+  /**
+   * @see CountDownLatch#countDown()
+   * @param delta
+   *        the amount to increment (or if negative, decrement countDown)
+   */
+  public void applyDelta(final int delta) {
+<span class="nc" id="L62">    sync.releaseShared(delta);</span>
+<span class="nc" id="L63">  }</span>
+
+  /**
+   * countDown to zero.
+   */
+  public void releaseAll() {
+<span class="nc" id="L69">    applyDelta(Integer.MIN_VALUE);</span>
+<span class="nc" id="L70">  }</span>
+
+  /**
+   * Reset the latch to its original count.
+   */
+  public void resetCount() {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    if (originalCount == 0) {</span>
+<span class="nc" id="L77">      releaseAll();</span>
+<span class="nc" id="L78">    } else {</span>
+<span class="nc" id="L79">      final int diff = originalCount - sync.getCount();</span>
+<span class="nc" id="L80">      applyDelta(diff);</span>
+    }
+<span class="nc" id="L82">  }</span>
+
+  /**
+   * @see CountDownLatch#getCount()
+   */
+  public int getCount() {
+<span class="nc" id="L88">    return sync.getCount();</span>
+  }
+
+  /**
+   * @return the original count this latch was created with
+   */
+  public int getOriginalCount() {
+<span class="nc" id="L95">    return originalCount;</span>
+  }
+
+  /**
+   * @see CountDownLatch#await()
+   */
+  public void await() throws InterruptedException {
+<span class="nc" id="L102">    sync.acquireSharedInterruptibly(1);</span>
+<span class="nc" id="L103">  }</span>
+
+  /**
+   * @see CountDownLatch#await(long,TimeUnit)
+   */
+  public boolean await(final long timeout, final TimeUnit unit) throws InterruptedException {
+<span class="nc" id="L109">    return sync.tryAcquireSharedNanos(1, unit.toNanos(timeout));</span>
+  }
+
+  /**
+   * Returns a string identifying this latch, as well as its state.
+   * The state, in brackets, includes the String &quot;Count =&quot; followed by the current count.
+   */
+  @Override
+  public String toString() {
+<span class="nc" id="L118">    return super.toString() + &quot;[Count = &quot; + sync.getCount() + &quot;]&quot;;</span>
+  }
+
+  /**
+   * Synchronization control for CountingLatch.
+   * Uses AQS state to represent count.
+   */
+  private static final class Sync extends AbstractQueuedSynchronizer {
+    private static final long serialVersionUID = -7639904478060101736L;
+
+<span class="nc" id="L128">    private Sync() {}</span>
+
+<span class="nc" id="L130">    private Sync(final int initialState) {</span>
+<span class="nc" id="L131">      setState(initialState);</span>
+<span class="nc" id="L132">    }</span>
+
+    int getCount() {
+<span class="nc" id="L135">      return getState();</span>
+    }
+
+    @Override
+    protected int tryAcquireShared(final int acquires) {
+<span class="nc bnc" id="L140" title="All 2 branches missed.">      return getState() == 0 ? 1 : -1;</span>
+    }
+
+    @Override
+    protected boolean tryReleaseShared(final int delta) {
+<span class="nc bnc" id="L145" title="All 2 branches missed.">      if (delta == 0) {</span>
+<span class="nc" id="L146">        return false;</span>
+      }
+      // Decrement count; signal when transition to zero
+      for (;;) {
+<span class="nc" id="L150">        final int c = getState();</span>
+<span class="nc" id="L151">        int nextc = c + delta;</span>
+<span class="nc bnc" id="L152" title="All 4 branches missed.">        if (c &lt;= 0 &amp;&amp; nextc &lt;= 0) {</span>
+<span class="nc" id="L153">          return false;</span>
+        }
+<span class="nc bnc" id="L155" title="All 2 branches missed.">        if (nextc &lt; 0) {</span>
+<span class="nc" id="L156">          nextc = 0;</span>
+        }
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        if (compareAndSetState(c, nextc)) {</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">          return nextc == 0;</span>
+        }
+      }
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

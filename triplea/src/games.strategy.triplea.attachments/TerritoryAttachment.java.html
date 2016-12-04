@@ -1,0 +1,783 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TerritoryAttachment.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.attachments</a> &gt; <span class="el_source">TerritoryAttachment.java</span></div><h1>TerritoryAttachment.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.attachments;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.engine.data.Attachable;
+import games.strategy.engine.data.DefaultAttachment;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.ResourceCollection;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.annotations.GameProperty;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.formatter.MyFormatter;
+
+@MapSupport
+public class TerritoryAttachment extends DefaultAttachment {
+  private static final long serialVersionUID = 9102862080104655281L;
+
+  public static boolean doWeHaveEnoughCapitalsToProduce(final PlayerID player, final GameData data) {
+<span class="nc" id="L28">    final List&lt;Territory&gt; capitalsListOriginal =</span>
+<span class="nc" id="L29">        new ArrayList&lt;&gt;(TerritoryAttachment.getAllCapitals(player, data));</span>
+<span class="nc" id="L30">    final List&lt;Territory&gt; capitalsListOwned =</span>
+<span class="nc" id="L31">        new ArrayList&lt;&gt;(TerritoryAttachment.getAllCurrentlyOwnedCapitals(player, data));</span>
+<span class="nc" id="L32">    final PlayerAttachment pa = PlayerAttachment.get(player);</span>
+
+<span class="nc bnc" id="L34" title="All 2 branches missed.">    if (pa == null) {</span>
+<span class="nc bnc" id="L35" title="All 4 branches missed.">      if (!capitalsListOriginal.isEmpty() &amp;&amp; capitalsListOwned.isEmpty()) {</span>
+<span class="nc" id="L36">        return false;</span>
+      }
+    } else {
+<span class="nc bnc" id="L39" title="All 2 branches missed.">      if (pa.getRetainCapitalProduceNumber() &gt; capitalsListOwned.size()) {</span>
+<span class="nc" id="L40">        return false;</span>
+      }
+    }
+<span class="nc" id="L43">    return true;</span>
+  }
+
+  /**
+   * If we own one of our capitals, return the first one found, otherwise return the first capital we find that we don't
+   * own.
+   * If a capital has no neighbor connections, it will be sent last.
+   *
+   * @param player
+   * @param data
+   */
+  public static Territory getFirstOwnedCapitalOrFirstUnownedCapital(final PlayerID player, final GameData data) {
+<span class="nc" id="L55">    final List&lt;Territory&gt; capitals = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L56">    final List&lt;Territory&gt; noNeighborCapitals = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">    for (final Territory current : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L58">      final TerritoryAttachment ta = TerritoryAttachment.get(current);</span>
+<span class="nc bnc" id="L59" title="All 4 branches missed.">      if (ta != null &amp;&amp; ta.getCapital() != null) {</span>
+<span class="nc" id="L60">        final PlayerID whoseCapital = data.getPlayerList().getPlayerID(ta.getCapital());</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        if (whoseCapital == null) {</span>
+<span class="nc" id="L62">          throw new IllegalStateException(&quot;Invalid capital for player name:&quot; + ta.getCapital());</span>
+        }
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (player.equals(whoseCapital)) {</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">          if (player.equals(current.getOwner())) {</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">            if (data.getMap().getNeighbors(current).size() &gt; 0) {</span>
+<span class="nc" id="L67">              return current;</span>
+            } else {
+<span class="nc" id="L69">              noNeighborCapitals.add(current);</span>
+            }
+<span class="nc" id="L71">          } else {</span>
+<span class="nc" id="L72">            capitals.add(current);</span>
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">    if (!capitals.isEmpty()) {</span>
+<span class="nc" id="L78">      return capitals.iterator().next();</span>
+    }
+<span class="nc bnc" id="L80" title="All 2 branches missed.">    if (!noNeighborCapitals.isEmpty()) {</span>
+<span class="nc" id="L81">      return noNeighborCapitals.iterator().next();</span>
+    }
+    // Added check for optional players- no error thrown for them
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (player.getOptional()) {</span>
+<span class="nc" id="L85">      return null;</span>
+    }
+<span class="nc" id="L87">    throw new IllegalStateException(&quot;Capital not found for:&quot; + player);</span>
+  }
+
+  /**
+   * will return empty list if none controlled, never returns null
+   */
+  public static List&lt;Territory&gt; getAllCapitals(final PlayerID player, final GameData data) {
+<span class="fc" id="L94">    final List&lt;Territory&gt; capitals = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L95" title="All 2 branches covered.">    for (final Territory current : data.getMap().getTerritories()) {</span>
+<span class="fc" id="L96">      final TerritoryAttachment ta = TerritoryAttachment.get(current);</span>
+<span class="fc bfc" id="L97" title="All 4 branches covered.">      if (ta != null &amp;&amp; ta.getCapital() != null) {</span>
+<span class="fc" id="L98">        final PlayerID whoseCapital = data.getPlayerList().getPlayerID(ta.getCapital());</span>
+<span class="pc bpc" id="L99" title="1 of 2 branches missed.">        if (whoseCapital == null) {</span>
+<span class="nc" id="L100">          throw new IllegalStateException(&quot;Invalid capital for player name:&quot; + ta.getCapital());</span>
+        }
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        if (player.equals(whoseCapital)) {</span>
+<span class="fc" id="L103">          capitals.add(current);</span>
+        }
+      }
+    }
+<span class="pc bpc" id="L107" title="1 of 2 branches missed.">    if (!capitals.isEmpty()) {</span>
+<span class="fc" id="L108">      return capitals;</span>
+    }
+    // Added check for optional players- no error thrown for them
+<span class="nc bnc" id="L111" title="All 2 branches missed.">    if (player.getOptional()) {</span>
+<span class="nc" id="L112">      return capitals;</span>
+    }
+<span class="nc" id="L114">    throw new IllegalStateException(&quot;Capital not found for:&quot; + player);</span>
+  }
+
+  /**
+   * will return empty list if none controlled, never returns null
+   */
+  public static List&lt;Territory&gt; getAllCurrentlyOwnedCapitals(final PlayerID player, final GameData data) {
+<span class="fc" id="L121">    final List&lt;Territory&gt; capitals = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L122" title="All 2 branches covered.">    for (final Territory current : data.getMap().getTerritories()) {</span>
+<span class="fc" id="L123">      final TerritoryAttachment ta = TerritoryAttachment.get(current);</span>
+<span class="fc bfc" id="L124" title="All 4 branches covered.">      if (ta != null &amp;&amp; ta.getCapital() != null) {</span>
+<span class="fc" id="L125">        final PlayerID whoseCapital = data.getPlayerList().getPlayerID(ta.getCapital());</span>
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">        if (whoseCapital == null) {</span>
+<span class="nc" id="L127">          throw new IllegalStateException(&quot;Invalid capital for player name:&quot; + ta.getCapital());</span>
+        }
+<span class="fc bfc" id="L129" title="All 4 branches covered.">        if (player.equals(whoseCapital) &amp;&amp; player.equals(current.getOwner())) {</span>
+<span class="fc" id="L130">          capitals.add(current);</span>
+        }
+      }
+    }
+<span class="fc" id="L134">    return capitals;</span>
+  }
+
+  /**
+   * Convenience method. Can return null.
+   */
+  public static TerritoryAttachment get(final Territory t) {
+<span class="fc" id="L141">    return get(t, false);</span>
+  }
+
+  public static TerritoryAttachment get(final Territory t, final boolean allowNull) {
+<span class="fc" id="L145">    final TerritoryAttachment rVal = (TerritoryAttachment) t.getAttachment(Constants.TERRITORY_ATTACHMENT_NAME);</span>
+<span class="pc bpc" id="L146" title="2 of 6 branches missed.">    if (!allowNull &amp;&amp; rVal == null &amp;&amp; !t.isWater()) {</span>
+<span class="nc" id="L147">      throw new IllegalStateException(&quot;No territory attachment for:&quot; + t.getName());</span>
+    }
+<span class="fc" id="L149">    return rVal;</span>
+  }
+
+  public static TerritoryAttachment get(final Territory t, final String nameOfAttachment) {
+<span class="nc" id="L153">    final TerritoryAttachment rVal = (TerritoryAttachment) t.getAttachment(nameOfAttachment);</span>
+<span class="nc bnc" id="L154" title="All 4 branches missed.">    if (rVal == null &amp;&amp; !t.isWater()) {</span>
+<span class="nc" id="L155">      throw new IllegalStateException(&quot;No territory attachment for:&quot; + t.getName() + &quot; with name:&quot; + nameOfAttachment);</span>
+    }
+<span class="nc" id="L157">    return rVal;</span>
+  }
+
+  /**
+   * Convenience method since TerritoryAttachment.get could return null.
+   */
+  public static int getProduction(final Territory t) {
+<span class="fc" id="L164">    final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="pc bpc" id="L165" title="1 of 2 branches missed.">    if (ta == null) {</span>
+<span class="nc" id="L166">      return 0;</span>
+    }
+<span class="fc" id="L168">    return ta.getProduction();</span>
+  }
+
+  /**
+   * Convenience method since TerritoryAttachment.get could return null.
+   */
+  public static int getUnitProduction(final Territory t) {
+<span class="fc" id="L175">    final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="pc bpc" id="L176" title="1 of 2 branches missed.">    if (ta == null) {</span>
+<span class="nc" id="L177">      return 0;</span>
+    }
+<span class="fc" id="L179">    return ta.getUnitProduction();</span>
+  }
+
+<span class="fc" id="L182">  private String m_capital = null;</span>
+<span class="fc" id="L183">  private boolean m_originalFactory = false;</span>
+  // &quot;setProduction&quot; will set both m_production and m_unitProduction.
+  // While &quot;setProductionOnly&quot; sets only m_production.
+<span class="fc" id="L186">  private int m_production = 0;</span>
+<span class="fc" id="L187">  private int m_victoryCity = 0;</span>
+<span class="fc" id="L188">  private boolean m_isImpassable = false;</span>
+<span class="fc" id="L189">  private PlayerID m_originalOwner = null;</span>
+<span class="fc" id="L190">  private boolean m_convoyRoute = false;</span>
+<span class="fc" id="L191">  private HashSet&lt;Territory&gt; m_convoyAttached = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L192">  private ArrayList&lt;PlayerID&gt; m_changeUnitOwners = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L193">  private ArrayList&lt;PlayerID&gt; m_captureUnitOnEnteringBy = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L194">  private boolean m_navalBase = false;</span>
+<span class="fc" id="L195">  private boolean m_airBase = false;</span>
+<span class="fc" id="L196">  private boolean m_kamikazeZone = false;</span>
+<span class="fc" id="L197">  private int m_unitProduction = 0;</span>
+<span class="fc" id="L198">  private boolean m_blockadeZone = false;</span>
+<span class="fc" id="L199">  private ArrayList&lt;TerritoryEffect&gt; m_territoryEffect = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L200">  private ArrayList&lt;String&gt; m_whenCapturedByGoesTo = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L201">  private ResourceCollection m_resources = null;</span>
+
+  /** Creates new TerritoryAttachment */
+  public TerritoryAttachment(final String name, final Attachable attachable, final GameData gameData) {
+<span class="fc" id="L205">    super(name, attachable, gameData);</span>
+<span class="fc" id="L206">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setResources(final String value) throws GameParseException {
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L216">      m_resources = null;</span>
+<span class="nc" id="L217">      return;</span>
+    }
+<span class="nc bnc" id="L219" title="All 2 branches missed.">    if (m_resources == null) {</span>
+<span class="nc" id="L220">      m_resources = new ResourceCollection(getData());</span>
+    }
+<span class="nc" id="L222">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc" id="L223">    final int amount = getInt(s[0]);</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">    if (s[1].equals(Constants.PUS)) {</span>
+<span class="nc" id="L225">      throw new GameParseException(&quot;Please set PUs using production, not resource&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L227">    final Resource resource = getData().getResourceList().getResource(s[1]);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">    if (resource == null) {</span>
+<span class="nc" id="L229">      throw new GameParseException(&quot;No resource named: &quot; + s[1] + thisErrorMsg());</span>
+    }
+<span class="nc" id="L231">    m_resources.putResource(resource, amount);</span>
+<span class="nc" id="L232">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setResources(final ResourceCollection value) {
+<span class="nc" id="L236">    m_resources = value;</span>
+<span class="nc" id="L237">  }</span>
+
+  public ResourceCollection getResources() {
+<span class="nc" id="L240">    return m_resources;</span>
+  }
+
+  public void clearResources() {
+<span class="nc" id="L244">    m_resources = new ResourceCollection(getData());</span>
+<span class="nc" id="L245">  }</span>
+
+  public void resetResources() {
+<span class="nc" id="L248">    m_resources = null;</span>
+<span class="nc" id="L249">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setIsImpassable(final String value) {
+<span class="fc" id="L253">    m_isImpassable = getBool(value);</span>
+<span class="fc" id="L254">  }</span>
+
+  public boolean getIsImpassable() {
+<span class="fc" id="L257">    return m_isImpassable;</span>
+  }
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setCapital(final String value) throws GameParseException {
+<span class="fc bfc" id="L262" title="All 2 branches covered.">    if (value == null) {</span>
+<span class="fc" id="L263">      m_capital = null;</span>
+<span class="fc" id="L264">      return;</span>
+    }
+<span class="fc" id="L266">    final PlayerID p = getData().getPlayerList().getPlayerID(value);</span>
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">    if (p == null) {</span>
+<span class="nc" id="L268">      throw new GameParseException(&quot;No Player named: &quot; + value + thisErrorMsg());</span>
+    }
+<span class="fc" id="L270">    m_capital = value;</span>
+<span class="fc" id="L271">  }</span>
+
+  public boolean isCapital() {
+<span class="nc bnc" id="L274" title="All 2 branches missed.">    return m_capital != null;</span>
+  }
+
+  public String getCapital() {
+<span class="fc" id="L278">    return m_capital;</span>
+  }
+
+  public void resetCapital() {
+<span class="nc" id="L282">    m_capital = null;</span>
+<span class="nc" id="L283">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setVictoryCity(final String value) {
+<span class="fc" id="L287">    m_victoryCity = getInt(value);</span>
+<span class="fc" id="L288">  }</span>
+
+  public int getVictoryCity() {
+<span class="fc" id="L291">    return m_victoryCity;</span>
+  }
+
+  public void resetVictoryCity() {
+<span class="nc" id="L295">    m_victoryCity = 0;</span>
+<span class="nc" id="L296">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setOriginalFactory(final String value) {
+<span class="fc" id="L300">    m_originalFactory = getBool(value);</span>
+<span class="fc" id="L301">  }</span>
+
+  public boolean getOriginalFactory() {
+<span class="fc" id="L304">    return m_originalFactory;</span>
+  }
+
+
+  /**
+   * setProduction (or just &quot;production&quot; in a map xml) sets both the m_production AND the m_unitProduction of a
+   * territory to be equal to the
+   * String value passed.
+   *
+   * @param value
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setProduction(final String value) {
+<span class="fc" id="L317">    m_production = getInt(value);</span>
+    // do NOT remove. unitProduction should always default to production
+<span class="fc" id="L319">    m_unitProduction = m_production;</span>
+<span class="fc" id="L320">  }</span>
+
+  /**
+   * Sets only m_production
+   *
+   * @param value
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setProductionOnly(final String value) {
+<span class="nc" id="L329">    m_production = getInt(value);</span>
+<span class="nc" id="L330">  }</span>
+
+  public int getProduction() {
+<span class="fc" id="L333">    return m_production;</span>
+  }
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setUnitProduction(final String value) {
+<span class="fc" id="L338">    m_unitProduction = Integer.parseInt(value);</span>
+<span class="fc" id="L339">  }</span>
+
+  public int getUnitProduction() {
+<span class="fc" id="L342">    return m_unitProduction;</span>
+  }
+
+  /**
+   * Should not be set by a game xml during attachment parsing, but CAN be set by initialization parsing and/or Property
+   * Utils.
+   *
+   * @param player
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setOriginalOwner(final PlayerID player) {
+<span class="fc" id="L353">    m_originalOwner = player;</span>
+<span class="fc" id="L354">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setOriginalOwner(final String player) throws GameParseException {
+<span class="pc bpc" id="L358" title="1 of 2 branches missed.">    if (player == null) {</span>
+<span class="nc" id="L359">      m_originalOwner = null;</span>
+    }
+<span class="fc" id="L361">    final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(player);</span>
+<span class="pc bpc" id="L362" title="1 of 2 branches missed.">    if (tempPlayer == null) {</span>
+<span class="nc" id="L363">      throw new GameParseException(&quot;No player named: &quot; + player + thisErrorMsg());</span>
+    }
+<span class="fc" id="L365">    m_originalOwner = tempPlayer;</span>
+<span class="fc" id="L366">  }</span>
+
+  public PlayerID getOriginalOwner() {
+<span class="fc" id="L369">    return m_originalOwner;</span>
+  }
+
+  public void resetOriginalOwner() {
+<span class="nc" id="L373">    m_originalOwner = null;</span>
+<span class="nc" id="L374">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setConvoyRoute(final String value) {
+<span class="fc" id="L378">    m_convoyRoute = getBool(value);</span>
+<span class="fc" id="L379">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setConvoyRoute(final Boolean value) {
+<span class="fc" id="L383">    m_convoyRoute = value;</span>
+<span class="fc" id="L384">  }</span>
+
+  public boolean getConvoyRoute() {
+<span class="fc" id="L387">    return m_convoyRoute;</span>
+  }
+
+  public void resetConvoyRoute() {
+<span class="nc" id="L391">    m_convoyRoute = false;</span>
+<span class="nc" id="L392">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setChangeUnitOwners(final String value) throws GameParseException {
+<span class="fc" id="L402">    final String[] temp = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L403" title="All 2 branches covered.">    for (final String name : temp) {</span>
+<span class="fc" id="L404">      final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L405" title="1 of 2 branches missed.">      if (tempPlayer != null) {</span>
+<span class="fc" id="L406">        m_changeUnitOwners.add(tempPlayer);</span>
+<span class="pc bnc" id="L407" title="All 4 branches missed.">      } else if (name.equalsIgnoreCase(&quot;true&quot;) || name.equalsIgnoreCase(&quot;false&quot;)) {</span>
+<span class="nc" id="L408">        m_changeUnitOwners.clear();</span>
+<span class="nc" id="L409">      } else {</span>
+<span class="nc" id="L410">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L413">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setChangeUnitOwners(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L417">    m_changeUnitOwners = value;</span>
+<span class="nc" id="L418">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getChangeUnitOwners() {
+<span class="nc" id="L421">    return m_changeUnitOwners;</span>
+  }
+
+  public void clearChangeUnitOwners() {
+<span class="nc" id="L425">    m_changeUnitOwners.clear();</span>
+<span class="nc" id="L426">  }</span>
+
+  public void resetChangeUnitOwners() {
+<span class="nc" id="L429">    m_changeUnitOwners = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L430">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setCaptureUnitOnEnteringBy(final String value) throws GameParseException {
+<span class="fc" id="L440">    final String[] temp = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L441" title="All 2 branches covered.">    for (final String name : temp) {</span>
+<span class="fc" id="L442">      final PlayerID tempPlayer = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L443" title="1 of 2 branches missed.">      if (tempPlayer != null) {</span>
+<span class="fc" id="L444">        m_captureUnitOnEnteringBy.add(tempPlayer);</span>
+<span class="fc" id="L445">      } else {</span>
+<span class="nc" id="L446">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L449">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setCaptureUnitOnEnteringBy(final ArrayList&lt;PlayerID&gt; value) {
+<span class="nc" id="L453">    m_captureUnitOnEnteringBy = value;</span>
+<span class="nc" id="L454">  }</span>
+
+  public ArrayList&lt;PlayerID&gt; getCaptureUnitOnEnteringBy() {
+<span class="nc" id="L457">    return m_captureUnitOnEnteringBy;</span>
+  }
+
+  public void clearCaptureUnitOnEnteringBy() {
+<span class="nc" id="L461">    m_captureUnitOnEnteringBy.clear();</span>
+<span class="nc" id="L462">  }</span>
+
+  public void resetCaptureUnitOnEnteringBy() {
+<span class="nc" id="L465">    m_captureUnitOnEnteringBy = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L466">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setWhenCapturedByGoesTo(final String value) throws GameParseException {
+<span class="fc" id="L476">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L477" title="1 of 2 branches missed.">    if (s.length != 2) {</span>
+<span class="nc" id="L478">      throw new GameParseException(</span>
+<span class="nc" id="L479">          &quot;whenCapturedByGoesTo must have 2 player names separated by a colon&quot; + thisErrorMsg());</span>
+    }
+<span class="fc bfc" id="L481" title="All 2 branches covered.">    for (final String name : s) {</span>
+<span class="fc" id="L482">      final PlayerID player = getData().getPlayerList().getPlayerID(name);</span>
+<span class="pc bpc" id="L483" title="1 of 2 branches missed.">      if (player == null) {</span>
+<span class="nc" id="L484">        throw new GameParseException(&quot;No player named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L487">    m_whenCapturedByGoesTo.add(value);</span>
+<span class="fc" id="L488">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setWhenCapturedByGoesTo(final ArrayList&lt;String&gt; value) {
+<span class="nc" id="L492">    m_whenCapturedByGoesTo = value;</span>
+<span class="nc" id="L493">  }</span>
+
+  public ArrayList&lt;String&gt; getWhenCapturedByGoesTo() {
+<span class="fc" id="L496">    return m_whenCapturedByGoesTo;</span>
+  }
+
+  public void clearWhenCapturedByGoesTo() {
+<span class="nc" id="L500">    m_whenCapturedByGoesTo.clear();</span>
+<span class="nc" id="L501">  }</span>
+
+  public void resetWhenCapturedByGoesTo() {
+<span class="nc" id="L504">    m_whenCapturedByGoesTo = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L505">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setTerritoryEffect(final String value) throws GameParseException {
+<span class="fc" id="L514">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="fc bfc" id="L515" title="All 2 branches covered.">    for (final String name : s) {</span>
+<span class="fc" id="L516">      final TerritoryEffect effect = getData().getTerritoryEffectList().get(name);</span>
+<span class="pc bpc" id="L517" title="1 of 2 branches missed.">      if (effect != null) {</span>
+<span class="fc" id="L518">        m_territoryEffect.add(effect);</span>
+<span class="fc" id="L519">      } else {</span>
+<span class="nc" id="L520">        throw new GameParseException(&quot;No TerritoryEffect named: &quot; + name + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L523">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTerritoryEffect(final ArrayList&lt;TerritoryEffect&gt; value) {
+<span class="nc" id="L527">    m_territoryEffect = value;</span>
+<span class="nc" id="L528">  }</span>
+
+  public ArrayList&lt;TerritoryEffect&gt; getTerritoryEffect() {
+<span class="fc" id="L531">    return m_territoryEffect;</span>
+  }
+
+  public void clearTerritoryEffect() {
+<span class="nc" id="L535">    m_territoryEffect.clear();</span>
+<span class="nc" id="L536">  }</span>
+
+  public void resetTerritoryEffect() {
+<span class="nc" id="L539">    m_territoryEffect = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L540">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setConvoyAttached(final String value) throws GameParseException {
+<span class="fc bfc" id="L550" title="All 2 branches covered.">    if (value.length() &lt;= 0) {</span>
+<span class="fc" id="L551">      return;</span>
+    }
+<span class="fc bfc" id="L553" title="All 2 branches covered.">    for (final String subString : value.split(&quot;:&quot;)) {</span>
+<span class="fc" id="L554">      final Territory territory = getData().getMap().getTerritory(subString);</span>
+<span class="pc bpc" id="L555" title="1 of 2 branches missed.">      if (territory == null) {</span>
+<span class="nc" id="L556">        throw new GameParseException(&quot;No territory called:&quot; + subString + thisErrorMsg());</span>
+      }
+<span class="fc" id="L558">      m_convoyAttached.add(territory);</span>
+    }
+<span class="fc" id="L560">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setConvoyAttached(final HashSet&lt;Territory&gt; value) {
+<span class="nc" id="L564">    m_convoyAttached = value;</span>
+<span class="nc" id="L565">  }</span>
+
+  public HashSet&lt;Territory&gt; getConvoyAttached() {
+<span class="nc" id="L568">    return m_convoyAttached;</span>
+  }
+
+  public void clearConvoyAttached() {
+<span class="nc" id="L572">    m_convoyAttached.clear();</span>
+<span class="nc" id="L573">  }</span>
+
+  public void resetConvoyAttached() {
+<span class="nc" id="L576">    m_convoyAttached = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L577">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setNavalBase(final String value) {
+<span class="fc" id="L581">    m_navalBase = getBool(value);</span>
+<span class="fc" id="L582">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setNavalBase(final Boolean value) {
+<span class="fc" id="L586">    m_navalBase = value;</span>
+<span class="fc" id="L587">  }</span>
+
+  public boolean getNavalBase() {
+<span class="fc" id="L590">    return m_navalBase;</span>
+  }
+
+  public void resetNavalBase() {
+<span class="nc" id="L594">    m_navalBase = false;</span>
+<span class="nc" id="L595">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAirBase(final String value) {
+<span class="fc" id="L599">    m_airBase = getBool(value);</span>
+<span class="fc" id="L600">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAirBase(final Boolean value) {
+<span class="fc" id="L604">    m_airBase = value;</span>
+<span class="fc" id="L605">  }</span>
+
+  public boolean getAirBase() {
+<span class="fc" id="L608">    return m_airBase;</span>
+  }
+
+  public void resetAirBase() {
+<span class="nc" id="L612">    m_airBase = false;</span>
+<span class="nc" id="L613">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setKamikazeZone(final String value) {
+<span class="fc" id="L617">    m_kamikazeZone = getBool(value);</span>
+<span class="fc" id="L618">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setKamikazeZone(final Boolean value) {
+<span class="fc" id="L622">    m_kamikazeZone = value;</span>
+<span class="fc" id="L623">  }</span>
+
+  public boolean getKamikazeZone() {
+<span class="fc" id="L626">    return m_kamikazeZone;</span>
+  }
+
+  public void resetKamikazeZone() {
+<span class="nc" id="L630">    m_kamikazeZone = false;</span>
+<span class="nc" id="L631">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setBlockadeZone(final String value) {
+<span class="fc" id="L635">    m_blockadeZone = getBool(value);</span>
+<span class="fc" id="L636">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setBlockadeZone(final Boolean value) {
+<span class="fc" id="L640">    m_blockadeZone = value;</span>
+<span class="fc" id="L641">  }</span>
+
+  public boolean getBlockadeZone() {
+<span class="fc" id="L644">    return m_blockadeZone;</span>
+  }
+
+  public void resetBlockadeZone() {
+<span class="nc" id="L648">    m_blockadeZone = false;</span>
+<span class="nc" id="L649">  }</span>
+
+  public static Set&lt;Territory&gt; getWhatTerritoriesThisIsUsedInConvoysFor(final Territory t, final GameData data) {
+<span class="nc" id="L652">    final Set&lt;Territory&gt; rVal = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L653">    final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L654" title="All 4 branches missed.">    if (ta == null || !ta.getConvoyRoute()) {</span>
+<span class="nc" id="L655">      return null;</span>
+    }
+<span class="nc bnc" id="L657" title="All 2 branches missed.">    for (final Territory current : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L658">      final TerritoryAttachment cta = TerritoryAttachment.get(current);</span>
+<span class="nc bnc" id="L659" title="All 4 branches missed.">      if (cta == null || !cta.getConvoyRoute()) {</span>
+<span class="nc" id="L660">        continue;</span>
+      }
+<span class="nc bnc" id="L662" title="All 2 branches missed.">      if (cta.getConvoyAttached().contains(t)) {</span>
+<span class="nc" id="L663">        rVal.add(current);</span>
+      }
+    }
+<span class="nc" id="L666">    return rVal;</span>
+  }
+
+  public String toStringForInfo(final boolean useHTML, final boolean includeAttachedToName) {
+<span class="nc" id="L670">    final StringBuilder sb = new StringBuilder(&quot;&quot;);</span>
+<span class="nc bnc" id="L671" title="All 2 branches missed.">    final String br = (useHTML ? &quot;&lt;br&gt;&quot; : &quot;, &quot;);</span>
+<span class="nc" id="L672">    final Territory t = (Territory) this.getAttachedTo();</span>
+<span class="nc bnc" id="L673" title="All 2 branches missed.">    if (t == null) {</span>
+<span class="nc" id="L674">      return sb.toString();</span>
+    }
+<span class="nc bnc" id="L676" title="All 2 branches missed.">    if (includeAttachedToName) {</span>
+<span class="nc" id="L677">      sb.append(t.getName());</span>
+<span class="nc" id="L678">      sb.append(br);</span>
+<span class="nc bnc" id="L679" title="All 2 branches missed.">      if (t.isWater()) {</span>
+<span class="nc" id="L680">        sb.append(&quot;Water Territory&quot;);</span>
+<span class="nc" id="L681">      } else {</span>
+<span class="nc" id="L682">        sb.append(&quot;Land Territory&quot;);</span>
+      }
+<span class="nc" id="L684">      sb.append(br);</span>
+<span class="nc" id="L685">      final PlayerID owner = t.getOwner();</span>
+<span class="nc bnc" id="L686" title="All 4 branches missed.">      if (owner != null &amp;&amp; !owner.isNull()) {</span>
+<span class="nc" id="L687">        sb.append(&quot;Current Owner: &quot;).append(t.getOwner().getName());</span>
+<span class="nc" id="L688">        sb.append(br);</span>
+      }
+<span class="nc" id="L690">      final PlayerID originalOwner = getOriginalOwner();</span>
+<span class="nc bnc" id="L691" title="All 2 branches missed.">      if (originalOwner != null) {</span>
+<span class="nc" id="L692">        sb.append(&quot;Original Owner: &quot;).append(originalOwner.getName());</span>
+<span class="nc" id="L693">        sb.append(br);</span>
+      }
+    }
+<span class="nc bnc" id="L696" title="All 2 branches missed.">    if (m_isImpassable) {</span>
+<span class="nc" id="L697">      sb.append(&quot;Is Impassable&quot;);</span>
+<span class="nc" id="L698">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L700" title="All 4 branches missed.">    if (m_capital != null &amp;&amp; m_capital.length() &gt; 0) {</span>
+<span class="nc" id="L701">      sb.append(&quot;A Capital of &quot;).append(m_capital);</span>
+<span class="nc" id="L702">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L704" title="All 2 branches missed.">    if (m_victoryCity != 0) {</span>
+<span class="nc" id="L705">      sb.append(&quot;Is a Victory location&quot;);</span>
+<span class="nc" id="L706">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L708" title="All 2 branches missed.">    if (m_kamikazeZone) {</span>
+<span class="nc" id="L709">      sb.append(&quot;Is Kamikaze Zone&quot;);</span>
+<span class="nc" id="L710">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L712" title="All 2 branches missed.">    if (m_blockadeZone) {</span>
+<span class="nc" id="L713">      sb.append(&quot;Is a Blockade Zone&quot;);</span>
+<span class="nc" id="L714">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L716" title="All 2 branches missed.">    if (m_convoyRoute) {</span>
+<span class="nc bnc" id="L717" title="All 2 branches missed.">      if (!m_convoyAttached.isEmpty()) {</span>
+<span class="nc" id="L718">        sb.append(&quot;Needs: &quot;).append(MyFormatter.defaultNamedToTextList(m_convoyAttached)).append(br);</span>
+      }
+<span class="nc" id="L720">      final Set&lt;Territory&gt; requiredBy = getWhatTerritoriesThisIsUsedInConvoysFor(t, getData());</span>
+<span class="nc bnc" id="L721" title="All 2 branches missed.">      if (!requiredBy.isEmpty()) {</span>
+<span class="nc" id="L722">        sb.append(&quot;Required By: &quot;).append(MyFormatter.defaultNamedToTextList(requiredBy)).append(br);</span>
+      }
+    }
+<span class="nc bnc" id="L725" title="All 4 branches missed.">    if (m_changeUnitOwners != null &amp;&amp; !m_changeUnitOwners.isEmpty()) {</span>
+<span class="nc" id="L726">      sb.append(&quot;Units May Change Ownership Here&quot;);</span>
+<span class="nc" id="L727">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L729" title="All 4 branches missed.">    if (m_captureUnitOnEnteringBy != null &amp;&amp; !m_captureUnitOnEnteringBy.isEmpty()) {</span>
+<span class="nc" id="L730">      sb.append(&quot;May Allow The Capture of Some Units&quot;);</span>
+<span class="nc" id="L731">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L733" title="All 4 branches missed.">    if (m_whenCapturedByGoesTo != null &amp;&amp; !m_whenCapturedByGoesTo.isEmpty()) {</span>
+<span class="nc" id="L734">      sb.append(&quot;Captured By -&gt; Ownership Goes To&quot;);</span>
+<span class="nc" id="L735">      sb.append(br);</span>
+<span class="nc bnc" id="L736" title="All 2 branches missed.">      for (final String value : m_whenCapturedByGoesTo) {</span>
+<span class="nc" id="L737">        final String[] s = value.split(&quot;:&quot;);</span>
+<span class="nc" id="L738">        sb.append(s[0]).append(&quot; -&gt; &quot;).append(s[1]);</span>
+<span class="nc" id="L739">        sb.append(br);</span>
+      }
+    }
+<span class="nc" id="L742">    sb.append(br);</span>
+<span class="nc bnc" id="L743" title="All 4 branches missed.">    if (!t.isWater() &amp;&amp; m_unitProduction &gt; 0</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">        &amp;&amp; games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(getData())) {</span>
+<span class="nc" id="L745">      sb.append(&quot;Base Unit Production: &quot;);</span>
+<span class="nc" id="L746">      sb.append(m_unitProduction);</span>
+<span class="nc" id="L747">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L749" title="All 6 branches missed.">    if (m_production &gt; 0 || (m_resources != null &amp;&amp; m_resources.toString().length() &gt; 0)) {</span>
+<span class="nc" id="L750">      sb.append(&quot;Production: &quot;);</span>
+<span class="nc" id="L751">      sb.append(br);</span>
+<span class="nc bnc" id="L752" title="All 2 branches missed.">      if (m_production &gt; 0) {</span>
+<span class="nc" id="L753">        sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;).append(m_production).append(&quot; PUs&quot;);</span>
+<span class="nc" id="L754">        sb.append(br);</span>
+      }
+<span class="nc bnc" id="L756" title="All 2 branches missed.">      if (m_resources != null) {</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">        if (useHTML) {</span>
+<span class="nc" id="L758">          sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;)</span>
+<span class="nc" id="L759">              .append((m_resources.toStringForHTML()).replaceAll(&quot;&lt;br&gt;&quot;, &quot;&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;));</span>
+<span class="nc" id="L760">        } else {</span>
+<span class="nc" id="L761">          sb.append(m_resources.toString());</span>
+        }
+<span class="nc" id="L763">        sb.append(br);</span>
+      }
+    }
+<span class="nc" id="L766">    final Iterator&lt;TerritoryEffect&gt; iter = m_territoryEffect.iterator();</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">    if (iter.hasNext()) {</span>
+<span class="nc" id="L768">      sb.append(&quot;Territory Effects: &quot;);</span>
+<span class="nc" id="L769">      sb.append(br);</span>
+    }
+<span class="nc bnc" id="L771" title="All 2 branches missed.">    while (iter.hasNext()) {</span>
+<span class="nc" id="L772">      sb.append(&quot;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&quot;).append(iter.next().getName());</span>
+<span class="nc" id="L773">      sb.append(br);</span>
+    }
+<span class="nc" id="L775">    return sb.toString();</span>
+  }
+
+  @Override
+<span class="fc" id="L779">  public void validate(final GameData data) throws GameParseException {}</span>
+
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

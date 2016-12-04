@@ -1,0 +1,549 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>StatPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">StatPanel.java</span></div><h1>StatPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.GridLayout;
+import java.awt.Image;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import javax.swing.ImageIcon;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.events.GameDataChangeListener;
+import games.strategy.engine.stats.AbstractStat;
+import games.strategy.engine.stats.IStat;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.TechAdvance;
+import games.strategy.triplea.delegate.TechTracker;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+public class StatPanel extends AbstractStatPanel {
+  private static final long serialVersionUID = 4340684166664492498L;
+  final private StatTableModel m_dataModel;
+  final private TechTableModel m_techModel;
+  protected IStat[] m_stats;
+  private JTable m_statsTable;
+<span class="nc" id="L52">  private Image m_statsImage = null;</span>
+<span class="nc" id="L53">  protected final Map&lt;PlayerID, ImageIcon&gt; m_mapPlayerImage = new HashMap&lt;&gt;();</span>
+  protected IUIContext m_uiContext;
+
+  /** Creates a new instance of InfoPanel */
+  public StatPanel(final GameData data, final IUIContext uiContext2) {
+<span class="nc" id="L58">    super(data);</span>
+<span class="nc" id="L59">    m_uiContext = uiContext2;</span>
+<span class="nc" id="L60">    m_dataModel = new StatTableModel();</span>
+<span class="nc" id="L61">    m_techModel = new TechTableModel();</span>
+<span class="nc" id="L62">    fillPlayerIcons();</span>
+<span class="nc" id="L63">    initLayout();</span>
+<span class="nc" id="L64">  }</span>
+
+  @Override
+  protected void initLayout() {
+<span class="nc bnc" id="L68" title="All 2 branches missed.">    final boolean hasTech = !TechAdvance.getTechAdvances(m_data, null).isEmpty();</span>
+    // do no include a grid box for tech if there is no tech
+<span class="nc bnc" id="L70" title="All 2 branches missed.">    setLayout(new GridLayout((hasTech ? 2 : 1), 1));</span>
+<span class="nc" id="L71">    m_statsTable = new JTable(m_dataModel) {</span>
+      private static final long serialVersionUID = -5516554955307630864L;
+
+      @Override
+      public void print(final Graphics g) {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        if (m_statsImage != null) {</span>
+<span class="nc" id="L77">          g.drawImage(m_statsImage, 0, 0, null, null);</span>
+        }
+<span class="nc" id="L79">        super.print(g);</span>
+<span class="nc" id="L80">      }</span>
+    };
+<span class="nc" id="L82">    m_statsTable.getTableHeader().setReorderingAllowed(false);</span>
+<span class="nc" id="L83">    m_statsTable.getColumnModel().getColumn(0).setPreferredWidth(175);</span>
+<span class="nc" id="L84">    JScrollPane scroll = new JScrollPane(m_statsTable);</span>
+<span class="nc" id="L85">    add(scroll);</span>
+    // if no technologies, do not show the tech table
+<span class="nc bnc" id="L87" title="All 2 branches missed.">    if (!hasTech) {</span>
+<span class="nc" id="L88">      return;</span>
+    }
+<span class="nc" id="L90">    final JTable m_techTable = new JTable(m_techModel);</span>
+<span class="nc" id="L91">    m_techTable.getTableHeader().setReorderingAllowed(false);</span>
+<span class="nc" id="L92">    m_techTable.getColumnModel().getColumn(0).setPreferredWidth(500);</span>
+    // setupIconHeaders(m_techTable);
+    // show icons for players:
+<span class="nc" id="L95">    final TableCellRenderer componentRenderer = new JComponentTableCellRenderer();</span>
+<span class="nc bnc" id="L96" title="All 2 branches missed.">    for (int i = 1; i &lt; m_techTable.getColumnCount(); i++) {</span>
+<span class="nc" id="L97">      final TableColumn column = m_techTable.getColumnModel().getColumn(i);</span>
+<span class="nc" id="L98">      column.setHeaderRenderer(componentRenderer);</span>
+<span class="nc" id="L99">      final String player = m_techTable.getColumnName(i);</span>
+<span class="nc" id="L100">      final JLabel value = new JLabel(&quot;&quot;, getIcon(player), SwingConstants.CENTER);</span>
+<span class="nc" id="L101">      value.setToolTipText(player);</span>
+<span class="nc" id="L102">      column.setHeaderValue(value);</span>
+    }
+<span class="nc" id="L104">    scroll = new JScrollPane(m_techTable);</span>
+<span class="nc" id="L105">    add(scroll);</span>
+<span class="nc" id="L106">  }</span>
+
+  @Override
+  public void setGameData(final GameData data) {
+<span class="nc" id="L110">    m_data = data;</span>
+<span class="nc" id="L111">    m_dataModel.setGameData(data);</span>
+<span class="nc" id="L112">    m_techModel.setGameData(data);</span>
+<span class="nc" id="L113">    m_dataModel.gameDataChanged(null);</span>
+<span class="nc" id="L114">    m_techModel.gameDataChanged(null);</span>
+<span class="nc" id="L115">  }</span>
+
+  public void setStatsBgImage(final Image image) {
+<span class="nc" id="L118">    m_statsImage = image;</span>
+<span class="nc" id="L119">  }</span>
+
+  public JTable getStatsTable() {
+<span class="nc" id="L122">    return m_statsTable;</span>
+  }
+
+  /**
+   * Gets the small flag for a given PlayerID
+   *
+   * @param player
+   *        the player to get the flag for
+   * @return ImageIcon small flag
+   */
+  protected ImageIcon getIcon(final PlayerID player) {
+<span class="nc" id="L133">    ImageIcon icon = m_mapPlayerImage.get(player);</span>
+<span class="nc bnc" id="L134" title="All 4 branches missed.">    if (icon == null &amp;&amp; m_uiContext != null) {</span>
+<span class="nc" id="L135">      final Image img = m_uiContext.getFlagImageFactory().getSmallFlag(player);</span>
+<span class="nc" id="L136">      icon = new ImageIcon(img);</span>
+<span class="nc" id="L137">      icon.setDescription(player.getName());</span>
+<span class="nc" id="L138">      m_mapPlayerImage.put(player, icon);</span>
+    }
+<span class="nc" id="L140">    return icon;</span>
+  }
+
+  protected ImageIcon getIcon(final String playerName) {
+<span class="nc" id="L144">    final PlayerID player = this.m_data.getPlayerList().getPlayerID(playerName);</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    if (player == null) {</span>
+<span class="nc" id="L146">      return null;</span>
+    }
+<span class="nc" id="L148">    return getIcon(player);</span>
+  }
+
+  protected void fillPlayerIcons() {
+<span class="nc bnc" id="L152" title="All 2 branches missed.">    for (final PlayerID p : m_data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L153">      getIcon(p);</span>
+    }
+<span class="nc" id="L155">  }</span>
+
+<span class="nc" id="L157">  class JComponentTableCellRenderer implements TableCellRenderer {</span>
+    @Override
+    public Component getTableCellRendererComponent(final JTable table, final Object value, final boolean isSelected,
+        final boolean hasFocus, final int row, final int column) {
+<span class="nc" id="L161">      return (JComponent) value;</span>
+    }
+  }
+  /**
+   * Custom table model.
+   * This model is thread safe.
+   */
+  class StatTableModel extends AbstractTableModel implements GameDataChangeListener {
+    private static final long serialVersionUID = -6156153062049822444L;
+    /* Flag to indicate whether data needs to be recalculated */
+<span class="nc" id="L171">    private boolean m_isDirty = true;</span>
+    /* Column Header Names */
+    /* Underlying data for the table */
+    private String[][] m_collectedData;
+
+<span class="nc" id="L176">    public StatTableModel() {</span>
+<span class="nc" id="L177">      setStatCollums();</span>
+<span class="nc" id="L178">      m_data.addDataChangeListener(this);</span>
+<span class="nc" id="L179">      m_isDirty = true;</span>
+<span class="nc" id="L180">    }</span>
+
+    public void setStatCollums() {
+<span class="nc" id="L183">      m_stats = new IStat[] {new PUStat(), new ProductionStat(), new UnitsStat(), new TUVStat()};</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">      if (Match.someMatch(m_data.getMap().getTerritories(), Matches.TerritoryIsVictoryCity)) {</span>
+<span class="nc" id="L185">        final List&lt;IStat&gt; stats = new ArrayList&lt;&gt;(Arrays.asList(m_stats));</span>
+<span class="nc" id="L186">        stats.add(new VictoryCityStat());</span>
+<span class="nc" id="L187">        m_stats = stats.toArray(new IStat[stats.size()]);</span>
+      }
+      // only add the vps in pacific
+<span class="nc bnc" id="L190" title="All 2 branches missed.">      if (m_data.getProperties().get(Constants.PACIFIC_THEATER, false)) {</span>
+<span class="nc" id="L191">        final List&lt;IStat&gt; stats = new ArrayList&lt;&gt;(Arrays.asList(m_stats));</span>
+<span class="nc" id="L192">        stats.add(new VPStat());</span>
+<span class="nc" id="L193">        m_stats = stats.toArray(new IStat[stats.size()]);</span>
+      }
+<span class="nc" id="L195">    }</span>
+
+    private synchronized void loadData() {
+<span class="nc" id="L198">      m_data.acquireReadLock();</span>
+      try {
+<span class="nc" id="L200">        final List&lt;PlayerID&gt; players = getPlayers();</span>
+<span class="nc" id="L201">        final Collection&lt;String&gt; alliances = getAlliances();</span>
+<span class="nc" id="L202">        m_collectedData = new String[players.size() + alliances.size()][m_stats.length + 1];</span>
+<span class="nc" id="L203">        int row = 0;</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        for (final PlayerID player : players) {</span>
+<span class="nc" id="L205">          m_collectedData[row][0] = player.getName();</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">          for (int i = 0; i &lt; m_stats.length; i++) {</span>
+<span class="nc" id="L207">            m_collectedData[row][i + 1] = m_stats[i].getFormatter().format(m_stats[i].getValue(player, m_data));</span>
+          }
+<span class="nc" id="L209">          row++;</span>
+        }
+<span class="nc" id="L211">        final Iterator&lt;String&gt; allianceIterator = alliances.iterator();</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        while (allianceIterator.hasNext()) {</span>
+<span class="nc" id="L213">          final String alliance = allianceIterator.next();</span>
+<span class="nc" id="L214">          m_collectedData[row][0] = alliance;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">          for (int i = 0; i &lt; m_stats.length; i++) {</span>
+<span class="nc" id="L216">            m_collectedData[row][i + 1] = m_stats[i].getFormatter().format(m_stats[i].getValue(alliance, m_data));</span>
+          }
+<span class="nc" id="L218">          row++;</span>
+        }
+<span class="nc" id="L220">      } finally {</span>
+<span class="nc" id="L221">        m_data.releaseReadLock();</span>
+<span class="nc" id="L222">      }</span>
+<span class="nc" id="L223">    }</span>
+
+    @Override
+    public void gameDataChanged(final Change aChange) {
+<span class="nc" id="L227">      synchronized (this) {</span>
+<span class="nc" id="L228">        m_isDirty = true;</span>
+      }
+<span class="nc" id="L230">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L231">    }</span>
+
+    /*
+     * Recalcs the underlying data in a lazy manner Limitation: This is not
+     * a threadsafe implementation
+     */
+    @Override
+    public synchronized Object getValueAt(final int row, final int col) {
+<span class="nc bnc" id="L239" title="All 2 branches missed.">      if (m_isDirty) {</span>
+<span class="nc" id="L240">        loadData();</span>
+<span class="nc" id="L241">        m_isDirty = false;</span>
+      }
+<span class="nc" id="L243">      return m_collectedData[row][col];</span>
+    }
+
+    // Trivial implementations of required methods
+    @Override
+    public String getColumnName(final int col) {
+<span class="nc bnc" id="L249" title="All 2 branches missed.">      if (col == 0) {</span>
+<span class="nc" id="L250">        return &quot;Player&quot;;</span>
+      }
+<span class="nc" id="L252">      return m_stats[col - 1].getName();</span>
+    }
+
+    @Override
+    public int getColumnCount() {
+<span class="nc" id="L257">      return m_stats.length + 1;</span>
+    }
+
+    @Override
+    public synchronized int getRowCount() {
+<span class="nc bnc" id="L262" title="All 2 branches missed.">      if (!m_isDirty) {</span>
+<span class="nc" id="L263">        return m_collectedData.length;</span>
+      } else {
+        // no need to recalculate all the stats just to get the row count
+        // getting the row count is a fairly frequent operation, and will
+        // happen even if we are not displayed!
+<span class="nc" id="L268">        m_data.acquireReadLock();</span>
+        try {
+<span class="nc" id="L270">          return m_data.getPlayerList().size() + getAlliances().size();</span>
+<span class="nc" id="L271">        } finally {</span>
+<span class="nc" id="L272">          m_data.releaseReadLock();</span>
+<span class="nc" id="L273">        }</span>
+      }
+    }
+
+    public synchronized void setGameData(final GameData data) {
+<span class="nc" id="L278">      synchronized (this) {</span>
+<span class="nc" id="L279">        m_data.removeDataChangeListener(this);</span>
+<span class="nc" id="L280">        m_data = data;</span>
+<span class="nc" id="L281">        m_data.addDataChangeListener(this);</span>
+<span class="nc" id="L282">        m_isDirty = true;</span>
+      }
+<span class="nc" id="L284">      repaint();</span>
+<span class="nc" id="L285">    }</span>
+  }
+  class TechTableModel extends AbstractTableModel implements GameDataChangeListener {
+    private static final long serialVersionUID = -4612476336419396081L;
+    /* Flag to indicate whether data needs to be recalculated */
+<span class="nc" id="L290">    private boolean isDirty = true;</span>
+    /* Column Header Names */
+    /* Row Header Names */
+    private String[] colList;
+    /* Underlying data for the table */
+    private String[][] data;
+    /* Convenience mapping of country names -&gt; col */
+<span class="nc" id="L297">    private Map&lt;String, Integer&gt; colMap = null;</span>
+    /* Convenience mapping of technology names -&gt; row */
+<span class="nc" id="L299">    private Map&lt;String, Integer&gt; rowMap = null;</span>
+
+<span class="nc" id="L301">    public TechTableModel() {</span>
+<span class="nc" id="L302">      m_data.addDataChangeListener(this);</span>
+<span class="nc" id="L303">      initColList();</span>
+      /* Load the country -&gt; col mapping */
+<span class="nc" id="L305">      colMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L306" title="All 2 branches missed.">      for (int i = 0; i &lt; colList.length; i++) {</span>
+<span class="nc" id="L307">        colMap.put(colList[i], Integer.valueOf(i + 1));</span>
+      }
+      /*
+       * .size()+1 added to stop index out of bounds errors when using an
+       * Italian player.
+       */
+<span class="nc" id="L313">      boolean useTech = false;</span>
+      try {
+<span class="nc" id="L315">        m_data.acquireReadLock();</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">        if (m_data.getResourceList().getResource(Constants.TECH_TOKENS) != null) {</span>
+<span class="nc" id="L317">          useTech = true;</span>
+<span class="nc" id="L318">          data = new String[TechAdvance.getTechAdvances(m_data).size() + 1][colList.length + 2];</span>
+<span class="nc" id="L319">        } else {</span>
+<span class="nc" id="L320">          data = new String[TechAdvance.getTechAdvances(m_data).size()][colList.length + 1];</span>
+        }
+<span class="nc" id="L322">      } finally {</span>
+<span class="nc" id="L323">        m_data.releaseReadLock();</span>
+<span class="nc" id="L324">      }</span>
+      /* Load the technology -&gt; row mapping */
+<span class="nc" id="L326">      rowMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L327">      final Iterator&lt;TechAdvance&gt; iter = TechAdvance.getTechAdvances(m_data, null).iterator();</span>
+<span class="nc" id="L328">      int row = 0;</span>
+<span class="nc bnc" id="L329" title="All 2 branches missed.">      if (useTech) {</span>
+<span class="nc" id="L330">        rowMap.put(&quot;Tokens&quot;, Integer.valueOf(row));</span>
+<span class="nc" id="L331">        data[row][0] = &quot;Tokens&quot;;</span>
+<span class="nc" id="L332">        row++;</span>
+      }
+<span class="nc bnc" id="L334" title="All 2 branches missed.">      while (iter.hasNext()) {</span>
+<span class="nc" id="L335">        final TechAdvance tech = iter.next();</span>
+<span class="nc" id="L336">        rowMap.put((tech).getName(), Integer.valueOf(row));</span>
+<span class="nc" id="L337">        data[row][0] = tech.getName();</span>
+<span class="nc" id="L338">        row++;</span>
+      }
+<span class="nc" id="L340">      clearAdvances();</span>
+<span class="nc" id="L341">    }</span>
+
+    private void clearAdvances() {
+      /* Initialize the table with the tech names */
+<span class="nc bnc" id="L345" title="All 2 branches missed.">      for (int i = 0; i &lt; data.length; i++) {</span>
+<span class="nc bnc" id="L346" title="All 2 branches missed.">        for (int j = 1; j &lt;= colList.length; j++) {</span>
+<span class="nc" id="L347">          data[i][j] = &quot;&quot;;</span>
+        }
+      }
+<span class="nc" id="L350">    }</span>
+
+    private void initColList() {
+<span class="nc" id="L353">      final java.util.List&lt;PlayerID&gt; players = new ArrayList&lt;&gt;(m_data.getPlayerList().getPlayers());</span>
+<span class="nc" id="L354">      colList = new String[players.size()];</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">      for (int i = 0; i &lt; players.size(); i++) {</span>
+<span class="nc" id="L356">        colList[i] = players.get(i).getName();</span>
+      }
+<span class="nc" id="L358">      Arrays.sort(colList, 0, players.size());</span>
+<span class="nc" id="L359">    }</span>
+
+    public void update() {
+<span class="nc" id="L362">      clearAdvances();</span>
+      // copy so aquire/release read lock are on the same object!
+<span class="nc" id="L364">      final GameData gameData = m_data;</span>
+<span class="nc" id="L365">      gameData.acquireReadLock();</span>
+      try {
+<span class="nc bnc" id="L367" title="All 2 branches missed.">        for (final PlayerID pid : gameData.getPlayerList().getPlayers()) {</span>
+<span class="nc bnc" id="L368" title="All 2 branches missed.">          if (colMap.get(pid.getName()) == null) {</span>
+<span class="nc" id="L369">            throw new IllegalStateException(&quot;Unexpected player in GameData.getPlayerList()&quot; + pid.getName());</span>
+          }
+<span class="nc" id="L371">          final int col = colMap.get(pid.getName()).intValue();</span>
+<span class="nc" id="L372">          int row = 0;</span>
+          // boolean useTokens = false;
+<span class="nc bnc" id="L374" title="All 2 branches missed.">          if (m_data.getResourceList().getResource(Constants.TECH_TOKENS) != null) {</span>
+            // useTokens = true;
+<span class="nc" id="L376">            final int tokens = pid.getResources().getQuantity(Constants.TECH_TOKENS);</span>
+<span class="nc" id="L377">            data[row][col] = Integer.toString(tokens);</span>
+          }
+<span class="nc" id="L379">          final Iterator&lt;TechAdvance&gt; advancesAll = TechAdvance.getTechAdvances(m_data).iterator();</span>
+<span class="nc" id="L380">          final List&lt;TechAdvance&gt; has = TechAdvance.getTechAdvances(m_data, pid);</span>
+<span class="nc bnc" id="L381" title="All 2 branches missed.">          while (advancesAll.hasNext()) {</span>
+<span class="nc" id="L382">            final TechAdvance advance = advancesAll.next();</span>
+            // if(!pid.getTechnologyFrontierList().getAdvances().contains(advance)){
+<span class="nc bnc" id="L384" title="All 2 branches missed.">            if (!has.contains(advance)) {</span>
+<span class="nc" id="L385">              row = rowMap.get(advance.getName()).intValue();</span>
+<span class="nc" id="L386">              data[row][col] = &quot;-&quot;;</span>
+            }
+          }
+<span class="nc" id="L389">          final Iterator&lt;TechAdvance&gt; advances = TechTracker.getCurrentTechAdvances(pid, m_data).iterator();</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">          while (advances.hasNext()) {</span>
+<span class="nc" id="L391">            final TechAdvance advance = advances.next();</span>
+<span class="nc" id="L392">            row = rowMap.get(advance.getName()).intValue();</span>
+            // System.err.println(&quot;(&quot; + row + &quot;, &quot; + col + &quot;)&quot;);
+<span class="nc" id="L394">            data[row][col] = &quot;X&quot;;</span>
+            // data[row][col] = colList[col].substring(0, 1);
+          }
+        }
+<span class="nc" id="L398">      } finally {</span>
+<span class="nc" id="L399">        gameData.releaseReadLock();</span>
+<span class="nc" id="L400">      }</span>
+<span class="nc" id="L401">    }</span>
+
+    @Override
+    public String getColumnName(final int col) {
+<span class="nc bnc" id="L405" title="All 2 branches missed.">      if (col == 0) {</span>
+<span class="nc" id="L406">        return &quot;Technology&quot;;</span>
+      }
+      // return colList[col - 1].substring(0, 1);
+<span class="nc" id="L409">      return colList[col - 1];</span>
+    }
+
+    /*
+     * Recalcs the underlying data in a lazy manner Limitation: This is not
+     * a threadsafe implementation
+     */
+    @Override
+    public Object getValueAt(final int row, final int col) {
+<span class="nc bnc" id="L418" title="All 2 branches missed.">      if (isDirty) {</span>
+<span class="nc" id="L419">        update();</span>
+<span class="nc" id="L420">        isDirty = false;</span>
+      }
+<span class="nc" id="L422">      return data[row][col];</span>
+    }
+
+    // Trivial implementations of required methods
+    @Override
+    public int getColumnCount() {
+<span class="nc" id="L428">      return colList.length + 1;</span>
+    }
+
+    @Override
+    public int getRowCount() {
+<span class="nc" id="L433">      return data.length;</span>
+    }
+
+    @Override
+    public void gameDataChanged(final Change aChange) {
+<span class="nc" id="L438">      isDirty = true;</span>
+<span class="nc" id="L439">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L440">    }</span>
+
+    public void setGameData(final GameData data) {
+<span class="nc" id="L443">      m_data.removeDataChangeListener(this);</span>
+<span class="nc" id="L444">      m_data = data;</span>
+<span class="nc" id="L445">      m_data.addDataChangeListener(this);</span>
+<span class="nc" id="L446">      isDirty = true;</span>
+<span class="nc" id="L447">    }</span>
+  }
+<span class="nc" id="L449">  class ProductionStat extends AbstractStat {</span>
+    @Override
+    public String getName() {
+<span class="nc" id="L452">      return &quot;Production&quot;;</span>
+    }
+
+    @Override
+    public double getValue(final PlayerID player, final GameData data) {
+<span class="nc" id="L457">      int rVal = 0;</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">      for (final Territory place : data.getMap().getTerritories()) {</span>
+        /*
+         * Match will Check if terr is a Land Convoy Route and check ownership of neighboring Sea Zone, or if contested
+         */
+<span class="nc bnc" id="L462" title="All 4 branches missed.">        if (place.getOwner().equals(player) &amp;&amp; Matches.territoryCanCollectIncomeFrom(player, data).match(place)) {</span>
+<span class="nc" id="L463">          rVal += TerritoryAttachment.getProduction(place);</span>
+        }
+      }
+<span class="nc" id="L466">      rVal *= Properties.getPU_Multiplier(data);</span>
+<span class="nc" id="L467">      return rVal;</span>
+    }
+  }
+  class PUStat extends ResourceStat {
+<span class="nc" id="L471">    public PUStat() {</span>
+<span class="nc" id="L472">      super(getResourcePUs(m_data));</span>
+<span class="nc" id="L473">    }</span>
+  }
+<span class="nc" id="L475">  class UnitsStat extends AbstractStat {</span>
+    @Override
+    public String getName() {
+<span class="nc" id="L478">      return &quot;Units&quot;;</span>
+    }
+
+    @Override
+    public double getValue(final PlayerID player, final GameData data) {
+<span class="nc" id="L483">      int rVal = 0;</span>
+<span class="nc" id="L484">      final Match&lt;Unit&gt; ownedBy = Matches.unitIsOwnedBy(player);</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">      for (final Territory place : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L486">        rVal += place.getUnits().countMatches(ownedBy);</span>
+      }
+<span class="nc" id="L488">      return rVal;</span>
+    }
+  }
+<span class="nc" id="L491">  class TUVStat extends AbstractStat {</span>
+    @Override
+    public String getName() {
+<span class="nc" id="L494">      return &quot;TUV&quot;;</span>
+    }
+
+    @Override
+    public double getValue(final PlayerID player, final GameData data) {
+<span class="nc" id="L499">      final IntegerMap&lt;UnitType&gt; costs = BattleCalculator.getCostsForTUV(player, data);</span>
+<span class="nc" id="L500">      final Match&lt;Unit&gt; unitIsOwnedBy = Matches.unitIsOwnedBy(player);</span>
+<span class="nc" id="L501">      int rVal = 0;</span>
+<span class="nc bnc" id="L502" title="All 2 branches missed.">      for (final Territory place : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L503">        final Collection&lt;Unit&gt; owned = place.getUnits().getMatches(unitIsOwnedBy);</span>
+<span class="nc" id="L504">        rVal += BattleCalculator.getTUV(owned, costs);</span>
+      }
+<span class="nc" id="L506">      return rVal;</span>
+    }
+  }
+<span class="nc" id="L509">  class VictoryCityStat extends AbstractStat {</span>
+    @Override
+    public String getName() {
+<span class="nc" id="L512">      return &quot;VC&quot;;</span>
+    }
+
+    @Override
+    public double getValue(final PlayerID player, final GameData data) {
+<span class="nc" id="L517">      int rVal = 0;</span>
+<span class="nc bnc" id="L518" title="All 2 branches missed.">      for (final Territory place : data.getMap().getTerritories()) {</span>
+<span class="nc bnc" id="L519" title="All 2 branches missed.">        if (!place.getOwner().equals(player)) {</span>
+<span class="nc" id="L520">          continue;</span>
+        }
+<span class="nc" id="L522">        final TerritoryAttachment ta = TerritoryAttachment.get(place);</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">        if (ta == null) {</span>
+<span class="nc" id="L524">          continue;</span>
+        }
+<span class="nc bnc" id="L526" title="All 2 branches missed.">        if (ta.getVictoryCity() != 0) {</span>
+<span class="nc" id="L527">          rVal = rVal + ta.getVictoryCity();</span>
+        }
+      }
+<span class="nc" id="L530">      return rVal;</span>
+    }
+  }
+<span class="nc" id="L533">  class VPStat extends AbstractStat {</span>
+    @Override
+    public String getName() {
+<span class="nc" id="L536">      return &quot;VPs&quot;;</span>
+    }
+
+    @Override
+    public double getValue(final PlayerID player, final GameData data) {
+<span class="nc" id="L541">      final PlayerAttachment pa = PlayerAttachment.get(player);</span>
+<span class="nc bnc" id="L542" title="All 2 branches missed.">      if (pa != null) {</span>
+<span class="nc" id="L543">        return pa.getVps();</span>
+      }
+<span class="nc" id="L545">      return 0;</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

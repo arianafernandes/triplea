@@ -1,0 +1,561 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TripleAUnit.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea</a> &gt; <span class="el_source">TripleAUnit.java</span></div><h1>TripleAUnit.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.annotations.GameProperty;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Extended unit for triplea games.
+ * &lt;p&gt;
+ * As with all game data components, changes made to this unit must be made through a Change instance. Calling setters
+ * on this directly will
+ * not serialize the changes across the network.
+ * &lt;p&gt;
+ */
+public class TripleAUnit extends Unit {
+  // compatable with 0.9.2
+  private static final long serialVersionUID = 8811372406957115036L;
+  public static final String TRANSPORTED_BY = &quot;transportedBy&quot;;
+  public static final String UNLOADED = &quot;unloaded&quot;;
+  public static final String LOADED_THIS_TURN = &quot;wasLoadedThisTurn&quot;;
+  public static final String UNLOADED_TO = &quot;unloadedTo&quot;;
+  public static final String UNLOADED_IN_COMBAT_PHASE = &quot;wasUnloadedInCombatPhase&quot;;
+  public static final String ALREADY_MOVED = &quot;alreadyMoved&quot;;
+  public static final String BONUS_MOVEMENT = &quot;bonusMovement&quot;;
+  public static final String MOVEMENT_LEFT = &quot;movementLeft&quot;;
+  public static final String SUBMERGED = &quot;submerged&quot;;
+  public static final String ORIGINAL_OWNER = &quot;originalOwner&quot;;
+  public static final String WAS_IN_COMBAT = &quot;wasInCombat&quot;;
+  public static final String LOADED_AFTER_COMBAT = &quot;wasLoadedAfterCombat&quot;;
+  public static final String UNLOADED_AMPHIBIOUS = &quot;wasAmphibious&quot;;
+  public static final String ORIGINATED_FROM = &quot;originatedFrom&quot;;
+  public static final String WAS_SCRAMBLED = &quot;wasScrambled&quot;;
+  public static final String MAX_SCRAMBLE_COUNT = &quot;maxScrambleCount&quot;;
+  public static final String WAS_IN_AIR_BATTLE = &quot;wasInAirBattle&quot;;
+  public static final String DISABLED = &quot;disabled&quot;;
+  public static final String LAUNCHED = &quot;launched&quot;;
+  public static final String AIRBORNE = &quot;airborne&quot;;
+  // the transport that is currently transporting us
+<span class="fc" id="L58">  private TripleAUnit m_transportedBy = null;</span>
+  // the units we have unloaded this turn
+<span class="fc" id="L60">  private List&lt;Unit&gt; m_unloaded = Collections.emptyList();</span>
+  // was this unit loaded this turn?
+<span class="fc" id="L62">  private boolean m_wasLoadedThisTurn = false;</span>
+  // the territory this unit was unloaded to this turn
+<span class="fc" id="L64">  private Territory m_unloadedTo = null;</span>
+  // was this unit unloaded in combat phase this turn?
+<span class="fc" id="L66">  private boolean m_wasUnloadedInCombatPhase = false;</span>
+  // movement used this turn
+<span class="fc" id="L68">  private int m_alreadyMoved = 0;</span>
+  // movement used this turn
+<span class="fc" id="L70">  private int m_bonusMovement = 0;</span>
+  // amount of damage unit has sustained
+<span class="fc" id="L72">  private int m_unitDamage = 0;</span>
+  // is this submarine submerged
+<span class="fc" id="L74">  private boolean m_submerged = false;</span>
+  // original owner of this unit
+<span class="fc" id="L76">  private PlayerID m_originalOwner = null;</span>
+  // Was this unit in combat
+<span class="fc" id="L78">  private boolean m_wasInCombat = false;</span>
+<span class="fc" id="L79">  private boolean m_wasLoadedAfterCombat = false;</span>
+<span class="fc" id="L80">  private boolean m_wasAmphibious = false;</span>
+  // the territory this unit started in (for use with scrambling)
+<span class="fc" id="L82">  private Territory m_originatedFrom = null;</span>
+<span class="fc" id="L83">  private boolean m_wasScrambled = false;</span>
+<span class="fc" id="L84">  private int m_maxScrambleCount = -1;</span>
+<span class="fc" id="L85">  private boolean m_wasInAirBattle = false;</span>
+<span class="fc" id="L86">  private boolean m_disabled = false;</span>
+  // the number of airborne units launched by this unit this turn
+<span class="fc" id="L88">  private int m_launched = 0;</span>
+  // was this unit airborne and launched this turn
+<span class="fc" id="L90">  private boolean m_airborne = false;</span>
+
+  public static TripleAUnit get(final Unit u) {
+<span class="fc" id="L93">    return (TripleAUnit) u;</span>
+  }
+
+  public TripleAUnit(final UnitType type, final PlayerID owner, final GameData data) {
+<span class="fc" id="L97">    super(type, owner, data);</span>
+<span class="fc" id="L98">  }</span>
+
+  public Unit getTransportedBy() {
+<span class="fc" id="L101">    return m_transportedBy;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setTransportedBy(final TripleAUnit transportedBy) {
+<span class="fc" id="L106">    m_transportedBy = transportedBy;</span>
+<span class="fc" id="L107">  }</span>
+
+  /**
+   * This is a very slow method because it checks all territories on the map. Try not to use this method if possible.
+   */
+  public List&lt;Unit&gt; getTransporting() {
+    // we don't store the units we are transporting
+    // rather we look at the transported by property of units
+<span class="fc bfc" id="L115" title="All 2 branches covered.">    for (final Territory t : getData().getMap()) {</span>
+      // find the territory this transport is in
+<span class="fc bfc" id="L117" title="All 2 branches covered.">      if (t.getUnits().getUnits().contains(this)) {</span>
+<span class="fc" id="L118">        return t.getUnits().getMatches(new Match&lt;Unit&gt;() {</span>
+          @Override
+          public boolean match(final Unit o) {
+<span class="fc bfc" id="L121" title="All 2 branches covered.">            return TripleAUnit.get(o).getTransportedBy() == TripleAUnit.this;</span>
+          }
+        });
+      }
+    }
+<span class="fc" id="L126">    return Collections.emptyList();</span>
+  }
+
+  public List&lt;Unit&gt; getTransporting(final Collection&lt;Unit&gt; transportedUnitsPossible) {
+    // we don't store the units we are transporting
+    // rather we look at the transported by property of units
+<span class="fc" id="L132">    return Match.getMatches(transportedUnitsPossible, new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="fc bfc" id="L135" title="All 2 branches covered.">        return TripleAUnit.get(o).getTransportedBy() == TripleAUnit.this;</span>
+      }
+    });
+  }
+
+  public List&lt;Unit&gt; getUnloaded() {
+<span class="fc" id="L141">    return m_unloaded;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setUnloaded(final List&lt;Unit&gt; unloaded) {
+<span class="pc bpc" id="L146" title="1 of 4 branches missed.">    if (unloaded == null || unloaded.isEmpty()) {</span>
+<span class="fc" id="L147">      m_unloaded = Collections.emptyList();</span>
+<span class="fc" id="L148">    } else {</span>
+<span class="fc" id="L149">      m_unloaded = new ArrayList&lt;&gt;(unloaded);</span>
+    }
+<span class="fc" id="L151">  }</span>
+
+  public boolean getWasLoadedThisTurn() {
+<span class="fc" id="L154">    return m_wasLoadedThisTurn;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasLoadedThisTurn(final boolean value) {
+<span class="fc" id="L159">    m_wasLoadedThisTurn = value;</span>
+<span class="fc" id="L160">  }</span>
+
+  public Territory getUnloadedTo() {
+<span class="fc" id="L163">    return m_unloadedTo;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setUnloadedTo(final Territory unloadedTo) {
+<span class="fc" id="L168">    m_unloadedTo = unloadedTo;</span>
+<span class="fc" id="L169">  }</span>
+
+  public Territory getOriginatedFrom() {
+<span class="nc" id="L172">    return m_originatedFrom;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setOriginatedFrom(final Territory t) {
+<span class="nc" id="L177">    m_originatedFrom = t;</span>
+<span class="nc" id="L178">  }</span>
+
+  public boolean getWasUnloadedInCombatPhase() {
+<span class="fc" id="L181">    return m_wasUnloadedInCombatPhase;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasUnloadedInCombatPhase(final boolean value) {
+<span class="fc" id="L186">    m_wasUnloadedInCombatPhase = value;</span>
+<span class="fc" id="L187">  }</span>
+
+  public int getAlreadyMoved() {
+<span class="fc" id="L190">    return m_alreadyMoved;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setAlreadyMoved(final int alreadyMoved) {
+<span class="fc" id="L195">    m_alreadyMoved = alreadyMoved;</span>
+<span class="fc" id="L196">  }</span>
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setBonusMovement(final int bonusMovement) {
+<span class="nc" id="L200">    m_bonusMovement = bonusMovement;</span>
+<span class="nc" id="L201">  }</span>
+
+  public int getBonusMovement() {
+<span class="fc" id="L204">    return m_bonusMovement;</span>
+  }
+
+  /**
+   * Does not account for any movement already made. Generally equal to UnitType movement
+   */
+  public int getMaxMovementAllowed() {
+<span class="fc" id="L211">    return Math.max(0, m_bonusMovement + UnitAttachment.get(getType()).getMovement(getOwner()));</span>
+  }
+
+  public int getMovementLeft() {
+<span class="fc" id="L215">    return Math.max(0, UnitAttachment.get(getType()).getMovement(getOwner()) + m_bonusMovement - m_alreadyMoved);</span>
+  }
+
+  public static Tuple&lt;Integer, Integer&gt; getMinAndMaxMovementLeft(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L219">    int min = 100000;</span>
+<span class="nc" id="L220">    int max = 0;</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L222">      final int left = ((TripleAUnit) u).getMovementLeft();</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">      if (left &gt; max) {</span>
+<span class="nc" id="L224">        max = left;</span>
+      }
+<span class="nc bnc" id="L226" title="All 2 branches missed.">      if (left &lt; min) {</span>
+<span class="nc" id="L227">        min = left;</span>
+      }
+    }
+<span class="nc bnc" id="L230" title="All 2 branches missed.">    if (max &lt; min) {</span>
+<span class="nc" id="L231">      min = max;</span>
+    }
+<span class="nc" id="L233">    return Tuple.of(min, max);</span>
+  }
+
+  public int getUnitDamage() {
+<span class="fc" id="L237">    return m_unitDamage;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setUnitDamage(final int unitDamage) {
+<span class="fc" id="L242">    m_unitDamage = unitDamage;</span>
+<span class="fc" id="L243">  }</span>
+
+  public boolean getSubmerged() {
+<span class="fc" id="L246">    return m_submerged;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setSubmerged(final boolean submerged) {
+<span class="fc" id="L251">    m_submerged = submerged;</span>
+<span class="fc" id="L252">  }</span>
+
+  public PlayerID getOriginalOwner() {
+<span class="fc" id="L255">    return m_originalOwner;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setOriginalOwner(final PlayerID originalOwner) {
+<span class="fc" id="L260">    m_originalOwner = originalOwner;</span>
+<span class="fc" id="L261">  }</span>
+
+  public boolean getWasInCombat() {
+<span class="fc" id="L264">    return m_wasInCombat;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasInCombat(final boolean value) {
+<span class="fc" id="L269">    m_wasInCombat = value;</span>
+<span class="fc" id="L270">  }</span>
+
+  public boolean getWasScrambled() {
+<span class="fc" id="L273">    return m_wasScrambled;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasScrambled(final boolean value) {
+<span class="nc" id="L278">    m_wasScrambled = value;</span>
+<span class="nc" id="L279">  }</span>
+
+  public int getMaxScrambleCount() {
+<span class="nc" id="L282">    return m_maxScrambleCount;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setMaxScrambleCount(final int value) {
+<span class="nc" id="L287">    m_maxScrambleCount = value;</span>
+<span class="nc" id="L288">  }</span>
+
+  public int getLaunched() {
+<span class="fc" id="L291">    return m_launched;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setLaunched(final int value) {
+<span class="nc" id="L296">    m_launched = value;</span>
+<span class="nc" id="L297">  }</span>
+
+  public boolean getAirborne() {
+<span class="fc" id="L300">    return m_airborne;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setAirborne(final boolean value) {
+<span class="nc" id="L305">    m_airborne = value;</span>
+<span class="nc" id="L306">  }</span>
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasInAirBattle(final boolean value) {
+<span class="nc" id="L310">    m_wasInAirBattle = value;</span>
+<span class="nc" id="L311">  }</span>
+
+  public boolean getWasInAirBattle() {
+<span class="fc" id="L314">    return m_wasInAirBattle;</span>
+  }
+
+  public boolean getWasLoadedAfterCombat() {
+<span class="nc" id="L318">    return m_wasLoadedAfterCombat;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasLoadedAfterCombat(final boolean value) {
+<span class="nc" id="L323">    m_wasLoadedAfterCombat = value;</span>
+<span class="nc" id="L324">  }</span>
+
+  public List&lt;Unit&gt; getDependents() {
+<span class="nc" id="L327">    return getTransporting();</span>
+  }
+
+  public Unit getDependentOf() {
+<span class="nc bnc" id="L331" title="All 2 branches missed.">    if (m_transportedBy != null) {</span>
+<span class="nc" id="L332">      return m_transportedBy;</span>
+    }
+    // TODO: add support for carriers as well
+<span class="nc" id="L335">    return null;</span>
+  }
+
+  public boolean getWasAmphibious() {
+<span class="fc" id="L339">    return m_wasAmphibious;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setWasAmphibious(final boolean value) {
+<span class="fc" id="L344">    m_wasAmphibious = value;</span>
+<span class="fc" id="L345">  }</span>
+
+  public boolean getDisabled() {
+<span class="nc" id="L348">    return m_disabled;</span>
+  }
+
+  @GameProperty(xmlProperty = false, gameProperty = true, adds = false)
+  public void setDisabled(final boolean value) {
+<span class="nc" id="L353">    m_disabled = value;</span>
+<span class="nc" id="L354">  }</span>
+
+  /**
+   * How much more damage can this unit take?
+   * Will return 0 if the unit cannot be damaged, or is at max damage
+   */
+  public int getHowMuchMoreDamageCanThisUnitTake(final Unit u, final Territory t) {
+<span class="nc bnc" id="L361" title="All 2 branches missed.">    if (!Matches.UnitCanBeDamaged.match(u)) {</span>
+<span class="nc" id="L362">      return 0;</span>
+    }
+<span class="nc" id="L364">    final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="nc bnc" id="L365" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(u.getData())) {</span>
+<span class="nc" id="L366">      return Math.max(0, getHowMuchDamageCanThisUnitTakeTotal(u, t) - taUnit.getUnitDamage());</span>
+    } else {
+<span class="nc" id="L368">      return Integer.MAX_VALUE;</span>
+    }
+  }
+
+  /**
+   * How much damage is the max this unit can take, accounting for territory, etc.
+   * Will return -1 if the unit is of the type that cannot be damaged
+   */
+  public int getHowMuchDamageCanThisUnitTakeTotal(final Unit u, final Territory t) {
+<span class="pc bpc" id="L377" title="1 of 2 branches missed.">    if (!Matches.UnitCanBeDamaged.match(u)) {</span>
+<span class="nc" id="L378">      return -1;</span>
+    }
+<span class="fc" id="L380">    final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="fc" id="L381">    final int territoryUnitProduction = TerritoryAttachment.getUnitProduction(t);</span>
+<span class="pc bpc" id="L382" title="1 of 2 branches missed.">    if (games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(u.getData())) {</span>
+<span class="pc bpc" id="L383" title="1 of 2 branches missed.">      if (ua.getMaxDamage() &lt;= 0) {</span>
+        // factories may or may not have max damage set, so we must still determine here
+        // assume that if maxDamage &lt;= 0, then the max damage must be based on the territory value
+        // can use &quot;production&quot; or &quot;unitProduction&quot;
+<span class="nc" id="L387">        return territoryUnitProduction * 2;</span>
+      } else {
+<span class="fc bfc" id="L389" title="All 2 branches covered.">        if (Matches.UnitCanProduceUnits.match(u)) {</span>
+<span class="fc bfc" id="L390" title="All 2 branches covered.">          if (ua.getCanProduceXUnits() &lt; 0) {</span>
+            // can use &quot;production&quot; or &quot;unitProduction&quot;
+<span class="fc" id="L392">            return territoryUnitProduction * ua.getMaxDamage();</span>
+          } else {
+<span class="fc" id="L394">            return ua.getMaxDamage();</span>
+          }
+        } else {
+<span class="fc" id="L397">          return ua.getMaxDamage();</span>
+        }
+      }
+    } else {
+<span class="nc" id="L401">      return Integer.MAX_VALUE;</span>
+    }
+  }
+
+  public int getHowMuchCanThisUnitBeRepaired(final Unit u, final Territory t) {
+<span class="nc" id="L406">    return Math.max(0,</span>
+<span class="nc" id="L407">        (this.getHowMuchDamageCanThisUnitTakeTotal(u, t) - this.getHowMuchMoreDamageCanThisUnitTake(u, t)));</span>
+  }
+
+  public int getHowMuchShouldUnitBeRepairedToNotBeDisabled(final Unit u, final Territory t) {
+<span class="nc" id="L411">    final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L412">    final int maxOperationalDamage = ua.getMaxOperationalDamage();</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">    if (maxOperationalDamage &lt; 0) {</span>
+<span class="nc" id="L414">      return 0;</span>
+    }
+<span class="nc" id="L416">    final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="nc" id="L417">    final int currentDamage = taUnit.getUnitDamage();</span>
+<span class="nc" id="L418">    return Math.max(0, currentDamage - maxOperationalDamage);</span>
+  }
+
+  public static int getProductionPotentialOfTerritory(final Collection&lt;Unit&gt; unitsAtStartOfStepInTerritory,
+      final Territory producer, final PlayerID player, final GameData data, final boolean accountForDamage,
+      final boolean mathMaxZero) {
+<span class="fc" id="L424">    return getHowMuchCanUnitProduce(</span>
+<span class="fc" id="L425">        getBiggestProducer(unitsAtStartOfStepInTerritory, producer, player, data, accountForDamage), producer, player,</span>
+<span class="fc" id="L426">        data, accountForDamage, mathMaxZero);</span>
+  }
+
+  public static Unit getBiggestProducer(final Collection&lt;Unit&gt; units, final Territory producer, final PlayerID player,
+      final GameData data, final boolean accountForDamage) {
+<span class="fc" id="L431">    final CompositeMatchAnd&lt;Unit&gt; factoryMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L432">        Matches.UnitIsOwnedAndIsFactoryOrCanProduceUnits(player), Matches.unitIsBeingTransported().invert());</span>
+<span class="pc bpc" id="L433" title="1 of 2 branches missed.">    if (producer.isWater()) {</span>
+<span class="nc" id="L434">      factoryMatch.add(Matches.UnitIsLand.invert());</span>
+<span class="nc" id="L435">    } else {</span>
+<span class="fc" id="L436">      factoryMatch.add(Matches.UnitIsSea.invert());</span>
+    }
+<span class="fc" id="L438">    final Collection&lt;Unit&gt; factories = Match.getMatches(units, factoryMatch);</span>
+<span class="pc bpc" id="L439" title="1 of 2 branches missed.">    if (factories.isEmpty()) {</span>
+<span class="nc" id="L440">      return null;</span>
+    }
+<span class="fc" id="L442">    final IntegerMap&lt;Unit&gt; productionPotential = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L443">    Unit highestUnit = factories.iterator().next();</span>
+<span class="fc" id="L444">    int highestCapacity = Integer.MIN_VALUE;</span>
+<span class="fc bfc" id="L445" title="All 2 branches covered.">    for (final Unit u : factories) {</span>
+<span class="fc" id="L446">      final int capacity = getHowMuchCanUnitProduce(u, producer, player, data, accountForDamage, false);</span>
+<span class="fc" id="L447">      productionPotential.put(u, capacity);</span>
+<span class="pc bpc" id="L448" title="1 of 2 branches missed.">      if (capacity &gt; highestCapacity) {</span>
+<span class="fc" id="L449">        highestCapacity = capacity;</span>
+<span class="fc" id="L450">        highestUnit = u;</span>
+      }
+    }
+<span class="fc" id="L453">    return highestUnit;</span>
+  }
+
+  public static int getHowMuchCanUnitProduce(final Unit u, final Territory producer, final PlayerID player,
+      final GameData data, final boolean accountForDamage, final boolean mathMaxZero) {
+<span class="pc bpc" id="L458" title="1 of 2 branches missed.">    if (u == null) {</span>
+<span class="nc" id="L459">      return 0;</span>
+    }
+<span class="pc bpc" id="L461" title="1 of 2 branches missed.">    if (!Matches.UnitCanProduceUnits.match(u)) {</span>
+<span class="nc" id="L462">      return 0;</span>
+    }
+<span class="fc" id="L464">    int productionCapacity = 0;</span>
+<span class="fc" id="L465">    final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="fc" id="L466">    final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="fc" id="L467">    final TerritoryAttachment ta = TerritoryAttachment.get(producer);</span>
+<span class="fc" id="L468">    int territoryProduction = 0;</span>
+<span class="fc" id="L469">    int territoryUnitProduction = 0;</span>
+<span class="pc bpc" id="L470" title="1 of 2 branches missed.">    if (ta != null) {</span>
+<span class="fc" id="L471">      territoryProduction = ta.getProduction();</span>
+<span class="fc" id="L472">      territoryUnitProduction = ta.getUnitProduction();</span>
+    }
+<span class="pc bpc" id="L474" title="1 of 2 branches missed.">    if (accountForDamage) {</span>
+<span class="fc bfc" id="L475" title="All 2 branches covered.">      if (games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="pc bpc" id="L476" title="1 of 2 branches missed.">        if (ua.getCanProduceXUnits() &lt; 0) {</span>
+          // we could use territoryUnitProduction OR
+          // territoryProduction if we wanted to, however we should
+          // change damage to be based on whichever we choose.
+<span class="fc" id="L480">          productionCapacity = territoryUnitProduction - taUnit.getUnitDamage();</span>
+<span class="fc" id="L481">        } else {</span>
+<span class="nc" id="L482">          productionCapacity = ua.getCanProduceXUnits() - taUnit.getUnitDamage();</span>
+        }
+<span class="nc" id="L484">      } else {</span>
+<span class="fc" id="L485">        productionCapacity = territoryProduction;</span>
+<span class="pc bpc" id="L486" title="1 of 2 branches missed.">        if (productionCapacity &lt; 1) {</span>
+<span class="nc" id="L487">          productionCapacity =</span>
+<span class="nc bnc" id="L488" title="All 4 branches missed.">              (games.strategy.triplea.Properties.getWW2V2(data) || games.strategy.triplea.Properties.getWW2V3(data)) ? 0</span>
+<span class="nc" id="L489">                  : 1;</span>
+        }
+      }
+<span class="nc" id="L492">    } else {</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">      if (ua.getCanProduceXUnits() &lt; 0</span>
+<span class="nc bnc" id="L494" title="All 2 branches missed.">          &amp;&amp; !games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L495">        productionCapacity = territoryProduction;</span>
+<span class="nc bnc" id="L496" title="All 2 branches missed.">      } else if (ua.getCanProduceXUnits() &lt; 0</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">          &amp;&amp; games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L498">        productionCapacity = territoryUnitProduction;</span>
+<span class="nc" id="L499">      } else {</span>
+<span class="nc" id="L500">        productionCapacity = ua.getCanProduceXUnits();</span>
+      }
+<span class="nc bnc" id="L502" title="All 2 branches missed.">      if (productionCapacity &lt; 1</span>
+<span class="nc bnc" id="L503" title="All 2 branches missed.">          &amp;&amp; !games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L504">        productionCapacity =</span>
+<span class="nc bnc" id="L505" title="All 4 branches missed.">            (games.strategy.triplea.Properties.getWW2V2(data) || games.strategy.triplea.Properties.getWW2V3(data)) ? 0</span>
+<span class="nc" id="L506">                : 1;</span>
+      }
+    }
+    // Increase production if have industrial technology
+<span class="pc bpc" id="L510" title="1 of 2 branches missed.">    if (territoryProduction &gt;= TechAbilityAttachment.getMinimumTerritoryValueForProductionBonus(player, data)) {</span>
+<span class="fc" id="L511">      productionCapacity += TechAbilityAttachment.getProductionBonus(u.getType(), player, data);</span>
+    }
+<span class="fc bfc" id="L513" title="All 2 branches covered.">    if (mathMaxZero) {</span>
+<span class="fc" id="L514">      return Math.max(0, productionCapacity);</span>
+    } else {
+<span class="fc" id="L516">      return productionCapacity;</span>
+    }
+  }
+
+  /**
+   * Currently made for translating unit damage from one unit to another unit. Will adjust damage to be within max
+   * damage for the new units.
+   *
+   * @param unitGivingAttributes
+   * @param unitsThatWillGetAttributes
+   * @param t
+   * @return change for unit's properties
+   */
+  public static Change translateAttributesToOtherUnits(final Unit unitGivingAttributes,
+      final Collection&lt;Unit&gt; unitsThatWillGetAttributes, final Territory t) {
+<span class="nc" id="L531">    final CompositeChange changes = new CompositeChange();</span>
+    // must look for m_hits, m_unitDamage,
+<span class="nc" id="L533">    final TripleAUnit taUnit = (TripleAUnit) unitGivingAttributes;</span>
+<span class="nc" id="L534">    final int combatDamage = taUnit.getHits();</span>
+<span class="nc" id="L535">    final IntegerMap&lt;Unit&gt; hits = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">    if (combatDamage &gt; 0) {</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">      for (final Unit u : unitsThatWillGetAttributes) {</span>
+<span class="nc" id="L538">        hits.put(u, combatDamage);</span>
+      }
+    }
+<span class="nc bnc" id="L541" title="All 2 branches missed.">    if (hits.size() &gt; 0) {</span>
+<span class="nc" id="L542">      changes.add(ChangeFactory.unitsHit(hits));</span>
+    }
+<span class="nc" id="L544">    final int unitDamage = taUnit.getUnitDamage();</span>
+<span class="nc" id="L545">    final IntegerMap&lt;Unit&gt; damageMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">    if (unitDamage &gt; 0) {</span>
+<span class="nc bnc" id="L547" title="All 2 branches missed.">      for (final Unit u : unitsThatWillGetAttributes) {</span>
+<span class="nc" id="L548">        final TripleAUnit taNew = (TripleAUnit) u;</span>
+<span class="nc" id="L549">        final int maxDamage = taNew.getHowMuchDamageCanThisUnitTakeTotal(u, t);</span>
+<span class="nc" id="L550">        final int transferDamage = Math.max(0, Math.min(unitDamage, maxDamage));</span>
+<span class="nc bnc" id="L551" title="All 2 branches missed.">        if (transferDamage &lt;= 0) {</span>
+<span class="nc" id="L552">          continue;</span>
+        }
+<span class="nc" id="L554">        damageMap.put(u, transferDamage);</span>
+      }
+    }
+<span class="nc" id="L557">    changes.add(ChangeFactory.bombingUnitDamage(damageMap));</span>
+<span class="nc" id="L558">    return changes;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

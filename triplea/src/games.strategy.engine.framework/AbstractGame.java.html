@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>AbstractGame.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework</a> &gt; <span class="el_source">AbstractGame.java</span></div><h1>AbstractGame.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.PlayerList;
+import games.strategy.engine.data.PlayerManager;
+import games.strategy.engine.data.events.GameStepListener;
+import games.strategy.engine.display.DefaultDisplayBridge;
+import games.strategy.engine.display.IDisplay;
+import games.strategy.engine.gamePlayer.DefaultPlayerBridge;
+import games.strategy.engine.gamePlayer.IGamePlayer;
+import games.strategy.engine.gamePlayer.IPlayerBridge;
+import games.strategy.engine.message.IChannelMessenger;
+import games.strategy.engine.message.IRemoteMessenger;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.vault.Vault;
+import games.strategy.net.IMessenger;
+import games.strategy.net.INode;
+import games.strategy.net.Messengers;
+import games.strategy.sound.ISound;
+import games.strategy.util.ListenerList;
+
+/**
+ * This abstract class keeps common variables and methods from a game (ClientGame or ServerGame).
+ */
+abstract public class AbstractGame implements IGame {
+  protected static final String DISPLAY_CHANNEL = &quot;games.strategy.engine.framework.AbstractGame.DISPLAY_CHANNEL&quot;;
+  protected static final String SOUND_CHANNEL = &quot;games.strategy.engine.framework.AbstractGame.SOUND_CHANNEL&quot;;
+  protected final GameData m_data;
+  protected final IMessenger m_messenger;
+  protected final IRemoteMessenger m_remoteMessenger;
+  protected final IChannelMessenger m_channelMessenger;
+<span class="nc" id="L37">  protected final Map&lt;PlayerID, IGamePlayer&gt; m_gamePlayers = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L38">  protected volatile boolean m_isGameOver = false;</span>
+  protected final Vault m_vault;
+  protected IGameModifiedChannel m_gameModifiedChannel;
+  protected final PlayerManager m_playerManager;
+<span class="nc" id="L42">  protected boolean m_firstRun = true;</span>
+<span class="nc" id="L43">  protected final ListenerList&lt;GameStepListener&gt; m_gameStepListeners = new ListenerList&lt;&gt;();</span>
+
+<span class="nc" id="L45">  public AbstractGame(final GameData data, final Set&lt;IGamePlayer&gt; gamePlayers,</span>
+      final Map&lt;String, INode&gt; remotePlayerMapping, final Messengers messengers) {
+<span class="nc" id="L47">    m_data = data;</span>
+<span class="nc" id="L48">    m_messenger = messengers.getMessenger();</span>
+<span class="nc" id="L49">    m_remoteMessenger = messengers.getRemoteMessenger();</span>
+<span class="nc" id="L50">    m_channelMessenger = messengers.getChannelMessenger();</span>
+<span class="nc" id="L51">    m_vault = new Vault(m_channelMessenger);</span>
+<span class="nc" id="L52">    final Map&lt;String, INode&gt; allPlayers = new HashMap&lt;&gt;(remotePlayerMapping);</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">    for (final IGamePlayer player : gamePlayers) {</span>
+      // this is necessary for Server games, but not needed for client games.
+<span class="nc" id="L55">      allPlayers.put(player.getName(), m_messenger.getLocalNode());</span>
+    }
+<span class="nc" id="L57">    m_playerManager = new PlayerManager(allPlayers);</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">    if (m_playerManager == null) {</span>
+<span class="nc" id="L59">      throw new IllegalArgumentException(&quot;Player manager cant be null&quot;);</span>
+    }
+<span class="nc" id="L61">    setupLocalPlayers(gamePlayers);</span>
+<span class="nc" id="L62">  }</span>
+
+  /**
+   * @param localPlayers
+   */
+  private void setupLocalPlayers(final Set&lt;IGamePlayer&gt; localPlayers) {
+<span class="nc" id="L68">    final PlayerList playerList = m_data.getPlayerList();</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">    for (final IGamePlayer gp : localPlayers) {</span>
+<span class="nc" id="L70">      final PlayerID player = playerList.getPlayerID(gp.getName());</span>
+<span class="nc" id="L71">      m_gamePlayers.put(player, gp);</span>
+<span class="nc" id="L72">      final IPlayerBridge bridge = new DefaultPlayerBridge(this);</span>
+<span class="nc" id="L73">      gp.initialize(bridge, player);</span>
+<span class="nc" id="L74">      final RemoteName descriptor = ServerGame.getRemoteName(gp.getPlayerID(), m_data);</span>
+<span class="nc" id="L75">      m_remoteMessenger.registerRemote(gp, descriptor);</span>
+    }
+<span class="nc" id="L77">  }</span>
+
+  /**
+   * @param stepName
+   *        step name
+   * @param delegateName
+   *        delegate name
+   * @param player
+   *        playerID
+   * @param round
+   *        round number
+   * @param displayName
+   *        display name
+   */
+  protected void notifyGameStepListeners(final String stepName, final String delegateName, final PlayerID player,
+      final int round, final String displayName) {
+<span class="nc bnc" id="L93" title="All 2 branches missed.">    for (final GameStepListener listener : m_gameStepListeners) {</span>
+<span class="nc" id="L94">      listener.gameStepChanged(stepName, delegateName, player, round, displayName);</span>
+    }
+<span class="nc" id="L96">  }</span>
+
+  @Override
+  public GameData getData() {
+<span class="nc" id="L100">    return m_data;</span>
+  }
+
+  @Override
+  public Vault getVault() {
+<span class="nc" id="L105">    return m_vault;</span>
+  }
+
+  @Override
+  public boolean isGameOver() {
+<span class="nc" id="L110">    return m_isGameOver;</span>
+  }
+
+  @Override
+  public IRemoteMessenger getRemoteMessenger() {
+<span class="nc" id="L115">    return m_remoteMessenger;</span>
+  }
+
+  @Override
+  public IChannelMessenger getChannelMessenger() {
+<span class="nc" id="L120">    return m_channelMessenger;</span>
+  }
+
+  @Override
+  public IMessenger getMessenger() {
+<span class="nc" id="L125">    return m_messenger;</span>
+  }
+
+  @Override
+  public PlayerManager getPlayerManager() {
+<span class="nc" id="L130">    return m_playerManager;</span>
+  }
+
+  @Override
+  public void addGameStepListener(final GameStepListener listener) {
+<span class="nc" id="L135">    m_gameStepListeners.add(listener);</span>
+<span class="nc" id="L136">  }</span>
+
+  @Override
+  public void removeGameStepListener(final GameStepListener listener) {
+<span class="nc" id="L140">    m_gameStepListeners.remove(listener);</span>
+<span class="nc" id="L141">  }</span>
+
+  public static RemoteName getDisplayChannel(final GameData data) {
+<span class="nc" id="L144">    return new RemoteName(DISPLAY_CHANNEL, data.getGameLoader().getDisplayType());</span>
+  }
+
+  @Override
+  public void addDisplay(final IDisplay display) {
+<span class="nc" id="L149">    display.initialize(new DefaultDisplayBridge(m_data));</span>
+<span class="nc" id="L150">    m_channelMessenger.registerChannelSubscriber(display, getDisplayChannel(getData()));</span>
+<span class="nc" id="L151">  }</span>
+
+  @Override
+  public void removeDisplay(final IDisplay display) {
+<span class="nc" id="L155">    m_channelMessenger.unregisterChannelSubscriber(display, getDisplayChannel(getData()));</span>
+<span class="nc" id="L156">  }</span>
+
+  public static RemoteName getSoundChannel(final GameData data) {
+<span class="nc" id="L159">    return new RemoteName(SOUND_CHANNEL, data.getGameLoader().getSoundType());</span>
+  }
+
+  @Override
+  public void addSoundChannel(final ISound soundChannel) {
+<span class="nc" id="L164">    m_channelMessenger.registerChannelSubscriber(soundChannel, getSoundChannel(getData()));</span>
+<span class="nc" id="L165">  }</span>
+
+  @Override
+  public void removeSoundChannel(final ISound soundChannel) {
+<span class="nc" id="L169">    m_channelMessenger.unregisterChannelSubscriber(soundChannel, getSoundChannel(getData()));</span>
+<span class="nc" id="L170">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

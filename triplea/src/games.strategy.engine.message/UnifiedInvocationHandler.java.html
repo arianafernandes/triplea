@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>UnifiedInvocationHandler.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.message</a> &gt; <span class="el_source">UnifiedInvocationHandler.java</span></div><h1>UnifiedInvocationHandler.java</h1><pre class="source lang-java linenums">package games.strategy.engine.message;
+
+import java.io.Serializable;
+import java.lang.reflect.Method;
+
+import games.strategy.engine.message.unifiedmessenger.UnifiedMessenger;
+import games.strategy.triplea.util.WrappedInvocationHandler;
+
+/**
+ * Invocation handler for the UnifiedMessenger
+ */
+/**
+ * Handles the invocation for a channel
+ */
+class UnifiedInvocationHandler extends WrappedInvocationHandler {
+  private final UnifiedMessenger m_messenger;
+  private final String m_endPointName;
+  private final boolean m_ignoreResults;
+  private final Class&lt;?&gt; m_remoteType;
+
+  public UnifiedInvocationHandler(final UnifiedMessenger messenger, final String endPointName,
+      final boolean ignoreResults, final Class&lt;?&gt; remoteType) {
+    // equality and hash code are bassed on end point name
+<span class="fc" id="L24">    super(endPointName);</span>
+<span class="fc" id="L25">    m_messenger = messenger;</span>
+<span class="fc" id="L26">    m_endPointName = endPointName;</span>
+<span class="fc" id="L27">    m_ignoreResults = ignoreResults;</span>
+<span class="fc" id="L28">    m_remoteType = remoteType;</span>
+<span class="fc" id="L29">  }</span>
+
+  @Override
+  public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+<span class="pc bpc" id="L33" title="1 of 2 branches missed.">    if (super.shouldHandle(method, args)) {</span>
+<span class="nc" id="L34">      return super.handle(method, args);</span>
+    }
+<span class="fc bfc" id="L36" title="All 2 branches covered.">    if (args != null) {</span>
+<span class="fc bfc" id="L37" title="All 2 branches covered.">      for (final Object o : args) {</span>
+<span class="pc bpc" id="L38" title="1 of 4 branches missed.">        if (o != null &amp;&amp; !(o instanceof Serializable)) {</span>
+<span class="nc" id="L39">          throw new IllegalArgumentException(</span>
+<span class="nc" id="L40">              o + &quot; is not serializable, all remote method args must be serializable.  method:&quot; + method);</span>
+        }
+      }
+    }
+<span class="fc" id="L44">    final RemoteMethodCall remoteMethodMsg =</span>
+<span class="fc" id="L45">        new RemoteMethodCall(m_endPointName, method.getName(), args, method.getParameterTypes(), m_remoteType);</span>
+<span class="fc bfc" id="L46" title="All 2 branches covered.">    if (m_ignoreResults) {</span>
+<span class="fc" id="L47">      m_messenger.invoke(m_endPointName, remoteMethodMsg);</span>
+<span class="fc" id="L48">      return null;</span>
+    } else {
+<span class="fc" id="L50">      final RemoteMethodCallResults response = m_messenger.invokeAndWait(m_endPointName, remoteMethodMsg);</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">      if (response.getException() != null) {</span>
+<span class="fc bfc" id="L52" title="All 2 branches covered.">        if (response.getException() instanceof MessengerException) {</span>
+<span class="fc" id="L53">          final MessengerException cle = (MessengerException) response.getException();</span>
+<span class="fc" id="L54">          cle.fillInInvokerStackTrace();</span>
+<span class="fc" id="L55">        } else {</span>
+          // do not chain the exception, we want to keep whatever the original exception's class was, so just add our
+          // bit to the stack
+          // trace.
+<span class="fc" id="L59">          final Throwable throwable = response.getException();</span>
+<span class="fc" id="L60">          final StackTraceElement[] exceptionTrace = throwable.getStackTrace();</span>
+<span class="fc" id="L61">          final Exception ourException =</span>
+<span class="fc" id="L62">              new Exception(throwable.getMessage() + &quot; exception in response from other system&quot;);</span>
+          // Thread.currentThread().getStackTrace();
+<span class="fc" id="L64">          final StackTraceElement[] ourTrace = ourException.getStackTrace();</span>
+<span class="pc bpc" id="L65" title="2 of 4 branches missed.">          if (exceptionTrace != null &amp;&amp; ourTrace != null) {</span>
+<span class="fc" id="L66">            final StackTraceElement[] combinedTrace = new StackTraceElement[(exceptionTrace.length + ourTrace.length)];</span>
+<span class="fc" id="L67">            int i = 0;</span>
+<span class="fc bfc" id="L68" title="All 2 branches covered.">            for (final StackTraceElement element : exceptionTrace) {</span>
+<span class="fc" id="L69">              combinedTrace[i] = element;</span>
+<span class="fc" id="L70">              i++;</span>
+            }
+<span class="fc bfc" id="L72" title="All 2 branches covered.">            for (final StackTraceElement element : ourTrace) {</span>
+<span class="fc" id="L73">              combinedTrace[i] = element;</span>
+<span class="fc" id="L74">              i++;</span>
+            }
+<span class="fc" id="L76">            throwable.setStackTrace(combinedTrace);</span>
+          }
+        }
+<span class="fc" id="L79">        throw response.getException();</span>
+      }
+<span class="fc" id="L81">      return response.getRVal();</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

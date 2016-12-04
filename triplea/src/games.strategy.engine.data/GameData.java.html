@@ -1,0 +1,500 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>GameData.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.data</a> &gt; <span class="el_source">GameData.java</span></div><h1>GameData.java</h1><pre class="source lang-java linenums">package games.strategy.engine.data;
+
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Hashtable;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import javax.swing.SwingUtilities;
+
+import games.strategy.engine.data.events.GameDataChangeListener;
+import games.strategy.engine.data.events.GameMapListener;
+import games.strategy.engine.data.events.TerritoryListener;
+import games.strategy.engine.data.properties.GameProperties;
+import games.strategy.engine.framework.IGameLoader;
+import games.strategy.engine.framework.message.PlayerListing;
+import games.strategy.engine.history.History;
+import games.strategy.thread.LockUtil;
+import games.strategy.triplea.ResourceLoader;
+import games.strategy.util.ListenerList;
+import games.strategy.util.Tuple;
+import games.strategy.util.Version;
+
+/**
+ * Central place to find all the information for a running game.
+ * Using this object you can find the territories, connections, production rules,
+ * unit types...
+ * &lt;p&gt;
+ * Threading. The game data, and all parts of the game data (such as Territories, Players, Units...) are protected by a
+ * read/write lock. If
+ * you are reading the game data, you should read while you have the read lock as below.
+ * &lt;p&gt;
+ * &lt;code&gt;
+ * data.acquireReadLock();
+ * try
+ * {
+ *   //read data here
+ * }
+ * finally
+ * {
+ *   data.releaseReadLock();
+ * }
+ * &lt;/code&gt;
+ * The exception is delegates within a start(), end() or any method called from an IGamePlayer through the delegates
+ * remote interface. The
+ * delegate will have a read lock for the duration of those methods.
+ * &lt;p&gt;
+ * Non engine code must NOT acquire the games writeLock(). All changes to game Data must be made through a
+ * DelegateBridge or through a
+ * History object.
+ * &lt;p&gt;
+ */
+public class GameData implements java.io.Serializable {
+  private static final long serialVersionUID = -2612710634080125728L;
+  public static final String GAME_UUID = &quot;GAME_UUID&quot;;
+<span class="fc" id="L63">  private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();</span>
+<span class="fc" id="L64">  private transient LockUtil lockUtil = new LockUtil();</span>
+<span class="fc" id="L65">  private volatile transient boolean forceInSwingEventThread = false;</span>
+  private String gameName;
+  private Version gameVersion;
+  private int diceSides;
+<span class="fc" id="L69">  private transient ListenerList&lt;TerritoryListener&gt; territoryListeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L70">  private transient ListenerList&lt;GameDataChangeListener&gt; dataChangeListeners =</span>
+<span class="fc" id="L71">      new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L72">  private transient ListenerList&lt;GameMapListener&gt; gameMapListeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L73">  private final AllianceTracker alliances = new AllianceTracker();</span>
+  // Tracks current relationships between players, this is empty if relationships aren't used
+<span class="fc" id="L75">  private final RelationshipTracker relationships = new RelationshipTracker(this);</span>
+  private final DelegateList delegateList;
+<span class="fc" id="L77">  private final GameMap map = new GameMap(this);</span>
+<span class="fc" id="L78">  private final PlayerList playerList = new PlayerList(this);</span>
+<span class="fc" id="L79">  private final ProductionFrontierList productionFrontierList = new ProductionFrontierList(this);</span>
+<span class="fc" id="L80">  private final ProductionRuleList productionRuleList = new ProductionRuleList(this);</span>
+<span class="fc" id="L81">  private final RepairFrontierList repairFrontierList = new RepairFrontierList(this);</span>
+<span class="fc" id="L82">  private final RepairRuleList repairRuleList = new RepairRuleList(this);</span>
+<span class="fc" id="L83">  private final ResourceList resourceList = new ResourceList(this);</span>
+<span class="fc" id="L84">  private final GameSequence sequence = new GameSequence(this);</span>
+<span class="fc" id="L85">  private final UnitTypeList unitTypeList = new UnitTypeList(this);</span>
+  // Tracks all relationshipTypes that are in the current game, default there will be the SelfRelation and the
+  // NullRelation any other relations are map designer created.
+<span class="fc" id="L88">  private final RelationshipTypeList relationshipTypeList = new RelationshipTypeList(this);</span>
+<span class="fc" id="L89">  private final GameProperties properties = new GameProperties(this);</span>
+<span class="fc" id="L90">  private final UnitsList unitsList = new UnitsList();</span>
+<span class="fc" id="L91">  private final TechnologyFrontier technologyFrontier = new TechnologyFrontier(&quot;allTechsForGame&quot;, this);</span>
+  private transient ResourceLoader resourceLoader;
+  private IGameLoader loader;
+<span class="fc" id="L94">  private final History gameHistory = new History(this);</span>
+<span class="fc" id="L95">  private volatile transient boolean testLockIsHeld = false;</span>
+<span class="fc" id="L96">  private final List&lt;Tuple&lt;IAttachment, ArrayList&lt;Tuple&lt;String, String&gt;&gt;&gt;&gt; attachmentOrderAndValues =</span>
+<span class="fc" id="L97">      new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L98">  private final Hashtable&lt;String, TerritoryEffect&gt; territoryEffectList = new Hashtable&lt;&gt;();</span>
+<span class="fc" id="L99">  private final BattleRecordsList battleRecordsList = new BattleRecordsList(this);</span>
+
+  /** Creates new GameData */
+  public GameData() {
+<span class="fc" id="L103">    super();</span>
+<span class="fc" id="L104">    delegateList = new DelegateList(this);</span>
+<span class="fc" id="L105">    properties.set(GAME_UUID, UUID.randomUUID().toString());</span>
+<span class="fc" id="L106">  }</span>
+
+  private void readObject(final ObjectInputStream in) throws IOException, ClassNotFoundException {
+<span class="fc" id="L109">    in.defaultReadObject();</span>
+<span class="fc" id="L110">    lockUtil = new LockUtil();</span>
+<span class="fc" id="L111">  }</span>
+
+  /**
+   * Return the GameMap. The game map allows you to list the territories in the game, and
+   * to see which territory is connected to which.
+   *
+   * @return the map for this game.
+   */
+  public GameMap getMap() {
+<span class="fc" id="L120">    return map;</span>
+  }
+
+  /**
+   * Print an exception report if we are testing the lock is held, and
+   * do not currently hold the read or write lock
+   */
+  private void ensureLockHeld() {
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">    if (!testLockIsHeld) {</span>
+<span class="fc" id="L129">      return;</span>
+    }
+<span class="nc bnc" id="L131" title="All 2 branches missed.">    if (readWriteLockMissing()) {</span>
+<span class="nc" id="L132">      return;</span>
+    }
+<span class="nc bnc" id="L134" title="All 4 branches missed.">    if (!lockUtil.isLockHeld(readWriteLock.readLock()) &amp;&amp; !lockUtil.isLockHeld(readWriteLock.writeLock())) {</span>
+<span class="nc" id="L135">      new Exception(&quot;Lock not held&quot;).printStackTrace(System.out);</span>
+    }
+<span class="nc" id="L137">  }</span>
+
+  /**
+   * @return a collection of all units in the game
+   */
+  public UnitsList getUnits() {
+    // ensureLockHeld();
+<span class="fc" id="L144">    return unitsList;</span>
+  }
+
+  /**
+   * @return list of Players in the game
+   */
+  public PlayerList getPlayerList() {
+<span class="fc" id="L151">    return playerList;</span>
+  }
+
+  /**
+   * @return list of resources available in the game.
+   */
+  public ResourceList getResourceList() {
+<span class="fc" id="L158">    ensureLockHeld();</span>
+<span class="fc" id="L159">    return resourceList;</span>
+  }
+
+  /**
+   * @return list of production Frontiers for this game.
+   */
+  public ProductionFrontierList getProductionFrontierList() {
+<span class="fc" id="L166">    ensureLockHeld();</span>
+<span class="fc" id="L167">    return productionFrontierList;</span>
+  }
+
+  /**
+   * @return list of Production Rules for the game.
+   */
+  public ProductionRuleList getProductionRuleList() {
+<span class="fc" id="L174">    ensureLockHeld();</span>
+<span class="fc" id="L175">    return productionRuleList;</span>
+  }
+
+  /**
+   * @return the Technology Frontier for this game.
+   */
+  public TechnologyFrontier getTechnologyFrontier() {
+<span class="fc" id="L182">    return technologyFrontier;</span>
+  }
+
+  /**
+   * @return the list of production Frontiers for this game.
+   */
+  public RepairFrontierList getRepairFrontierList() {
+<span class="fc" id="L189">    ensureLockHeld();</span>
+<span class="fc" id="L190">    return repairFrontierList;</span>
+  }
+
+  /**
+   * @return the list of Production Rules for the game.
+   */
+  public RepairRuleList getRepairRuleList() {
+<span class="fc" id="L197">    ensureLockHeld();</span>
+<span class="fc" id="L198">    return repairRuleList;</span>
+  }
+
+  /**
+   * @return the Alliance Tracker for the game.
+   */
+  public AllianceTracker getAllianceTracker() {
+<span class="fc" id="L205">    ensureLockHeld();</span>
+<span class="fc" id="L206">    return alliances;</span>
+  }
+
+  /**
+   * @return whether we should throw an error if changes to this game data are made outside of the swing
+   *         event thread.
+   */
+  public boolean areChangesOnlyInSwingEventThread() {
+<span class="fc" id="L214">    return forceInSwingEventThread;</span>
+  }
+
+  /**
+   * If set to true, then we will throw an error when the game data is changed outside
+   * the swing event thread.
+   */
+  public void forceChangesOnlyInSwingEventThread() {
+<span class="nc" id="L222">    forceInSwingEventThread = true;</span>
+<span class="nc" id="L223">  }</span>
+
+  public GameSequence getSequence() {
+<span class="fc" id="L226">    ensureLockHeld();</span>
+<span class="fc" id="L227">    return sequence;</span>
+  }
+
+  public UnitTypeList getUnitTypeList() {
+<span class="fc" id="L231">    ensureLockHeld();</span>
+<span class="fc" id="L232">    return unitTypeList;</span>
+  }
+
+  public DelegateList getDelegateList() {
+<span class="fc" id="L236">    ensureLockHeld();</span>
+<span class="fc" id="L237">    return delegateList;</span>
+  }
+
+  public UnitHolder getUnitHolder(final String name, final String type) {
+<span class="fc" id="L241">    ensureLockHeld();</span>
+<span class="fc bfc" id="L242" title="All 2 branches covered.">    if (type.equals(UnitHolder.PLAYER)) {</span>
+<span class="fc" id="L243">      return playerList.getPlayerID(name);</span>
+<span class="pc bpc" id="L244" title="1 of 2 branches missed.">    } else if (type.equals(UnitHolder.TERRITORY)) {</span>
+<span class="fc" id="L245">      return map.getTerritory(name);</span>
+    } else {
+<span class="nc" id="L247">      throw new IllegalStateException(&quot;Invalid type:&quot; + type);</span>
+    }
+  }
+
+  public GameProperties getProperties() {
+<span class="fc" id="L252">    return properties;</span>
+  }
+
+  public void addTerritoryListener(final TerritoryListener listener) {
+<span class="nc" id="L256">    territoryListeners.add(listener);</span>
+<span class="nc" id="L257">  }</span>
+
+  public void removeTerritoryListener(final TerritoryListener listener) {
+<span class="nc" id="L260">    territoryListeners.remove(listener);</span>
+<span class="nc" id="L261">  }</span>
+
+  public void addDataChangeListener(final GameDataChangeListener listener) {
+<span class="nc" id="L264">    dataChangeListeners.add(listener);</span>
+<span class="nc" id="L265">  }</span>
+
+  public void removeDataChangeListener(final GameDataChangeListener listener) {
+<span class="nc" id="L268">    dataChangeListeners.remove(listener);</span>
+<span class="nc" id="L269">  }</span>
+
+  public void addGameMapListener(final GameMapListener listener) {
+<span class="nc" id="L272">    gameMapListeners.add(listener);</span>
+<span class="nc" id="L273">  }</span>
+
+  public void removeGameMapListener(final GameMapListener listener) {
+<span class="nc" id="L276">    gameMapListeners.remove(listener);</span>
+<span class="nc" id="L277">  }</span>
+
+  void notifyTerritoryUnitsChanged(final Territory t) {
+<span class="pc" id="L280">    territoryListeners.forEach(territoryListener -&gt; territoryListener.unitsChanged(t));</span>
+<span class="fc" id="L281">  }</span>
+
+  void notifyTerritoryAttachmentChanged(final Territory t) {
+<span class="nc" id="L284">    territoryListeners.forEach(territoryListener -&gt; territoryListener.attachmentChanged(t));</span>
+<span class="nc" id="L285">  }</span>
+
+  void notifyTerritoryOwnerChanged(final Territory t) {
+<span class="pc" id="L288">    territoryListeners.forEach(territoryListener -&gt; territoryListener.ownerChanged(t));</span>
+<span class="fc" id="L289">  }</span>
+
+  void notifyGameDataChanged(final Change aChange) {
+<span class="pc" id="L292">    dataChangeListeners.forEach(dataChangelistener -&gt; dataChangelistener.gameDataChanged(aChange));</span>
+<span class="fc" id="L293">  }</span>
+
+  void notifyMapDataChanged() {
+<span class="nc" id="L296">    gameMapListeners.forEach(gameMapListener -&gt; gameMapListener.gameMapDataChanged());</span>
+<span class="nc" id="L297">  }</span>
+
+  public IGameLoader getGameLoader() {
+<span class="fc" id="L300">    return loader;</span>
+  }
+
+  void setGameLoader(final IGameLoader loader) {
+<span class="fc" id="L304">    this.loader = loader;</span>
+<span class="fc" id="L305">  }</span>
+
+  void setGameVersion(final Version gameVersion) {
+<span class="fc" id="L308">    this.gameVersion = gameVersion;</span>
+<span class="fc" id="L309">  }</span>
+
+  public Version getGameVersion() {
+<span class="nc" id="L312">    return gameVersion;</span>
+  }
+
+  void setGameName(final String gameName) {
+<span class="fc" id="L316">    this.gameName = gameName;</span>
+<span class="fc" id="L317">  }</span>
+
+  public String getGameName() {
+<span class="fc" id="L320">    return gameName;</span>
+  }
+
+  void setDiceSides(final int diceSides) {
+<span class="pc bpc" id="L324" title="2 of 4 branches missed.">    if (diceSides &gt; 0 &amp;&amp; diceSides &lt;= 200) {</span>
+<span class="fc" id="L325">      this.diceSides = diceSides;</span>
+<span class="fc" id="L326">    } else {</span>
+<span class="nc" id="L327">      this.diceSides = 6;</span>
+    }
+<span class="fc" id="L329">  }</span>
+
+  public int getDiceSides() {
+<span class="fc" id="L332">    return diceSides;</span>
+  }
+
+  public History getHistory() {
+    // don't ensure the lock is held when getting the history
+    // history operations often acquire the write lock
+    // and we cant acquire the write lock if we have the read lock
+<span class="nc" id="L339">    return gameHistory;</span>
+  }
+
+  /**
+   * Not to be called by mere mortals.
+   */
+  public void postDeSerialize() {
+<span class="fc" id="L346">    territoryListeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L347">    dataChangeListeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L348">    gameMapListeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L349">  }</span>
+
+  /**
+   * No changes to the game data should be made unless this lock is held.
+   * calls to acquire lock will block if the lock is held, and will be held
+   * until the release method is called
+   */
+  public void acquireReadLock() {
+<span class="pc bpc" id="L357" title="1 of 2 branches missed.">    if (readWriteLockMissing()) {</span>
+<span class="nc" id="L358">      return;</span>
+    }
+<span class="fc" id="L360">    lockUtil.acquireLock(readWriteLock.readLock());</span>
+<span class="fc" id="L361">  }</span>
+
+  public void releaseReadLock() {
+<span class="pc bpc" id="L364" title="1 of 2 branches missed.">    if (readWriteLockMissing()) {</span>
+<span class="nc" id="L365">      return;</span>
+    }
+<span class="fc" id="L367">    lockUtil.releaseLock(readWriteLock.readLock());</span>
+<span class="fc" id="L368">  }</span>
+
+  /**
+   * No changes to the game data should be made unless this lock is held.
+   * calls to acquire lock will block if the lock is held, and will be held
+   * until the release method is called
+   */
+  public void acquireWriteLock() {
+<span class="pc bpc" id="L376" title="1 of 2 branches missed.">    if (readWriteLockMissing()) {</span>
+<span class="nc" id="L377">      return;</span>
+    }
+<span class="fc" id="L379">    lockUtil.acquireLock(readWriteLock.writeLock());</span>
+<span class="fc" id="L380">  }</span>
+
+  public void releaseWriteLock() {
+<span class="pc bpc" id="L383" title="1 of 2 branches missed.">    if (readWriteLockMissing()) {</span>
+<span class="nc" id="L384">      return;</span>
+    }
+<span class="fc" id="L386">    lockUtil.releaseLock(readWriteLock.writeLock());</span>
+<span class="fc" id="L387">  }</span>
+
+  /**
+   * @return boolean, whether readWriteLock is missing
+   *         This can happen in very odd circumstances while deserializing.
+   */
+  private boolean readWriteLockMissing() {
+<span class="pc bpc" id="L394" title="1 of 2 branches missed.">    return readWriteLock == null;</span>
+  }
+
+  public void clearAllListeners() {
+<span class="nc" id="L398">    dataChangeListeners.clear();</span>
+<span class="nc" id="L399">    territoryListeners.clear();</span>
+<span class="nc" id="L400">    gameMapListeners.clear();</span>
+<span class="nc bnc" id="L401" title="All 2 branches missed.">    if (resourceLoader != null) {</span>
+<span class="nc" id="L402">      resourceLoader.close();</span>
+<span class="nc" id="L403">      resourceLoader = null;</span>
+    }
+<span class="nc" id="L405">  }</span>
+
+  /**
+   * On reads of the game data components, make sure that the
+   * read or write lock is held.
+   */
+  public void testLocksOnRead() {
+<span class="nc" id="L412">    testLockIsHeld = true;</span>
+<span class="nc" id="L413">  }</span>
+
+  public void addToAttachmentOrderAndValues(
+      final Tuple&lt;IAttachment, ArrayList&lt;Tuple&lt;String, String&gt;&gt;&gt; attachmentAndValues) {
+<span class="fc" id="L417">    attachmentOrderAndValues.add(attachmentAndValues);</span>
+<span class="fc" id="L418">  }</span>
+
+  public List&lt;Tuple&lt;IAttachment, ArrayList&lt;Tuple&lt;String, String&gt;&gt;&gt;&gt; getAttachmentOrderAndValues() {
+<span class="nc" id="L421">    return attachmentOrderAndValues;</span>
+  }
+
+  /**
+   * @return all relationshipTypes that are valid in this game, default there is the NullRelation (relation with the
+   *         Nullplayer / Neutral)
+   *         and the SelfRelation (Relation with yourself) all other relations are mapdesigner defined.
+   */
+  public RelationshipTypeList getRelationshipTypeList() {
+<span class="fc" id="L430">    ensureLockHeld();</span>
+<span class="fc" id="L431">    return relationshipTypeList;</span>
+  }
+
+  /**
+   * @return a tracker which tracks all current relationships that exist between all players.
+   */
+  public RelationshipTracker getRelationshipTracker() {
+<span class="fc" id="L438">    ensureLockHeld();</span>
+<span class="fc" id="L439">    return relationships;</span>
+  }
+
+  public Hashtable&lt;String, TerritoryEffect&gt; getTerritoryEffectList() {
+<span class="fc" id="L443">    return territoryEffectList;</span>
+  }
+
+  public BattleRecordsList getBattleRecordsList() {
+<span class="fc" id="L447">    return battleRecordsList;</span>
+  }
+
+  /**
+   * Call this before starting the game and before the game data has been sent to the clients in order to make any
+   * final modifications to the game data.
+   * For example, this method will remove player delegates for players who have been disabled.
+   */
+  public void doPreGameStartDataModifications(final PlayerListing playerListing) {
+<span class="nc" id="L456">    final Set&lt;PlayerID&gt; playersWhoShouldBeRemoved = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L457">    final Map&lt;String, Boolean&gt; playersEnabledListing = playerListing.getPlayersEnabledListing();</span>
+<span class="nc" id="L458">    playerList.getPlayers().stream()</span>
+<span class="nc bnc" id="L459" title="All 4 branches missed.">        .filter(p -&gt; (p.getCanBeDisabled() &amp;&amp; !playersEnabledListing.get(p.getName())))</span>
+<span class="nc" id="L460">        .forEach(p -&gt; {</span>
+<span class="nc" id="L461">          p.setIsDisabled(true);</span>
+<span class="nc" id="L462">          playersWhoShouldBeRemoved.add(p);</span>
+<span class="nc" id="L463">        });</span>
+<span class="nc bnc" id="L464" title="All 2 branches missed.">    if (!playersWhoShouldBeRemoved.isEmpty()) {</span>
+<span class="nc" id="L465">      removePlayerStepsFromSequence(playersWhoShouldBeRemoved);</span>
+    }
+<span class="nc" id="L467">  }</span>
+
+  private void removePlayerStepsFromSequence(final Set&lt;PlayerID&gt; playersWhoShouldBeRemoved) {
+<span class="nc" id="L470">    final int currentIndex = sequence.getStepIndex();</span>
+<span class="nc" id="L471">    int index = 0;</span>
+<span class="nc" id="L472">    int toSubtract = 0;</span>
+<span class="nc" id="L473">    final Iterator&lt;GameStep&gt; stepIter = sequence.iterator();</span>
+<span class="nc bnc" id="L474" title="All 2 branches missed.">    while (stepIter.hasNext()) {</span>
+<span class="nc" id="L475">      final GameStep step = stepIter.next();</span>
+<span class="nc bnc" id="L476" title="All 2 branches missed.">      if (playersWhoShouldBeRemoved.contains(step.getPlayerID())) {</span>
+<span class="nc" id="L477">        stepIter.remove();</span>
+<span class="nc bnc" id="L478" title="All 2 branches missed.">        if (index &lt; currentIndex) {</span>
+<span class="nc" id="L479">          toSubtract++;</span>
+        }
+      }
+<span class="nc" id="L482">      index++;</span>
+    }
+<span class="nc" id="L484">    sequence.setStepIndex(Math.max(0, Math.min(sequence.size() - 1, currentIndex - toSubtract)));</span>
+<span class="nc" id="L485">  }</span>
+
+  public void performChange(final Change change) {
+<span class="pc bpc" id="L488" title="3 of 4 branches missed.">    if (areChangesOnlyInSwingEventThread() &amp;&amp; !SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L489">      throw new IllegalStateException(&quot;Wrong thread&quot;);</span>
+    }
+    try {
+<span class="fc" id="L492">      acquireWriteLock();</span>
+<span class="fc" id="L493">      change.perform(this);</span>
+<span class="pc" id="L494">    } finally {</span>
+<span class="pc" id="L495">      releaseWriteLock();</span>
+<span class="nc" id="L496">    }</span>
+<span class="fc" id="L497">    notifyGameDataChanged(change);</span>
+<span class="fc" id="L498">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

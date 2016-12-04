@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ClientFileSystemHelper.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine</a> &gt; <span class="el_source">ClientFileSystemHelper.java</span></div><h1>ClientFileSystemHelper.java</h1><pre class="source lang-java linenums">package games.strategy.engine;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.config.GameEnginePropertyFileReader;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.framework.system.SystemProperties;
+import games.strategy.util.Version;
+
+/**
+ * Pure utility class, final and private constructor to enforce this
+ * WARNING: do not call ClientContext in this class. ClientContext call this class in turn
+ * during construction, depending upon ordering this can cause an infinite call loop.
+ */
+public final class ClientFileSystemHelper {
+
+<span class="nc" id="L25">  private ClientFileSystemHelper() {}</span>
+
+  public static File getRootFolder() {
+<span class="fc" id="L28">    final String fileName = getGameRunnerFileLocation(GameRunner.class.getSimpleName() + &quot;.class&quot;);</span>
+
+<span class="fc" id="L30">    final String tripleaJarName = &quot;triplea.jar!&quot;;</span>
+<span class="pc bpc" id="L31" title="1 of 2 branches missed.">    if (fileName.contains(tripleaJarName)) {</span>
+<span class="nc" id="L32">      return getRootFolderRelativeToJar(fileName, tripleaJarName);</span>
+    }
+
+<span class="fc" id="L35">    final String tripleaJarNameWithEngineVersion = getTripleaJarWithEngineVersionStringPath();</span>
+<span class="pc bpc" id="L36" title="1 of 2 branches missed.">    if (fileName.contains(&quot;triplea_&quot; + tripleaJarNameWithEngineVersion + &quot;.jar!&quot;)) {</span>
+<span class="nc" id="L37">      return getRootFolderRelativeToJar(fileName, tripleaJarNameWithEngineVersion);</span>
+    }
+
+<span class="fc" id="L40">    return getRootRelativeToClassFile(fileName);</span>
+  }
+
+
+  public static String getGameRunnerFileLocation(final String runnerClassName) {
+<span class="fc" id="L45">    final URL url = GameRunner.class.getResource(runnerClassName);</span>
+<span class="fc" id="L46">    String fileName = url.getFile();</span>
+
+    try {
+      // Deal with spaces in the file name which would be url encoded
+<span class="fc" id="L50">      fileName = URLDecoder.decode(fileName, &quot;UTF-8&quot;);</span>
+<span class="pc" id="L51">    } catch (final UnsupportedEncodingException e) {</span>
+<span class="nc" id="L52">      ClientLogger.logError(&quot;Unsupported encoding of fileName: &quot; + fileName + &quot;, error: &quot; + e.getMessage());</span>
+    }
+<span class="fc" id="L54">    return fileName;</span>
+  }
+
+
+  private static String getTripleaJarWithEngineVersionStringPath() {
+    // TODO: This is begging for trouble since we call ClientFileSystem during the construction of
+    // ClientContext. Though, we will at this point already have parsed the game engine version, so it is okay (but
+    // brittle)
+<span class="fc" id="L62">    final EngineVersion engine = ClientContext.engineVersion();</span>
+<span class="fc" id="L63">    final Version version = engine.getVersion();</span>
+
+<span class="fc" id="L65">    return &quot;triplea_&quot; + version.toStringFull(&quot;_&quot;) + &quot;.jar!&quot;;</span>
+  }
+
+  private static File getRootFolderRelativeToJar(final String fileName, final String tripleaJarName) {
+<span class="nc" id="L69">    final String subString =</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        fileName.substring(&quot;file:/&quot;.length() - (SystemProperties.isWindows() ? 0 : 1), fileName.indexOf(tripleaJarName) - 1);</span>
+<span class="nc" id="L71">    final File f = new File(subString).getParentFile();</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">    if (!f.exists()) {</span>
+<span class="nc" id="L73">      throw new IllegalStateException(&quot;File not found:&quot; + f);</span>
+    }
+<span class="nc" id="L75">    return f;</span>
+  }
+
+  private static File getRootRelativeToClassFile(final String fileName) {
+<span class="fc" id="L79">    File f = new File(fileName);</span>
+
+    // move up one directory for each package
+<span class="fc" id="L82">    final int moveUpCount = GameRunner.class.getName().split(&quot;\\.&quot;).length + 1;</span>
+<span class="fc bfc" id="L83" title="All 2 branches covered.">    for (int i = 0; i &lt; moveUpCount; i++) {</span>
+<span class="fc" id="L84">      f = f.getParentFile();</span>
+    }
+
+    // keep moving up one directory until we find the game_engine properties file that we expect to be at the root
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">    while (!folderContainsGamePropsFile(f)) {</span>
+<span class="nc" id="L89">      f = f.getParentFile();</span>
+    }
+
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">    if (!f.exists()) {</span>
+<span class="nc" id="L93">      System.err.println(&quot;Could not find root folder, does  not exist:&quot; + f);</span>
+<span class="nc" id="L94">      return new File(System.getProperties().getProperty(&quot;user.dir&quot;));</span>
+    }
+<span class="fc" id="L96">    return f;</span>
+  }
+
+  private static boolean folderContainsGamePropsFile(final File folder) {
+<span class="fc" id="L100">    final File[] files = folder.listFiles();</span>
+<span class="fc" id="L101">    final List&lt;String&gt; fileNames =</span>
+<span class="fc" id="L102">        Arrays.asList(files).stream().map(file -&gt; file.getName()).collect(Collectors.toList());</span>
+<span class="fc" id="L103">    return fileNames.contains(GameEnginePropertyFileReader.GAME_ENGINE_PROPERTY_FILE);</span>
+  }
+
+  public static boolean areWeOldExtraJar() {
+<span class="fc" id="L107">    final URL url = GameRunner.class.getResource(GameRunner.class.getSimpleName() + &quot;.class&quot;);</span>
+<span class="fc" id="L108">    String fileName = url.getFile();</span>
+    try {
+<span class="fc" id="L110">      fileName = URLDecoder.decode(fileName, &quot;UTF-8&quot;);</span>
+<span class="pc" id="L111">    } catch (final UnsupportedEncodingException e) {</span>
+<span class="nc" id="L112">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="fc" id="L114">    final String tripleaJarNameWithEngineVersion = getTripleaJarWithEngineVersionStringPath();</span>
+<span class="pc bpc" id="L115" title="1 of 2 branches missed.">    if (fileName.contains(tripleaJarNameWithEngineVersion)) {</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">      final String subString = fileName.substring(&quot;file:/&quot;.length() - (SystemProperties.isWindows() ? 0 : 1),</span>
+<span class="nc" id="L117">          fileName.indexOf(tripleaJarNameWithEngineVersion) - 1);</span>
+<span class="nc" id="L118">      final File f = new File(subString);</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">      if (!f.exists()) {</span>
+<span class="nc" id="L120">        throw new IllegalStateException(&quot;File not found:&quot; + f);</span>
+      }
+      String path;
+      try {
+<span class="nc" id="L124">        path = f.getCanonicalPath();</span>
+<span class="nc" id="L125">      } catch (final IOException e) {</span>
+<span class="nc" id="L126">        path = f.getPath();</span>
+      }
+<span class="nc" id="L128">      return path.contains(&quot;old&quot;);</span>
+    }
+<span class="fc" id="L130">    return false;</span>
+  }
+
+  public static File getUserRootFolder() {
+<span class="fc" id="L134">    final File userHome = new File(System.getProperties().getProperty(&quot;user.home&quot;));</span>
+<span class="fc" id="L135">    final File rootDir = new File(new File(userHome, &quot;Documents&quot;), &quot;triplea&quot;);</span>
+<span class="pc bpc" id="L136" title="1 of 2 branches missed.">    return rootDir.exists() ? rootDir : new File(userHome, &quot;triplea&quot;);</span>
+  }
+
+  public static File getUserMapsFolder() {
+<span class="fc" id="L140">    final String path = ClientContext.folderSettings().getDownloadedMapPath();</span>
+
+
+<span class="fc" id="L143">    final File mapsFolder = new File(path);</span>
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">    if (!mapsFolder.exists()) {</span>
+      try {
+<span class="nc" id="L146">        mapsFolder.mkdirs();</span>
+<span class="nc" id="L147">      } catch (final SecurityException e) {</span>
+<span class="nc" id="L148">        ClientLogger.logError(e);</span>
+      }
+    }
+<span class="pc bpc" id="L151" title="1 of 2 branches missed.">    if (!mapsFolder.exists()) {</span>
+<span class="nc" id="L152">      ClientLogger.logError(&quot;Error, downloaded maps folder does not exist: &quot; + mapsFolder.getAbsolutePath());</span>
+    }
+<span class="fc" id="L154">    return mapsFolder;</span>
+  }
+
+  /** Create a temporary file, checked exceptions are re-thrown as unchecked */
+  public static File createTempFile() {
+    try {
+<span class="fc" id="L160">      return File.createTempFile(&quot;triplea&quot;, &quot;tmp&quot;);</span>
+<span class="nc" id="L161">    } catch (final IOException e) {</span>
+<span class="nc" id="L162">      throw new IllegalStateException(&quot;Failed to create a temporary file&quot;, e);</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

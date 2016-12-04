@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TileImageFactory.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.image</a> &gt; <span class="el_source">TileImageFactory.java</span></div><h1>TileImageFactory.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.image;
+
+import java.awt.AlphaComposite;
+import java.awt.Composite;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.GraphicsConfiguration;
+import java.awt.GraphicsEnvironment;
+import java.awt.Image;
+import java.awt.Transparency;
+import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.net.URL;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.prefs.BackingStoreException;
+import java.util.prefs.Preferences;
+
+import javax.imageio.ImageIO;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.triplea.ResourceLoader;
+import games.strategy.triplea.image.BlendComposite.BlendingMode;
+import games.strategy.triplea.util.Stopwatch;
+import games.strategy.ui.Util;
+
+public final class TileImageFactory {
+<span class="nc" id="L31">  private final Object m_mutex = new Object();</span>
+  // one instance in the application
+  private final static String SHOW_RELIEF_IMAGES_PREFERENCE = &quot;ShowRelief2&quot;;
+<span class="nc" id="L34">  private static boolean s_showReliefImages = true;</span>
+  private final static String SHOW_MAP_BLENDS_PREFERENCE = &quot;ShowBlends&quot;;
+<span class="nc" id="L36">  private static boolean s_showMapBlends = false;</span>
+  private final static String SHOW_MAP_BLEND_MODE = &quot;BlendMode&quot;;
+<span class="nc" id="L38">  private static String s_showMapBlendMode = &quot;normal&quot;;</span>
+  private final static String SHOW_MAP_BLEND_ALPHA = &quot;BlendAlpha&quot;;
+<span class="nc" id="L40">  private static float s_showMapBlendAlpha = 1.0f;</span>
+<span class="nc" id="L41">  private final Composite composite = AlphaComposite.Src;</span>
+<span class="nc" id="L42">  private static GraphicsConfiguration configuration =</span>
+<span class="nc" id="L43">      GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice().getDefaultConfiguration();</span>
+<span class="nc" id="L44">  private static final Logger s_logger = Logger.getLogger(TileImageFactory.class.getName());</span>
+<span class="nc" id="L45">  private double m_scale = 1;</span>
+  // maps image name to ImageRef
+<span class="nc" id="L47">  private HashMap&lt;String, ImageRef&gt; m_imageCache = new HashMap&lt;&gt;();</span>
+
+  static {
+<span class="nc" id="L50">    final Preferences prefs = Preferences.userNodeForPackage(TileImageFactory.class);</span>
+<span class="nc" id="L51">    s_showReliefImages = prefs.getBoolean(SHOW_RELIEF_IMAGES_PREFERENCE, true);</span>
+<span class="nc" id="L52">    s_showMapBlends = prefs.getBoolean(SHOW_MAP_BLENDS_PREFERENCE, false);</span>
+<span class="nc" id="L53">    s_showMapBlendMode = prefs.get(SHOW_MAP_BLEND_MODE, &quot;normal&quot;);</span>
+<span class="nc" id="L54">    s_showMapBlendAlpha = prefs.getFloat(SHOW_MAP_BLEND_ALPHA, 1.0f);</span>
+<span class="nc" id="L55">  }</span>
+
+  public static boolean getShowReliefImages() {
+<span class="nc" id="L58">    return s_showReliefImages;</span>
+  }
+
+  public static boolean getShowMapBlends() {
+<span class="nc" id="L62">    return s_showMapBlends;</span>
+  }
+
+  private static String getShowMapBlendMode() {
+<span class="nc" id="L66">    return s_showMapBlendMode.toUpperCase();</span>
+  }
+
+  private static float getShowMapBlendAlpha() {
+<span class="nc" id="L70">    return s_showMapBlendAlpha;</span>
+  }
+
+  public void setScale(final double newScale) {
+<span class="nc bnc" id="L74" title="All 2 branches missed.">    if (newScale &gt; 1) {</span>
+<span class="nc" id="L75">      throw new IllegalArgumentException(&quot;Wrong scale&quot;);</span>
+    }
+<span class="nc" id="L77">    synchronized (m_mutex) {</span>
+<span class="nc" id="L78">      m_scale = newScale;</span>
+<span class="nc" id="L79">      getM_imageCache().clear();</span>
+    }
+<span class="nc" id="L81">  }</span>
+
+  public static void setShowReliefImages(final boolean aBool) {
+<span class="nc" id="L84">    s_showReliefImages = aBool;</span>
+<span class="nc" id="L85">    final Preferences prefs = Preferences.userNodeForPackage(TileImageFactory.class);</span>
+<span class="nc" id="L86">    prefs.putBoolean(SHOW_RELIEF_IMAGES_PREFERENCE, s_showReliefImages);</span>
+    try {
+<span class="nc" id="L88">      prefs.flush();</span>
+<span class="nc" id="L89">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L90">      ClientLogger.logQuietly(&quot;Failed to save value: &quot; + aBool, ex);</span>
+    }
+<span class="nc" id="L92">  }</span>
+
+  public static void setShowMapBlends(final boolean aBool) {
+<span class="nc" id="L95">    s_showMapBlends = aBool;</span>
+<span class="nc" id="L96">    final Preferences prefs = Preferences.userNodeForPackage(TileImageFactory.class);</span>
+<span class="nc" id="L97">    prefs.putBoolean(SHOW_MAP_BLENDS_PREFERENCE, s_showMapBlends);</span>
+    try {
+<span class="nc" id="L99">      prefs.flush();</span>
+<span class="nc" id="L100">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L101">      ClientLogger.logQuietly(&quot;faild to save value: &quot; + aBool, ex);</span>
+    }
+<span class="nc" id="L103">  }</span>
+
+  public static void setShowMapBlendMode(final String aString) {
+<span class="nc" id="L106">    s_showMapBlendMode = aString;</span>
+<span class="nc" id="L107">    final Preferences prefs = Preferences.userNodeForPackage(TileImageFactory.class);</span>
+<span class="nc" id="L108">    prefs.put(SHOW_MAP_BLEND_MODE, s_showMapBlendMode);</span>
+    try {
+<span class="nc" id="L110">      prefs.flush();</span>
+<span class="nc" id="L111">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L112">      ClientLogger.logQuietly(&quot;faild to save value: &quot; + aString, ex);</span>
+    }
+<span class="nc" id="L114">  }</span>
+
+  public static void setShowMapBlendAlpha(final float aFloat) {
+<span class="nc" id="L117">    s_showMapBlendAlpha = aFloat;</span>
+<span class="nc" id="L118">    final Preferences prefs = Preferences.userNodeForPackage(TileImageFactory.class);</span>
+<span class="nc" id="L119">    prefs.putFloat(SHOW_MAP_BLEND_ALPHA, s_showMapBlendAlpha);</span>
+    try {
+<span class="nc" id="L121">      prefs.flush();</span>
+<span class="nc" id="L122">    } catch (final BackingStoreException ex) {</span>
+<span class="nc" id="L123">      ClientLogger.logQuietly(&quot;faild to save value: &quot; + aFloat, ex);</span>
+    }
+<span class="nc" id="L125">  }</span>
+
+  private ResourceLoader m_resourceLoader;
+
+  public void setMapDir(final ResourceLoader loader) {
+<span class="nc" id="L130">    m_resourceLoader = loader;</span>
+<span class="nc" id="L131">    synchronized (m_mutex) {</span>
+      // we manually want to clear each ref to allow the soft reference to
+      // be removed
+<span class="nc" id="L134">      final Iterator&lt;ImageRef&gt; values = getM_imageCache().values().iterator();</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      while (values.hasNext()) {</span>
+<span class="nc" id="L136">        final ImageRef imageRef = values.next();</span>
+<span class="nc" id="L137">        imageRef.clear();</span>
+      }
+<span class="nc" id="L139">      getM_imageCache().clear();</span>
+    }
+<span class="nc" id="L141">  }</span>
+
+<span class="nc" id="L143">  public TileImageFactory() {}</span>
+
+  /**
+   * @param fileName
+   */
+  private Image isImageLoaded(final String fileName) {
+<span class="nc bnc" id="L149" title="All 2 branches missed.">    if (getM_imageCache().get(fileName) == null) {</span>
+<span class="nc" id="L150">      return null;</span>
+    }
+<span class="nc" id="L152">    return getM_imageCache().get(fileName).getImage();</span>
+  }
+
+  public Image getBaseTile(final int x, final int y) {
+<span class="nc" id="L156">    final String fileName = getBaseTileImageName(x, y);</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">    if (m_resourceLoader.getResource(fileName) == null) {</span>
+<span class="nc" id="L158">      return null;</span>
+    }
+<span class="nc" id="L160">    return getImage(fileName, false);</span>
+  }
+
+  public Image getUnscaledUncachedBaseTile(final int x, final int y) {
+<span class="nc" id="L164">    final String fileName = getBaseTileImageName(x, y);</span>
+<span class="nc" id="L165">    final URL url = m_resourceLoader.getResource(fileName);</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">    if (url == null) {</span>
+<span class="nc" id="L167">      return null;</span>
+    }
+<span class="nc" id="L169">    return loadImage(url, fileName, false, false, false);</span>
+  }
+
+  private static String getBaseTileImageName(final int x, final int y) {
+    // we are loading with a class loader now, use /
+<span class="nc" id="L174">    final String fileName = &quot;baseTiles&quot; + &quot;/&quot; + x + &quot;_&quot; + y + &quot;.png&quot;;</span>
+<span class="nc" id="L175">    return fileName;</span>
+  }
+
+  /**
+   * @param fileName
+   */
+  private Image getImage(final String fileName, final boolean transparent) {
+<span class="nc" id="L182">    synchronized (m_mutex) {</span>
+<span class="nc" id="L183">      final Image rVal = isImageLoaded(fileName);</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">      if (rVal != null) {</span>
+<span class="nc" id="L185">        return rVal;</span>
+      }
+      // This is null if there is no image
+<span class="nc" id="L188">      final URL url = m_resourceLoader.getResource(fileName);</span>
+
+<span class="nc bnc" id="L190" title="All 8 branches missed.">      if ((!s_showMapBlends || !s_showReliefImages || !transparent) &amp;&amp; url == null) {</span>
+<span class="nc" id="L191">        return null;</span>
+      }
+<span class="nc" id="L193">      loadImage(url, fileName, transparent, true, true);</span>
+    }
+<span class="nc" id="L195">    return getImage(fileName, transparent);</span>
+  }
+
+  public Image getReliefTile(final int a, final int b) {
+<span class="nc" id="L199">    final String fileName = getReliefTileImageName(a, b);</span>
+<span class="nc" id="L200">    return getImage(fileName, true);</span>
+  }
+
+  public Image getUnscaledUncachedReliefTile(final int x, final int y) {
+<span class="nc" id="L204">    final String fileName = getReliefTileImageName(x, y);</span>
+<span class="nc" id="L205">    final URL url = m_resourceLoader.getResource(fileName);</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    if (url == null) {</span>
+<span class="nc" id="L207">      return null;</span>
+    }
+<span class="nc" id="L209">    return loadImage(url, fileName, true, false, false);</span>
+  }
+
+  private static String getReliefTileImageName(final int x, final int y) {
+    // we are loading with a class loader now, use /
+<span class="nc" id="L214">    final String fileName = &quot;reliefTiles&quot; + &quot;/&quot; + x + &quot;_&quot; + y + &quot;.png&quot;;</span>
+<span class="nc" id="L215">    return fileName;</span>
+  }
+
+  /**
+   * @return compatibleImage This method produces a blank white tile for use in blending.
+   */
+  private static BufferedImage makeMissingBaseTile(final BufferedImage input) {
+<span class="nc" id="L222">    final BufferedImage compatibleImage =</span>
+<span class="nc" id="L223">        configuration.createCompatibleImage(input.getWidth(null), input.getHeight(null), Transparency.TRANSLUCENT);</span>
+<span class="nc" id="L224">    final Graphics2D g2 = compatibleImage.createGraphics();</span>
+<span class="nc" id="L225">    g2.fillRect(0, 0, input.getWidth(null), input.getHeight(null));</span>
+<span class="nc" id="L226">    g2.drawImage(compatibleImage, 0, 0, null);</span>
+<span class="nc" id="L227">    g2.dispose();</span>
+<span class="nc" id="L228">    return compatibleImage;</span>
+  }
+
+
+  private Image loadImage(final URL imageLocation, final String fileName, final boolean transparent,
+      final boolean cache, final boolean scale) {
+<span class="nc bnc" id="L234" title="All 6 branches missed.">    if (s_showMapBlends &amp;&amp; s_showReliefImages &amp;&amp; transparent) {</span>
+<span class="nc" id="L235">      return loadBlendedImage(imageLocation, fileName, transparent, cache, scale);</span>
+    } else {
+<span class="nc" id="L237">      return loadUnblendedImage(imageLocation, fileName, transparent, cache, scale);</span>
+    }
+  }
+
+  private Image loadBlendedImage(final URL imageLocation, final String fileName, final boolean transparent,
+      final boolean cache, final boolean scale) {
+<span class="nc" id="L243">    BufferedImage reliefFile = null;</span>
+<span class="nc" id="L244">    BufferedImage baseFile = null;</span>
+    // The relief tile
+<span class="nc" id="L246">    final String reliefFileName = fileName.replace(&quot;baseTiles&quot;, &quot;reliefTiles&quot;);</span>
+<span class="nc" id="L247">    final URL urlrelief = m_resourceLoader.getResource(reliefFileName);</span>
+    // The base tile
+<span class="nc" id="L249">    final String baseFileName = fileName.replace(&quot;reliefTiles&quot;, &quot;baseTiles&quot;);</span>
+<span class="nc" id="L250">    final URL urlBase = m_resourceLoader.getResource(baseFileName);</span>
+    // blank relief tile
+<span class="nc" id="L252">    final String blankReliefFileName = &quot;reliefTiles/blank_relief.png&quot;;</span>
+<span class="nc" id="L253">    final URL urlBlankRelief = m_resourceLoader.getResource(blankReliefFileName);</span>
+
+    // Get buffered images
+    try {
+<span class="nc" id="L257">      final Stopwatch loadingImages =</span>
+<span class="nc" id="L258">          new Stopwatch(s_logger, Level.FINE, &quot;Loading images:&quot; + urlrelief + &quot; and &quot; + urlBase);</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">      if (urlrelief != null) {</span>
+<span class="nc" id="L260">        reliefFile = loadCompatibleImage(urlrelief);</span>
+      }
+<span class="nc bnc" id="L262" title="All 2 branches missed.">      if (urlBase != null) {</span>
+<span class="nc" id="L263">        baseFile = loadCompatibleImage(urlBase);</span>
+      }
+<span class="nc" id="L265">      loadingImages.done();</span>
+<span class="nc" id="L266">    } catch (final IOException e) {</span>
+<span class="nc" id="L267">      ClientLogger.logQuietly(e);</span>
+    }
+
+    // This does the blend
+<span class="nc" id="L271">    final float alpha = getShowMapBlendAlpha();</span>
+<span class="nc" id="L272">    final int overX = 0;</span>
+<span class="nc" id="L273">    final int overY = 0;</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">    if (reliefFile == null) {</span>
+      try {
+<span class="nc" id="L276">        reliefFile = loadCompatibleImage(urlBlankRelief);</span>
+<span class="nc" id="L277">      } catch (final IOException e) {</span>
+<span class="nc" id="L278">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+    // This fixes the blank land territories
+<span class="nc bnc" id="L282" title="All 2 branches missed.">    if (baseFile == null) {</span>
+<span class="nc" id="L283">      baseFile = makeMissingBaseTile(reliefFile);</span>
+    }
+    /* reversing the to/from files leaves white underlays visible */
+<span class="nc bnc" id="L286" title="All 2 branches missed.">    if (reliefFile != null) {</span>
+<span class="nc" id="L287">      final Graphics2D g2 = reliefFile.createGraphics();</span>
+<span class="nc bnc" id="L288" title="All 4 branches missed.">      if (scale &amp;&amp; m_scale != 1.0) {</span>
+<span class="nc" id="L289">        final AffineTransform transform = new AffineTransform();</span>
+<span class="nc" id="L290">        transform.scale(m_scale, m_scale);</span>
+<span class="nc" id="L291">        g2.setTransform(transform);</span>
+      }
+<span class="nc" id="L293">      g2.drawImage(reliefFile, overX, overY, null);</span>
+      // gets the blending mode from the map.properties file (sometimes)
+<span class="nc" id="L295">      final BlendingMode blendMode = BlendComposite.BlendingMode.valueOf(getShowMapBlendMode());</span>
+<span class="nc" id="L296">      final BlendComposite blendComposite = BlendComposite.getInstance(blendMode).derive(alpha);</span>
+      // g2.setComposite(BlendComposite.Overlay.derive(alpha));
+<span class="nc" id="L298">      g2.setComposite(blendComposite);</span>
+<span class="nc" id="L299">      g2.drawImage(baseFile, overX, overY, null);</span>
+<span class="nc" id="L300">      final ImageRef ref = new ImageRef(reliefFile);</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">      if (cache) {</span>
+<span class="nc" id="L302">        getM_imageCache().put(fileName, ref);</span>
+      }
+<span class="nc" id="L304">      return reliefFile;</span>
+    } else {
+<span class="nc" id="L306">      final ImageRef ref = new ImageRef(baseFile);</span>
+<span class="nc bnc" id="L307" title="All 2 branches missed.">      if (cache) {</span>
+<span class="nc" id="L308">        getM_imageCache().put(fileName, ref);</span>
+      }
+<span class="nc" id="L310">      return baseFile;</span>
+    }
+  }
+
+  private Image loadUnblendedImage(final URL imageLocation, final String fileName, final boolean transparent,
+      final boolean cache, final boolean scale) {
+    Image image;
+    try {
+<span class="nc" id="L318">      final Stopwatch loadingImages = new Stopwatch(s_logger, Level.FINE, &quot;Loading image:&quot; + imageLocation);</span>
+<span class="nc" id="L319">      final BufferedImage fromFile = ImageIO.read(imageLocation);</span>
+<span class="nc" id="L320">      loadingImages.done();</span>
+<span class="nc" id="L321">      final Stopwatch copyingImage = new Stopwatch(s_logger, Level.FINE, &quot;Copying image:&quot; + imageLocation);</span>
+      // if we dont copy, drawing the tile to the screen takes significantly longer
+      // has something to do with the colour model and type of the images
+      // some images can be copeid quickly to the screen
+      // this step is a significant bottle neck in the image drawing process
+      // we should try to find a way to avoid it, and load the
+      // png directly as the right type
+<span class="nc" id="L328">      image = Util.createImage(fromFile.getWidth(null), fromFile.getHeight(null), transparent);</span>
+<span class="nc" id="L329">      final Graphics2D g = (Graphics2D) image.getGraphics();</span>
+<span class="nc bnc" id="L330" title="All 4 branches missed.">      if (scale &amp;&amp; m_scale != 1.0) {</span>
+<span class="nc" id="L331">        final AffineTransform transform = new AffineTransform();</span>
+<span class="nc" id="L332">        transform.scale(m_scale, m_scale);</span>
+<span class="nc" id="L333">        g.setTransform(transform);</span>
+      }
+<span class="nc" id="L335">      g.drawImage(fromFile, 0, 0, null);</span>
+<span class="nc" id="L336">      g.dispose();</span>
+<span class="nc" id="L337">      fromFile.flush();</span>
+<span class="nc" id="L338">      copyingImage.done();</span>
+<span class="nc" id="L339">    } catch (final IOException e) {</span>
+<span class="nc" id="L340">      ClientLogger.logError(&quot;Could not load image, url: &quot; + imageLocation.toString(), e);</span>
+<span class="nc" id="L341">      image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);</span>
+    }
+<span class="nc" id="L343">    final ImageRef ref = new ImageRef(image);</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">    if (cache) {</span>
+<span class="nc" id="L345">      getM_imageCache().put(fileName, ref);</span>
+    }
+<span class="nc" id="L347">    return image;</span>
+  }
+
+  public Composite getComposite() {
+<span class="nc" id="L351">    return this.composite;</span>
+  }
+
+  private static BufferedImage loadCompatibleImage(final URL resource) throws IOException {
+<span class="nc" id="L355">    final BufferedImage image = ImageIO.read(resource);</span>
+<span class="nc" id="L356">    return toCompatibleImage(image);</span>
+  }
+
+  private static BufferedImage toCompatibleImage(final BufferedImage image) {
+<span class="nc" id="L360">    final BufferedImage compatibleImage =</span>
+<span class="nc" id="L361">        configuration.createCompatibleImage(image.getWidth(), image.getHeight(), Transparency.TRANSLUCENT);</span>
+<span class="nc" id="L362">    final Graphics g = compatibleImage.getGraphics();</span>
+<span class="nc" id="L363">    g.drawImage(image, 0, 0, null);</span>
+<span class="nc" id="L364">    g.dispose();</span>
+<span class="nc" id="L365">    return compatibleImage;</span>
+  }
+
+  public static BufferedImage createCompatibleImage(final int width, final int height) {
+<span class="nc" id="L369">    return configuration.createCompatibleImage(width, height);</span>
+  }
+
+  public void setM_imageCache(final HashMap&lt;String, ImageRef&gt; m_imageCache) {
+<span class="nc" id="L373">    this.m_imageCache = m_imageCache;</span>
+<span class="nc" id="L374">  }</span>
+
+  public HashMap&lt;String, ImageRef&gt; getM_imageCache() {
+<span class="nc" id="L377">    return m_imageCache;</span>
+  }
+}
+
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ServerQuarantineConversation.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net.nio</a> &gt; <span class="el_source">ServerQuarantineConversation.java</span></div><h1>ServerQuarantineConversation.java</h1><pre class="source lang-java linenums"><span class="pc" id="L1">package games.strategy.net.nio;</span>
+
+import java.io.Serializable;
+import java.net.InetSocketAddress;
+import java.nio.channels.SocketChannel;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.net.ILoginValidator;
+import games.strategy.net.MessageHeader;
+import games.strategy.net.Node;
+import games.strategy.net.ServerMessenger;
+
+public class ServerQuarantineConversation extends QuarantineConversation {
+  /**
+   * Communication sequence
+   * 1) server reads client name
+   * 2) server sends challenge (or null if no challenge is to be made)
+   * 3) server reads response (or null if no challenge)
+   * 4) server send null then client name and node info on success, or an error message if there is an error
+   * 5) if the client reads an error message, the client sends an acknowledgment (we need to make sur the client gets
+   * the message before
+   * closing the socket)
+   */
+<span class="fc" id="L26">  private static final Logger s_logger = Logger.getLogger(ServerQuarantineConversation.class.getName());</span>
+
+<span class="fc" id="L28">  private enum STEP {</span>
+<span class="fc" id="L29">    READ_NAME, READ_MAC, CHALLENGE, ACK_ERROR</span>
+  }
+
+  private final ILoginValidator m_validator;
+  private final SocketChannel m_channel;
+  private final NIOSocket m_socket;
+<span class="fc" id="L35">  private STEP m_step = STEP.READ_NAME;</span>
+  private String m_remoteName;
+  private String m_remoteMac;
+  private Map&lt;String, String&gt; challenge;
+  private final ServerMessenger m_serverMessenger;
+
+<span class="fc" id="L41">  public ServerQuarantineConversation(final ILoginValidator validator, final SocketChannel channel,</span>
+      final NIOSocket socket, final ServerMessenger serverMessenger) {
+<span class="fc" id="L43">    m_validator = validator;</span>
+<span class="fc" id="L44">    m_socket = socket;</span>
+<span class="fc" id="L45">    m_channel = channel;</span>
+<span class="fc" id="L46">    m_serverMessenger = serverMessenger;</span>
+<span class="fc" id="L47">  }</span>
+
+  public String getRemoteName() {
+<span class="fc" id="L50">    return m_remoteName;</span>
+  }
+
+  public String getRemoteMac() {
+<span class="nc" id="L54">    return m_remoteMac;</span>
+  }
+
+  @Override
+  @SuppressWarnings(&quot;unchecked&quot;)
+  public ACTION message(final Object o) {
+    try {
+<span class="pc bpc" id="L61" title="2 of 5 branches missed.">      switch (m_step) {</span>
+        case READ_NAME:
+          // read name, send challent
+<span class="fc" id="L64">          m_remoteName = (String) o;</span>
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L66">            s_logger.log(Level.FINER, &quot;read name:&quot; + m_remoteName);</span>
+          }
+<span class="fc" id="L68">          m_step = STEP.READ_MAC;</span>
+<span class="fc" id="L69">          return ACTION.NONE;</span>
+        case READ_MAC:
+          // read name, send challent
+<span class="fc" id="L72">          m_remoteMac = (String) o;</span>
+<span class="pc bpc" id="L73" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L74">            s_logger.log(Level.FINER, &quot;read mac:&quot; + m_remoteMac);</span>
+          }
+<span class="fc bfc" id="L76" title="All 2 branches covered.">          if (m_validator != null) {</span>
+<span class="fc" id="L77">            challenge = m_validator.getChallengeProperties(m_remoteName, m_channel.socket().getRemoteSocketAddress());</span>
+          }
+<span class="pc bpc" id="L79" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L80">            s_logger.log(Level.FINER, &quot;writing challenge:&quot; + challenge);</span>
+          }
+<span class="fc" id="L82">          send((Serializable) challenge);</span>
+<span class="fc" id="L83">          m_step = STEP.CHALLENGE;</span>
+<span class="fc" id="L84">          return ACTION.NONE;</span>
+        case CHALLENGE:
+<span class="fc" id="L86">          final Map&lt;String, String&gt; response = (Map&lt;String, String&gt;) o;</span>
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L88">            s_logger.log(Level.FINER, &quot;read challenge response:&quot; + response);</span>
+          }
+<span class="fc bfc" id="L90" title="All 2 branches covered.">          if (m_validator != null) {</span>
+<span class="fc" id="L91">            final String error = m_validator.verifyConnection(challenge, response, m_remoteName, m_remoteMac,</span>
+<span class="fc" id="L92">                m_channel.socket().getRemoteSocketAddress());</span>
+<span class="pc bpc" id="L93" title="1 of 2 branches missed.">            if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L94">              s_logger.log(Level.FINER, &quot;error:&quot; + error);</span>
+            }
+<span class="fc" id="L96">            send(error);</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">            if (error != null) {</span>
+<span class="fc" id="L98">              m_step = STEP.ACK_ERROR;</span>
+<span class="fc" id="L99">              return ACTION.NONE;</span>
+            }
+          } else {
+<span class="fc" id="L102">            send(null);</span>
+          }
+          // get a unique name
+<span class="fc" id="L105">          m_remoteName = m_serverMessenger.getUniqueName(m_remoteName);</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">          if (s_logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L107">            s_logger.log(Level.FINER, &quot;Sending name:&quot; + m_remoteName);</span>
+          }
+          // send the node its name and our name
+<span class="fc" id="L110">          send(new String[] {m_remoteName, m_serverMessenger.getLocalNode().getName()});</span>
+          // send the node its and our address as we see it
+<span class="fc" id="L112">          send(new InetSocketAddress[] {(InetSocketAddress) m_channel.socket().getRemoteSocketAddress(),</span>
+<span class="fc" id="L113">              m_serverMessenger.getLocalNode().getSocketAddress()});</span>
+          // Login succeeded, so notify the ServerMessenger about the login with the name, mac, etc.
+<span class="fc" id="L115">          m_serverMessenger.NotifyPlayerLogin(m_remoteName, m_channel.socket().getInetAddress().getHostAddress(),</span>
+<span class="fc" id="L116">              m_remoteMac);</span>
+          // We are good
+<span class="fc" id="L118">          return ACTION.UNQUARANTINE;</span>
+        case ACK_ERROR:
+<span class="nc" id="L120">          return ACTION.TERMINATE;</span>
+        default:
+<span class="nc" id="L122">          throw new IllegalStateException(&quot;Invalid state&quot;);</span>
+      }
+<span class="nc" id="L124">    } catch (final Throwable t) {</span>
+<span class="nc" id="L125">      s_logger.log(Level.SEVERE, &quot;Error with connection&quot;, t);</span>
+<span class="nc" id="L126">      return ACTION.TERMINATE;</span>
+    }
+  }
+
+  private void send(final Serializable object) {
+    // this messenger is quarantined, so to and from dont matter
+<span class="fc" id="L132">    final MessageHeader header = new MessageHeader(Node.NULL_NODE, Node.NULL_NODE, object);</span>
+<span class="fc" id="L133">    m_socket.send(m_channel, header);</span>
+<span class="fc" id="L134">  }</span>
+
+  @Override
+<span class="fc" id="L137">  public void close() {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

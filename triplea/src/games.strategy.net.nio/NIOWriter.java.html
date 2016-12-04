@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>NIOWriter.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net.nio</a> &gt; <span class="el_source">NIOWriter.java</span></div><h1>NIOWriter.java</h1><pre class="source lang-java linenums">package games.strategy.net.nio;
+
+import java.io.IOException;
+import java.net.Socket;
+import java.net.SocketAddress;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * A thread that writes socket data using NIO .&lt;br&gt;
+ * Data is written in packets that are enqued on our buffer.
+ * Packets are sent to the sockets in the order that they are received.
+ */
+public class NIOWriter {
+<span class="fc" id="L25">  private static final Logger s_logger = Logger.getLogger(NIOWriter.class.getName());</span>
+  private final Selector m_selector;
+  private final IErrorReporter m_errorReporter;
+  // this is the data we are writing
+<span class="fc" id="L29">  private final Map&lt;SocketChannel, List&lt;SocketWriteData&gt;&gt; m_writing =</span>
+<span class="fc" id="L30">      new HashMap&lt;&gt;();</span>
+  // these are the sockets we arent selecting on, but should now
+<span class="fc" id="L32">  private List&lt;SocketChannel&gt; m_socketsToWake = new ArrayList&lt;&gt;();</span>
+  // the writing thread and threads adding data to write synchronize on this lock
+<span class="fc" id="L34">  private final Object m_mutex = new Object();</span>
+<span class="fc" id="L35">  private long m_totalBytes = 0;</span>
+<span class="fc" id="L36">  private volatile boolean m_running = true;</span>
+
+<span class="fc" id="L38">  public NIOWriter(final IErrorReporter reporter, final String threadSuffix) {</span>
+<span class="fc" id="L39">    m_errorReporter = reporter;</span>
+    try {
+<span class="fc" id="L41">      m_selector = Selector.open();</span>
+<span class="pc" id="L42">    } catch (final IOException e) {</span>
+<span class="nc" id="L43">      s_logger.log(Level.SEVERE, &quot;Could not create Selector&quot;, e);</span>
+<span class="nc" id="L44">      throw new IllegalStateException(e);</span>
+    }
+<span class="fc" id="L46">    final Thread t = new Thread(() -&gt; loop(), &quot;NIO Writer - &quot; + threadSuffix);</span>
+<span class="fc" id="L47">    t.start();</span>
+<span class="fc" id="L48">  }</span>
+
+  public void shutDown() {
+<span class="fc" id="L51">    m_running = false;</span>
+    try {
+<span class="fc" id="L53">      m_selector.close();</span>
+<span class="pc" id="L54">    } catch (final IOException e) {</span>
+<span class="nc" id="L55">      s_logger.log(Level.WARNING, &quot;error closing selector&quot;, e);</span>
+    }
+<span class="fc" id="L57">  }</span>
+
+  private void addNewSocketsToSelector() {
+    List&lt;SocketChannel&gt; socketsToWriteCopy;
+<span class="pc" id="L61">    synchronized (m_mutex) {</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">      if (m_socketsToWake.isEmpty()) {</span>
+<span class="fc" id="L63">        return;</span>
+      }
+<span class="fc" id="L65">      socketsToWriteCopy = m_socketsToWake;</span>
+<span class="fc" id="L66">      m_socketsToWake = new ArrayList&lt;&gt;();</span>
+    }
+<span class="fc bfc" id="L68" title="All 2 branches covered.">    for (final SocketChannel channel : socketsToWriteCopy) {</span>
+      try {
+<span class="fc" id="L70">        channel.register(m_selector, SelectionKey.OP_WRITE);</span>
+<span class="fc" id="L71">      } catch (final ClosedChannelException e) {</span>
+<span class="fc" id="L72">        s_logger.log(Level.FINEST, &quot;socket already closed&quot;, e);</span>
+      }
+    }
+<span class="fc" id="L75">  }</span>
+
+  private void loop() {
+<span class="fc bfc" id="L78" title="All 2 branches covered.">    while (m_running) {</span>
+      try {
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (s_logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L81">          s_logger.finest(&quot;selecting...&quot;);</span>
+        }
+        try {
+<span class="fc" id="L84">          m_selector.select();</span>
+<span class="fc" id="L85">        }</span>
+        // exceptions can be thrown here, nothing we can do
+        // http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4729342
+<span class="nc" id="L88">        catch (final Exception e) {</span>
+<span class="nc" id="L89">          s_logger.log(Level.INFO, &quot;error reading selection&quot;, e);</span>
+        }
+<span class="fc bfc" id="L91" title="All 2 branches covered.">        if (!m_running) {</span>
+<span class="fc" id="L92">          continue;</span>
+        }
+        // select any new sockets that can be written to
+<span class="fc" id="L95">        addNewSocketsToSelector();</span>
+<span class="fc" id="L96">        final Set&lt;SelectionKey&gt; selected = m_selector.selectedKeys();</span>
+<span class="pc bpc" id="L97" title="1 of 2 branches missed.">        if (s_logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L98">          s_logger.finest(&quot;selected:&quot; + selected.size());</span>
+        }
+<span class="fc" id="L100">        final Iterator&lt;SelectionKey&gt; iter = selected.iterator();</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">        while (iter.hasNext()) {</span>
+<span class="fc" id="L102">          final SelectionKey key = iter.next();</span>
+<span class="fc" id="L103">          iter.remove();</span>
+<span class="pc bpc" id="L104" title="2 of 4 branches missed.">          if (key.isValid() &amp;&amp; key.isWritable()) {</span>
+<span class="fc" id="L105">            final SocketChannel channel = (SocketChannel) key.channel();</span>
+<span class="fc" id="L106">            final SocketWriteData packet = getData(channel);</span>
+<span class="fc bfc" id="L107" title="All 2 branches covered.">            if (packet != null) {</span>
+              try {
+<span class="pc bpc" id="L109" title="1 of 2 branches missed.">                if (s_logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L110">                  s_logger.finest(&quot;writing packet:&quot; + packet + &quot; to:&quot; + channel.socket().getRemoteSocketAddress());</span>
+                }
+<span class="fc" id="L112">                final boolean done = packet.write(channel);</span>
+<span class="pc bpc" id="L113" title="1 of 2 branches missed.">                if (done) {</span>
+<span class="fc" id="L114">                  m_totalBytes += packet.size();</span>
+<span class="pc bpc" id="L115" title="1 of 2 branches missed.">                  if (s_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L116">                    String remote = &quot;null&quot;;</span>
+<span class="nc" id="L117">                    final Socket s = channel.socket();</span>
+<span class="nc" id="L118">                    SocketAddress sa = null;</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">                    if (s != null) {</span>
+<span class="nc" id="L120">                      sa = s.getRemoteSocketAddress();</span>
+                    }
+<span class="nc bnc" id="L122" title="All 2 branches missed.">                    if (sa != null) {</span>
+<span class="nc" id="L123">                      remote = sa.toString();</span>
+                    }
+<span class="nc" id="L125">                    s_logger.log(Level.FINE, &quot; done writing to:&quot; + remote + &quot; size:&quot; + packet.size() + &quot; writeCalls;&quot;</span>
+<span class="nc" id="L126">                        + packet.getWriteCalls() + &quot; total:&quot; + m_totalBytes);</span>
+                  }
+<span class="fc" id="L128">                  removeLast(channel);</span>
+                }
+<span class="pc" id="L130">              } catch (final Exception e) {</span>
+<span class="nc" id="L131">                s_logger.log(Level.FINER, &quot;exception writing&quot;, e);</span>
+<span class="nc" id="L132">                m_errorReporter.error(channel, e);</span>
+<span class="nc" id="L133">                key.cancel();</span>
+              }
+<span class="nc" id="L135">            } else {</span>
+              // nothing to write
+              // cancel the key, otherwise we will
+              // spin forever as the socket will always be writable
+<span class="fc" id="L139">              key.cancel();</span>
+            }
+          }
+        }
+<span class="fc" id="L143">      } catch (final Exception e) {</span>
+        // catch unhandles exceptions to that the writer
+        // thread doesnt die
+<span class="fc" id="L146">        s_logger.log(Level.WARNING, &quot;error in writer&quot;, e);</span>
+      }
+    }
+<span class="fc" id="L149">  }</span>
+
+  /**
+   * Remove the data for this channel
+   */
+  public void closed(final SocketChannel channel) {
+<span class="fc" id="L155">    removeAll(channel);</span>
+<span class="fc" id="L156">  }</span>
+
+  private void removeAll(final SocketChannel to) {
+<span class="pc" id="L159">    synchronized (m_mutex) {</span>
+<span class="fc" id="L160">      m_writing.remove(to);</span>
+    }
+<span class="fc" id="L162">  }</span>
+
+  private void removeLast(final SocketChannel to) {
+<span class="pc" id="L165">    synchronized (m_mutex) {</span>
+<span class="fc" id="L166">      final List&lt;SocketWriteData&gt; values = m_writing.get(to);</span>
+<span class="pc bpc" id="L167" title="1 of 2 branches missed.">      if (values == null) {</span>
+<span class="nc" id="L168">        s_logger.log(Level.SEVERE, &quot;NO socket data to:&quot; + to + &quot; all:&quot; + values);</span>
+<span class="nc" id="L169">        return;</span>
+      }
+<span class="fc" id="L171">      values.remove(0);</span>
+      // remove empty lists, so we can detect that we need to wake up the socket
+<span class="fc bfc" id="L173" title="All 2 branches covered.">      if (values.isEmpty()) {</span>
+<span class="fc" id="L174">        m_writing.remove(to);</span>
+      }
+    }
+<span class="fc" id="L177">  }</span>
+
+  private SocketWriteData getData(final SocketChannel to) {
+<span class="pc" id="L180">    synchronized (m_mutex) {</span>
+<span class="fc bfc" id="L181" title="All 2 branches covered.">      if (!m_writing.containsKey(to)) {</span>
+<span class="fc" id="L182">        return null;</span>
+      }
+<span class="fc" id="L184">      final List&lt;SocketWriteData&gt; values = m_writing.get(to);</span>
+<span class="pc bpc" id="L185" title="1 of 2 branches missed.">      if (values.isEmpty()) {</span>
+<span class="nc" id="L186">        return null;</span>
+      }
+<span class="fc" id="L188">      return values.get(0);</span>
+    }
+  }
+
+  public void enque(final SocketWriteData data, final SocketChannel channel) {
+<span class="pc" id="L193">    synchronized (m_mutex) {</span>
+<span class="fc bfc" id="L194" title="All 2 branches covered.">      if (!m_running) {</span>
+<span class="fc" id="L195">        return;</span>
+      }
+<span class="fc bfc" id="L197" title="All 2 branches covered.">      if (m_writing.containsKey(channel)) {</span>
+<span class="fc" id="L198">        m_writing.get(channel).add(data);</span>
+<span class="fc" id="L199">      } else {</span>
+<span class="fc" id="L200">        final List&lt;SocketWriteData&gt; values = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L201">        values.add(data);</span>
+<span class="fc" id="L202">        m_writing.put(channel, values);</span>
+<span class="fc" id="L203">        m_socketsToWake.add(channel);</span>
+<span class="fc" id="L204">        m_selector.wakeup();</span>
+      }
+    }
+<span class="fc" id="L207">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

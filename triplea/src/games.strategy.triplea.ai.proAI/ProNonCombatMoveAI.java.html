@@ -1,0 +1,2060 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProNonCombatMoveAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI</a> &gt; <span class="el_source">ProNonCombatMoveAI.java</span></div><h1>ProNonCombatMoveAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.data.ProOtherMoveOptions;
+import games.strategy.triplea.ai.proAI.data.ProPlaceTerritory;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseOption;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseTerritory;
+import games.strategy.triplea.ai.proAI.data.ProTerritory;
+import games.strategy.triplea.ai.proAI.data.ProTerritoryManager;
+import games.strategy.triplea.ai.proAI.data.ProTransport;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProMoveUtils;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.ai.proAI.util.ProPurchaseUtils;
+import games.strategy.triplea.ai.proAI.util.ProSortMoveOptionsUtils;
+import games.strategy.triplea.ai.proAI.util.ProTerritoryValueUtils;
+import games.strategy.triplea.ai.proAI.util.ProTransportUtils;
+import games.strategy.triplea.ai.proAI.util.ProUtils;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.AbstractMoveDelegate;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.triplea.delegate.dataObjects.MoveValidationResult;
+import games.strategy.triplea.delegate.remote.IMoveDelegate;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.Match;
+
+/**
+ * Pro non-combat move AI.
+ */
+public class ProNonCombatMoveAI {
+
+  private final ProOddsCalculator calc;
+  private GameData data;
+  private PlayerID player;
+  private Map&lt;Unit, Territory&gt; unitTerritoryMap;
+  private ProTerritoryManager territoryManager;
+
+<span class="nc" id="L63">  public ProNonCombatMoveAI(final ProAI ai) {</span>
+<span class="nc" id="L64">    calc = ai.getCalc();</span>
+<span class="nc" id="L65">  }</span>
+
+  public Map&lt;Territory, ProTerritory&gt; simulateNonCombatMove(final IMoveDelegate moveDel) {
+<span class="nc" id="L68">    return doNonCombatMove(null, null, moveDel);</span>
+  }
+
+  public Map&lt;Territory, ProTerritory&gt; doNonCombatMove(Map&lt;Territory, ProTerritory&gt; factoryMoveMap,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories, final IMoveDelegate moveDel) {
+<span class="nc" id="L73">    ProLogger.info(&quot;Starting non-combat move phase&quot;);</span>
+
+    // Current data at the start of non-combat move
+<span class="nc" id="L76">    data = ProData.getData();</span>
+<span class="nc" id="L77">    player = ProData.getPlayer();</span>
+<span class="nc" id="L78">    unitTerritoryMap = ProData.unitTerritoryMap;</span>
+<span class="nc" id="L79">    territoryManager = new ProTerritoryManager(calc);</span>
+
+    // Find the max number of units that can move to each allied territory
+<span class="nc" id="L82">    territoryManager.populateDefenseOptions(new ArrayList&lt;&gt;());</span>
+
+    // Find number of units in each move territory that can't move and all infra units
+<span class="nc" id="L85">    findUnitsThatCantMove(purchaseTerritories, ProData.purchaseOptions.getLandOptions());</span>
+<span class="nc" id="L86">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; infraUnitMoveMap = findInfraUnitsThatCanMove();</span>
+
+    // Try to have one land unit in each territory that is bordering an enemy territory
+<span class="nc" id="L89">    final List&lt;Territory&gt; movedOneDefenderToTerritories = moveOneDefenderToLandTerritoriesBorderingEnemy();</span>
+
+    // Determine max enemy attack units and if territories can be held
+<span class="nc" id="L92">    territoryManager.populateEnemyAttackOptions(movedOneDefenderToTerritories, territoryManager.getDefendTerritories());</span>
+<span class="nc" id="L93">    determineIfMoveTerritoriesCanBeHeld();</span>
+
+    // Get list of territories that can't be held and find move value for each territory
+<span class="nc" id="L96">    final List&lt;Territory&gt; territoriesThatCantBeHeld = territoryManager.getCantHoldTerritories();</span>
+<span class="nc" id="L97">    final Map&lt;Territory, Double&gt; territoryValueMap =</span>
+<span class="nc" id="L98">        ProTerritoryValueUtils.findTerritoryValues(player, territoriesThatCantBeHeld, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L99">    final Map&lt;Territory, Double&gt; seaTerritoryValueMap =</span>
+<span class="nc" id="L100">        ProTerritoryValueUtils.findSeaTerritoryValues(player, territoriesThatCantBeHeld);</span>
+
+    // Prioritize territories to defend
+<span class="nc" id="L103">    final List&lt;ProTerritory&gt; prioritizedTerritories = prioritizeDefendOptions(factoryMoveMap, territoryValueMap);</span>
+
+    // Determine which territories to defend and how many units each one needs
+<span class="nc" id="L106">    final int enemyDistance = ProUtils.getClosestEnemyLandTerritoryDistance(data, player, ProData.myCapital);</span>
+<span class="nc" id="L107">    moveUnitsToDefendTerritories(prioritizedTerritories, enemyDistance, territoryValueMap);</span>
+
+    // Copy data in case capital defense needs increased
+<span class="nc" id="L110">    final ProTerritoryManager territoryManagerCopy = new ProTerritoryManager(calc, territoryManager);</span>
+
+    // Use loop to ensure capital is protected after moves
+<span class="nc bnc" id="L113" title="All 2 branches missed.">    if (ProData.myCapital != null) {</span>
+<span class="nc" id="L114">      int defenseRange = -1;</span>
+<span class="nc" id="L115">      while (true) {</span>
+
+        // Add value to territories near capital if necessary
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        for (final Territory t : territoryManager.getDefendTerritories()) {</span>
+<span class="nc" id="L119">          double value = territoryValueMap.get(t);</span>
+<span class="nc" id="L120">          final int distance = data.getMap().getDistance(ProData.myCapital, t,</span>
+<span class="nc" id="L121">              ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc bnc" id="L122" title="All 4 branches missed.">          if (distance &gt;= 0 &amp;&amp; distance &lt;= defenseRange) {</span>
+<span class="nc" id="L123">            value *= 10;</span>
+          }
+<span class="nc" id="L125">          territoryManager.getDefendOptions().getTerritoryMap().get(t).setValue(value);</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">          if (t.isWater()) {</span>
+<span class="nc" id="L127">            territoryManager.getDefendOptions().getTerritoryMap().get(t).setSeaValue(seaTerritoryValueMap.get(t));</span>
+          }
+        }
+
+<span class="nc" id="L131">        moveUnitsToBestTerritories();</span>
+
+        // Check if capital has local land superiority
+<span class="nc" id="L134">        ProLogger.info(&quot;Checking if capital has local land superiority with enemyDistance=&quot; + enemyDistance);</span>
+<span class="nc bnc" id="L135" title="All 6 branches missed.">        if (enemyDistance &gt;= 2 &amp;&amp; enemyDistance &lt;= 3 &amp;&amp; defenseRange == -1</span>
+<span class="nc" id="L136">            &amp;&amp; !ProBattleUtils.territoryHasLocalLandSuperiorityAfterMoves(ProData.myCapital, enemyDistance, player,</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                territoryManager.getDefendOptions().getTerritoryMap())) {</span>
+<span class="nc" id="L138">          defenseRange = enemyDistance - 1;</span>
+<span class="nc" id="L139">          territoryManager = territoryManagerCopy;</span>
+<span class="nc" id="L140">          ProLogger.debug(&quot;Capital doesn't have local land superiority so setting defensive stance&quot;);</span>
+        } else {
+          break;
+        }
+      }
+    } else {
+<span class="nc" id="L146">      moveUnitsToBestTerritories();</span>
+    }
+
+    // Determine where to move infra units
+<span class="nc" id="L150">    factoryMoveMap = moveInfraUnits(factoryMoveMap, infraUnitMoveMap);</span>
+
+    // Log a warning if any units not assigned to a territory (skip infrastructure for now)
+<span class="nc bnc" id="L153" title="All 2 branches missed.">    for (final Unit u : territoryManager.getDefendOptions().getUnitMoveMap().keySet()) {</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">      if (Matches.UnitIsInfrastructure.invert().match(u)) {</span>
+<span class="nc" id="L155">        ProLogger.warn(player + &quot;: &quot; + unitTerritoryMap.get(u) + &quot; has unmoved unit: &quot; + u + &quot; with options: &quot;</span>
+<span class="nc" id="L156">            + territoryManager.getDefendOptions().getUnitMoveMap().get(u));</span>
+      }
+    }
+
+    // Calculate move routes and perform moves
+<span class="nc" id="L161">    doMove(territoryManager.getDefendOptions().getTerritoryMap(), moveDel, data, player);</span>
+
+    // Log results
+<span class="nc" id="L164">    ProLogger.info(&quot;Logging results&quot;);</span>
+<span class="nc" id="L165">    logAttackMoves(prioritizedTerritories);</span>
+
+<span class="nc" id="L167">    return factoryMoveMap;</span>
+  }
+
+  public void doMove(final Map&lt;Territory, ProTerritory&gt; moveMap, final IMoveDelegate moveDel, final GameData data,
+      final PlayerID player) {
+
+<span class="nc" id="L173">    this.data = data;</span>
+<span class="nc" id="L174">    this.player = player;</span>
+
+    // Calculate move routes and perform moves
+<span class="nc" id="L177">    final List&lt;Collection&lt;Unit&gt;&gt; moveUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L178">    final List&lt;Route&gt; moveRoutes = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L179">    ProMoveUtils.calculateMoveRoutes(player, moveUnits, moveRoutes, moveMap, false);</span>
+<span class="nc" id="L180">    ProMoveUtils.doMove(moveUnits, moveRoutes, moveDel);</span>
+
+    // Calculate amphib move routes and perform moves
+<span class="nc" id="L183">    moveUnits.clear();</span>
+<span class="nc" id="L184">    moveRoutes.clear();</span>
+<span class="nc" id="L185">    final List&lt;Collection&lt;Unit&gt;&gt; transportsToLoad = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L186">    ProMoveUtils.calculateAmphibRoutes(player, moveUnits, moveRoutes, transportsToLoad, moveMap, false);</span>
+<span class="nc" id="L187">    ProMoveUtils.doMove(moveUnits, moveRoutes, transportsToLoad, moveDel);</span>
+<span class="nc" id="L188">  }</span>
+
+  private void findUnitsThatCantMove(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPurchaseOption&gt; landPurchaseOptions) {
+
+<span class="nc" id="L193">    ProLogger.info(&quot;Find units that can't move&quot;);</span>
+
+<span class="nc" id="L195">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+<span class="nc" id="L196">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = territoryManager.getDefendOptions().getUnitMoveMap();</span>
+<span class="nc" id="L197">    final List&lt;ProTransport&gt; transportMapList = territoryManager.getDefendOptions().getTransportList();</span>
+
+    // Add all units that can't move (allied units, 0 move units, etc)
+<span class="nc bnc" id="L200" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L201">      moveMap.get(t).getCantMoveUnits()</span>
+<span class="nc" id="L202">          .addAll(t.getUnits().getMatches(ProMatches.unitCantBeMovedAndIsAlliedDefender(player, data, t)));</span>
+    }
+
+    // Add all units that only have 1 move option and can't be transported
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L207">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      if (unitMoveMap.get(u).size() == 1) {</span>
+<span class="nc" id="L209">        final Territory onlyTerritory = unitMoveMap.get(u).iterator().next();</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        if (onlyTerritory.equals(unitTerritoryMap.get(u))) {</span>
+<span class="nc" id="L211">          boolean canBeTransported = false;</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">          for (final ProTransport pad : transportMapList) {</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">            for (final Territory t : pad.getTransportMap().keySet()) {</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">              if (pad.getTransportMap().get(t).contains(onlyTerritory)) {</span>
+<span class="nc" id="L215">                canBeTransported = true;</span>
+              }
+            }
+<span class="nc bnc" id="L218" title="All 2 branches missed.">            for (final Territory t : pad.getSeaTransportMap().keySet()) {</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">              if (pad.getSeaTransportMap().get(t).contains(onlyTerritory)) {</span>
+<span class="nc" id="L220">                canBeTransported = true;</span>
+              }
+            }
+          }
+<span class="nc bnc" id="L224" title="All 2 branches missed.">          if (!canBeTransported) {</span>
+<span class="nc" id="L225">            moveMap.get(onlyTerritory).getCantMoveUnits().add(u);</span>
+<span class="nc" id="L226">            it.remove();</span>
+          }
+        }
+      }
+    }
+
+    // Check if purchase units are known yet
+<span class="nc bnc" id="L233" title="All 2 branches missed.">    if (purchaseTerritories != null) {</span>
+
+      // Add all units that will be purchased
+<span class="nc bnc" id="L236" title="All 2 branches missed.">      for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L238">          final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">          if (moveMap.get(t) != null) {</span>
+<span class="nc" id="L240">            moveMap.get(t).getCantMoveUnits().addAll(placeTerritory.getPlaceUnits());</span>
+          }
+        }
+      }
+<span class="nc" id="L244">    } else {</span>
+
+      // Add max defenders that can be purchased to each territory
+<span class="nc bnc" id="L247" title="All 2 branches missed.">      for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (ProMatches.territoryHasNonMobileInfraFactoryAndIsNotConqueredOwnedLand(player, data).match(t)) {</span>
+<span class="nc" id="L249">          moveMap.get(t).getCantMoveUnits()</span>
+<span class="nc" id="L250">              .addAll(ProPurchaseUtils.findMaxPurchaseDefenders(player, t, landPurchaseOptions));</span>
+        }
+      }
+    }
+
+    // Log can't move units per territory
+<span class="nc bnc" id="L256" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">      if (!moveMap.get(t).getCantMoveUnits().isEmpty()) {</span>
+<span class="nc" id="L258">        ProLogger.trace(t + &quot; has units that can't move: &quot; + moveMap.get(t).getCantMoveUnits());</span>
+      }
+    }
+<span class="nc" id="L261">  }</span>
+
+  private Map&lt;Unit, Set&lt;Territory&gt;&gt; findInfraUnitsThatCanMove() {
+
+<span class="nc" id="L265">    ProLogger.info(&quot;Find non-combat infra units that can move&quot;);</span>
+
+<span class="nc" id="L267">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = territoryManager.getDefendOptions().getUnitMoveMap();</span>
+
+    // Add all units that are infra
+<span class="nc" id="L270">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; infraUnitMoveMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L272">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">      if (ProMatches.unitCanBeMovedAndIsOwnedNonCombatInfra(player).match(u)) {</span>
+<span class="nc" id="L274">        infraUnitMoveMap.put(u, unitMoveMap.get(u));</span>
+<span class="nc" id="L275">        ProLogger.trace(u + &quot; is infra unit with move options: &quot; + unitMoveMap.get(u));</span>
+<span class="nc" id="L276">        it.remove();</span>
+      }
+    }
+<span class="nc" id="L279">    return infraUnitMoveMap;</span>
+  }
+
+  private List&lt;Territory&gt; moveOneDefenderToLandTerritoriesBorderingEnemy() {
+
+<span class="nc" id="L284">    ProLogger.info(&quot;Determine which territories to defend with one land unit&quot;);</span>
+
+<span class="nc" id="L286">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+<span class="nc" id="L287">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = territoryManager.getDefendOptions().getUnitMoveMap();</span>
+
+    // Find land territories with no can't move units and adjacent to enemy land units
+<span class="nc" id="L290">    final List&lt;Territory&gt; territoriesToDefendWithOneUnit = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L291" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L292">      final boolean hasAlliedLandUnits =</span>
+<span class="nc" id="L293">          Match.someMatch(moveMap.get(t).getCantMoveUnits(), ProMatches.unitIsAlliedLandAndNotInfra(player, data));</span>
+<span class="nc bnc" id="L294" title="All 4 branches missed.">      if (!t.isWater() &amp;&amp; !hasAlliedLandUnits</span>
+          &amp;&amp; ProMatches
+<span class="nc" id="L296">              .territoryHasNeighborOwnedByAndHasLandUnit(data, player, ProUtils.getPotentialEnemyPlayers(player))</span>
+<span class="nc bnc" id="L297" title="All 2 branches missed.">              .match(t)) {</span>
+<span class="nc" id="L298">        territoriesToDefendWithOneUnit.add(t);</span>
+      }
+    }
+<span class="nc" id="L301">    final List&lt;Territory&gt; result = new ArrayList&lt;&gt;(territoriesToDefendWithOneUnit);</span>
+
+    // Sort units by number of defend options and cost
+<span class="nc" id="L304">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; sortedUnitMoveOptions =</span>
+<span class="nc" id="L305">        ProSortMoveOptionsUtils.sortUnitMoveOptions(player, unitMoveMap);</span>
+
+    // Set unit with the fewest move options in each territory
+<span class="nc bnc" id="L308" title="All 2 branches missed.">    for (final Unit unit : sortedUnitMoveOptions.keySet()) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">      if (Matches.UnitIsLand.match(unit)) {</span>
+<span class="nc bnc" id="L310" title="All 2 branches missed.">        for (final Territory t : sortedUnitMoveOptions.get(unit)) {</span>
+<span class="nc" id="L311">          final int unitValue = ProData.unitValueMap.getInt(unit.getType());</span>
+<span class="nc" id="L312">          int production = 0;</span>
+<span class="nc" id="L313">          final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L314" title="All 2 branches missed.">          if (ta != null) {</span>
+<span class="nc" id="L315">            production = ta.getProduction();</span>
+          }
+
+          // Only defend territories that either already have units (avoid abandoning territories)
+          // or where unit value is less than production + 3 (avoid sacrificing expensive units to block)
+<span class="nc bnc" id="L320" title="All 2 branches missed.">          if (territoriesToDefendWithOneUnit.contains(t)</span>
+<span class="nc bnc" id="L321" title="All 4 branches missed.">              &amp;&amp; (unitValue &lt;= (production + 3) || Matches.territoryHasUnitsOwnedBy(player).match(t))) {</span>
+<span class="nc" id="L322">            moveMap.get(t).addUnit(unit);</span>
+<span class="nc" id="L323">            unitMoveMap.remove(unit);</span>
+<span class="nc" id="L324">            territoriesToDefendWithOneUnit.remove(t);</span>
+<span class="nc" id="L325">            ProLogger.debug(t + &quot;, added one land unit: &quot; + unit);</span>
+<span class="nc" id="L326">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L329" title="All 2 branches missed.">        if (territoriesToDefendWithOneUnit.isEmpty()) {</span>
+<span class="nc" id="L330">          break;</span>
+        }
+      }
+    }
+
+    // Only return territories that received a defender
+<span class="nc" id="L336">    result.removeAll(territoriesToDefendWithOneUnit);</span>
+
+<span class="nc" id="L338">    return result;</span>
+  }
+
+  private void determineIfMoveTerritoriesCanBeHeld() {
+
+<span class="nc" id="L343">    ProLogger.info(&quot;Find max enemy attackers and if territories can be held&quot;);</span>
+
+<span class="nc" id="L345">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+<span class="nc" id="L346">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Determine which territories can possibly be held
+<span class="nc bnc" id="L349" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L350">      final ProTerritory patd = moveMap.get(t);</span>
+
+      // Check if no enemy attackers
+<span class="nc bnc" id="L353" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) == null) {</span>
+<span class="nc" id="L354">        ProLogger.debug(&quot;Territory=&quot; + t.getName() + &quot;, CanHold=true since has no enemy attackers&quot;);</span>
+<span class="nc" id="L355">        continue;</span>
+      }
+
+      // Check if min defenders can hold it (not considering AA)
+<span class="nc" id="L359">      final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L360">      enemyAttackingUnits.addAll(enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L361">      patd.setMaxEnemyUnits(new ArrayList&lt;&gt;(enemyAttackingUnits));</span>
+<span class="nc" id="L362">      patd.setMaxEnemyBombardUnits(enemyAttackOptions.getMax(t).getMaxBombardUnits());</span>
+<span class="nc" id="L363">      final List&lt;Unit&gt; minDefendingUnitsAndNotAA =</span>
+<span class="nc" id="L364">          Match.getMatches(patd.getCantMoveUnits(), Matches.UnitIsAAforAnything.invert());</span>
+<span class="nc" id="L365">      final ProBattleResult minResult = calc.calculateBattleResults(player, t, new ArrayList&lt;&gt;(enemyAttackingUnits),</span>
+<span class="nc" id="L366">          minDefendingUnitsAndNotAA, enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+<span class="nc" id="L367">      patd.setMinBattleResult(minResult);</span>
+<span class="nc bnc" id="L368" title="All 4 branches missed.">      if (minResult.getTUVSwing() &lt;= 0 &amp;&amp; !minDefendingUnitsAndNotAA.isEmpty()) {</span>
+<span class="nc" id="L369">        ProLogger.debug(&quot;Territory=&quot; + t.getName() + &quot;, CanHold=true&quot; + &quot;, MinDefenders=&quot;</span>
+<span class="nc" id="L370">            + minDefendingUnitsAndNotAA.size() + &quot;, EnemyAttackers=&quot; + enemyAttackingUnits.size() + &quot;, win%=&quot;</span>
+<span class="nc" id="L371">            + minResult.getWinPercentage() + &quot;, EnemyTUVSwing=&quot; + minResult.getTUVSwing() + &quot;, hasLandUnitRemaining=&quot;</span>
+<span class="nc" id="L372">            + minResult.isHasLandUnitRemaining());</span>
+<span class="nc" id="L373">        continue;</span>
+      }
+
+      // Check if max defenders can hold it (not considering AA)
+<span class="nc" id="L377">      final Set&lt;Unit&gt; defendingUnits = new HashSet&lt;&gt;(patd.getMaxUnits());</span>
+<span class="nc" id="L378">      defendingUnits.addAll(patd.getMaxAmphibUnits());</span>
+<span class="nc" id="L379">      defendingUnits.addAll(patd.getCantMoveUnits());</span>
+<span class="nc" id="L380">      final List&lt;Unit&gt; defendingUnitsAndNotAA = Match.getMatches(defendingUnits, Matches.UnitIsAAforAnything.invert());</span>
+<span class="nc" id="L381">      final ProBattleResult result = calc.calculateBattleResults(player, t, new ArrayList&lt;&gt;(enemyAttackingUnits),</span>
+<span class="nc" id="L382">          defendingUnitsAndNotAA, enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+<span class="nc" id="L383">      int isFactory = 0;</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">      if (ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t)) {</span>
+<span class="nc" id="L385">        isFactory = 1;</span>
+      }
+<span class="nc" id="L387">      int isMyCapital = 0;</span>
+<span class="nc bnc" id="L388" title="All 2 branches missed.">      if (t.equals(ProData.myCapital)) {</span>
+<span class="nc" id="L389">        isMyCapital = 1;</span>
+      }
+<span class="nc" id="L391">      final List&lt;Unit&gt; extraUnits = new ArrayList&lt;&gt;(defendingUnitsAndNotAA);</span>
+<span class="nc" id="L392">      extraUnits.removeAll(minDefendingUnitsAndNotAA);</span>
+<span class="nc" id="L393">      final double extraUnitValue = BattleCalculator.getTUV(extraUnits, ProData.unitValueMap);</span>
+<span class="nc" id="L394">      final double holdValue = extraUnitValue / 8 * (1 + 0.5 * isFactory) * (1 + 2 * isMyCapital);</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">      if (minDefendingUnitsAndNotAA.size() != defendingUnitsAndNotAA.size()</span>
+<span class="nc bnc" id="L396" title="All 2 branches missed.">          &amp;&amp; (result.getTUVSwing() - holdValue) &lt; minResult.getTUVSwing()) {</span>
+        ProLogger
+<span class="nc" id="L398">            .debug(&quot;Territory=&quot; + t.getName() + &quot;, CanHold=true&quot; + &quot;, MaxDefenders=&quot; + defendingUnitsAndNotAA.size()</span>
+<span class="nc" id="L399">                + &quot;, EnemyAttackers=&quot; + enemyAttackingUnits.size() + &quot;, minTUVSwing=&quot; + minResult.getTUVSwing()</span>
+<span class="nc" id="L400">                + &quot;, win%=&quot; + result.getWinPercentage() + &quot;, EnemyTUVSwing=&quot; + result.getTUVSwing()</span>
+<span class="nc" id="L401">                + &quot;, hasLandUnitRemaining=&quot; + result.isHasLandUnitRemaining() + &quot;, holdValue=&quot; + holdValue);</span>
+<span class="nc" id="L402">        continue;</span>
+      }
+
+      // Can't hold territory
+<span class="nc" id="L406">      patd.setCanHold(false);</span>
+<span class="nc" id="L407">      ProLogger.debug(&quot;Can't hold Territory=&quot; + t.getName() + &quot;, MaxDefenders=&quot; + defendingUnitsAndNotAA.size()</span>
+<span class="nc" id="L408">          + &quot;, EnemyAttackers=&quot; + enemyAttackingUnits.size() + &quot;, minTUVSwing=&quot; + minResult.getTUVSwing() + &quot;, win%=&quot;</span>
+<span class="nc" id="L409">          + result.getWinPercentage() + &quot;, EnemyTUVSwing=&quot; + result.getTUVSwing() + &quot;, hasLandUnitRemaining=&quot;</span>
+<span class="nc" id="L410">          + result.isHasLandUnitRemaining() + &quot;, holdValue=&quot; + holdValue);</span>
+    }
+<span class="nc" id="L412">  }</span>
+
+  private List&lt;ProTerritory&gt; prioritizeDefendOptions(final Map&lt;Territory, ProTerritory&gt; factoryMoveMap,
+      final Map&lt;Territory, Double&gt; territoryValueMap) {
+
+<span class="nc" id="L417">    ProLogger.info(&quot;Prioritizing territories to try to defend&quot;);</span>
+
+<span class="nc" id="L419">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+<span class="nc" id="L420">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Calculate value of defending territory
+<span class="nc bnc" id="L423" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+
+      // Determine if it is my capital or adjacent to my capital
+<span class="nc" id="L426">      int isMyCapital = 0;</span>
+<span class="nc bnc" id="L427" title="All 2 branches missed.">      if (t.equals(ProData.myCapital)) {</span>
+<span class="nc" id="L428">        isMyCapital = 1;</span>
+      }
+
+      // Determine if it has a factory
+<span class="nc" id="L432">      int isFactory = 0;</span>
+<span class="nc bnc" id="L433" title="All 2 branches missed.">      if (ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t)</span>
+<span class="nc bnc" id="L434" title="All 4 branches missed.">          || (factoryMoveMap != null &amp;&amp; factoryMoveMap.containsKey(t))) {</span>
+<span class="nc" id="L435">        isFactory = 1;</span>
+      }
+
+      // Determine production value and if it is an enemy capital
+<span class="nc" id="L439">      int production = 0;</span>
+<span class="nc" id="L440">      int isEnemyOrAlliedCapital = 0;</span>
+<span class="nc" id="L441">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">      if (ta != null) {</span>
+<span class="nc" id="L443">        production = ta.getProduction();</span>
+<span class="nc bnc" id="L444" title="All 4 branches missed.">        if (ta.isCapital() &amp;&amp; !t.equals(ProData.myCapital)) {</span>
+<span class="nc" id="L445">          isEnemyOrAlliedCapital = 1;</span>
+        }
+      }
+
+      // Determine neighbor value
+<span class="nc" id="L450">      double neighborValue = 0;</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">      if (!t.isWater()) {</span>
+<span class="nc" id="L452">        final Set&lt;Territory&gt; landNeighbors = data.getMap().getNeighbors(t, Matches.TerritoryIsLand);</span>
+<span class="nc bnc" id="L453" title="All 2 branches missed.">        for (final Territory neighbor : landNeighbors) {</span>
+<span class="nc" id="L454">          double neighborProduction = TerritoryAttachment.getProduction(neighbor);</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">          if (Matches.isTerritoryAllied(player, data).match(neighbor)) {</span>
+<span class="nc" id="L456">            neighborProduction = 0.1 * neighborProduction;</span>
+          }
+<span class="nc" id="L458">          neighborValue += neighborProduction;</span>
+        }
+      }
+
+      // Determine defending unit value
+<span class="nc" id="L463">      final int cantMoveUnitValue = BattleCalculator.getTUV(moveMap.get(t).getCantMoveUnits(), ProData.unitValueMap);</span>
+<span class="nc" id="L464">      double unitOwnerMultiplier = 1;</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">      if (Match.noneMatch(moveMap.get(t).getCantMoveUnits(), Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc bnc" id="L466" title="All 2 branches missed.">        if (t.isWater()</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">            &amp;&amp; Match.noneMatch(moveMap.get(t).getCantMoveUnits(), Matches.UnitIsTransportButNotCombatTransport)) {</span>
+<span class="nc" id="L468">          unitOwnerMultiplier = 0;</span>
+<span class="nc" id="L469">        } else {</span>
+<span class="nc" id="L470">          unitOwnerMultiplier = 0.5;</span>
+        }
+      }
+
+      // Calculate defense value for prioritization
+<span class="nc" id="L475">      final double territoryValue =</span>
+<span class="nc" id="L476">          unitOwnerMultiplier * (2 * production + 10 * isFactory + 0.5 * cantMoveUnitValue + 0.5 * neighborValue)</span>
+<span class="nc" id="L477">              * (1 + 10 * isMyCapital) * (1 + 4 * isEnemyOrAlliedCapital);</span>
+<span class="nc" id="L478">      moveMap.get(t).setValue(territoryValue);</span>
+    }
+
+    // Sort attack territories by value
+<span class="nc" id="L482">    final List&lt;ProTerritory&gt; prioritizedTerritories = new ArrayList&lt;&gt;(moveMap.values());</span>
+<span class="nc" id="L483">    Collections.sort(prioritizedTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L484">      final double value1 = t1.getValue();</span>
+<span class="nc" id="L485">      final double value2 = t2.getValue();</span>
+<span class="nc" id="L486">      return Double.compare(value2, value1);</span>
+    });
+
+    // Remove territories that I'm not going to try to defend
+<span class="nc bnc" id="L490" title="All 2 branches missed.">    for (final Iterator&lt;ProTerritory&gt; it = prioritizedTerritories.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L491">      final ProTerritory patd = it.next();</span>
+<span class="nc" id="L492">      final Territory t = patd.getTerritory();</span>
+<span class="nc" id="L493">      final boolean hasFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t);</span>
+<span class="nc" id="L494">      final ProBattleResult minResult = patd.getMinBattleResult();</span>
+<span class="nc" id="L495">      final int cantMoveUnitValue = BattleCalculator.getTUV(moveMap.get(t).getCantMoveUnits(), ProData.unitValueMap);</span>
+<span class="nc" id="L496">      final boolean isLandAndCanOnlyBeAttackedByAir =</span>
+<span class="nc bnc" id="L497" title="All 4 branches missed.">          !t.isWater() &amp;&amp; Match.allMatch(patd.getMaxEnemyUnits(), Matches.UnitIsAir);</span>
+<span class="nc" id="L498">      final boolean isNotFactoryAndShouldHold =</span>
+<span class="nc bnc" id="L499" title="All 6 branches missed.">          !hasFactory &amp;&amp; (minResult.getTUVSwing() &lt;= 0 || !minResult.isHasLandUnitRemaining());</span>
+<span class="nc bnc" id="L500" title="All 2 branches missed.">      final boolean canAlreadyBeHeld =</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">          minResult.getTUVSwing() &lt;= 0 &amp;&amp; minResult.getWinPercentage() &lt; (100 - ProData.winPercentage);</span>
+<span class="nc bnc" id="L502" title="All 4 branches missed.">      final boolean isNotFactoryAndHasNoEnemyNeighbors = !t.isWater() &amp;&amp; !hasFactory</span>
+          &amp;&amp; !ProMatches
+<span class="nc" id="L504">              .territoryHasNeighborOwnedByAndHasLandUnit(data, player, ProUtils.getPotentialEnemyPlayers(player))</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">              .match(t);</span>
+<span class="nc bnc" id="L506" title="All 6 branches missed.">      final boolean isNotFactoryAndOnlyAmphib = !t.isWater() &amp;&amp; !hasFactory</span>
+<span class="nc bnc" id="L507" title="All 2 branches missed.">          &amp;&amp; Match.noneMatch(moveMap.get(t).getMaxUnits(), Matches.UnitIsLand) &amp;&amp; cantMoveUnitValue &lt; 5;</span>
+<span class="nc bnc" id="L508" title="All 8 branches missed.">      if (!patd.isCanHold() || patd.getValue() &lt;= 0 || isLandAndCanOnlyBeAttackedByAir || isNotFactoryAndShouldHold</span>
+<span class="nc bnc" id="L509" title="All 6 branches missed.">          || canAlreadyBeHeld || isNotFactoryAndHasNoEnemyNeighbors || isNotFactoryAndOnlyAmphib) {</span>
+<span class="nc" id="L510">        final double TUVSwing = minResult.getTUVSwing();</span>
+<span class="nc" id="L511">        final boolean hasRemainingLandUnit = minResult.isHasLandUnitRemaining();</span>
+<span class="nc" id="L512">        ProLogger.debug(&quot;Removing territory=&quot; + t.getName() + &quot;, value=&quot; + patd.getValue() + &quot;, CanHold=&quot;</span>
+<span class="nc" id="L513">            + patd.isCanHold() + &quot;, isLandAndCanOnlyBeAttackedByAir=&quot; + isLandAndCanOnlyBeAttackedByAir</span>
+<span class="nc" id="L514">            + &quot;, isNotFactoryAndShouldHold=&quot; + isNotFactoryAndShouldHold + &quot;, canAlreadyBeHeld=&quot; + canAlreadyBeHeld</span>
+<span class="nc" id="L515">            + &quot;, isNotFactoryAndHasNoEnemyNeighbors=&quot; + isNotFactoryAndHasNoEnemyNeighbors</span>
+<span class="nc" id="L516">            + &quot;, isNotFactoryAndOnlyAmphib=&quot; + isNotFactoryAndOnlyAmphib + &quot;, TUVSwing=&quot; + TUVSwing</span>
+<span class="nc" id="L517">            + &quot;, hasRemainingLandUnit=&quot; + hasRemainingLandUnit + &quot;, maxEnemyUnits=&quot; + patd.getMaxEnemyUnits().size());</span>
+<span class="nc" id="L518">        it.remove();</span>
+      }
+    }
+
+    // Add best sea production territory for sea factories
+<span class="nc" id="L523">    List&lt;Territory&gt; seaFactories = Match.getMatches(data.getMap().getTerritories(),</span>
+<span class="nc" id="L524">        ProMatches.territoryHasInfraFactoryAndIsNotConqueredOwnedLand(player, data));</span>
+<span class="nc" id="L525">    seaFactories =</span>
+<span class="nc" id="L526">        Match.getMatches(seaFactories, ProMatches.territoryHasInfraFactoryAndIsOwnedLandAdjacentToSea(player, data));</span>
+<span class="nc bnc" id="L527" title="All 2 branches missed.">    for (final Territory t : seaFactories) {</span>
+<span class="nc bnc" id="L528" title="All 2 branches missed.">      if (territoryValueMap.get(t) &gt;= 1) {</span>
+<span class="nc" id="L529">        continue;</span>
+      }
+<span class="nc" id="L531">      final Set&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L532">          data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+<span class="nc" id="L533">      double maxValue = 0;</span>
+<span class="nc" id="L534">      Territory maxTerritory = null;</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">      for (final Territory neighbor : neighbors) {</span>
+<span class="nc bnc" id="L536" title="All 4 branches missed.">        if (moveMap.get(neighbor) != null &amp;&amp; moveMap.get(neighbor).isCanHold()</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">            &amp;&amp; territoryValueMap.get(neighbor) &gt; maxValue) {</span>
+<span class="nc" id="L538">          maxTerritory = neighbor;</span>
+<span class="nc" id="L539">          maxValue = territoryValueMap.get(neighbor);</span>
+        }
+      }
+<span class="nc bnc" id="L542" title="All 4 branches missed.">      if (maxTerritory != null &amp;&amp; enemyAttackOptions.getMax(maxTerritory) != null) {</span>
+<span class="nc" id="L543">        boolean alreadyAdded = false;</span>
+<span class="nc bnc" id="L544" title="All 2 branches missed.">        for (final ProTerritory patd : prioritizedTerritories) {</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">          if (patd.getTerritory().equals(maxTerritory)) {</span>
+<span class="nc" id="L546">            alreadyAdded = true;</span>
+          }
+        }
+<span class="nc bnc" id="L549" title="All 2 branches missed.">        if (!alreadyAdded) {</span>
+<span class="nc" id="L550">          prioritizedTerritories.add(moveMap.get(maxTerritory));</span>
+        }
+      }
+    }
+
+    // Log prioritized territories
+<span class="nc bnc" id="L556" title="All 2 branches missed.">    for (final ProTerritory attackTerritoryData : prioritizedTerritories) {</span>
+<span class="nc" id="L557">      ProLogger.debug(&quot;Value=&quot; + attackTerritoryData.getValue() + &quot;, &quot; + attackTerritoryData.getTerritory().getName());</span>
+    }
+<span class="nc" id="L559">    return prioritizedTerritories;</span>
+  }
+
+  private void moveUnitsToDefendTerritories(final List&lt;ProTerritory&gt; prioritizedTerritories, final int enemyDistance,
+      final Map&lt;Territory, Double&gt; territoryValueMap) {
+
+<span class="nc" id="L565">    ProLogger.info(&quot;Determine units to defend territories with&quot;);</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">    if (prioritizedTerritories.isEmpty()) {</span>
+<span class="nc" id="L567">      return;</span>
+    }
+
+<span class="nc" id="L570">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+<span class="nc" id="L571">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = territoryManager.getDefendOptions().getUnitMoveMap();</span>
+<span class="nc" id="L572">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap = territoryManager.getDefendOptions().getTransportMoveMap();</span>
+<span class="nc" id="L573">    final List&lt;ProTransport&gt; transportMapList = territoryManager.getDefendOptions().getTransportList();</span>
+
+    // Assign units to territories by prioritization
+<span class="nc" id="L576">    int numToDefend = 1;</span>
+<span class="nc" id="L577">    while (true) {</span>
+
+      // Reset lists
+<span class="nc bnc" id="L580" title="All 2 branches missed.">      for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L581">        moveMap.get(t).getTempUnits().clear();</span>
+<span class="nc" id="L582">        moveMap.get(t).getTempAmphibAttackMap().clear();</span>
+<span class="nc" id="L583">        moveMap.get(t).getTransportTerritoryMap().clear();</span>
+<span class="nc" id="L584">        moveMap.get(t).setBattleResult(null);</span>
+      }
+
+      // Determine number of territories to defend
+<span class="nc bnc" id="L588" title="All 2 branches missed.">      if (numToDefend &lt;= 0) {</span>
+<span class="nc" id="L589">        break;</span>
+      }
+<span class="nc" id="L591">      final List&lt;ProTerritory&gt; territoriesToTryToDefend = prioritizedTerritories.subList(0, numToDefend);</span>
+
+      // Loop through all units and determine defend options
+<span class="nc" id="L594">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitDefendOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L595" title="All 2 branches missed.">      for (final Unit unit : unitMoveMap.keySet()) {</span>
+
+        // Find number of move options
+<span class="nc" id="L598">        final Set&lt;Territory&gt; canDefendTerritories = new LinkedHashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L599" title="All 2 branches missed.">        for (final ProTerritory attackTerritoryData : territoriesToTryToDefend) {</span>
+<span class="nc bnc" id="L600" title="All 2 branches missed.">          if (unitMoveMap.get(unit).contains(attackTerritoryData.getTerritory())) {</span>
+<span class="nc" id="L601">            canDefendTerritories.add(attackTerritoryData.getTerritory());</span>
+          }
+        }
+<span class="nc" id="L604">        unitDefendOptions.put(unit, canDefendTerritories);</span>
+      }
+
+      // Sort units by number of defend options and cost
+<span class="nc" id="L608">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; sortedUnitMoveOptions =</span>
+<span class="nc" id="L609">          ProSortMoveOptionsUtils.sortUnitMoveOptions(player, unitDefendOptions);</span>
+
+      // Set enough units in territories to have at least a chance of winning
+<span class="nc bnc" id="L612" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = sortedUnitMoveOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L613">        final Unit unit = it.next();</span>
+<span class="nc" id="L614">        final boolean isAirUnit = UnitAttachment.get(unit.getType()).getIsAir();</span>
+<span class="nc bnc" id="L615" title="All 4 branches missed.">        if (isAirUnit || Matches.UnitIsCarrier.match(unit)) {</span>
+<span class="nc" id="L616">          continue; // skip air and carrier units</span>
+        }
+<span class="nc" id="L618">        final TreeMap&lt;Double, Territory&gt; estimatesMap = new TreeMap&lt;&gt;();</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">        for (final Territory t : sortedUnitMoveOptions.get(unit)) {</span>
+<span class="nc" id="L620">          List&lt;Unit&gt; defendingUnits = Match.getMatches(moveMap.get(t).getAllDefenders(),</span>
+<span class="nc" id="L621">              ProMatches.unitIsAlliedNotOwnedAir(player, data).invert());</span>
+<span class="nc bnc" id="L622" title="All 2 branches missed.">          if (t.isWater()) {</span>
+<span class="nc" id="L623">            defendingUnits = moveMap.get(t).getAllDefenders();</span>
+          }
+<span class="nc" id="L625">          final double estimate =</span>
+<span class="nc" id="L626">              ProBattleUtils.estimateStrengthDifference(t, moveMap.get(t).getMaxEnemyUnits(), defendingUnits);</span>
+<span class="nc" id="L627">          estimatesMap.put(estimate, t);</span>
+        }
+<span class="nc bnc" id="L629" title="All 4 branches missed.">        if (!estimatesMap.isEmpty() &amp;&amp; estimatesMap.lastKey() &gt; 60) {</span>
+<span class="nc" id="L630">          final Territory minWinTerritory = estimatesMap.lastEntry().getValue();</span>
+<span class="nc" id="L631">          moveMap.get(minWinTerritory).addTempUnit(unit);</span>
+<span class="nc" id="L632">          it.remove();</span>
+        }
+      }
+
+      // Set non-air units in territories
+<span class="nc bnc" id="L637" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = sortedUnitMoveOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L638">        final Unit unit = it.next();</span>
+<span class="nc bnc" id="L639" title="All 2 branches missed.">        if (Matches.UnitCanLandOnCarrier.match(unit)) {</span>
+<span class="nc" id="L640">          continue;</span>
+        }
+<span class="nc" id="L642">        Territory maxWinTerritory = null;</span>
+<span class="nc" id="L643">        double maxWinPercentage = -1;</span>
+<span class="nc bnc" id="L644" title="All 2 branches missed.">        for (final Territory t : sortedUnitMoveOptions.get(unit)) {</span>
+<span class="nc" id="L645">          List&lt;Unit&gt; defendingUnits = Match.getMatches(moveMap.get(t).getAllDefenders(),</span>
+<span class="nc" id="L646">              ProMatches.unitIsAlliedNotOwnedAir(player, data).invert());</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">          if (t.isWater()) {</span>
+<span class="nc" id="L648">            defendingUnits = moveMap.get(t).getAllDefenders();</span>
+          }
+<span class="nc bnc" id="L650" title="All 2 branches missed.">          if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L651">            moveMap.get(t).setBattleResult(calc.estimateDefendBattleResults(player, t,</span>
+<span class="nc" id="L652">                moveMap.get(t).getMaxEnemyUnits(), defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits()));</span>
+          }
+<span class="nc" id="L654">          final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L655">          final boolean hasFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t);</span>
+<span class="nc bnc" id="L656" title="All 2 branches missed.">          if (result.getWinPercentage() &gt; maxWinPercentage</span>
+<span class="nc bnc" id="L657" title="All 4 branches missed.">              &amp;&amp; ((t.equals(ProData.myCapital) &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.winPercentage))</span>
+<span class="nc bnc" id="L658" title="All 4 branches missed.">                  || (hasFactory &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.minWinPercentage))</span>
+<span class="nc bnc" id="L659" title="All 2 branches missed.">                  || result.getTUVSwing() &gt;= 0)) {</span>
+<span class="nc" id="L660">            maxWinTerritory = t;</span>
+<span class="nc" id="L661">            maxWinPercentage = result.getWinPercentage();</span>
+          }
+        }
+<span class="nc bnc" id="L664" title="All 2 branches missed.">        if (maxWinTerritory != null) {</span>
+<span class="nc" id="L665">          moveMap.get(maxWinTerritory).addTempUnit(unit);</span>
+<span class="nc" id="L666">          moveMap.get(maxWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L667">          it.remove();</span>
+
+          // If carrier has dependent allied fighters then move them too
+<span class="nc bnc" id="L670" title="All 2 branches missed.">          if (Matches.UnitIsCarrier.match(unit)) {</span>
+<span class="nc" id="L671">            final Territory unitTerritory = unitTerritoryMap.get(unit);</span>
+<span class="nc" id="L672">            final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith =</span>
+<span class="nc" id="L673">                MoveValidator.carrierMustMoveWith(unitTerritory.getUnits().getUnits(), unitTerritory, data, player);</span>
+<span class="nc bnc" id="L674" title="All 2 branches missed.">            if (carrierMustMoveWith.containsKey(unit)) {</span>
+<span class="nc" id="L675">              moveMap.get(maxWinTerritory).getTempUnits().addAll(carrierMustMoveWith.get(unit));</span>
+            }
+          }
+        }
+      }
+
+      // Set air units in territories
+<span class="nc bnc" id="L682" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = sortedUnitMoveOptions.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L683">        final Unit unit = it.next();</span>
+<span class="nc" id="L684">        Territory maxWinTerritory = null;</span>
+<span class="nc" id="L685">        double maxWinPercentage = -1;</span>
+<span class="nc bnc" id="L686" title="All 2 branches missed.">        for (final Territory t : sortedUnitMoveOptions.get(unit)) {</span>
+<span class="nc bnc" id="L687" title="All 4 branches missed.">          if (t.isWater() &amp;&amp; Matches.UnitIsAir.match(unit)) {</span>
+<span class="nc" id="L688">            if (!ProTransportUtils.validateCarrierCapacity(player, t,</span>
+<span class="nc bnc" id="L689" title="All 2 branches missed.">                moveMap.get(t).getAllDefendersForCarrierCalcs(data, player), unit)) {</span>
+<span class="nc" id="L690">              continue; // skip moving air to water if not enough carrier capacity</span>
+            }
+          }
+<span class="nc bnc" id="L693" title="All 6 branches missed.">          if (!t.isWater() &amp;&amp; !t.getOwner().equals(player) &amp;&amp; Matches.UnitIsAir.match(unit)</span>
+<span class="nc bnc" id="L694" title="All 2 branches missed.">              &amp;&amp; !ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t)) {</span>
+<span class="nc" id="L695">            continue; // skip moving air units to allied land without a factory</span>
+          }
+<span class="nc" id="L697">          List&lt;Unit&gt; defendingUnits = Match.getMatches(moveMap.get(t).getAllDefenders(),</span>
+<span class="nc" id="L698">              ProMatches.unitIsAlliedNotOwnedAir(player, data).invert());</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">          if (t.isWater()) {</span>
+<span class="nc" id="L700">            defendingUnits = moveMap.get(t).getAllDefenders();</span>
+          }
+<span class="nc bnc" id="L702" title="All 2 branches missed.">          if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L703">            moveMap.get(t).setBattleResult(calc.estimateDefendBattleResults(player, t,</span>
+<span class="nc" id="L704">                moveMap.get(t).getMaxEnemyUnits(), defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits()));</span>
+          }
+<span class="nc" id="L706">          final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L707">          final boolean hasFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t);</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">          if (result.getWinPercentage() &gt; maxWinPercentage</span>
+<span class="nc bnc" id="L709" title="All 4 branches missed.">              &amp;&amp; ((t.equals(ProData.myCapital) &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.winPercentage))</span>
+<span class="nc bnc" id="L710" title="All 4 branches missed.">                  || (hasFactory &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.minWinPercentage))</span>
+<span class="nc bnc" id="L711" title="All 2 branches missed.">                  || result.getTUVSwing() &gt;= 0)) {</span>
+<span class="nc" id="L712">            maxWinTerritory = t;</span>
+<span class="nc" id="L713">            maxWinPercentage = result.getWinPercentage();</span>
+          }
+        }
+<span class="nc bnc" id="L716" title="All 2 branches missed.">        if (maxWinTerritory != null) {</span>
+<span class="nc" id="L717">          moveMap.get(maxWinTerritory).addTempUnit(unit);</span>
+<span class="nc" id="L718">          moveMap.get(maxWinTerritory).setBattleResult(null);</span>
+<span class="nc" id="L719">          it.remove();</span>
+        }
+      }
+
+      // Loop through all my transports and see which territories they can defend from current list
+<span class="nc" id="L724">      final List&lt;Unit&gt; alreadyMovedTransports = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L725" title="All 2 branches missed.">      if (!Properties.getTransportCasualtiesRestricted(data)) {</span>
+<span class="nc" id="L726">        final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportDefendOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L727" title="All 2 branches missed.">        for (final Unit unit : transportMoveMap.keySet()) {</span>
+
+          // Find number of defend options
+<span class="nc" id="L730">          final Set&lt;Territory&gt; canDefendTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L731" title="All 2 branches missed.">          for (final ProTerritory attackTerritoryData : territoriesToTryToDefend) {</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">            if (transportMoveMap.get(unit).contains(attackTerritoryData.getTerritory())) {</span>
+<span class="nc" id="L733">              canDefendTerritories.add(attackTerritoryData.getTerritory());</span>
+            }
+          }
+<span class="nc bnc" id="L736" title="All 2 branches missed.">          if (!canDefendTerritories.isEmpty()) {</span>
+<span class="nc" id="L737">            transportDefendOptions.put(unit, canDefendTerritories);</span>
+          }
+        }
+
+        // Loop through transports with move options and determine if any naval defense needs it
+<span class="nc bnc" id="L742" title="All 2 branches missed.">        for (final Unit transport : transportDefendOptions.keySet()) {</span>
+
+          // Find current naval defense that needs transport if it isn't transporting units
+<span class="nc bnc" id="L745" title="All 2 branches missed.">          for (final Territory t : transportDefendOptions.get(transport)) {</span>
+<span class="nc bnc" id="L746" title="All 2 branches missed.">            if (!TransportTracker.isTransporting(transport)) {</span>
+<span class="nc" id="L747">              final List&lt;Unit&gt; defendingUnits = moveMap.get(t).getAllDefenders();</span>
+<span class="nc bnc" id="L748" title="All 2 branches missed.">              if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L749">                moveMap.get(t).setBattleResult(calc.estimateDefendBattleResults(player, t,</span>
+<span class="nc" id="L750">                    moveMap.get(t).getMaxEnemyUnits(), defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits()));</span>
+              }
+<span class="nc" id="L752">              final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc bnc" id="L753" title="All 2 branches missed.">              if (result.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L754">                moveMap.get(t).addTempUnit(transport);</span>
+<span class="nc" id="L755">                moveMap.get(t).setBattleResult(null);</span>
+<span class="nc" id="L756">                alreadyMovedTransports.add(transport);</span>
+<span class="nc" id="L757">                ProLogger.trace(&quot;Adding defend transport to: &quot; + t.getName());</span>
+<span class="nc" id="L758">                break;</span>
+              }
+            }
+          }
+        }
+      }
+
+      // Loop through all my transports and see which can make amphib move
+<span class="nc" id="L766">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; amphibMoveOptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">      for (final ProTransport proTransportData : transportMapList) {</span>
+
+        // If already used to defend then ignore
+<span class="nc bnc" id="L770" title="All 2 branches missed.">        if (alreadyMovedTransports.contains(proTransportData.getTransport())) {</span>
+<span class="nc" id="L771">          continue;</span>
+        }
+
+        // Find number of amphib move options
+<span class="nc" id="L775">        final Set&lt;Territory&gt; canAmphibMoveTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">        for (final ProTerritory attackTerritoryData : territoriesToTryToDefend) {</span>
+<span class="nc bnc" id="L777" title="All 2 branches missed.">          if (proTransportData.getTransportMap().containsKey(attackTerritoryData.getTerritory())) {</span>
+<span class="nc" id="L778">            canAmphibMoveTerritories.add(attackTerritoryData.getTerritory());</span>
+          }
+        }
+<span class="nc bnc" id="L781" title="All 2 branches missed.">        if (!canAmphibMoveTerritories.isEmpty()) {</span>
+<span class="nc" id="L782">          amphibMoveOptions.put(proTransportData.getTransport(), canAmphibMoveTerritories);</span>
+        }
+      }
+
+      // Loop through transports with amphib move options and determine if any land defense needs it
+<span class="nc bnc" id="L787" title="All 2 branches missed.">      for (final Unit transport : amphibMoveOptions.keySet()) {</span>
+
+        // Find current land defense results for territories that unit can amphib move
+<span class="nc bnc" id="L790" title="All 2 branches missed.">        for (final Territory t : amphibMoveOptions.get(transport)) {</span>
+<span class="nc" id="L791">          final List&lt;Unit&gt; defendingUnits = moveMap.get(t).getAllDefenders();</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">          if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L793">            moveMap.get(t).setBattleResult(calc.estimateDefendBattleResults(player, t,</span>
+<span class="nc" id="L794">                moveMap.get(t).getMaxEnemyUnits(), defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits()));</span>
+          }
+<span class="nc" id="L796">          final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L797">          final boolean hasFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t);</span>
+<span class="nc bnc" id="L798" title="All 4 branches missed.">          if ((t.equals(ProData.myCapital) &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.winPercentage))</span>
+<span class="nc bnc" id="L799" title="All 4 branches missed.">              || (hasFactory &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.minWinPercentage))</span>
+<span class="nc bnc" id="L800" title="All 2 branches missed.">              || result.getTUVSwing() &gt; 0) {</span>
+
+            // Get all units that have already moved
+<span class="nc" id="L803">            final List&lt;Unit&gt; alreadyMovedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L804" title="All 2 branches missed.">            for (final Territory t2 : moveMap.keySet()) {</span>
+<span class="nc" id="L805">              alreadyMovedUnits.addAll(moveMap.get(t2).getUnits());</span>
+<span class="nc" id="L806">              alreadyMovedUnits.addAll(moveMap.get(t2).getTempUnits());</span>
+            }
+
+            // Find units that haven't moved and can be transported
+<span class="nc" id="L810">            boolean addedAmphibUnits = false;</span>
+<span class="nc bnc" id="L811" title="All 2 branches missed.">            for (final ProTransport proTransportData : transportMapList) {</span>
+<span class="nc bnc" id="L812" title="All 2 branches missed.">              if (proTransportData.getTransport().equals(transport)) {</span>
+
+                // Find units to transport
+<span class="nc" id="L815">                final Set&lt;Territory&gt; territoriesCanLoadFrom = proTransportData.getTransportMap().get(t);</span>
+<span class="nc" id="L816">                final List&lt;Unit&gt; amphibUnitsToAdd = ProTransportUtils.getUnitsToTransportFromTerritories(player,</span>
+<span class="nc" id="L817">                    transport, territoriesCanLoadFrom, alreadyMovedUnits);</span>
+<span class="nc bnc" id="L818" title="All 2 branches missed.">                if (amphibUnitsToAdd.isEmpty()) {</span>
+<span class="nc" id="L819">                  continue;</span>
+                }
+
+                // Find safest territory to unload from
+<span class="nc" id="L823">                double minStrengthDifference = Double.POSITIVE_INFINITY;</span>
+<span class="nc" id="L824">                Territory minTerritory = null;</span>
+<span class="nc" id="L825">                final Set&lt;Territory&gt; territoriesToMoveTransport =</span>
+<span class="nc" id="L826">                    data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, false));</span>
+<span class="nc" id="L827">                final Set&lt;Territory&gt; loadFromTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L828" title="All 2 branches missed.">                for (final Unit u : amphibUnitsToAdd) {</span>
+<span class="nc" id="L829">                  loadFromTerritories.add(unitTerritoryMap.get(u));</span>
+                }
+<span class="nc bnc" id="L831" title="All 2 branches missed.">                for (final Territory territoryToMoveTransport : territoriesToMoveTransport) {</span>
+<span class="nc bnc" id="L832" title="All 2 branches missed.">                  if (proTransportData.getSeaTransportMap().containsKey(territoryToMoveTransport)</span>
+<span class="nc" id="L833">                      &amp;&amp; proTransportData.getSeaTransportMap().get(territoryToMoveTransport)</span>
+<span class="nc bnc" id="L834" title="All 2 branches missed.">                          .containsAll(loadFromTerritories)</span>
+<span class="nc bnc" id="L835" title="All 2 branches missed.">                      &amp;&amp; moveMap.get(territoryToMoveTransport) != null</span>
+<span class="nc bnc" id="L836" title="All 4 branches missed.">                      &amp;&amp; (moveMap.get(territoryToMoveTransport).isCanHold() || hasFactory)) {</span>
+<span class="nc" id="L837">                    final List&lt;Unit&gt; attackers = moveMap.get(territoryToMoveTransport).getMaxEnemyUnits();</span>
+<span class="nc" id="L838">                    final List&lt;Unit&gt; defenders = moveMap.get(territoryToMoveTransport).getAllDefenders();</span>
+<span class="nc" id="L839">                    defenders.add(transport);</span>
+<span class="nc" id="L840">                    final double strengthDifference =</span>
+<span class="nc" id="L841">                        ProBattleUtils.estimateStrengthDifference(territoryToMoveTransport, attackers, defenders);</span>
+<span class="nc bnc" id="L842" title="All 2 branches missed.">                    if (strengthDifference &lt; minStrengthDifference) {</span>
+<span class="nc" id="L843">                      minTerritory = territoryToMoveTransport;</span>
+<span class="nc" id="L844">                      minStrengthDifference = strengthDifference;</span>
+                    }
+                  }
+                }
+<span class="nc bnc" id="L848" title="All 2 branches missed.">                if (minTerritory != null) {</span>
+
+                  // Add amphib defense
+<span class="nc" id="L851">                  moveMap.get(t).getTransportTerritoryMap().put(transport, minTerritory);</span>
+<span class="nc" id="L852">                  moveMap.get(t).addTempUnits(amphibUnitsToAdd);</span>
+<span class="nc" id="L853">                  moveMap.get(t).putTempAmphibAttackMap(transport, amphibUnitsToAdd);</span>
+<span class="nc" id="L854">                  moveMap.get(t).setBattleResult(null);</span>
+<span class="nc bnc" id="L855" title="All 2 branches missed.">                  for (final Unit unit : amphibUnitsToAdd) {</span>
+<span class="nc" id="L856">                    sortedUnitMoveOptions.remove(unit);</span>
+                  }
+<span class="nc" id="L858">                  ProLogger.trace(&quot;Adding amphibious defense to: &quot; + t + &quot;, units=&quot; + amphibUnitsToAdd</span>
+<span class="nc" id="L859">                      + &quot;, unloadTerritory=&quot; + minTerritory);</span>
+<span class="nc" id="L860">                  addedAmphibUnits = true;</span>
+<span class="nc" id="L861">                  break;</span>
+                }
+              }
+            }
+<span class="nc bnc" id="L865" title="All 2 branches missed.">            if (addedAmphibUnits) {</span>
+<span class="nc" id="L866">              break;</span>
+            }
+          }
+        }
+      }
+
+      // Determine if all defenses are successful
+<span class="nc" id="L873">      boolean areSuccessful = true;</span>
+<span class="nc" id="L874">      boolean containsCapital = false;</span>
+<span class="nc" id="L875">      ProLogger.debug(&quot;Current number of territories: &quot; + numToDefend);</span>
+<span class="nc bnc" id="L876" title="All 2 branches missed.">      for (final ProTerritory patd : territoriesToTryToDefend) {</span>
+<span class="nc" id="L877">        final Territory t = patd.getTerritory();</span>
+
+        // Find defense result and hold value based on used defenders TUV
+<span class="nc" id="L880">        final List&lt;Unit&gt; defendingUnits = moveMap.get(t).getAllDefenders();</span>
+<span class="nc" id="L881">        moveMap.get(t).setBattleResult(calc.calculateBattleResults(player, t, moveMap.get(t).getMaxEnemyUnits(),</span>
+<span class="nc" id="L882">            defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits(), false));</span>
+<span class="nc" id="L883">        final ProBattleResult result = patd.getBattleResult();</span>
+<span class="nc" id="L884">        int isFactory = 0;</span>
+<span class="nc bnc" id="L885" title="All 2 branches missed.">        if (ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t)) {</span>
+<span class="nc" id="L886">          isFactory = 1;</span>
+        }
+<span class="nc" id="L888">        int isMyCapital = 0;</span>
+<span class="nc bnc" id="L889" title="All 2 branches missed.">        if (t.equals(ProData.myCapital)) {</span>
+<span class="nc" id="L890">          isMyCapital = 1;</span>
+<span class="nc" id="L891">          containsCapital = true;</span>
+        }
+<span class="nc" id="L893">        final double extraUnitValue = BattleCalculator.getTUV(moveMap.get(t).getTempUnits(), ProData.unitValueMap);</span>
+<span class="nc" id="L894">        final List&lt;Unit&gt; unsafeTransports = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L895" title="All 2 branches missed.">        for (final Unit transport : moveMap.get(t).getTransportTerritoryMap().keySet()) {</span>
+<span class="nc" id="L896">          final Territory transportTerritory = moveMap.get(t).getTransportTerritoryMap().get(transport);</span>
+<span class="nc bnc" id="L897" title="All 2 branches missed.">          if (!moveMap.get(transportTerritory).isCanHold()) {</span>
+<span class="nc" id="L898">            unsafeTransports.add(transport);</span>
+          }
+        }
+<span class="nc" id="L901">        final int unsafeTransportValue = BattleCalculator.getTUV(unsafeTransports, ProData.unitValueMap);</span>
+<span class="nc" id="L902">        final double holdValue =</span>
+<span class="nc" id="L903">            extraUnitValue / 8 * (1 + 0.5 * isFactory) * (1 + 2 * isMyCapital) - unsafeTransportValue;</span>
+
+        // Find strategic value
+<span class="nc" id="L906">        boolean hasHigherStrategicValue = true;</span>
+<span class="nc bnc" id="L907" title="All 4 branches missed.">        if (!t.isWater() &amp;&amp; !t.equals(ProData.myCapital)</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">            &amp;&amp; !ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t)) {</span>
+<span class="nc" id="L909">          double totalValue = 0.0;</span>
+<span class="nc" id="L910">          final List&lt;Unit&gt; nonAirDefenders = Match.getMatches(moveMap.get(t).getTempUnits(), Matches.UnitIsNotAir);</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">          for (final Unit u : nonAirDefenders) {</span>
+<span class="nc" id="L912">            totalValue += territoryValueMap.get(unitTerritoryMap.get(u));</span>
+          }
+<span class="nc" id="L914">          final double averageValue = totalValue / nonAirDefenders.size();</span>
+<span class="nc bnc" id="L915" title="All 2 branches missed.">          if (territoryValueMap.get(t) &lt; averageValue) {</span>
+<span class="nc" id="L916">            hasHigherStrategicValue = false;</span>
+<span class="nc" id="L917">            ProLogger.trace(t + &quot; has lower value then move from with value=&quot; + territoryValueMap.get(t)</span>
+<span class="nc" id="L918">                + &quot;, averageMoveFromValue=&quot; + averageValue);</span>
+          }
+        }
+
+        // Check if its worth defending
+<span class="nc bnc" id="L923" title="All 4 branches missed.">        if ((result.getTUVSwing() - holdValue) &gt; patd.getMinBattleResult().getTUVSwing() || (!hasHigherStrategicValue</span>
+<span class="nc bnc" id="L924" title="All 2 branches missed.">            &amp;&amp; (result.getTUVSwing() + extraUnitValue / 2) &gt;= patd.getMinBattleResult().getTUVSwing())) {</span>
+<span class="nc" id="L925">          areSuccessful = false;</span>
+        }
+<span class="nc" id="L927">        ProLogger.debug(patd.getResultString() + &quot;, holdValue=&quot; + holdValue + &quot;, minTUVSwing=&quot;</span>
+<span class="nc" id="L928">            + patd.getMinBattleResult().getTUVSwing() + &quot;, hasHighStrategicValue=&quot; + hasHigherStrategicValue</span>
+<span class="nc" id="L929">            + &quot;, defenders=&quot; + defendingUnits + &quot;, attackers=&quot; + moveMap.get(t).getMaxEnemyUnits());</span>
+      }
+
+<span class="nc" id="L932">      final Territory currentTerritory = prioritizedTerritories.get(numToDefend - 1).getTerritory();</span>
+<span class="nc bnc" id="L933" title="All 2 branches missed.">      if (ProData.myCapital != null) {</span>
+
+        // Check capital defense
+<span class="nc bnc" id="L936" title="All 4 branches missed.">        if (containsCapital &amp;&amp; !currentTerritory.equals(ProData.myCapital)</span>
+<span class="nc bnc" id="L937" title="All 2 branches missed.">            &amp;&amp; moveMap.get(ProData.myCapital).getBattleResult().getWinPercentage() &gt; (100 - ProData.winPercentage)) {</span>
+<span class="nc" id="L938">          if (!Collections.disjoint(moveMap.get(currentTerritory).getAllDefenders(),</span>
+<span class="nc bnc" id="L939" title="All 2 branches missed.">              moveMap.get(ProData.myCapital).getMaxDefenders())) {</span>
+<span class="nc" id="L940">            areSuccessful = false;</span>
+<span class="nc" id="L941">            ProLogger.debug(&quot;Capital isn't safe after defense moves with winPercentage=&quot;</span>
+<span class="nc" id="L942">                + moveMap.get(ProData.myCapital).getBattleResult().getWinPercentage());</span>
+          }
+        }
+
+        // Check capital local superiority
+<span class="nc bnc" id="L947" title="All 6 branches missed.">        if (!currentTerritory.isWater() &amp;&amp; enemyDistance &gt;= 2 &amp;&amp; enemyDistance &lt;= 3) {</span>
+<span class="nc" id="L948">          final int distance = data.getMap().getDistance(ProData.myCapital, currentTerritory,</span>
+<span class="nc" id="L949">              ProMatches.territoryCanMoveLandUnits(player, data, true));</span>
+<span class="nc bnc" id="L950" title="All 6 branches missed.">          if (distance &gt; 0 &amp;&amp; (enemyDistance == distance || enemyDistance == (distance - 1)) &amp;&amp; !ProBattleUtils</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">              .territoryHasLocalLandSuperiorityAfterMoves(ProData.myCapital, enemyDistance, player, moveMap)) {</span>
+<span class="nc" id="L952">            areSuccessful = false;</span>
+<span class="nc" id="L953">            ProLogger.debug(</span>
+<span class="nc" id="L954">                &quot;Capital doesn't have local land superiority after defense moves with enemyDistance=&quot; + enemyDistance);</span>
+          }
+        }
+      }
+
+      // Determine whether to try more territories, remove a territory, or end
+<span class="nc bnc" id="L960" title="All 2 branches missed.">      if (areSuccessful) {</span>
+<span class="nc" id="L961">        numToDefend++;</span>
+<span class="nc bnc" id="L962" title="All 2 branches missed.">        for (final ProTerritory patd : territoriesToTryToDefend) {</span>
+<span class="nc" id="L963">          patd.setCanAttack(true);</span>
+        }
+
+        // Can defend all territories in list so end
+<span class="nc bnc" id="L967" title="All 2 branches missed.">        if (numToDefend &gt; prioritizedTerritories.size()) {</span>
+<span class="nc" id="L968">          break;</span>
+        }
+      } else {
+
+        // Remove territory last territory in prioritized list since we can't hold them all
+<span class="nc" id="L973">        ProLogger.debug(&quot;Removing territory: &quot; + currentTerritory);</span>
+<span class="nc" id="L974">        prioritizedTerritories.get(numToDefend - 1).setCanHold(false);</span>
+<span class="nc" id="L975">        prioritizedTerritories.remove(numToDefend - 1);</span>
+<span class="nc bnc" id="L976" title="All 2 branches missed.">        if (numToDefend &gt; prioritizedTerritories.size()) {</span>
+<span class="nc" id="L977">          numToDefend--;</span>
+        }
+      }
+    }
+
+    // Add temp units to move lists
+<span class="nc bnc" id="L983" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+
+      // Handle allied units such as fighters on carriers
+<span class="nc" id="L986">      final List&lt;Unit&gt; alliedUnits =</span>
+<span class="nc" id="L987">          Match.getMatches(moveMap.get(t).getTempUnits(), Matches.unitIsOwnedBy(player).invert());</span>
+<span class="nc bnc" id="L988" title="All 2 branches missed.">      for (final Unit alliedUnit : alliedUnits) {</span>
+<span class="nc" id="L989">        moveMap.get(t).addCantMoveUnit(alliedUnit);</span>
+<span class="nc" id="L990">        moveMap.get(t).getTempUnits().remove(alliedUnit);</span>
+      }
+<span class="nc" id="L992">      moveMap.get(t).addUnits(moveMap.get(t).getTempUnits());</span>
+<span class="nc" id="L993">      moveMap.get(t).putAllAmphibAttackMap(moveMap.get(t).getTempAmphibAttackMap());</span>
+<span class="nc bnc" id="L994" title="All 2 branches missed.">      for (final Unit u : moveMap.get(t).getTempUnits()) {</span>
+<span class="nc bnc" id="L995" title="All 2 branches missed.">        if (Matches.UnitIsTransport.match(u)) {</span>
+<span class="nc" id="L996">          transportMoveMap.remove(u);</span>
+<span class="nc bnc" id="L997" title="All 2 branches missed.">          for (final Iterator&lt;ProTransport&gt; it = transportMapList.iterator(); it.hasNext();) {</span>
+<span class="nc bnc" id="L998" title="All 2 branches missed.">            if (it.next().getTransport().equals(u)) {</span>
+<span class="nc" id="L999">              it.remove();</span>
+            }
+          }
+<span class="nc" id="L1002">        } else {</span>
+<span class="nc" id="L1003">          unitMoveMap.remove(u);</span>
+        }
+      }
+<span class="nc bnc" id="L1006" title="All 2 branches missed.">      for (final Unit u : moveMap.get(t).getTempAmphibAttackMap().keySet()) {</span>
+<span class="nc" id="L1007">        transportMoveMap.remove(u);</span>
+<span class="nc bnc" id="L1008" title="All 2 branches missed.">        for (final Iterator&lt;ProTransport&gt; it = transportMapList.iterator(); it.hasNext();) {</span>
+<span class="nc bnc" id="L1009" title="All 2 branches missed.">          if (it.next().getTransport().equals(u)) {</span>
+<span class="nc" id="L1010">            it.remove();</span>
+          }
+        }
+      }
+<span class="nc" id="L1014">      moveMap.get(t).getTempUnits().clear();</span>
+<span class="nc" id="L1015">      moveMap.get(t).getTempAmphibAttackMap().clear();</span>
+    }
+<span class="nc" id="L1017">    ProLogger.debug(&quot;Final number of territories: &quot; + (numToDefend - 1));</span>
+<span class="nc" id="L1018">  }</span>
+
+  private void moveUnitsToBestTerritories() {
+
+<span class="nc" id="L1022">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+<span class="nc" id="L1023">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = territoryManager.getDefendOptions().getUnitMoveMap();</span>
+<span class="nc" id="L1024">    final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap = territoryManager.getDefendOptions().getTransportMoveMap();</span>
+<span class="nc" id="L1025">    final List&lt;ProTransport&gt; transportMapList = territoryManager.getDefendOptions().getTransportList();</span>
+
+    while (true) {
+<span class="nc" id="L1028">      ProLogger.info(&quot;Move units to best value territories&quot;);</span>
+<span class="nc" id="L1029">      final Set&lt;Territory&gt; territoriesToDefend = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1030">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; currentUnitMoveMap = new HashMap&lt;&gt;(unitMoveMap);</span>
+<span class="nc" id="L1031">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; currentTransportMoveMap = new HashMap&lt;&gt;(transportMoveMap);</span>
+<span class="nc" id="L1032">      final List&lt;ProTransport&gt; currentTransportMapList = new ArrayList&lt;&gt;(transportMapList);</span>
+
+      // Reset lists
+<span class="nc bnc" id="L1035" title="All 2 branches missed.">      for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L1036">        moveMap.get(t).getTempUnits().clear();</span>
+<span class="nc bnc" id="L1037" title="All 2 branches missed.">        for (final Unit transport : moveMap.get(t).getTempAmphibAttackMap().keySet()) {</span>
+<span class="nc" id="L1038">          moveMap.get(t).getTransportTerritoryMap().remove(transport);</span>
+        }
+<span class="nc" id="L1040">        moveMap.get(t).getTempAmphibAttackMap().clear();</span>
+<span class="nc" id="L1041">        moveMap.get(t).setBattleResult(null);</span>
+      }
+<span class="nc" id="L1043">      ProLogger.debug(&quot;Move amphib units&quot;);</span>
+
+      // Transport amphib units to best territory
+<span class="nc bnc" id="L1046" title="All 2 branches missed.">      for (final Iterator&lt;ProTransport&gt; it = currentTransportMapList.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1047">        final ProTransport amphibData = it.next();</span>
+<span class="nc" id="L1048">        final Unit transport = amphibData.getTransport();</span>
+
+        // Get all units that have already moved
+<span class="nc" id="L1051">        final List&lt;Unit&gt; alreadyMovedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1052" title="All 2 branches missed.">        for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L1053">          alreadyMovedUnits.addAll(moveMap.get(t).getUnits());</span>
+<span class="nc" id="L1054">          alreadyMovedUnits.addAll(moveMap.get(t).getTempUnits());</span>
+        }
+
+        // Transport amphib units to best land territory
+<span class="nc" id="L1058">        Territory maxValueTerritory = null;</span>
+<span class="nc" id="L1059">        List&lt;Unit&gt; maxAmphibUnitsToAdd = null;</span>
+<span class="nc" id="L1060">        double maxValue = Double.MIN_VALUE;</span>
+<span class="nc" id="L1061">        double maxSeaValue = 0;</span>
+<span class="nc" id="L1062">        Territory maxUnloadFromTerritory = null;</span>
+<span class="nc bnc" id="L1063" title="All 2 branches missed.">        for (final Territory t : amphibData.getTransportMap().keySet()) {</span>
+<span class="nc bnc" id="L1064" title="All 2 branches missed.">          if (moveMap.get(t).getValue() &gt;= maxValue) {</span>
+
+            // Find units to load
+<span class="nc" id="L1067">            final Set&lt;Territory&gt; territoriesCanLoadFrom = amphibData.getTransportMap().get(t);</span>
+<span class="nc" id="L1068">            final List&lt;Unit&gt; amphibUnitsToAdd =</span>
+<span class="nc" id="L1069">                ProTransportUtils.getUnitsToTransportThatCantMoveToHigherValue(player, transport,</span>
+<span class="nc" id="L1070">                    territoriesCanLoadFrom, alreadyMovedUnits, moveMap, currentUnitMoveMap, moveMap.get(t).getValue());</span>
+<span class="nc bnc" id="L1071" title="All 2 branches missed.">            if (amphibUnitsToAdd.isEmpty()) {</span>
+<span class="nc" id="L1072">              continue;</span>
+            }
+
+            // Find best territory to move transport
+<span class="nc" id="L1076">            final Set&lt;Territory&gt; loadFromTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">            for (final Unit u : amphibUnitsToAdd) {</span>
+<span class="nc" id="L1078">              loadFromTerritories.add(unitTerritoryMap.get(u));</span>
+            }
+<span class="nc" id="L1080">            final Set&lt;Territory&gt; territoriesToMoveTransport =</span>
+<span class="nc" id="L1081">                data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, false));</span>
+<span class="nc bnc" id="L1082" title="All 2 branches missed.">            for (final Territory territoryToMoveTransport : territoriesToMoveTransport) {</span>
+<span class="nc bnc" id="L1083" title="All 2 branches missed.">              if (amphibData.getSeaTransportMap().containsKey(territoryToMoveTransport)</span>
+<span class="nc bnc" id="L1084" title="All 2 branches missed.">                  &amp;&amp; amphibData.getSeaTransportMap().get(territoryToMoveTransport).containsAll(loadFromTerritories)</span>
+<span class="nc bnc" id="L1085" title="All 4 branches missed.">                  &amp;&amp; moveMap.get(territoryToMoveTransport) != null &amp;&amp; moveMap.get(territoryToMoveTransport).isCanHold()</span>
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">                  &amp;&amp; (moveMap.get(t).getValue() &gt; maxValue</span>
+<span class="nc bnc" id="L1087" title="All 2 branches missed.">                      || moveMap.get(territoryToMoveTransport).getValue() &gt; maxSeaValue)) {</span>
+<span class="nc" id="L1088">                maxValueTerritory = t;</span>
+<span class="nc" id="L1089">                maxAmphibUnitsToAdd = amphibUnitsToAdd;</span>
+<span class="nc" id="L1090">                maxValue = moveMap.get(t).getValue();</span>
+<span class="nc" id="L1091">                maxSeaValue = moveMap.get(territoryToMoveTransport).getValue();</span>
+<span class="nc" id="L1092">                maxUnloadFromTerritory = territoryToMoveTransport;</span>
+              }
+            }
+          }
+        }
+<span class="nc bnc" id="L1097" title="All 2 branches missed.">        if (maxValueTerritory != null) {</span>
+<span class="nc" id="L1098">          ProLogger.trace(transport + &quot; moved to &quot; + maxUnloadFromTerritory + &quot; and unloading to best land at &quot;</span>
+<span class="nc" id="L1099">              + maxValueTerritory + &quot; with &quot; + maxAmphibUnitsToAdd + &quot;, value=&quot; + maxValue);</span>
+<span class="nc" id="L1100">          moveMap.get(maxValueTerritory).addTempUnits(maxAmphibUnitsToAdd);</span>
+<span class="nc" id="L1101">          moveMap.get(maxValueTerritory).putTempAmphibAttackMap(transport, maxAmphibUnitsToAdd);</span>
+<span class="nc" id="L1102">          moveMap.get(maxValueTerritory).getTransportTerritoryMap().put(transport, maxUnloadFromTerritory);</span>
+<span class="nc" id="L1103">          currentTransportMoveMap.remove(transport);</span>
+<span class="nc bnc" id="L1104" title="All 2 branches missed.">          for (final Unit unit : maxAmphibUnitsToAdd) {</span>
+<span class="nc" id="L1105">            currentUnitMoveMap.remove(unit);</span>
+          }
+<span class="nc" id="L1107">          territoriesToDefend.add(maxUnloadFromTerritory);</span>
+<span class="nc" id="L1108">          it.remove();</span>
+<span class="nc" id="L1109">          continue;</span>
+        }
+
+        // Transport amphib units to best sea territory
+<span class="nc bnc" id="L1113" title="All 2 branches missed.">        for (final Territory t : amphibData.getSeaTransportMap().keySet()) {</span>
+<span class="nc bnc" id="L1114" title="All 4 branches missed.">          if (moveMap.get(t) != null &amp;&amp; moveMap.get(t).getValue() &gt; maxValue) {</span>
+
+            // Find units to load
+<span class="nc" id="L1117">            final Set&lt;Territory&gt; territoriesCanLoadFrom = amphibData.getSeaTransportMap().get(t);</span>
+<span class="nc" id="L1118">            territoriesCanLoadFrom.removeAll(data.getMap().getNeighbors(t)); // Don't transport adjacent units</span>
+<span class="nc" id="L1119">            final List&lt;Unit&gt; amphibUnitsToAdd = ProTransportUtils.getUnitsToTransportThatCantMoveToHigherValue(player,</span>
+<span class="nc" id="L1120">                transport, territoriesCanLoadFrom, alreadyMovedUnits, moveMap, currentUnitMoveMap, 0.1);</span>
+<span class="nc bnc" id="L1121" title="All 2 branches missed.">            if (!amphibUnitsToAdd.isEmpty()) {</span>
+<span class="nc" id="L1122">              maxValueTerritory = t;</span>
+<span class="nc" id="L1123">              maxAmphibUnitsToAdd = amphibUnitsToAdd;</span>
+<span class="nc" id="L1124">              maxValue = moveMap.get(t).getValue();</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L1128" title="All 2 branches missed.">        if (maxValueTerritory != null) {</span>
+<span class="nc" id="L1129">          final Set&lt;Territory&gt; possibleUnloadTerritories = data.getMap().getNeighbors(maxValueTerritory,</span>
+<span class="nc" id="L1130">              ProMatches.territoryCanMoveLandUnitsAndIsAllied(player, data));</span>
+<span class="nc" id="L1131">          Territory unloadToTerritory = null;</span>
+<span class="nc" id="L1132">          int maxNumSeaNeighbors = 0;</span>
+<span class="nc bnc" id="L1133" title="All 2 branches missed.">          for (final Territory t : possibleUnloadTerritories) {</span>
+<span class="nc" id="L1134">            final int numSeaNeighbors = data.getMap().getNeighbors(t, Matches.TerritoryIsWater).size();</span>
+<span class="nc" id="L1135">            final boolean isAdjacentToEnemy =</span>
+<span class="nc" id="L1136">                ProMatches.territoryIsOrAdjacentToEnemyNotNeutralLand(player, data).match(t);</span>
+<span class="nc bnc" id="L1137" title="All 6 branches missed.">            if (moveMap.get(t) != null &amp;&amp; (moveMap.get(t).isCanHold() || !isAdjacentToEnemy)</span>
+<span class="nc bnc" id="L1138" title="All 2 branches missed.">                &amp;&amp; numSeaNeighbors &gt; maxNumSeaNeighbors) {</span>
+<span class="nc" id="L1139">              unloadToTerritory = t;</span>
+<span class="nc" id="L1140">              maxNumSeaNeighbors = numSeaNeighbors;</span>
+            }
+          }
+<span class="nc bnc" id="L1143" title="All 2 branches missed.">          if (unloadToTerritory != null) {</span>
+<span class="nc" id="L1144">            moveMap.get(unloadToTerritory).addTempUnits(maxAmphibUnitsToAdd);</span>
+<span class="nc" id="L1145">            moveMap.get(unloadToTerritory).putTempAmphibAttackMap(transport, maxAmphibUnitsToAdd);</span>
+<span class="nc" id="L1146">            moveMap.get(unloadToTerritory).getTransportTerritoryMap().put(transport, maxValueTerritory);</span>
+<span class="nc" id="L1147">            ProLogger.trace(transport + &quot; moved to best sea at &quot; + maxValueTerritory + &quot; and unloading to &quot;</span>
+<span class="nc" id="L1148">                + unloadToTerritory + &quot; with &quot; + maxAmphibUnitsToAdd + &quot;, value=&quot; + maxValue);</span>
+<span class="nc" id="L1149">          } else {</span>
+<span class="nc" id="L1150">            moveMap.get(maxValueTerritory).addTempUnits(maxAmphibUnitsToAdd);</span>
+<span class="nc" id="L1151">            moveMap.get(maxValueTerritory).putTempAmphibAttackMap(transport, maxAmphibUnitsToAdd);</span>
+<span class="nc" id="L1152">            moveMap.get(maxValueTerritory).getTransportTerritoryMap().put(transport, maxValueTerritory);</span>
+<span class="nc" id="L1153">            ProLogger.trace(transport + &quot; moved to best sea at &quot; + maxValueTerritory + &quot; with &quot; + maxAmphibUnitsToAdd</span>
+<span class="nc" id="L1154">                + &quot;, value=&quot; + maxValue);</span>
+          }
+<span class="nc" id="L1156">          currentTransportMoveMap.remove(transport);</span>
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">          for (final Unit unit : maxAmphibUnitsToAdd) {</span>
+<span class="nc" id="L1158">            currentUnitMoveMap.remove(unit);</span>
+          }
+<span class="nc" id="L1160">          territoriesToDefend.add(maxValueTerritory);</span>
+<span class="nc" id="L1161">          it.remove();</span>
+        }
+      }
+<span class="nc" id="L1164">      ProLogger.debug(&quot;Move empty transports to best loading territory&quot;);</span>
+
+      // Move remaining transports to best loading territory if safe
+      // TODO: consider which territory is 'safest'
+<span class="nc bnc" id="L1168" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = currentTransportMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1169">        final Unit transport = it.next();</span>
+<span class="nc" id="L1170">        final Territory currentTerritory = unitTerritoryMap.get(transport);</span>
+<span class="nc" id="L1171">        final int moves = TripleAUnit.get(transport).getMovementLeft();</span>
+<span class="nc bnc" id="L1172" title="All 4 branches missed.">        if (TransportTracker.isTransporting(transport) || moves &lt;= 0) {</span>
+<span class="nc" id="L1173">          continue;</span>
+        }
+<span class="nc" id="L1175">        final List&lt;ProTerritory&gt; priorizitedLoadTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1176" title="All 2 branches missed.">        for (final Territory t : moveMap.keySet()) {</span>
+
+          // Check if land with adjacent sea that can be reached and that I'm not already adjacent to
+<span class="nc" id="L1179">          final boolean territoryHasTransportableUnits =</span>
+<span class="nc" id="L1180">              Matches.territoryHasUnitsThatMatch(ProMatches.unitIsOwnedTransportableUnitAndCanBeLoaded(player, false))</span>
+<span class="nc" id="L1181">                  .match(t);</span>
+<span class="nc" id="L1182">          final int distance = data.getMap().getDistance_IgnoreEndForCondition(currentTerritory, t,</span>
+<span class="nc" id="L1183">              ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+<span class="nc" id="L1184">          final boolean hasSeaNeighbor = Matches.territoryHasNeighborMatching(data, Matches.TerritoryIsWater).match(t);</span>
+<span class="nc" id="L1185">          final boolean hasFactory = ProMatches.territoryHasInfraFactoryAndIsOwnedLand(player).match(t);</span>
+<span class="nc bnc" id="L1186" title="All 6 branches missed.">          if (!t.isWater() &amp;&amp; hasSeaNeighbor &amp;&amp; distance &gt; 0</span>
+<span class="nc bnc" id="L1187" title="All 6 branches missed.">              &amp;&amp; !(distance == 1 &amp;&amp; territoryHasTransportableUnits &amp;&amp; !hasFactory)) {</span>
+
+            // TODO: add calculation of transports vs units
+<span class="nc" id="L1190">            final double territoryValue = moveMap.get(t).getValue();</span>
+<span class="nc" id="L1191">            final int numUnitsToLoad = Match</span>
+<span class="nc" id="L1192">                .getMatches(moveMap.get(t).getAllDefenders(), ProMatches.unitIsOwnedTransportableUnit(player)).size();</span>
+<span class="nc bnc" id="L1193" title="All 2 branches missed.">            final boolean hasUnconqueredFactory = ProMatches.territoryHasInfraFactoryAndIsOwnedLand(player).match(t)</span>
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">                &amp;&amp; !AbstractMoveDelegate.getBattleTracker(data).wasConquered(t);</span>
+<span class="nc" id="L1195">            int factoryProduction = 0;</span>
+<span class="nc bnc" id="L1196" title="All 2 branches missed.">            if (hasUnconqueredFactory) {</span>
+<span class="nc" id="L1197">              factoryProduction = TerritoryAttachment.getProduction(t);</span>
+            }
+<span class="nc" id="L1199">            int numTurnsAway = (distance - 1) / moves;</span>
+<span class="nc bnc" id="L1200" title="All 2 branches missed.">            if (distance &lt;= moves) {</span>
+<span class="nc" id="L1201">              numTurnsAway = 0;</span>
+            }
+<span class="nc" id="L1203">            final double value = territoryValue + 0.5 * numTurnsAway - 0.1 * numUnitsToLoad - 0.1 * factoryProduction;</span>
+<span class="nc" id="L1204">            moveMap.get(t).setLoadValue(value);</span>
+<span class="nc" id="L1205">            priorizitedLoadTerritories.add(moveMap.get(t));</span>
+          }
+        }
+
+        // Sort prioritized territories
+<span class="nc" id="L1210">        Collections.sort(priorizitedLoadTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L1211">          final double value1 = t1.getLoadValue();</span>
+<span class="nc" id="L1212">          final double value2 = t2.getLoadValue();</span>
+<span class="nc" id="L1213">          return Double.compare(value1, value2);</span>
+        });
+
+        // Move towards best loading territory if route is safe
+<span class="nc bnc" id="L1217" title="All 2 branches missed.">        for (final ProTerritory patd : priorizitedLoadTerritories) {</span>
+<span class="nc" id="L1218">          boolean movedTransport = false;</span>
+<span class="nc" id="L1219">          final Set&lt;Territory&gt; cantHoldTerritories = new HashSet&lt;&gt;();</span>
+          while (true) {
+<span class="nc" id="L1221">            final Match&lt;Territory&gt; match =</span>
+<span class="nc" id="L1222">                new CompositeMatchAnd&lt;&gt;(ProMatches.territoryCanMoveSeaUnitsThrough(player, data, false),</span>
+<span class="nc" id="L1223">                    Matches.territoryIsInList(cantHoldTerritories).invert());</span>
+<span class="nc" id="L1224">            final Route route = data.getMap().getRoute_IgnoreEnd(currentTerritory, patd.getTerritory(), match);</span>
+<span class="nc bnc" id="L1225" title="All 2 branches missed.">            if (route == null</span>
+<span class="nc bnc" id="L1226" title="All 2 branches missed.">                || MoveValidator.validateCanal(route, Collections.singletonList(transport), player, data) != null) {</span>
+<span class="nc" id="L1227">              break;</span>
+            }
+<span class="nc" id="L1229">            final List&lt;Territory&gt; territories = route.getAllTerritories();</span>
+<span class="nc" id="L1230">            territories.remove(territories.size() - 1);</span>
+<span class="nc" id="L1231">            final Territory moveToTerritory = territories.get(Math.min(territories.size() - 1, moves));</span>
+<span class="nc" id="L1232">            final ProTerritory patd2 = moveMap.get(moveToTerritory);</span>
+<span class="nc bnc" id="L1233" title="All 4 branches missed.">            if (patd2 != null &amp;&amp; patd2.isCanHold()) {</span>
+<span class="nc" id="L1234">              ProLogger.trace(transport + &quot; moved towards best loading territory &quot; + patd.getTerritory()</span>
+<span class="nc" id="L1235">                  + &quot; and moved to &quot; + moveToTerritory);</span>
+<span class="nc" id="L1236">              patd2.addTempUnit(transport);</span>
+<span class="nc" id="L1237">              territoriesToDefend.add(moveToTerritory);</span>
+<span class="nc" id="L1238">              it.remove();</span>
+<span class="nc" id="L1239">              movedTransport = true;</span>
+<span class="nc" id="L1240">              break;</span>
+            }
+<span class="nc bnc" id="L1242" title="All 2 branches missed.">            if (!cantHoldTerritories.add(moveToTerritory)) {</span>
+              break;
+            }
+          }
+<span class="nc bnc" id="L1246" title="All 2 branches missed.">          if (movedTransport) {</span>
+<span class="nc" id="L1247">            break;</span>
+          }
+        }
+      }
+<span class="nc" id="L1251">      ProLogger.debug(&quot;Move remaining transports to safest territory&quot;);</span>
+
+      // Move remaining transports to safest territory
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = currentTransportMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1255">        final Unit transport = it.next();</span>
+
+        // Get all units that have already moved
+<span class="nc" id="L1258">        final List&lt;Unit&gt; alreadyMovedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1259" title="All 2 branches missed.">        for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L1260">          alreadyMovedUnits.addAll(moveMap.get(t).getUnits());</span>
+        }
+
+        // Find safest territory
+<span class="nc" id="L1264">        double minStrengthDifference = Double.POSITIVE_INFINITY;</span>
+<span class="nc" id="L1265">        Territory minTerritory = null;</span>
+<span class="nc bnc" id="L1266" title="All 2 branches missed.">        for (final Territory t : currentTransportMoveMap.get(transport)) {</span>
+<span class="nc" id="L1267">          final List&lt;Unit&gt; attackers = moveMap.get(t).getMaxEnemyUnits();</span>
+<span class="nc" id="L1268">          final List&lt;Unit&gt; defenders = moveMap.get(t).getMaxDefenders();</span>
+<span class="nc" id="L1269">          defenders.removeAll(alreadyMovedUnits);</span>
+<span class="nc" id="L1270">          defenders.addAll(moveMap.get(t).getUnits());</span>
+<span class="nc" id="L1271">          defenders.removeAll(ProTransportUtils.getAirThatCantLandOnCarrier(player, t, defenders));</span>
+<span class="nc" id="L1272">          final double strengthDifference = ProBattleUtils.estimateStrengthDifference(t, attackers, defenders);</span>
+
+          // TODO: add logic to move towards closest factory
+<span class="nc" id="L1275">          ProLogger.trace(transport + &quot; at &quot; + t + &quot;, strengthDifference=&quot; + strengthDifference + &quot;, attackers=&quot;</span>
+<span class="nc" id="L1276">              + attackers + &quot;, defenders=&quot; + defenders);</span>
+<span class="nc bnc" id="L1277" title="All 2 branches missed.">          if (strengthDifference &lt; minStrengthDifference) {</span>
+<span class="nc" id="L1278">            minStrengthDifference = strengthDifference;</span>
+<span class="nc" id="L1279">            minTerritory = t;</span>
+          }
+        }
+<span class="nc bnc" id="L1282" title="All 2 branches missed.">        if (minTerritory != null) {</span>
+
+          // If transporting units then unload to safe territory
+          // TODO: consider which is 'safest'
+<span class="nc bnc" id="L1286" title="All 2 branches missed.">          if (TransportTracker.isTransporting(transport)) {</span>
+<span class="nc" id="L1287">            final List&lt;Unit&gt; amphibUnits = (List&lt;Unit&gt;) TransportTracker.transporting(transport);</span>
+<span class="nc" id="L1288">            final Set&lt;Territory&gt; possibleUnloadTerritories =</span>
+<span class="nc" id="L1289">                data.getMap().getNeighbors(minTerritory, ProMatches.territoryCanMoveLandUnitsAndIsAllied(player, data));</span>
+<span class="nc bnc" id="L1290" title="All 2 branches missed.">            if (!possibleUnloadTerritories.isEmpty()) {</span>
+              // Find best unload territory
+<span class="nc" id="L1292">              Territory unloadToTerritory = possibleUnloadTerritories.iterator().next();</span>
+<span class="nc bnc" id="L1293" title="All 2 branches missed.">              for (final Territory t : possibleUnloadTerritories) {</span>
+<span class="nc bnc" id="L1294" title="All 4 branches missed.">                if (moveMap.get(t) != null &amp;&amp; moveMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1295">                  unloadToTerritory = t;</span>
+                }
+              }
+<span class="nc" id="L1298">              ProLogger.trace(transport + &quot; moved to safest territory at &quot; + minTerritory + &quot; and unloading to &quot;</span>
+<span class="nc" id="L1299">                  + unloadToTerritory + &quot; with &quot; + amphibUnits + &quot;, strengthDifference=&quot; + minStrengthDifference);</span>
+<span class="nc" id="L1300">              moveMap.get(unloadToTerritory).addTempUnits(amphibUnits);</span>
+<span class="nc" id="L1301">              moveMap.get(unloadToTerritory).putTempAmphibAttackMap(transport, amphibUnits);</span>
+<span class="nc" id="L1302">              moveMap.get(unloadToTerritory).getTransportTerritoryMap().put(transport, minTerritory);</span>
+<span class="nc bnc" id="L1303" title="All 2 branches missed.">              for (final Unit unit : amphibUnits) {</span>
+<span class="nc" id="L1304">                currentUnitMoveMap.remove(unit);</span>
+              }
+<span class="nc" id="L1306">              it.remove();</span>
+<span class="nc" id="L1307">            } else {</span>
+
+              // Move transport with units since no unload options
+<span class="nc" id="L1310">              ProLogger.trace(transport + &quot; moved to safest territory at &quot; + minTerritory + &quot; with &quot; + amphibUnits</span>
+<span class="nc" id="L1311">                  + &quot;, strengthDifference=&quot; + minStrengthDifference);</span>
+<span class="nc" id="L1312">              moveMap.get(minTerritory).addTempUnits(amphibUnits);</span>
+<span class="nc" id="L1313">              moveMap.get(minTerritory).putTempAmphibAttackMap(transport, amphibUnits);</span>
+<span class="nc" id="L1314">              moveMap.get(minTerritory).getTransportTerritoryMap().put(transport, minTerritory);</span>
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">              for (final Unit unit : amphibUnits) {</span>
+<span class="nc" id="L1316">                currentUnitMoveMap.remove(unit);</span>
+              }
+<span class="nc" id="L1318">              it.remove();</span>
+            }
+<span class="nc" id="L1320">          } else {</span>
+
+            // If not transporting units
+<span class="nc" id="L1323">            ProLogger.trace(transport + &quot; moved to safest territory at &quot; + minTerritory + &quot;, strengthDifference=&quot;</span>
+<span class="nc" id="L1324">                + minStrengthDifference);</span>
+<span class="nc" id="L1325">            moveMap.get(minTerritory).addTempUnit(transport);</span>
+<span class="nc" id="L1326">            it.remove();</span>
+          }
+        }
+      }
+
+      // Get all transport final territories
+<span class="nc" id="L1332">      ProMoveUtils.calculateAmphibRoutes(player, new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), moveMap,</span>
+<span class="nc" id="L1333">          false);</span>
+<span class="nc bnc" id="L1334" title="All 2 branches missed.">      for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc bnc" id="L1335" title="All 2 branches missed.">        for (final Unit u : moveMap.get(t).getTransportTerritoryMap().keySet()) {</span>
+<span class="nc bnc" id="L1336" title="All 2 branches missed.">          if (moveMap.get(moveMap.get(t).getTransportTerritoryMap().get(u)) != null) {</span>
+<span class="nc" id="L1337">            moveMap.get(moveMap.get(t).getTransportTerritoryMap().get(u)).addTempUnit(u);</span>
+          }
+        }
+      }
+<span class="nc" id="L1341">      ProLogger.debug(&quot;Move sea units&quot;);</span>
+
+      // Move sea units to defend transports
+<span class="nc bnc" id="L1344" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = currentUnitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1345">        final Unit u = it.next();</span>
+<span class="nc bnc" id="L1346" title="All 2 branches missed.">        if (Matches.UnitIsSea.match(u)) {</span>
+<span class="nc bnc" id="L1347" title="All 2 branches missed.">          for (final Territory t : currentUnitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1348" title="All 4 branches missed.">            if (moveMap.get(t).isCanHold() &amp;&amp; !moveMap.get(t).getAllDefenders().isEmpty()</span>
+<span class="nc bnc" id="L1349" title="All 2 branches missed.">                &amp;&amp; Match.someMatch(moveMap.get(t).getAllDefenders(), ProMatches.unitIsOwnedTransport(player))) {</span>
+<span class="nc" id="L1350">              final List&lt;Unit&gt; defendingUnits =</span>
+<span class="nc" id="L1351">                  Match.getMatches(moveMap.get(t).getAllDefenders(), Matches.UnitIsNotLand);</span>
+<span class="nc bnc" id="L1352" title="All 2 branches missed.">              if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L1353">                moveMap.get(t).setBattleResult(calc.estimateDefendBattleResults(player, t,</span>
+<span class="nc" id="L1354">                    moveMap.get(t).getMaxEnemyUnits(), defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits()));</span>
+              }
+<span class="nc" id="L1356">              final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L1357">              ProLogger.trace(t.getName() + &quot; TUVSwing=&quot; + result.getTUVSwing() + &quot;, Win%=&quot; + result.getWinPercentage()</span>
+<span class="nc" id="L1358">                  + &quot;, enemyAttackers=&quot; + moveMap.get(t).getMaxEnemyUnits().size() + &quot;, defenders=&quot;</span>
+<span class="nc" id="L1359">                  + defendingUnits.size());</span>
+<span class="nc bnc" id="L1360" title="All 4 branches missed.">              if (result.getWinPercentage() &gt; (100 - ProData.winPercentage) || result.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L1361">                ProLogger.trace(u + &quot; added sea to defend transport at &quot; + t);</span>
+<span class="nc" id="L1362">                moveMap.get(t).addTempUnit(u);</span>
+<span class="nc" id="L1363">                moveMap.get(t).setBattleResult(null);</span>
+<span class="nc" id="L1364">                territoriesToDefend.add(t);</span>
+<span class="nc" id="L1365">                it.remove();</span>
+
+                // If carrier has dependent allied fighters then move them too
+<span class="nc bnc" id="L1368" title="All 2 branches missed.">                if (Matches.UnitIsCarrier.match(u)) {</span>
+<span class="nc" id="L1369">                  final Territory unitTerritory = unitTerritoryMap.get(u);</span>
+<span class="nc" id="L1370">                  final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith = MoveValidator</span>
+<span class="nc" id="L1371">                      .carrierMustMoveWith(unitTerritory.getUnits().getUnits(), unitTerritory, data, player);</span>
+<span class="nc bnc" id="L1372" title="All 2 branches missed.">                  if (carrierMustMoveWith.containsKey(u)) {</span>
+<span class="nc" id="L1373">                    moveMap.get(t).getTempUnits().addAll(carrierMustMoveWith.get(u));</span>
+                  }
+                }
+<span class="nc" id="L1376">                break;</span>
+              }
+            }
+          }
+        }
+      }
+
+      // Move air units to defend transports
+<span class="nc bnc" id="L1384" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = currentUnitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1385">        final Unit u = it.next();</span>
+<span class="nc bnc" id="L1386" title="All 2 branches missed.">        if (Matches.UnitCanLandOnCarrier.match(u)) {</span>
+<span class="nc bnc" id="L1387" title="All 2 branches missed.">          for (final Territory t : currentUnitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1388" title="All 6 branches missed.">            if (t.isWater() &amp;&amp; moveMap.get(t).isCanHold() &amp;&amp; !moveMap.get(t).getAllDefenders().isEmpty()</span>
+<span class="nc bnc" id="L1389" title="All 2 branches missed.">                &amp;&amp; Match.someMatch(moveMap.get(t).getAllDefenders(), ProMatches.unitIsOwnedTransport(player))) {</span>
+<span class="nc" id="L1390">              if (!ProTransportUtils.validateCarrierCapacity(player, t,</span>
+<span class="nc bnc" id="L1391" title="All 2 branches missed.">                  moveMap.get(t).getAllDefendersForCarrierCalcs(data, player), u)) {</span>
+<span class="nc" id="L1392">                continue;</span>
+              }
+<span class="nc" id="L1394">              final List&lt;Unit&gt; defendingUnits =</span>
+<span class="nc" id="L1395">                  Match.getMatches(moveMap.get(t).getAllDefenders(), Matches.UnitIsNotLand);</span>
+<span class="nc bnc" id="L1396" title="All 2 branches missed.">              if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L1397">                moveMap.get(t).setBattleResult(calc.estimateDefendBattleResults(player, t,</span>
+<span class="nc" id="L1398">                    moveMap.get(t).getMaxEnemyUnits(), defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits()));</span>
+              }
+<span class="nc" id="L1400">              final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L1401">              ProLogger.trace(t.getName() + &quot; TUVSwing=&quot; + result.getTUVSwing() + &quot;, Win%=&quot; + result.getWinPercentage()</span>
+<span class="nc" id="L1402">                  + &quot;, enemyAttackers=&quot; + moveMap.get(t).getMaxEnemyUnits().size() + &quot;, defenders=&quot;</span>
+<span class="nc" id="L1403">                  + defendingUnits.size());</span>
+<span class="nc bnc" id="L1404" title="All 4 branches missed.">              if (result.getWinPercentage() &gt; (100 - ProData.winPercentage) || result.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L1405">                ProLogger.trace(u + &quot; added air to defend transport at &quot; + t);</span>
+<span class="nc" id="L1406">                moveMap.get(t).addTempUnit(u);</span>
+<span class="nc" id="L1407">                moveMap.get(t).setBattleResult(null);</span>
+<span class="nc" id="L1408">                territoriesToDefend.add(t);</span>
+<span class="nc" id="L1409">                it.remove();</span>
+<span class="nc" id="L1410">                break;</span>
+              }
+            }
+          }
+        }
+      }
+
+      // Move sea units to best location or safest location
+<span class="nc bnc" id="L1418" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = currentUnitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1419">        final Unit u = it.next();</span>
+<span class="nc bnc" id="L1420" title="All 2 branches missed.">        if (Matches.UnitIsSea.match(u)) {</span>
+<span class="nc" id="L1421">          Territory maxValueTerritory = null;</span>
+<span class="nc" id="L1422">          double maxValue = 0;</span>
+<span class="nc bnc" id="L1423" title="All 2 branches missed.">          for (final Territory t : currentUnitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1424" title="All 2 branches missed.">            if (moveMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1425">              final int transports =</span>
+<span class="nc" id="L1426">                  Match.countMatches(moveMap.get(t).getAllDefenders(), ProMatches.unitIsOwnedTransport(player));</span>
+<span class="nc" id="L1427">              final double value = (1 + transports) * moveMap.get(t).getSeaValue()</span>
+<span class="nc" id="L1428">                  + (1 + transports * 100) * moveMap.get(t).getValue() / 10000;</span>
+<span class="nc" id="L1429">              ProLogger.trace(t + &quot;, value=&quot; + value + &quot;, seaValue=&quot; + moveMap.get(t).getSeaValue() + &quot;, tValue=&quot;</span>
+<span class="nc" id="L1430">                  + moveMap.get(t).getValue() + &quot;, transports=&quot; + transports);</span>
+<span class="nc bnc" id="L1431" title="All 2 branches missed.">              if (value &gt; maxValue) {</span>
+<span class="nc" id="L1432">                maxValue = value;</span>
+<span class="nc" id="L1433">                maxValueTerritory = t;</span>
+              }
+            }
+          }
+<span class="nc bnc" id="L1437" title="All 2 branches missed.">          if (maxValueTerritory != null) {</span>
+<span class="nc" id="L1438">            ProLogger.trace(u + &quot; added to best territory &quot; + maxValueTerritory + &quot;, value=&quot; + maxValue);</span>
+<span class="nc" id="L1439">            moveMap.get(maxValueTerritory).addTempUnit(u);</span>
+<span class="nc" id="L1440">            moveMap.get(maxValueTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1441">            territoriesToDefend.add(maxValueTerritory);</span>
+<span class="nc" id="L1442">            it.remove();</span>
+
+            // If carrier has dependent allied fighters then move them too
+<span class="nc bnc" id="L1445" title="All 2 branches missed.">            if (Matches.UnitIsCarrier.match(u)) {</span>
+<span class="nc" id="L1446">              final Territory unitTerritory = unitTerritoryMap.get(u);</span>
+<span class="nc" id="L1447">              final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith =</span>
+<span class="nc" id="L1448">                  MoveValidator.carrierMustMoveWith(unitTerritory.getUnits().getUnits(), unitTerritory, data, player);</span>
+<span class="nc bnc" id="L1449" title="All 2 branches missed.">              if (carrierMustMoveWith.containsKey(u)) {</span>
+<span class="nc" id="L1450">                moveMap.get(maxValueTerritory).getTempUnits().addAll(carrierMustMoveWith.get(u));</span>
+              }
+            }
+<span class="nc" id="L1453">          } else {</span>
+
+            // Get all units that have already moved
+<span class="nc" id="L1456">            final List&lt;Unit&gt; alreadyMovedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1457" title="All 2 branches missed.">            for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L1458">              alreadyMovedUnits.addAll(moveMap.get(t).getUnits());</span>
+            }
+
+            // Find safest territory
+<span class="nc" id="L1462">            double minStrengthDifference = Double.POSITIVE_INFINITY;</span>
+<span class="nc" id="L1463">            Territory minTerritory = null;</span>
+<span class="nc bnc" id="L1464" title="All 2 branches missed.">            for (final Territory t : currentUnitMoveMap.get(u)) {</span>
+<span class="nc" id="L1465">              final List&lt;Unit&gt; attackers = moveMap.get(t).getMaxEnemyUnits();</span>
+<span class="nc" id="L1466">              final List&lt;Unit&gt; defenders = moveMap.get(t).getMaxDefenders();</span>
+<span class="nc" id="L1467">              defenders.removeAll(alreadyMovedUnits);</span>
+<span class="nc" id="L1468">              defenders.addAll(moveMap.get(t).getUnits());</span>
+<span class="nc" id="L1469">              final double strengthDifference = ProBattleUtils.estimateStrengthDifference(t, attackers, defenders);</span>
+<span class="nc bnc" id="L1470" title="All 2 branches missed.">              if (strengthDifference &lt; minStrengthDifference) {</span>
+<span class="nc" id="L1471">                minStrengthDifference = strengthDifference;</span>
+<span class="nc" id="L1472">                minTerritory = t;</span>
+              }
+            }
+<span class="nc bnc" id="L1475" title="All 2 branches missed.">            if (minTerritory != null) {</span>
+<span class="nc" id="L1476">              ProLogger.trace(u + &quot; moved to safest territory at &quot; + minTerritory + &quot;, strengthDifference=&quot;</span>
+<span class="nc" id="L1477">                  + minStrengthDifference);</span>
+<span class="nc" id="L1478">              moveMap.get(minTerritory).addTempUnit(u);</span>
+<span class="nc" id="L1479">              moveMap.get(minTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1480">              it.remove();</span>
+
+              // If carrier has dependent allied fighters then move them too
+<span class="nc bnc" id="L1483" title="All 2 branches missed.">              if (Matches.UnitIsCarrier.match(u)) {</span>
+<span class="nc" id="L1484">                final Territory unitTerritory = unitTerritoryMap.get(u);</span>
+<span class="nc" id="L1485">                final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith =</span>
+<span class="nc" id="L1486">                    MoveValidator.carrierMustMoveWith(unitTerritory.getUnits().getUnits(), unitTerritory, data, player);</span>
+<span class="nc bnc" id="L1487" title="All 2 branches missed.">                if (carrierMustMoveWith.containsKey(u)) {</span>
+<span class="nc" id="L1488">                  moveMap.get(minTerritory).getTempUnits().addAll(carrierMustMoveWith.get(u));</span>
+                }
+              }
+<span class="nc" id="L1491">            } else {</span>
+<span class="nc" id="L1492">              final Territory currentTerritory = unitTerritoryMap.get(u);</span>
+<span class="nc" id="L1493">              ProLogger.trace(u + &quot; added to current territory since no better options at &quot; + currentTerritory);</span>
+<span class="nc" id="L1494">              moveMap.get(currentTerritory).addTempUnit(u);</span>
+<span class="nc" id="L1495">              moveMap.get(currentTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1496">              it.remove();</span>
+            }
+          }
+        }
+      }
+
+      // Determine if all defenses are successful
+<span class="nc" id="L1503">      ProLogger.debug(&quot;Checking if all sea moves are safe for &quot; + territoriesToDefend);</span>
+<span class="nc" id="L1504">      boolean areSuccessful = true;</span>
+<span class="nc bnc" id="L1505" title="All 2 branches missed.">      for (final Territory t : territoriesToDefend) {</span>
+
+        // Find result with temp units
+<span class="nc" id="L1508">        final List&lt;Unit&gt; defendingUnits = moveMap.get(t).getAllDefenders();</span>
+<span class="nc" id="L1509">        moveMap.get(t).setBattleResult(calc.calculateBattleResults(player, t, moveMap.get(t).getMaxEnemyUnits(),</span>
+<span class="nc" id="L1510">            defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits(), false));</span>
+<span class="nc" id="L1511">        final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L1512">        int isWater = 0;</span>
+<span class="nc bnc" id="L1513" title="All 2 branches missed.">        if (t.isWater()) {</span>
+<span class="nc" id="L1514">          isWater = 1;</span>
+        }
+<span class="nc" id="L1516">        final double extraUnitValue = BattleCalculator.getTUV(moveMap.get(t).getTempUnits(), ProData.unitValueMap);</span>
+<span class="nc" id="L1517">        final double holdValue = result.getTUVSwing() - (extraUnitValue / 8 * (1 + isWater));</span>
+
+        // Find min result without temp units
+<span class="nc" id="L1520">        final List&lt;Unit&gt; minDefendingUnits = new ArrayList&lt;&gt;(defendingUnits);</span>
+<span class="nc" id="L1521">        minDefendingUnits.removeAll(moveMap.get(t).getTempUnits());</span>
+<span class="nc" id="L1522">        final ProBattleResult minResult = calc.calculateBattleResults(player, t, moveMap.get(t).getMaxEnemyUnits(),</span>
+<span class="nc" id="L1523">            minDefendingUnits, moveMap.get(t).getMaxEnemyBombardUnits(), false);</span>
+
+        // Check if territory is worth defending with temp units
+<span class="nc bnc" id="L1526" title="All 2 branches missed.">        if (holdValue &gt; minResult.getTUVSwing()) {</span>
+<span class="nc" id="L1527">          areSuccessful = false;</span>
+<span class="nc" id="L1528">          moveMap.get(t).setCanHold(false);</span>
+<span class="nc" id="L1529">          moveMap.get(t).setValue(0);</span>
+<span class="nc" id="L1530">          moveMap.get(t).setSeaValue(0);</span>
+<span class="nc" id="L1531">          ProLogger.trace(t + &quot; unable to defend so removing with holdValue=&quot; + holdValue + &quot;, minTUVSwing=&quot;</span>
+<span class="nc" id="L1532">              + minResult.getTUVSwing() + &quot;, defenders=&quot; + defendingUnits + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L1533">              + moveMap.get(t).getMaxEnemyUnits());</span>
+        }
+<span class="nc" id="L1535">        ProLogger.trace(</span>
+<span class="nc" id="L1536">            moveMap.get(t).getResultString() + &quot;, holdValue=&quot; + holdValue + &quot;, minTUVSwing=&quot; + minResult.getTUVSwing());</span>
+      }
+
+      // Determine whether to try more territories, remove a territory, or end
+<span class="nc bnc" id="L1540" title="All 2 branches missed.">      if (areSuccessful) {</span>
+        break;
+      }
+    }
+
+    // Add temp units to move lists
+<span class="nc bnc" id="L1546" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+
+      // Handle allied units such as fighters on carriers
+<span class="nc" id="L1549">      final List&lt;Unit&gt; alliedUnits =</span>
+<span class="nc" id="L1550">          Match.getMatches(moveMap.get(t).getTempUnits(), Matches.unitIsOwnedBy(player).invert());</span>
+<span class="nc bnc" id="L1551" title="All 2 branches missed.">      for (final Unit alliedUnit : alliedUnits) {</span>
+<span class="nc" id="L1552">        moveMap.get(t).addCantMoveUnit(alliedUnit);</span>
+<span class="nc" id="L1553">        moveMap.get(t).getTempUnits().remove(alliedUnit);</span>
+      }
+<span class="nc" id="L1555">      moveMap.get(t).addUnits(moveMap.get(t).getTempUnits());</span>
+<span class="nc" id="L1556">      moveMap.get(t).putAllAmphibAttackMap(moveMap.get(t).getTempAmphibAttackMap());</span>
+<span class="nc bnc" id="L1557" title="All 2 branches missed.">      for (final Unit u : moveMap.get(t).getTempUnits()) {</span>
+<span class="nc bnc" id="L1558" title="All 2 branches missed.">        if (Matches.UnitIsTransport.match(u)) {</span>
+<span class="nc" id="L1559">          transportMoveMap.remove(u);</span>
+<span class="nc bnc" id="L1560" title="All 2 branches missed.">          for (final Iterator&lt;ProTransport&gt; it = transportMapList.iterator(); it.hasNext();) {</span>
+<span class="nc bnc" id="L1561" title="All 2 branches missed.">            if (it.next().getTransport().equals(u)) {</span>
+<span class="nc" id="L1562">              it.remove();</span>
+            }
+          }
+<span class="nc" id="L1565">        } else {</span>
+<span class="nc" id="L1566">          unitMoveMap.remove(u);</span>
+        }
+      }
+<span class="nc bnc" id="L1569" title="All 2 branches missed.">      for (final Unit u : moveMap.get(t).getTempAmphibAttackMap().keySet()) {</span>
+<span class="nc" id="L1570">        transportMoveMap.remove(u);</span>
+<span class="nc bnc" id="L1571" title="All 2 branches missed.">        for (final Iterator&lt;ProTransport&gt; it = transportMapList.iterator(); it.hasNext();) {</span>
+<span class="nc bnc" id="L1572" title="All 2 branches missed.">          if (it.next().getTransport().equals(u)) {</span>
+<span class="nc" id="L1573">            it.remove();</span>
+          }
+        }
+      }
+<span class="nc" id="L1577">      moveMap.get(t).getTempUnits().clear();</span>
+<span class="nc" id="L1578">      moveMap.get(t).getTempAmphibAttackMap().clear();</span>
+    }
+<span class="nc" id="L1580">    ProLogger.info(&quot;Move land units&quot;);</span>
+
+    // Move land units to territory with highest value and highest transport capacity
+    // TODO: consider if territory ends up being safe
+<span class="nc bnc" id="L1584" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1585">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L1586" title="All 2 branches missed.">      if (Matches.UnitIsLand.match(u)) {</span>
+<span class="nc" id="L1587">        Territory maxValueTerritory = null;</span>
+<span class="nc" id="L1588">        double maxValue = 0;</span>
+<span class="nc" id="L1589">        int maxNeedAmphibUnitValue = Integer.MIN_VALUE;</span>
+<span class="nc bnc" id="L1590" title="All 2 branches missed.">        for (final Territory t : unitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1591" title="All 4 branches missed.">          if (moveMap.get(t).isCanHold() &amp;&amp; moveMap.get(t).getValue() &gt;= maxValue) {</span>
+
+            // Find transport capacity of neighboring (distance 1) transports
+<span class="nc" id="L1594">            final List&lt;Unit&gt; transports1 = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1595">            final Set&lt;Territory&gt; seaNeighbors =</span>
+<span class="nc" id="L1596">                data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+<span class="nc bnc" id="L1597" title="All 2 branches missed.">            for (final Territory neighborTerritory : seaNeighbors) {</span>
+<span class="nc bnc" id="L1598" title="All 2 branches missed.">              if (moveMap.containsKey(neighborTerritory)) {</span>
+<span class="nc" id="L1599">                transports1.addAll(Match.getMatches(moveMap.get(neighborTerritory).getAllDefenders(),</span>
+<span class="nc" id="L1600">                    ProMatches.unitIsOwnedTransport(player)));</span>
+              }
+            }
+<span class="nc" id="L1603">            int transportCapacity1 = 0;</span>
+<span class="nc bnc" id="L1604" title="All 2 branches missed.">            for (final Unit transport : transports1) {</span>
+<span class="nc" id="L1605">              transportCapacity1 += UnitAttachment.get(transport.getType()).getTransportCapacity();</span>
+            }
+
+            // Find transport capacity of nearby (distance 2) transports
+<span class="nc" id="L1609">            final List&lt;Unit&gt; transports2 = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1610">            final Set&lt;Territory&gt; nearbySeaTerritories =</span>
+<span class="nc" id="L1611">                data.getMap().getNeighbors(t, 2, ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+<span class="nc" id="L1612">            nearbySeaTerritories.removeAll(seaNeighbors);</span>
+<span class="nc bnc" id="L1613" title="All 2 branches missed.">            for (final Territory neighborTerritory : nearbySeaTerritories) {</span>
+<span class="nc bnc" id="L1614" title="All 2 branches missed.">              if (moveMap.containsKey(neighborTerritory)) {</span>
+<span class="nc" id="L1615">                transports2.addAll(Match.getMatches(moveMap.get(neighborTerritory).getAllDefenders(),</span>
+<span class="nc" id="L1616">                    ProMatches.unitIsOwnedTransport(player)));</span>
+              }
+            }
+<span class="nc" id="L1619">            int transportCapacity2 = 0;</span>
+<span class="nc bnc" id="L1620" title="All 2 branches missed.">            for (final Unit transport : transports2) {</span>
+<span class="nc" id="L1621">              transportCapacity2 += UnitAttachment.get(transport.getType()).getTransportCapacity();</span>
+            }
+<span class="nc" id="L1623">            final List&lt;Unit&gt; unitsToTransport =</span>
+<span class="nc" id="L1624">                Match.getMatches(moveMap.get(t).getAllDefenders(), ProMatches.unitIsOwnedTransportableUnit(player));</span>
+
+            // Find transport cost of potential amphib units
+<span class="nc" id="L1627">            int transportCost = 0;</span>
+<span class="nc bnc" id="L1628" title="All 2 branches missed.">            for (final Unit unit : unitsToTransport) {</span>
+<span class="nc" id="L1629">              transportCost += UnitAttachment.get(unit.getType()).getTransportCost();</span>
+            }
+
+            // Find territory that needs amphib units that most
+<span class="nc" id="L1633">            int hasFactory = 0;</span>
+<span class="nc bnc" id="L1634" title="All 2 branches missed.">            if (ProMatches.territoryHasInfraFactoryAndIsOwnedLandAdjacentToSea(player, data).match(t)) {</span>
+<span class="nc" id="L1635">              hasFactory = 1;</span>
+            }
+<span class="nc" id="L1637">            final int neededNeighborTransportValue = Math.max(0, transportCapacity1 - transportCost);</span>
+<span class="nc" id="L1638">            final int neededNearbyTransportValue = Math.max(0, transportCapacity1 + transportCapacity2 - transportCost);</span>
+<span class="nc" id="L1639">            final int needAmphibUnitValue =</span>
+<span class="nc" id="L1640">                1000 * neededNeighborTransportValue + 100 * neededNearbyTransportValue + (1 + 10 * hasFactory)</span>
+<span class="nc" id="L1641">                    * data.getMap().getNeighbors(t, ProMatches.territoryCanMoveSeaUnits(player, data, true)).size();</span>
+<span class="nc bnc" id="L1642" title="All 4 branches missed.">            if (moveMap.get(t).getValue() &gt; maxValue || needAmphibUnitValue &gt; maxNeedAmphibUnitValue) {</span>
+<span class="nc" id="L1643">              maxValue = moveMap.get(t).getValue();</span>
+<span class="nc" id="L1644">              maxNeedAmphibUnitValue = needAmphibUnitValue;</span>
+<span class="nc" id="L1645">              maxValueTerritory = t;</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L1649" title="All 2 branches missed.">        if (maxValueTerritory != null) {</span>
+<span class="nc" id="L1650">          ProLogger.trace(u + &quot; moved to &quot; + maxValueTerritory + &quot; with value=&quot; + maxValue</span>
+<span class="nc" id="L1651">              + &quot;, numNeededTransportUnits=&quot; + maxNeedAmphibUnitValue);</span>
+<span class="nc" id="L1652">          moveMap.get(maxValueTerritory).addUnit(u);</span>
+<span class="nc" id="L1653">          it.remove();</span>
+        }
+      }
+    }
+
+    // Move land units towards nearest factory that is adjacent to the sea
+<span class="nc" id="L1659">    final Set&lt;Territory&gt; myFactoriesAdjacentToSea = new HashSet&lt;&gt;(Match.getMatches(data.getMap().getTerritories(),</span>
+<span class="nc" id="L1660">        ProMatches.territoryHasInfraFactoryAndIsOwnedLandAdjacentToSea(player, data)));</span>
+<span class="nc bnc" id="L1661" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1662">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L1663" title="All 2 branches missed.">      if (Matches.UnitIsLand.match(u)) {</span>
+<span class="nc" id="L1664">        int minDistance = Integer.MAX_VALUE;</span>
+<span class="nc" id="L1665">        Territory minTerritory = null;</span>
+<span class="nc bnc" id="L1666" title="All 2 branches missed.">        for (final Territory t : unitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1667" title="All 2 branches missed.">          if (moveMap.get(t).isCanHold()) {</span>
+<span class="nc bnc" id="L1668" title="All 2 branches missed.">            for (final Territory factory : myFactoriesAdjacentToSea) {</span>
+<span class="nc" id="L1669">              int distance =</span>
+<span class="nc" id="L1670">                  data.getMap().getDistance(t, factory, ProMatches.territoryCanMoveLandUnits(player, data, true));</span>
+<span class="nc bnc" id="L1671" title="All 2 branches missed.">              if (distance &lt; 0) {</span>
+<span class="nc" id="L1672">                distance = 10 * data.getMap().getDistance(t, factory);</span>
+              }
+<span class="nc bnc" id="L1674" title="All 4 branches missed.">              if (distance &gt;= 0 &amp;&amp; distance &lt; minDistance) {</span>
+<span class="nc" id="L1675">                minDistance = distance;</span>
+<span class="nc" id="L1676">                minTerritory = t;</span>
+              }
+            }
+          }
+        }
+<span class="nc bnc" id="L1681" title="All 2 branches missed.">        if (minTerritory != null) {</span>
+<span class="nc" id="L1682">          ProLogger.trace(</span>
+<span class="nc" id="L1683">              u.getType().getName() + &quot; moved towards closest factory adjacent to sea at &quot; + minTerritory.getName());</span>
+<span class="nc" id="L1684">          moveMap.get(minTerritory).addUnit(u);</span>
+<span class="nc" id="L1685">          it.remove();</span>
+        }
+      }
+    }
+<span class="nc" id="L1689">    ProLogger.info(&quot;Move land units to safest territory&quot;);</span>
+
+    // Move any remaining land units to safest territory (this is rarely used)
+<span class="nc bnc" id="L1692" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1693">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L1694" title="All 2 branches missed.">      if (Matches.UnitIsLand.match(u)) {</span>
+
+        // Get all units that have already moved
+<span class="nc" id="L1697">        final List&lt;Unit&gt; alreadyMovedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1698" title="All 2 branches missed.">        for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L1699">          alreadyMovedUnits.addAll(moveMap.get(t).getUnits());</span>
+        }
+
+        // Find safest territory
+<span class="nc" id="L1703">        double minStrengthDifference = Double.POSITIVE_INFINITY;</span>
+<span class="nc" id="L1704">        Territory minTerritory = null;</span>
+<span class="nc bnc" id="L1705" title="All 2 branches missed.">        for (final Territory t : unitMoveMap.get(u)) {</span>
+<span class="nc" id="L1706">          final List&lt;Unit&gt; attackers = moveMap.get(t).getMaxEnemyUnits();</span>
+<span class="nc" id="L1707">          final List&lt;Unit&gt; defenders = moveMap.get(t).getMaxDefenders();</span>
+<span class="nc" id="L1708">          defenders.removeAll(alreadyMovedUnits);</span>
+<span class="nc" id="L1709">          defenders.addAll(moveMap.get(t).getUnits());</span>
+<span class="nc" id="L1710">          final double strengthDifference = ProBattleUtils.estimateStrengthDifference(t, attackers, defenders);</span>
+<span class="nc bnc" id="L1711" title="All 2 branches missed.">          if (strengthDifference &lt; minStrengthDifference) {</span>
+<span class="nc" id="L1712">            minStrengthDifference = strengthDifference;</span>
+<span class="nc" id="L1713">            minTerritory = t;</span>
+          }
+        }
+<span class="nc bnc" id="L1716" title="All 2 branches missed.">        if (minTerritory != null) {</span>
+<span class="nc" id="L1717">          ProLogger.debug(u.getType().getName() + &quot; moved to safest territory at &quot; + minTerritory.getName()</span>
+<span class="nc" id="L1718">              + &quot; with strengthDifference=&quot; + minStrengthDifference);</span>
+<span class="nc" id="L1719">          moveMap.get(minTerritory).addUnit(u);</span>
+<span class="nc" id="L1720">          it.remove();</span>
+        }
+      }
+    }
+<span class="nc" id="L1724">    ProLogger.info(&quot;Move air units&quot;);</span>
+
+    // Get list of territories that can't be held
+<span class="nc" id="L1727">    final List&lt;Territory&gt; territoriesThatCantBeHeld = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1728" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc bnc" id="L1729" title="All 2 branches missed.">      if (!moveMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1730">        territoriesThatCantBeHeld.add(t);</span>
+      }
+    }
+
+    // Move air units to safe territory with most attack options
+<span class="nc bnc" id="L1735" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1736">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L1737" title="All 2 branches missed.">      if (Matches.UnitIsNotAir.match(u)) {</span>
+<span class="nc" id="L1738">        continue;</span>
+      }
+<span class="nc" id="L1740">      double maxAirValue = 0;</span>
+<span class="nc" id="L1741">      Territory maxTerritory = null;</span>
+<span class="nc bnc" id="L1742" title="All 2 branches missed.">      for (final Territory t : unitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1743" title="All 2 branches missed.">        if (!moveMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1744">          continue;</span>
+        }
+<span class="nc bnc" id="L1746" title="All 2 branches missed.">        if (t.isWater() &amp;&amp; !ProTransportUtils.validateCarrierCapacity(player, t,</span>
+<span class="nc bnc" id="L1747" title="All 2 branches missed.">            moveMap.get(t).getAllDefendersForCarrierCalcs(data, player), u)) {</span>
+<span class="nc" id="L1748">          ProLogger.trace(t + &quot; already at MAX carrier capacity&quot;);</span>
+<span class="nc" id="L1749">          continue;</span>
+        }
+
+        // Check to see if the territory is safe
+<span class="nc" id="L1753">        final List&lt;Unit&gt; defendingUnits = moveMap.get(t).getAllDefenders();</span>
+<span class="nc" id="L1754">        defendingUnits.add(u);</span>
+<span class="nc bnc" id="L1755" title="All 2 branches missed.">        if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L1756">          moveMap.get(t).setBattleResult(calc.calculateBattleResults(player, t, moveMap.get(t).getMaxEnemyUnits(),</span>
+<span class="nc" id="L1757">              defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits(), false));</span>
+        }
+<span class="nc" id="L1759">        final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc" id="L1760">        ProLogger.trace(t + &quot;, TUVSwing=&quot; + result.getTUVSwing() + &quot;, win%=&quot; + result.getWinPercentage()</span>
+<span class="nc" id="L1761">            + &quot;, defendingUnits=&quot; + defendingUnits + &quot;, enemyAttackers=&quot; + moveMap.get(t).getMaxEnemyUnits());</span>
+<span class="nc bnc" id="L1762" title="All 4 branches missed.">        if (result.getWinPercentage() &gt;= ProData.minWinPercentage || result.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L1763">          moveMap.get(t).setCanHold(false);</span>
+<span class="nc" id="L1764">          continue;</span>
+        }
+
+        // Determine if territory can be held with owned units
+<span class="nc" id="L1768">        final List&lt;Unit&gt; myDefenders = Match.getMatches(defendingUnits, Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L1769">        final ProBattleResult result2 = calc.calculateBattleResults(player, t, moveMap.get(t).getMaxEnemyUnits(),</span>
+<span class="nc" id="L1770">            myDefenders, moveMap.get(t).getMaxEnemyBombardUnits(), false);</span>
+<span class="nc" id="L1771">        int cantHoldWithoutAllies = 0;</span>
+<span class="nc bnc" id="L1772" title="All 4 branches missed.">        if (result2.getWinPercentage() &gt;= ProData.minWinPercentage || result2.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L1773">          cantHoldWithoutAllies = 1;</span>
+        }
+
+        // Find number of potential attack options next turn
+<span class="nc" id="L1777">        final int range = TripleAUnit.get(u).getMaxMovementAllowed();</span>
+<span class="nc" id="L1778">        final Set&lt;Territory&gt; possibleAttackTerritories =</span>
+<span class="nc" id="L1779">            data.getMap().getNeighbors(t, range / 2, ProMatches.territoryCanMoveAirUnits(player, data, true));</span>
+<span class="nc" id="L1780">        final int numEnemyAttackTerritories =</span>
+<span class="nc" id="L1781">            Match.countMatches(possibleAttackTerritories, ProMatches.territoryIsEnemyNotNeutralLand(player, data));</span>
+<span class="nc" id="L1782">        final int numLandAttackTerritories = Match.countMatches(possibleAttackTerritories,</span>
+<span class="nc" id="L1783">            ProMatches.territoryIsEnemyOrCantBeHeldAndIsAdjacentToMyLandUnits(player, data, territoriesThatCantBeHeld));</span>
+<span class="nc" id="L1784">        final int numSeaAttackTerritories =</span>
+<span class="nc" id="L1785">            Match.countMatches(possibleAttackTerritories, Matches.territoryHasEnemySeaUnits(player, data));</span>
+<span class="nc" id="L1786">        final Set&lt;Territory&gt; possibleMoveTerritories =</span>
+<span class="nc" id="L1787">            data.getMap().getNeighbors(t, range, ProMatches.territoryCanMoveAirUnits(player, data, true));</span>
+<span class="nc" id="L1788">        final int numNearbyEnemyTerritories =</span>
+<span class="nc" id="L1789">            Match.countMatches(possibleMoveTerritories, ProMatches.territoryIsEnemyNotNeutralLand(player, data));</span>
+
+        // Check if number of attack territories and value are max
+<span class="nc bnc" id="L1792" title="All 2 branches missed.">        final int isntFactory = ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t) ? 0 : 1;</span>
+<span class="nc" id="L1793">        final int hasOwnedCarrier =</span>
+<span class="nc bnc" id="L1794" title="All 2 branches missed.">            Match.someMatch(moveMap.get(t).getAllDefenders(), ProMatches.UnitIsOwnedCarrier(player)) ? 1 : 0;</span>
+<span class="nc" id="L1795">        final double airValue = (200.0 * numSeaAttackTerritories + 100 * numLandAttackTerritories</span>
+<span class="nc" id="L1796">            + 10 * numEnemyAttackTerritories + numNearbyEnemyTerritories) / (1 + cantHoldWithoutAllies)</span>
+<span class="nc" id="L1797">            / (1 + cantHoldWithoutAllies * isntFactory) * (1 + hasOwnedCarrier);</span>
+<span class="nc bnc" id="L1798" title="All 2 branches missed.">        if (airValue &gt; maxAirValue) {</span>
+<span class="nc" id="L1799">          maxAirValue = airValue;</span>
+<span class="nc" id="L1800">          maxTerritory = t;</span>
+        }
+<span class="nc" id="L1802">        ProLogger.trace(&quot;Safe territory: &quot; + t + &quot;, airValue=&quot; + airValue + &quot;, numLandAttackOptions=&quot;</span>
+<span class="nc" id="L1803">            + numLandAttackTerritories + &quot;, numSeaAttackTerritories=&quot; + numSeaAttackTerritories</span>
+<span class="nc" id="L1804">            + &quot;, numEnemyAttackTerritories=&quot; + numEnemyAttackTerritories);</span>
+      }
+<span class="nc bnc" id="L1806" title="All 2 branches missed.">      if (maxTerritory != null) {</span>
+<span class="nc" id="L1807">        ProLogger.debug(u.getType().getName() + &quot; added to safe territory with most attack options &quot; + maxTerritory</span>
+<span class="nc" id="L1808">            + &quot;, maxAirValue=&quot; + maxAirValue);</span>
+<span class="nc" id="L1809">        moveMap.get(maxTerritory).addUnit(u);</span>
+<span class="nc" id="L1810">        moveMap.get(maxTerritory).setBattleResult(null);</span>
+<span class="nc" id="L1811">        it.remove();</span>
+      }
+    }
+
+    // Move air units to safest territory
+<span class="nc bnc" id="L1816" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = unitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1817">      final Unit u = it.next();</span>
+<span class="nc bnc" id="L1818" title="All 2 branches missed.">      if (Matches.UnitIsNotAir.match(u)) {</span>
+<span class="nc" id="L1819">        continue;</span>
+      }
+<span class="nc" id="L1821">      double minStrengthDifference = Double.POSITIVE_INFINITY;</span>
+<span class="nc" id="L1822">      Territory minTerritory = null;</span>
+<span class="nc bnc" id="L1823" title="All 2 branches missed.">      for (final Territory t : unitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1824" title="All 2 branches missed.">        if (t.isWater() &amp;&amp; !ProTransportUtils.validateCarrierCapacity(player, t,</span>
+<span class="nc bnc" id="L1825" title="All 2 branches missed.">            moveMap.get(t).getAllDefendersForCarrierCalcs(data, player), u)) {</span>
+<span class="nc" id="L1826">          ProLogger.trace(t + &quot; already at MAX carrier capacity&quot;);</span>
+<span class="nc" id="L1827">          continue;</span>
+        }
+<span class="nc" id="L1829">        final List&lt;Unit&gt; attackers = moveMap.get(t).getMaxEnemyUnits();</span>
+<span class="nc" id="L1830">        final List&lt;Unit&gt; defenders = moveMap.get(t).getAllDefenders();</span>
+<span class="nc" id="L1831">        defenders.add(u);</span>
+<span class="nc" id="L1832">        final double strengthDifference = ProBattleUtils.estimateStrengthDifference(t, attackers, defenders);</span>
+<span class="nc" id="L1833">        ProLogger.trace(&quot;Unsafe territory: &quot; + t + &quot; with strengthDifference=&quot; + strengthDifference);</span>
+<span class="nc bnc" id="L1834" title="All 2 branches missed.">        if (strengthDifference &lt; minStrengthDifference) {</span>
+<span class="nc" id="L1835">          minStrengthDifference = strengthDifference;</span>
+<span class="nc" id="L1836">          minTerritory = t;</span>
+        }
+      }
+<span class="nc bnc" id="L1839" title="All 2 branches missed.">      if (minTerritory != null) {</span>
+<span class="nc" id="L1840">        ProLogger.debug(u.getType().getName() + &quot; added to safest territory at &quot; + minTerritory</span>
+<span class="nc" id="L1841">            + &quot; with strengthDifference=&quot; + minStrengthDifference);</span>
+<span class="nc" id="L1842">        moveMap.get(minTerritory).addUnit(u);</span>
+<span class="nc" id="L1843">        it.remove();</span>
+      }
+    }
+<span class="nc" id="L1846">  }</span>
+
+  private Map&lt;Territory, ProTerritory&gt; moveInfraUnits(Map&lt;Territory, ProTerritory&gt; factoryMoveMap,
+      final Map&lt;Unit, Set&lt;Territory&gt;&gt; infraUnitMoveMap) {
+<span class="nc" id="L1850">    ProLogger.info(&quot;Determine where to move infra units&quot;);</span>
+
+<span class="nc" id="L1852">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+
+    // Move factory units
+<span class="nc bnc" id="L1855" title="All 2 branches missed.">    if (factoryMoveMap == null) {</span>
+<span class="nc" id="L1856">      ProLogger.debug(&quot;Creating factory move map&quot;);</span>
+
+      // Determine and store where to move factories
+<span class="nc" id="L1859">      factoryMoveMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1860" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = infraUnitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1861">        final Unit u = it.next();</span>
+
+        // Only check factory units
+<span class="nc bnc" id="L1864" title="All 2 branches missed.">        if (Matches.UnitCanProduceUnits.match(u)) {</span>
+<span class="nc" id="L1865">          Territory maxValueTerritory = null;</span>
+<span class="nc" id="L1866">          double maxValue = 0;</span>
+<span class="nc bnc" id="L1867" title="All 2 branches missed.">          for (final Territory t : infraUnitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1868" title="All 2 branches missed.">            if (!moveMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1869">              continue;</span>
+            }
+
+            // Check if territory is safe after all current moves
+<span class="nc bnc" id="L1873" title="All 2 branches missed.">            if (moveMap.get(t).getBattleResult() == null) {</span>
+<span class="nc" id="L1874">              final List&lt;Unit&gt; defendingUnits = moveMap.get(t).getAllDefenders();</span>
+<span class="nc" id="L1875">              moveMap.get(t).setBattleResult(calc.calculateBattleResults(player, t, moveMap.get(t).getMaxEnemyUnits(),</span>
+<span class="nc" id="L1876">                  defendingUnits, moveMap.get(t).getMaxEnemyBombardUnits(), false));</span>
+            }
+<span class="nc" id="L1878">            final ProBattleResult result = moveMap.get(t).getBattleResult();</span>
+<span class="nc bnc" id="L1879" title="All 4 branches missed.">            if (result.getWinPercentage() &gt;= ProData.minWinPercentage || result.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L1880">              moveMap.get(t).setCanHold(false);</span>
+<span class="nc" id="L1881">              continue;</span>
+            }
+
+            // Find value by checking if territory is not conquered and doesn't already have a factory
+<span class="nc" id="L1885">            final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(moveMap.get(t).getCantMoveUnits());</span>
+<span class="nc" id="L1886">            units.addAll(moveMap.get(t).getUnits());</span>
+<span class="nc" id="L1887">            final int production = TerritoryAttachment.get(t).getProduction();</span>
+<span class="nc" id="L1888">            double value = 0.1 * moveMap.get(t).getValue();</span>
+<span class="nc bnc" id="L1889" title="All 2 branches missed.">            if (ProMatches.territoryIsNotConqueredOwnedLand(player, data).match(t)</span>
+<span class="nc bnc" id="L1890" title="All 2 branches missed.">                &amp;&amp; Match.noneMatch(units, Matches.UnitCanProduceUnitsAndIsInfrastructure)) {</span>
+<span class="nc" id="L1891">              value = moveMap.get(t).getValue() * production + 0.01 * production;</span>
+            }
+<span class="nc" id="L1893">            ProLogger.trace(t.getName() + &quot; has value=&quot; + value + &quot;, strategicValue=&quot; + moveMap.get(t).getValue()</span>
+<span class="nc" id="L1894">                + &quot;, production=&quot; + production);</span>
+<span class="nc bnc" id="L1895" title="All 2 branches missed.">            if (value &gt; maxValue) {</span>
+<span class="nc" id="L1896">              maxValue = value;</span>
+<span class="nc" id="L1897">              maxValueTerritory = t;</span>
+            }
+          }
+<span class="nc bnc" id="L1900" title="All 2 branches missed.">          if (maxValueTerritory != null) {</span>
+            ProLogger
+<span class="nc" id="L1902">                .debug(u.getType().getName() + &quot; moved to &quot; + maxValueTerritory.getName() + &quot; with value=&quot; + maxValue);</span>
+<span class="nc" id="L1903">            moveMap.get(maxValueTerritory).addUnit(u);</span>
+<span class="nc bnc" id="L1904" title="All 2 branches missed.">            if (factoryMoveMap.containsKey(maxValueTerritory)) {</span>
+<span class="nc" id="L1905">              factoryMoveMap.get(maxValueTerritory).addUnit(u);</span>
+<span class="nc" id="L1906">            } else {</span>
+<span class="nc" id="L1907">              final ProTerritory patd = new ProTerritory(maxValueTerritory);</span>
+<span class="nc" id="L1908">              patd.addUnit(u);</span>
+<span class="nc" id="L1909">              factoryMoveMap.put(maxValueTerritory, patd);</span>
+            }
+<span class="nc" id="L1911">            it.remove();</span>
+          }
+        }
+      }
+<span class="nc" id="L1915">    } else {</span>
+<span class="nc" id="L1916">      ProLogger.debug(&quot;Using stored factory move map&quot;);</span>
+
+      // Transfer stored factory moves to move map
+<span class="nc bnc" id="L1919" title="All 2 branches missed.">      for (final Territory t : factoryMoveMap.keySet()) {</span>
+<span class="nc" id="L1920">        moveMap.get(t).addUnits(factoryMoveMap.get(t).getUnits());</span>
+      }
+    }
+<span class="nc" id="L1923">    ProLogger.debug(&quot;Move infra AA units&quot;);</span>
+
+    // Move AA units
+<span class="nc bnc" id="L1926" title="All 2 branches missed.">    for (final Iterator&lt;Unit&gt; it = infraUnitMoveMap.keySet().iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1927">      final Unit u = it.next();</span>
+<span class="nc" id="L1928">      final Territory currentTerritory = unitTerritoryMap.get(u);</span>
+
+      // Only check AA units whose territory can't be held and don't have factories
+<span class="nc bnc" id="L1931" title="All 4 branches missed.">      if (Matches.UnitIsAAforAnything.match(u) &amp;&amp; !moveMap.get(currentTerritory).isCanHold()</span>
+<span class="nc bnc" id="L1932" title="All 2 branches missed.">          &amp;&amp; !ProMatches.territoryHasInfraFactoryAndIsLand(player).match(currentTerritory)) {</span>
+<span class="nc" id="L1933">        Territory maxValueTerritory = null;</span>
+<span class="nc" id="L1934">        double maxValue = 0;</span>
+<span class="nc bnc" id="L1935" title="All 2 branches missed.">        for (final Territory t : infraUnitMoveMap.get(u)) {</span>
+<span class="nc bnc" id="L1936" title="All 2 branches missed.">          if (!moveMap.get(t).isCanHold()) {</span>
+<span class="nc" id="L1937">            continue;</span>
+          }
+
+          // Consider max stack of 1 AA in classic
+<span class="nc" id="L1941">          final Route r = data.getMap().getRoute_IgnoreEnd(currentTerritory, t,</span>
+<span class="nc" id="L1942">              ProMatches.territoryCanMoveLandUnitsThrough(player, data, u, currentTerritory, false, new ArrayList&lt;&gt;()));</span>
+<span class="nc" id="L1943">          final MoveValidationResult mvr = MoveValidator.validateMove(Collections.singletonList(u), r, player,</span>
+<span class="nc" id="L1944">              new ArrayList&lt;&gt;(), new HashMap&lt;&gt;(), true, null, data);</span>
+<span class="nc bnc" id="L1945" title="All 2 branches missed.">          if (!mvr.isMoveValid()) {</span>
+<span class="nc" id="L1946">            continue;</span>
+          }
+
+          // Find value and try to move to territory that doesn't already have AA
+<span class="nc" id="L1950">          final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(moveMap.get(t).getCantMoveUnits());</span>
+<span class="nc" id="L1951">          units.addAll(moveMap.get(t).getUnits());</span>
+<span class="nc" id="L1952">          final boolean hasAA = Match.someMatch(units, Matches.UnitIsAAforAnything);</span>
+<span class="nc" id="L1953">          double value = moveMap.get(t).getValue();</span>
+<span class="nc bnc" id="L1954" title="All 2 branches missed.">          if (hasAA) {</span>
+<span class="nc" id="L1955">            value *= 0.01;</span>
+          }
+<span class="nc" id="L1957">          ProLogger.trace(t.getName() + &quot; has value=&quot; + value);</span>
+<span class="nc bnc" id="L1958" title="All 2 branches missed.">          if (value &gt; maxValue) {</span>
+<span class="nc" id="L1959">            maxValue = value;</span>
+<span class="nc" id="L1960">            maxValueTerritory = t;</span>
+          }
+        }
+<span class="nc bnc" id="L1963" title="All 2 branches missed.">        if (maxValueTerritory != null) {</span>
+          ProLogger
+<span class="nc" id="L1965">              .debug(u.getType().getName() + &quot; moved to &quot; + maxValueTerritory.getName() + &quot; with value=&quot; + maxValue);</span>
+<span class="nc" id="L1966">          moveMap.get(maxValueTerritory).addUnit(u);</span>
+<span class="nc" id="L1967">          it.remove();</span>
+        }
+      }
+    }
+<span class="nc" id="L1971">    return factoryMoveMap;</span>
+  }
+
+  private void logAttackMoves(final List&lt;ProTerritory&gt; prioritizedTerritories) {
+
+<span class="nc" id="L1976">    final Map&lt;Territory, ProTerritory&gt; moveMap = territoryManager.getDefendOptions().getTerritoryMap();</span>
+
+    // Print prioritization
+<span class="nc" id="L1979">    ProLogger.debug(&quot;Prioritized territories:&quot;);</span>
+<span class="nc bnc" id="L1980" title="All 2 branches missed.">    for (final ProTerritory attackTerritoryData : prioritizedTerritories) {</span>
+<span class="nc" id="L1981">      ProLogger.trace(&quot;  &quot; + attackTerritoryData.getValue() + &quot;  &quot; + attackTerritoryData.getTerritory().getName());</span>
+    }
+
+    // Print enemy territories with enemy units vs my units
+<span class="nc" id="L1985">    ProLogger.debug(&quot;Territories that can be attacked:&quot;);</span>
+<span class="nc" id="L1986">    int count = 0;</span>
+<span class="nc bnc" id="L1987" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc" id="L1988">      count++;</span>
+<span class="nc" id="L1989">      ProLogger.trace(count + &quot;. ---&quot; + t.getName());</span>
+<span class="nc" id="L1990">      final Set&lt;Unit&gt; combinedUnits = new HashSet&lt;&gt;(moveMap.get(t).getMaxUnits());</span>
+<span class="nc" id="L1991">      combinedUnits.addAll(moveMap.get(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L1992">      combinedUnits.addAll(moveMap.get(t).getCantMoveUnits());</span>
+<span class="nc" id="L1993">      ProLogger.trace(&quot;  --- My max units ---&quot;);</span>
+<span class="nc" id="L1994">      final Map&lt;String, Integer&gt; printMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1995" title="All 2 branches missed.">      for (final Unit unit : combinedUnits) {</span>
+<span class="nc bnc" id="L1996" title="All 2 branches missed.">        if (printMap.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L1997">          printMap.put(unit.toStringNoOwner(), printMap.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L1998">        } else {</span>
+<span class="nc" id="L1999">          printMap.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L2002" title="All 2 branches missed.">      for (final String key : printMap.keySet()) {</span>
+<span class="nc" id="L2003">        ProLogger.trace(&quot;    &quot; + printMap.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L2005">      ProLogger.trace(&quot;  --- My max amphib units ---&quot;);</span>
+<span class="nc" id="L2006">      final Map&lt;String, Integer&gt; printMap5 = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L2007" title="All 2 branches missed.">      for (final Unit unit : moveMap.get(t).getMaxAmphibUnits()) {</span>
+<span class="nc bnc" id="L2008" title="All 2 branches missed.">        if (printMap5.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L2009">          printMap5.put(unit.toStringNoOwner(), printMap5.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L2010">        } else {</span>
+<span class="nc" id="L2011">          printMap5.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L2014" title="All 2 branches missed.">      for (final String key : printMap5.keySet()) {</span>
+<span class="nc" id="L2015">        ProLogger.trace(&quot;    &quot; + printMap5.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L2017">      final List&lt;Unit&gt; units3 = moveMap.get(t).getUnits();</span>
+<span class="nc" id="L2018">      ProLogger.trace(&quot;  --- My actual units ---&quot;);</span>
+<span class="nc" id="L2019">      final Map&lt;String, Integer&gt; printMap3 = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L2020" title="All 2 branches missed.">      for (final Unit unit : units3) {</span>
+<span class="nc bnc" id="L2021" title="All 2 branches missed.">        if (printMap3.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L2022">          printMap3.put(unit.toStringNoOwner(), printMap3.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L2023">        } else {</span>
+<span class="nc" id="L2024">          printMap3.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L2027" title="All 2 branches missed.">      for (final String key : printMap3.keySet()) {</span>
+<span class="nc" id="L2028">        ProLogger.trace(&quot;    &quot; + printMap3.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L2030">      ProLogger.trace(&quot;  --- Enemy units ---&quot;);</span>
+<span class="nc" id="L2031">      final Map&lt;String, Integer&gt; printMap2 = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L2032">      final List&lt;Unit&gt; units2 = moveMap.get(t).getMaxEnemyUnits();</span>
+<span class="nc bnc" id="L2033" title="All 2 branches missed.">      for (final Unit unit : units2) {</span>
+<span class="nc bnc" id="L2034" title="All 2 branches missed.">        if (printMap2.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L2035">          printMap2.put(unit.toStringNoOwner(), printMap2.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L2036">        } else {</span>
+<span class="nc" id="L2037">          printMap2.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L2040" title="All 2 branches missed.">      for (final String key : printMap2.keySet()) {</span>
+<span class="nc" id="L2041">        ProLogger.trace(&quot;    &quot; + printMap2.get(key) + &quot; &quot; + key);</span>
+      }
+<span class="nc" id="L2043">      ProLogger.trace(&quot;  --- Enemy bombard units ---&quot;);</span>
+<span class="nc" id="L2044">      final Map&lt;String, Integer&gt; printMap4 = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L2045">      final Set&lt;Unit&gt; units4 = moveMap.get(t).getMaxEnemyBombardUnits();</span>
+<span class="nc bnc" id="L2046" title="All 2 branches missed.">      for (final Unit unit : units4) {</span>
+<span class="nc bnc" id="L2047" title="All 2 branches missed.">        if (printMap4.containsKey(unit.toStringNoOwner())) {</span>
+<span class="nc" id="L2048">          printMap4.put(unit.toStringNoOwner(), printMap4.get(unit.toStringNoOwner()) + 1);</span>
+<span class="nc" id="L2049">        } else {</span>
+<span class="nc" id="L2050">          printMap4.put(unit.toStringNoOwner(), 1);</span>
+        }
+      }
+<span class="nc bnc" id="L2053" title="All 2 branches missed.">      for (final String key : printMap4.keySet()) {</span>
+<span class="nc" id="L2054">        ProLogger.trace(&quot;    &quot; + printMap4.get(key) + &quot; &quot; + key);</span>
+      }
+    }
+<span class="nc" id="L2057">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

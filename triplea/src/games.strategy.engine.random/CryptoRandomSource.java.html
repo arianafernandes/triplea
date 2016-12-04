@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>CryptoRandomSource.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.random</a> &gt; <span class="el_source">CryptoRandomSource.java</span></div><h1>CryptoRandomSource.java</h1><pre class="source lang-java linenums">package games.strategy.engine.random;
+
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.framework.IGame;
+import games.strategy.engine.framework.ServerGame;
+import games.strategy.engine.vault.Vault;
+import games.strategy.engine.vault.VaultID;
+
+/**
+ * A random source that generates numbers using a secure algorithm shared
+ * between two players.
+ * Code originally contributed by Ben Giddings.
+ */
+public class CryptoRandomSource implements IRandomSource {
+<span class="nc" id="L15">  private final IRandomSource m_plainRandom = new PlainRandomSource();</span>
+
+  /**
+   * converts an int[] to a bytep[
+   */
+  public static byte[] intsToBytes(final int[] ints) {
+<span class="fc" id="L21">    final byte[] rVal = new byte[ints.length * 4];</span>
+<span class="fc bfc" id="L22" title="All 2 branches covered.">    for (int i = 0; i &lt; ints.length; i++) {</span>
+<span class="fc" id="L23">      rVal[4 * i] = (byte) (0x000000FF &amp; ints[i]);</span>
+<span class="fc" id="L24">      rVal[(4 * i) + 1] = (byte) ((0x000000FF &amp; (ints[i] &gt;&gt; 8)));</span>
+<span class="fc" id="L25">      rVal[(4 * i) + 2] = (byte) ((0x000000FF &amp; (ints[i] &gt;&gt; 16)));</span>
+<span class="fc" id="L26">      rVal[(4 * i) + 3] = (byte) ((0x000000FF &amp; (ints[i] &gt;&gt; 24)));</span>
+    }
+<span class="fc" id="L28">    return rVal;</span>
+  }
+
+  static int byteToIntUnsigned(final byte val) {
+<span class="fc" id="L32">    return val &amp; 0xff;</span>
+  }
+
+  public static int[] bytesToInts(final byte[] bytes) {
+<span class="fc" id="L36">    final int[] rVal = new int[bytes.length / 4];</span>
+<span class="fc bfc" id="L37" title="All 2 branches covered.">    for (int i = 0; i &lt; rVal.length; i++) {</span>
+<span class="fc" id="L38">      rVal[i] = byteToIntUnsigned(bytes[4 * i]) + (byteToIntUnsigned(bytes[4 * i + 1]) &lt;&lt; 8)</span>
+<span class="fc" id="L39">          + (byteToIntUnsigned(bytes[4 * i + 2]) &lt;&lt; 16) + (byteToIntUnsigned(bytes[4 * i + 3]) &lt;&lt; 24);</span>
+    }
+<span class="fc" id="L41">    return rVal;</span>
+  }
+
+  public static int[] xor(final int[] val1, final int[] val2, final int max) {
+<span class="nc bnc" id="L45" title="All 2 branches missed.">    if (val1.length != val2.length) {</span>
+<span class="nc" id="L46">      throw new IllegalArgumentException(&quot;Arrays not of same length&quot;);</span>
+    }
+<span class="nc" id="L48">    final int[] rVal = new int[val1.length];</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">    for (int i = 0; i &lt; val1.length; i++) {</span>
+<span class="nc" id="L50">      rVal[i] = (val1[i] + val2[i]) % max;</span>
+    }
+<span class="nc" id="L52">    return rVal;</span>
+  }
+
+  // the remote players who involved in rolling the dice
+  // dice are rolled securly between us and her
+  final private PlayerID m_remotePlayer;
+  final private IGame m_game;
+
+<span class="nc" id="L60">  public CryptoRandomSource(final PlayerID remotePlayer, final IGame game) {</span>
+<span class="nc" id="L61">    m_remotePlayer = remotePlayer;</span>
+<span class="nc" id="L62">    m_game = game;</span>
+<span class="nc" id="L63">  }</span>
+
+  /**
+   * All delegates should use random data that comes from both players so that
+   * neither player cheats.
+   */
+  @Override
+  public int getRandom(final int max, final String annotation) throws IllegalArgumentException, IllegalStateException {
+<span class="nc" id="L71">    return getRandom(max, 1, annotation)[0];</span>
+  }
+
+  /**
+   * Delegates should not use random data that comes from any other source.
+   */
+  @Override
+  public int[] getRandom(final int max, final int count, final String annotation)
+      throws IllegalArgumentException, IllegalStateException {
+<span class="nc bnc" id="L80" title="All 2 branches missed.">    if (count &lt;= 0) {</span>
+<span class="nc" id="L81">      throw new IllegalArgumentException(&quot;Invalid count:&quot; + count);</span>
+    }
+<span class="nc" id="L83">    final Vault vault = m_game.getVault();</span>
+    // generate numbers locally, and put them in the vault
+<span class="nc" id="L85">    final int[] localRandom = m_plainRandom.getRandom(max, count, annotation);</span>
+    // lock it so the client knows that its there, but cant read it
+<span class="nc" id="L87">    final VaultID localID = vault.lock(intsToBytes(localRandom));</span>
+    // ask the remote to generate numbers
+<span class="nc" id="L89">    final IRemoteRandom remote =</span>
+<span class="nc" id="L90">        (IRemoteRandom) (m_game.getRemoteMessenger().getRemote(ServerGame.getRemoteRandomName(m_remotePlayer)));</span>
+<span class="nc" id="L91">    final Object clientRandom = remote.generate(max, count, annotation, localID);</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    if (!(clientRandom instanceof int[])) {</span>
+      // Let the error be thrown
+<span class="nc" id="L94">      System.out.println(&quot;Client remote random generated: &quot; + clientRandom + &quot;.  Asked for: &quot; + count + &quot;x&quot; + max</span>
+<span class="nc" id="L95">          + &quot; for &quot; + annotation);</span>
+    }
+<span class="nc" id="L97">    final int[] remoteNumbers = (int[]) clientRandom;</span>
+    // unlock ours, tell the client he can verify
+<span class="nc" id="L99">    vault.unlock(localID);</span>
+<span class="nc" id="L100">    remote.verifyNumbers();</span>
+    // finally, we join the two together to get the real value
+<span class="nc" id="L102">    return xor(localRandom, remoteNumbers, max);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

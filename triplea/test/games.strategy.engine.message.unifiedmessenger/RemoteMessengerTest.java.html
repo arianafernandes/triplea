@@ -1,0 +1,367 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>RemoteMessengerTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.message.unifiedmessenger</a> &gt; <span class="el_source">RemoteMessengerTest.java</span></div><h1>RemoteMessengerTest.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.engine.message.unifiedmessenger;</span>
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.message.ConnectionLostException;
+import games.strategy.engine.message.IRemote;
+import games.strategy.engine.message.MessageContext;
+import games.strategy.engine.message.RemoteMessenger;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.message.RemoteNotFoundException;
+import games.strategy.engine.message.UnifiedMessengerHub;
+import games.strategy.net.ClientMessenger;
+import games.strategy.net.IConnectionChangeListener;
+import games.strategy.net.INode;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.MacFinder;
+import games.strategy.net.Node;
+import games.strategy.net.ServerMessenger;
+import games.strategy.test.TestUtil;
+import games.strategy.util.ThreadUtil;
+
+<span class="fc" id="L44">public class RemoteMessengerTest {</span>
+<span class="fc" id="L45">  private int SERVER_PORT = -1;</span>
+<span class="fc" id="L46">  private IServerMessenger m_messenger = mock(IServerMessenger.class);</span>
+  private RemoteMessenger m_remoteMessenger;
+  private UnifiedMessengerHub m_hub;
+
+  @Before
+  public void setUp() throws Exception {
+    // simple set up for non networked testing
+<span class="fc" id="L53">    final List&lt;IConnectionChangeListener&gt; connectionListeners = new CopyOnWriteArrayList&lt;&gt;();</span>
+<span class="fc" id="L54">    doAnswer(new Answer&lt;Void&gt;() {</span>
+      @Override
+      public Void answer(final InvocationOnMock invocation) throws Throwable {
+<span class="fc" id="L57">        connectionListeners.add(invocation.getArgument(0));</span>
+<span class="fc" id="L58">        return null;</span>
+      }
+<span class="fc" id="L60">    }).when(m_messenger).addConnectionChangeListener(any());</span>
+<span class="fc" id="L61">    doAnswer(new Answer&lt;Void&gt;() {</span>
+      @Override
+      public Void answer(final InvocationOnMock invocation) throws Throwable {
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        for (final IConnectionChangeListener listener : connectionListeners) {</span>
+<span class="nc" id="L65">          listener.connectionRemoved(invocation.getArgument(0));</span>
+        }
+<span class="nc" id="L67">        return null;</span>
+      }
+<span class="fc" id="L69">    }).when(m_messenger).removeConnection(any());</span>
+    Node dummyNode;
+    try {
+<span class="fc" id="L72">      dummyNode = new Node(&quot;dummy&quot;, InetAddress.getLocalHost(), 0);</span>
+<span class="pc" id="L73">    } catch (final UnknownHostException e) {</span>
+<span class="nc" id="L74">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L75">      throw new IllegalStateException(e);</span>
+    }
+<span class="fc" id="L77">    when(m_messenger.getLocalNode()).thenReturn(dummyNode);</span>
+<span class="fc" id="L78">    when(m_messenger.getServerNode()).thenReturn(dummyNode);</span>
+<span class="fc" id="L79">    when(m_messenger.isServer()).thenReturn(true);</span>
+<span class="fc" id="L80">    m_remoteMessenger = new RemoteMessenger(new UnifiedMessenger(m_messenger));</span>
+<span class="fc" id="L81">    SERVER_PORT = TestUtil.getUniquePort();</span>
+<span class="fc" id="L82">  }</span>
+
+  @After
+  public void tearDown() throws Exception {
+<span class="fc" id="L86">    m_messenger = null;</span>
+<span class="fc" id="L87">    m_remoteMessenger = null;</span>
+<span class="fc" id="L88">  }</span>
+
+  @Test
+  public void testRegisterUnregister() {
+<span class="fc" id="L92">    final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L93">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L94">    m_remoteMessenger.registerRemote(testRemote, test);</span>
+<span class="fc" id="L95">    assertTrue(m_remoteMessenger.hasLocalImplementor(test));</span>
+<span class="fc" id="L96">    m_remoteMessenger.unregisterRemote(test);</span>
+<span class="fc" id="L97">    assertFalse(m_remoteMessenger.hasLocalImplementor(test));</span>
+<span class="fc" id="L98">  }</span>
+
+  @Test
+  public void testMethodCall() {
+<span class="fc" id="L102">    final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L103">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L104">    m_remoteMessenger.registerRemote(testRemote, test);</span>
+<span class="fc" id="L105">    final ITestRemote remote = (ITestRemote) m_remoteMessenger.getRemote(test);</span>
+<span class="fc" id="L106">    assertEquals(2, remote.increment(1));</span>
+<span class="fc" id="L107">    assertEquals(testRemote.getLastSenderNode(), m_messenger.getLocalNode());</span>
+<span class="fc" id="L108">  }</span>
+
+  @Test
+  public void testExceptionThrownWhenUnregisteredRemote() {
+<span class="fc" id="L112">    final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L113">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L114">    m_remoteMessenger.registerRemote(testRemote, test);</span>
+<span class="fc" id="L115">    final ITestRemote remote = (ITestRemote) m_remoteMessenger.getRemote(test);</span>
+<span class="fc" id="L116">    m_remoteMessenger.unregisterRemote(&quot;test&quot;);</span>
+    try {
+<span class="nc" id="L118">      remote.increment(1);</span>
+<span class="nc" id="L119">      fail(&quot;No exception thrown&quot;);</span>
+<span class="pc" id="L120">    } catch (final RemoteNotFoundException rme) {</span>
+      // this is what we expect
+    }
+<span class="fc" id="L123">  }</span>
+
+  @Test
+  public void testNoRemote() {
+<span class="fc" id="L127">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+    try {
+<span class="fc" id="L129">      m_remoteMessenger.getRemote(test);</span>
+<span class="fc" id="L130">      final ITestRemote remote = (ITestRemote) m_remoteMessenger.getRemote(test);</span>
+<span class="nc" id="L131">      remote.testVoid();</span>
+<span class="nc" id="L132">      fail(&quot;No exception thrown&quot;);</span>
+<span class="pc" id="L133">    } catch (final RemoteNotFoundException rme) {</span>
+      // this is what we expect
+    }
+<span class="fc" id="L136">  }</span>
+
+  @Test
+  public void testVoidMethodCall() {
+<span class="fc" id="L140">    final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L141">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L142">    m_remoteMessenger.registerRemote(testRemote, test);</span>
+<span class="fc" id="L143">    final ITestRemote remote = (ITestRemote) m_remoteMessenger.getRemote(test);</span>
+<span class="fc" id="L144">    remote.testVoid();</span>
+<span class="fc" id="L145">  }</span>
+
+  @Test
+  public void testException() throws Exception {
+<span class="fc" id="L149">    final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L150">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L151">    m_remoteMessenger.registerRemote(testRemote, test);</span>
+<span class="fc" id="L152">    final ITestRemote remote = (ITestRemote) m_remoteMessenger.getRemote(test);</span>
+    try {
+<span class="nc" id="L154">      remote.throwException();</span>
+<span class="pc" id="L155">    } catch (final Exception e) {</span>
+      // this is what we want
+<span class="pc bpc" id="L157" title="1 of 2 branches missed.">      if (e.getMessage().equals(TestRemote.EXCEPTION_STRING)) {</span>
+<span class="fc" id="L158">        return;</span>
+      }
+<span class="nc" id="L160">      throw e;</span>
+    }
+<span class="nc" id="L162">    fail(&quot;No exception thrown&quot;);</span>
+<span class="nc" id="L163">  }</span>
+
+  @Test
+  public void testRemoteCall() throws Exception {
+<span class="fc" id="L167">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L168">    ServerMessenger server = null;</span>
+<span class="fc" id="L169">    ClientMessenger client = null;</span>
+    try {
+<span class="fc" id="L171">      server = new ServerMessenger(&quot;server&quot;, SERVER_PORT);</span>
+<span class="fc" id="L172">      server.setAcceptNewConnections(true);</span>
+<span class="fc" id="L173">      final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L174">      client = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client&quot;, mac);</span>
+<span class="fc" id="L175">      final UnifiedMessenger serverUM = new UnifiedMessenger(server);</span>
+<span class="fc" id="L176">      m_hub = serverUM.getHub();</span>
+<span class="fc" id="L177">      final RemoteMessenger serverRM = new RemoteMessenger(serverUM);</span>
+<span class="fc" id="L178">      final RemoteMessenger clientRM = new RemoteMessenger(new UnifiedMessenger(client));</span>
+      // register it on the server
+<span class="fc" id="L180">      final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L181">      serverRM.registerRemote(testRemote, test);</span>
+      // since the registration must go over a socket
+      // and through a couple threads, wait for the
+      // client to get it
+<span class="fc" id="L185">      int waitCount = 0;</span>
+<span class="pc bpc" id="L186" title="3 of 4 branches missed.">      while (!m_hub.hasImplementors(test.getName()) &amp;&amp; waitCount &lt; 20) {</span>
+<span class="nc" id="L187">        waitCount++;</span>
+<span class="nc" id="L188">        ThreadUtil.sleep(50);</span>
+      }
+      // call it on the client
+<span class="fc" id="L191">      final int rVal = ((ITestRemote) clientRM.getRemote(test)).increment(1);</span>
+<span class="fc" id="L192">      assertEquals(2, rVal);</span>
+<span class="fc" id="L193">      assertEquals(testRemote.getLastSenderNode(), client.getLocalNode());</span>
+<span class="pc" id="L194">    } finally {</span>
+<span class="pc" id="L195">      shutdownServerAndClient(server, client);</span>
+<span class="nc" id="L196">    }</span>
+<span class="fc" id="L197">  }</span>
+
+  private static void shutdownServerAndClient(final ServerMessenger server, final ClientMessenger client) {
+<span class="pc bpc" id="L200" title="1 of 2 branches missed.">    if (server != null) {</span>
+<span class="fc" id="L201">      server.shutDown();</span>
+    }
+<span class="pc bpc" id="L203" title="1 of 2 branches missed.">    if (client != null) {</span>
+<span class="fc" id="L204">      client.shutDown();</span>
+    }
+<span class="fc" id="L206">  }</span>
+
+  @Test
+  public void testRemoteCall2() throws Exception {
+<span class="fc" id="L210">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L211">    ServerMessenger server = null;</span>
+<span class="fc" id="L212">    ClientMessenger client = null;</span>
+    try {
+<span class="fc" id="L214">      server = new ServerMessenger(&quot;server&quot;, SERVER_PORT);</span>
+<span class="fc" id="L215">      server.setAcceptNewConnections(true);</span>
+<span class="fc" id="L216">      final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L217">      client = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client&quot;, mac);</span>
+<span class="fc" id="L218">      final RemoteMessenger serverRM = new RemoteMessenger(new UnifiedMessenger(server));</span>
+<span class="fc" id="L219">      final TestRemote testRemote = new TestRemote();</span>
+<span class="fc" id="L220">      serverRM.registerRemote(testRemote, test);</span>
+<span class="fc" id="L221">      final RemoteMessenger clientRM = new RemoteMessenger(new UnifiedMessenger(client));</span>
+      // call it on the client
+      // should be no need to wait since the constructor should not
+      // reutrn until the initial state of the messenger is good
+<span class="fc" id="L225">      final int rVal = ((ITestRemote) clientRM.getRemote(test)).increment(1);</span>
+<span class="fc" id="L226">      assertEquals(2, rVal);</span>
+<span class="fc" id="L227">      assertEquals(testRemote.getLastSenderNode(), client.getLocalNode());</span>
+<span class="pc" id="L228">    } finally {</span>
+<span class="pc" id="L229">      shutdownServerAndClient(server, client);</span>
+<span class="nc" id="L230">    }</span>
+<span class="fc" id="L231">  }</span>
+
+  @Test
+  public void testShutDownClient() throws Exception {
+    // when the client shutdown, remotes created
+    // on the client should not be visible on server
+<span class="fc" id="L237">    final RemoteName test = new RemoteName(ITestRemote.class, &quot;test&quot;);</span>
+<span class="fc" id="L238">    ServerMessenger server = null;</span>
+<span class="fc" id="L239">    ClientMessenger client = null;</span>
+    try {
+<span class="fc" id="L241">      server = new ServerMessenger(&quot;server&quot;, SERVER_PORT);</span>
+<span class="fc" id="L242">      server.setAcceptNewConnections(true);</span>
+<span class="fc" id="L243">      final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L244">      client = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client&quot;, mac);</span>
+<span class="fc" id="L245">      final UnifiedMessenger serverUM = new UnifiedMessenger(server);</span>
+<span class="fc" id="L246">      final RemoteMessenger clientRM = new RemoteMessenger(new UnifiedMessenger(client));</span>
+<span class="fc" id="L247">      clientRM.registerRemote(new TestRemote(), test);</span>
+<span class="fc" id="L248">      serverUM.getHub().waitForNodesToImplement(test.getName(), 200);</span>
+<span class="fc" id="L249">      assertTrue(serverUM.getHub().hasImplementors(test.getName()));</span>
+<span class="fc" id="L250">      client.shutDown();</span>
+<span class="fc" id="L251">      ThreadUtil.sleep(200);</span>
+<span class="pc bpc" id="L252" title="1 of 2 branches missed.">      assertTrue(!serverUM.getHub().hasImplementors(test.getName()));</span>
+<span class="pc" id="L253">    } finally {</span>
+<span class="pc" id="L254">      shutdownServerAndClient(server, client);</span>
+<span class="nc" id="L255">    }</span>
+<span class="fc" id="L256">  }</span>
+
+  @Test
+  public void testMethodReturnsOnWait() throws Exception {
+    // when the client shutdown, remotes created
+    // on the client should not be visible on server
+<span class="fc" id="L262">    final RemoteName test = new RemoteName(IFoo.class, &quot;test&quot;);</span>
+<span class="fc" id="L263">    ServerMessenger server = null;</span>
+<span class="fc" id="L264">    ClientMessenger client = null;</span>
+    try {
+<span class="fc" id="L266">      server = new ServerMessenger(&quot;server&quot;, SERVER_PORT);</span>
+<span class="fc" id="L267">      server.setAcceptNewConnections(true);</span>
+<span class="fc" id="L268">      final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="fc" id="L269">      client = new ClientMessenger(&quot;localhost&quot;, SERVER_PORT, &quot;client&quot;, mac);</span>
+<span class="fc" id="L270">      final UnifiedMessenger serverUM = new UnifiedMessenger(server);</span>
+<span class="fc" id="L271">      final RemoteMessenger serverRM = new RemoteMessenger(serverUM);</span>
+<span class="fc" id="L272">      final RemoteMessenger clientRM = new RemoteMessenger(new UnifiedMessenger(client));</span>
+<span class="fc" id="L273">      final Object lock = new Object();</span>
+<span class="fc" id="L274">      final AtomicBoolean started = new AtomicBoolean(false);</span>
+<span class="fc" id="L275">      final IFoo foo = new IFoo() {</span>
+        @Override
+        public void foo() {
+<span class="pc" id="L278">          synchronized (lock) {</span>
+            try {
+<span class="fc" id="L280">              started.set(true);</span>
+<span class="fc" id="L281">              lock.wait();</span>
+<span class="pc" id="L282">            } catch (final InterruptedException e) {</span>
+              // ignore interrupted exception
+            }
+          }
+<span class="fc" id="L286">        }</span>
+      };
+<span class="fc" id="L288">      clientRM.registerRemote(foo, test);</span>
+<span class="fc" id="L289">      serverUM.getHub().waitForNodesToImplement(test.getName(), 200);</span>
+<span class="fc" id="L290">      assertTrue(serverUM.getHub().hasImplementors(test.getName()));</span>
+<span class="fc" id="L291">      final AtomicReference&lt;ConnectionLostException&gt; rme = new AtomicReference&lt;&gt;(null);</span>
+<span class="fc" id="L292">      final Runnable r = new Runnable() {</span>
+        @Override
+        public void run() {
+          try {
+<span class="fc" id="L296">            final IFoo remoteFoo = (IFoo) serverRM.getRemote(test);</span>
+<span class="nc" id="L297">            remoteFoo.foo();</span>
+<span class="pc" id="L298">          } catch (final ConnectionLostException e) {</span>
+<span class="fc" id="L299">            rme.set(e);</span>
+          }
+<span class="fc" id="L301">        }</span>
+      };
+<span class="fc" id="L303">      final Thread t = new Thread(r);</span>
+<span class="fc" id="L304">      t.start();</span>
+      // wait for the thread to start
+<span class="fc bfc" id="L306" title="All 2 branches covered.">      while (started.get() == false) {</span>
+<span class="fc" id="L307">        ThreadUtil.sleep(1);</span>
+      }
+<span class="fc" id="L309">      ThreadUtil.sleep(20);</span>
+      // TODO: we are getting a RemoteNotFoundException because the client is disconnecting before the invoke goes out
+      // completely
+      // Perhaps this situation should be changed to a ConnectionLostException or something else?
+<span class="fc" id="L313">      client.shutDown();</span>
+      // when the client shutdowns, this should wake up.
+      // and an error should be thrown
+      // give the thread a chance to execute
+<span class="fc" id="L317">      t.join(200);</span>
+<span class="pc" id="L318">      synchronized (lock) {</span>
+<span class="fc" id="L319">        lock.notifyAll();</span>
+      }
+<span class="fc" id="L321">      assertNotNull(rme.get());</span>
+<span class="pc" id="L322">    } finally {</span>
+<span class="pc" id="L323">      shutdownServerAndClient(server, client);</span>
+<span class="nc" id="L324">    }</span>
+<span class="fc" id="L325">  }</span>
+}
+
+
+interface IFoo extends IRemote {
+  void foo();
+}
+
+
+interface ITestRemote extends IRemote {
+  int increment(int testVal);
+
+  void testVoid();
+
+  void throwException() throws Exception;
+}
+
+
+<span class="fc" id="L343">class TestRemote implements ITestRemote {</span>
+  public static final String EXCEPTION_STRING = &quot;AND GO&quot;;
+  private INode m_senderNode;
+
+  @Override
+  public int increment(final int testVal) {
+<span class="fc" id="L349">    m_senderNode = MessageContext.getSender();</span>
+<span class="fc" id="L350">    return testVal + 1;</span>
+  }
+
+  @Override
+  public void testVoid() {
+<span class="fc" id="L355">    m_senderNode = MessageContext.getSender();</span>
+<span class="fc" id="L356">  }</span>
+
+  @Override
+  public void throwException() throws Exception {
+<span class="fc" id="L360">    throw new Exception(EXCEPTION_STRING);</span>
+  }
+
+  public INode getLastSenderNode() {
+<span class="fc" id="L364">    return m_senderNode;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

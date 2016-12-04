@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Decoder.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net.nio</a> &gt; <span class="el_source">Decoder.java</span></div><h1>Decoder.java</h1><pre class="source lang-java linenums">package games.strategy.net.nio;
+
+import java.io.ByteArrayInputStream;
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+import java.net.Socket;
+import java.nio.channels.SocketChannel;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.message.HubInvocationResults;
+import games.strategy.engine.message.HubInvoke;
+import games.strategy.engine.message.SpokeInvocationResults;
+import games.strategy.engine.message.SpokeInvoke;
+import games.strategy.net.CouldNotLogInException;
+import games.strategy.net.INode;
+import games.strategy.net.IObjectStreamFactory;
+import games.strategy.net.MessageHeader;
+import games.strategy.net.Node;
+import games.strategy.net.nio.QuarantineConversation.ACTION;
+
+/**
+ * A thread to Decode messages from a reader.
+ */
+public class Decoder {
+<span class="fc" id="L29">  private static final Logger logger = Logger.getLogger(Decoder.class.getName());</span>
+  private final NIOReader reader;
+<span class="fc" id="L31">  private volatile boolean running = true;</span>
+  private final IErrorReporter errorReporter;
+  private final IObjectStreamFactory objectStreamFactory;
+  private final NIOSocket nioSocket;
+  /**
+   * These sockets are quarantined. They have not logged in, and messages
+   * read from them are not passed outside of the quarantine conversation.
+   */
+<span class="fc" id="L39">  private final ConcurrentHashMap&lt;SocketChannel, QuarantineConversation&gt; quarantine =</span>
+<span class="fc" id="L40">      new ConcurrentHashMap&lt;&gt;();</span>
+  private final Thread thread;
+
+<span class="fc" id="L43">  public Decoder(final NIOSocket nioSocket, final NIOReader reader, final IErrorReporter reporter,</span>
+      final IObjectStreamFactory objectStreamFactory, final String threadSuffix) {
+<span class="fc" id="L45">    this.reader = reader;</span>
+<span class="fc" id="L46">    errorReporter = reporter;</span>
+<span class="fc" id="L47">    this.objectStreamFactory = objectStreamFactory;</span>
+<span class="fc" id="L48">    this.nioSocket = nioSocket;</span>
+<span class="fc" id="L49">    thread = new Thread(() -&gt; loop(), &quot;Decoder -&quot; + threadSuffix);</span>
+<span class="fc" id="L50">    thread.start();</span>
+<span class="fc" id="L51">  }</span>
+
+  public void shutDown() {
+<span class="fc" id="L54">    running = false;</span>
+<span class="fc" id="L55">    thread.interrupt();</span>
+<span class="fc" id="L56">  }</span>
+
+  private void loop() {
+<span class="fc bfc" id="L59" title="All 2 branches covered.">    while (running) {</span>
+      try {
+        SocketReadData data;
+        try {
+<span class="fc" id="L63">          data = reader.take();</span>
+<span class="fc" id="L64">        } catch (final InterruptedException e) {</span>
+<span class="fc" id="L65">          continue;</span>
+        }
+<span class="pc bpc" id="L67" title="2 of 4 branches missed.">        if (data == null || !running) {</span>
+<span class="nc" id="L68">          continue;</span>
+        }
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">        if (logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L71">          logger.finest(&quot;Decoding packet:&quot; + data);</span>
+        }
+<span class="fc" id="L73">        final ByteArrayInputStream stream = new ByteArrayInputStream(data.getData());</span>
+        try {
+<span class="fc" id="L75">          final MessageHeader header = readMessageHeader(data.getChannel(), objectStreamFactory.create(stream));</span>
+<span class="pc bpc" id="L76" title="1 of 2 branches missed.">          if (logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L77">            logger.log(Level.FINEST, &quot;header decoded:&quot; + header);</span>
+          }
+          // make sure we are still open
+<span class="fc" id="L80">          final Socket s = data.getChannel().socket();</span>
+<span class="pc bpc" id="L81" title="3 of 6 branches missed.">          if (!running || s == null || s.isInputShutdown()) {</span>
+<span class="nc" id="L82">            continue;</span>
+          }
+<span class="fc" id="L84">          final QuarantineConversation converstation = quarantine.get(data.getChannel());</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">          if (converstation != null) {</span>
+<span class="fc" id="L86">            sendQuarantine(data.getChannel(), converstation, header);</span>
+<span class="fc" id="L87">          } else {</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">            if (nioSocket.getLocalNode() == null) {</span>
+<span class="nc" id="L89">              throw new IllegalStateException(&quot;we are writing messages, but no local node&quot;);</span>
+            }
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">            if (header.getFrom() == null) {</span>
+<span class="nc" id="L92">              throw new IllegalArgumentException(&quot;Null from:&quot; + header);</span>
+            }
+<span class="pc bpc" id="L94" title="1 of 2 branches missed.">            if (logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L95">              logger.log(Level.FINER, &quot;decoded  msg:&quot; + header.getMessage() + &quot; size:&quot; + data.size());</span>
+            }
+<span class="fc" id="L97">            nioSocket.messageReceived(header, data.getChannel());</span>
+          }
+<span class="pc" id="L99">        } catch (final Exception ioe) {</span>
+          // we are reading from memory here
+          // there should be no network errors, something
+          // is odd
+<span class="nc" id="L103">          logger.log(Level.SEVERE, &quot;error reading object&quot;, ioe);</span>
+<span class="nc" id="L104">          errorReporter.error(data.getChannel(), ioe);</span>
+        }
+<span class="nc" id="L106">      } catch (final Exception e) {</span>
+        // catch unhandles exceptions to that the decoder
+        // thread doesnt die
+<span class="nc" id="L109">        logger.log(Level.WARNING, &quot;error in decoder&quot;, e);</span>
+      }
+    }
+<span class="fc" id="L112">  }</span>
+
+  private void sendQuarantine(final SocketChannel channel, final QuarantineConversation conversation,
+      final MessageHeader header) {
+<span class="fc" id="L116">    final ACTION a = conversation.message(header.getMessage());</span>
+<span class="fc bfc" id="L117" title="All 2 branches covered.">    if (a == ACTION.TERMINATE) {</span>
+<span class="pc bpc" id="L118" title="1 of 2 branches missed.">      if (logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L119">        logger.log(Level.FINER, &quot;Terminating quarantined connection to:&quot; + channel.socket().getRemoteSocketAddress());</span>
+      }
+<span class="fc" id="L121">      conversation.close();</span>
+      // we need to indicate the channel was closed
+<span class="fc" id="L123">      errorReporter.error(channel, new CouldNotLogInException());</span>
+<span class="fc bfc" id="L124" title="All 2 branches covered.">    } else if (a == ACTION.UNQUARANTINE) {</span>
+<span class="pc bpc" id="L125" title="1 of 2 branches missed.">      if (logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L126">        logger.log(Level.FINER, &quot;Accepting quarantined connection to:&quot; + channel.socket().getRemoteSocketAddress());</span>
+      }
+<span class="fc" id="L128">      nioSocket.unquarantine(channel, conversation);</span>
+<span class="fc" id="L129">      quarantine.remove(channel);</span>
+    }
+<span class="fc" id="L131">  }</span>
+
+  private MessageHeader readMessageHeader(final SocketChannel channel, final ObjectInputStream objectInput)
+      throws IOException, ClassNotFoundException {
+    INode to;
+<span class="fc bfc" id="L136" title="All 2 branches covered.">    if (objectInput.read() == 1) {</span>
+<span class="fc" id="L137">      to = null;</span>
+<span class="fc" id="L138">    } else {</span>
+<span class="fc bfc" id="L139" title="All 2 branches covered.">      if (objectInput.read() == 1) {</span>
+        // this may be null if we
+        // have not yet fully joined the network
+<span class="fc" id="L142">        to = nioSocket.getLocalNode();</span>
+<span class="fc" id="L143">      } else {</span>
+<span class="fc" id="L144">        to = new Node();</span>
+<span class="fc" id="L145">        ((Node) to).readExternal(objectInput);</span>
+      }
+    }
+    INode from;
+<span class="fc" id="L149">    final int readMark = objectInput.read();</span>
+<span class="fc bfc" id="L150" title="All 2 branches covered.">    if (readMark == 1) {</span>
+<span class="fc" id="L151">      from = nioSocket.getRemoteNode(channel);</span>
+<span class="fc bfc" id="L152" title="All 2 branches covered.">    } else if (readMark == 2) {</span>
+<span class="fc" id="L153">      from = null;</span>
+<span class="fc" id="L154">    } else {</span>
+<span class="fc" id="L155">      from = new Node();</span>
+<span class="fc" id="L156">      ((Node) from).readExternal(objectInput);</span>
+    }
+    Serializable message;
+<span class="fc" id="L159">    final byte type = (byte) objectInput.read();</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">    if (type != Byte.MAX_VALUE) {</span>
+<span class="fc" id="L161">      final Externalizable template = getTemplate(type);</span>
+<span class="fc" id="L162">      template.readExternal(objectInput);</span>
+<span class="fc" id="L163">      message = template;</span>
+<span class="fc" id="L164">    } else {</span>
+<span class="fc" id="L165">      message = (Serializable) objectInput.readObject();</span>
+    }
+<span class="fc" id="L167">    return new MessageHeader(to, from, message);</span>
+  }
+
+  private static Externalizable getTemplate(final byte type) {
+<span class="pc bpc" id="L171" title="2 of 5 branches missed.">    switch (type) {</span>
+      case 1:
+<span class="fc" id="L173">        return new HubInvoke();</span>
+      case 2:
+<span class="fc" id="L175">        return new SpokeInvoke();</span>
+      case 3:
+<span class="nc" id="L177">        return new HubInvocationResults();</span>
+      case 4:
+<span class="fc" id="L179">        return new SpokeInvocationResults();</span>
+      default:
+<span class="nc" id="L181">        throw new IllegalStateException(&quot;not recognized, &quot; + type);</span>
+    }
+  }
+
+  /**
+   * Most messages we pass will be one of the types below
+   * since each of these is externalizable, we can
+   * reduce network traffic considerably by skipping the
+   * writing of the full identifiers, and simply write a single
+   * byte to show the type.
+   */
+  public static byte getType(final Object msg) {
+<span class="fc bfc" id="L193" title="All 2 branches covered.">    if (msg instanceof HubInvoke) {</span>
+<span class="fc" id="L194">      return 1;</span>
+<span class="fc bfc" id="L195" title="All 2 branches covered.">    } else if (msg instanceof SpokeInvoke) {</span>
+<span class="fc" id="L196">      return 2;</span>
+<span class="fc bfc" id="L197" title="All 2 branches covered.">    } else if (msg instanceof HubInvocationResults) {</span>
+<span class="fc" id="L198">      return 3;</span>
+<span class="fc bfc" id="L199" title="All 2 branches covered.">    } else if (msg instanceof SpokeInvocationResults) {</span>
+<span class="fc" id="L200">      return 4;</span>
+    }
+<span class="fc" id="L202">    return Byte.MAX_VALUE;</span>
+  }
+
+  public void add(final SocketChannel channel, final QuarantineConversation conversation) {
+<span class="fc" id="L206">    quarantine.put(channel, conversation);</span>
+<span class="fc" id="L207">  }</span>
+
+  public void closed(final SocketChannel channel) {
+    // remove if it exists
+<span class="fc" id="L211">    final QuarantineConversation conversation = quarantine.remove(channel);</span>
+<span class="fc bfc" id="L212" title="All 2 branches covered.">    if (conversation != null) {</span>
+<span class="fc" id="L213">      conversation.close();</span>
+    }
+<span class="fc" id="L215">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

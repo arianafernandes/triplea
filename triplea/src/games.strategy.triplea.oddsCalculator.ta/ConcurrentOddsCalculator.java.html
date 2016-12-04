@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ConcurrentOddsCalculator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.oddsCalculator.ta</a> &gt; <span class="el_source">ConcurrentOddsCalculator.java</span></div><h1>ConcurrentOddsCalculator.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.oddsCalculator.ta;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.framework.GameDataUtils;
+import games.strategy.util.CountUpAndDownLatch;
+
+/**
+ * Concurrent wrapper class for the OddsCalculator. It spawns multiple worker threads and splits up the run count
+ * across these workers. This is mainly to be used by AIs since they call the OddsCalculator a lot.
+ */
+public class ConcurrentOddsCalculator implements IOddsCalculator {
+<span class="nc" id="L32">  private static final Logger s_logger = Logger.getLogger(ConcurrentOddsCalculator.class.getName());</span>
+<span class="nc" id="L33">  private static final int MAX_THREADS = Math.max(1, Runtime.getRuntime().availableProcessors());</span>
+<span class="nc" id="L34">  private int m_currentThreads = MAX_THREADS;</span>
+  private final ExecutorService m_executor;
+<span class="nc" id="L36">  private final CopyOnWriteArrayList&lt;OddsCalculator&gt; m_workers = new CopyOnWriteArrayList&lt;&gt;();</span>
+  // do not let calc be set up til data is set
+<span class="nc" id="L38">  private volatile boolean m_isDataSet = false;</span>
+  // do not let calc start until it is set
+<span class="nc" id="L40">  private volatile boolean m_isCalcSet = false;</span>
+  // shortcut everything if we are shutting down
+<span class="nc" id="L42">  private volatile boolean m_isShutDown = false;</span>
+  // shortcut setting of previous game data if we are trying to set it to a new one, or shutdown
+<span class="nc" id="L44">  private volatile int m_cancelCurrentOperation = 0;</span>
+  // do not let calcing happen while we are setting game data
+<span class="nc" id="L46">  private final CountUpAndDownLatch m_latchSetData = new CountUpAndDownLatch();</span>
+  // do not let setting of game data happen multiple times while we offload creating workers and copying data to a
+  // different thread
+<span class="nc" id="L49">  private final CountUpAndDownLatch m_latchWorkerThreadsCreation = new CountUpAndDownLatch();</span>
+
+  // do not let setting of game data happen at same time
+<span class="nc" id="L52">  private final Object m_mutexSetGameData = new Object();</span>
+  // do not let multiple calculations or setting calc data happen at same time
+<span class="nc" id="L54">  private final Object m_mutexCalcIsRunning = new Object();</span>
+<span class="nc" id="L55">  private final List&lt;OddsCalculatorListener&gt; m_listeners = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L57">  public ConcurrentOddsCalculator(final String threadNamePrefix) {</span>
+<span class="nc" id="L58">    m_executor = Executors.newFixedThreadPool(MAX_THREADS,</span>
+<span class="nc" id="L59">        new DaemonThreadFactory(true, threadNamePrefix + &quot; ConcurrentOddsCalculator Worker&quot;));</span>
+<span class="nc" id="L60">    s_logger.fine(&quot;Initialized executor thread pool with size: &quot; + MAX_THREADS);</span>
+<span class="nc" id="L61">  }</span>
+
+  @Override
+  public void setGameData(final GameData data) {
+    // increment so that a new calc doesn't take place (since they all wait on this latch)
+<span class="nc" id="L66">    m_latchSetData.increment();</span>
+    // cancel any current setting of data
+<span class="nc" id="L68">    --m_cancelCurrentOperation;</span>
+    // cancel any existing calcing (it won't stop immediately, just quicker)
+<span class="nc" id="L70">    cancel();</span>
+<span class="nc" id="L71">    synchronized (m_mutexSetGameData) {</span>
+      try {
+        // since setting data takes place on a different thread, this is our token. wait on it since
+<span class="nc" id="L74">        m_latchWorkerThreadsCreation.await();</span>
+        // we could have exited the synchronized block already.
+<span class="nc" id="L76">      } catch (final InterruptedException e) {</span>
+      }
+<span class="nc" id="L78">      cancel();</span>
+<span class="nc" id="L79">      m_isDataSet = false;</span>
+<span class="nc" id="L80">      m_isCalcSet = false;</span>
+<span class="nc bnc" id="L81" title="All 4 branches missed.">      if (data == null || m_isShutDown) {</span>
+<span class="nc" id="L82">        m_workers.clear();</span>
+<span class="nc" id="L83">        ++m_cancelCurrentOperation;</span>
+        // allow calcing and other stuff to go ahead
+<span class="nc" id="L85">        m_latchSetData.countDown();</span>
+<span class="nc" id="L86">      } else {</span>
+<span class="nc" id="L87">        ++m_cancelCurrentOperation;</span>
+        // increment our token, so that we can set the data in a different thread and return from this one
+<span class="nc" id="L89">        m_latchWorkerThreadsCreation.increment();</span>
+<span class="nc" id="L90">        m_executor.submit(() -&gt; createWorkers(data));</span>
+      }
+    }
+<span class="nc" id="L93">  }</span>
+
+  @Override
+  public int getThreadCount() {
+<span class="nc" id="L97">    return m_currentThreads;</span>
+  }
+
+  // use both time and memory left to determine how many copies to make
+  private static int getThreadsToUse(final long timeToCopyInMillis, final long memoryUsedBeforeCopy) {
+<span class="nc bnc" id="L102" title="All 4 branches missed.">    if (timeToCopyInMillis &gt; 20000 || MAX_THREADS == 1) {</span>
+      // just use 1 thread if we took more than 20 seconds to copy
+<span class="nc" id="L104">      return 1;</span>
+    }
+<span class="nc" id="L106">    final Runtime runtime = Runtime.getRuntime();</span>
+<span class="nc" id="L107">    final long usedMemoryAfterCopy = runtime.totalMemory() - runtime.freeMemory();</span>
+    // we cannot predict how the gc works
+<span class="nc" id="L109">    final long memoryLeftBeforeMax = runtime.maxMemory() - (Math.max(usedMemoryAfterCopy, memoryUsedBeforeCopy));</span>
+    // make sure it is a decent size
+<span class="nc" id="L111">    final long memoryUsedByCopy = Math.max(100000, (usedMemoryAfterCopy - memoryUsedBeforeCopy));</span>
+    // regardless of how stupid the gc is
+    // we leave some memory left over just in case
+<span class="nc" id="L114">    final int numberOfTimesWeCanCopyMax =</span>
+<span class="nc" id="L115">        Math.max(1, (int) (Math.min(Integer.MAX_VALUE, (memoryLeftBeforeMax / memoryUsedByCopy))));</span>
+
+<span class="nc bnc" id="L117" title="All 2 branches missed.">    if (timeToCopyInMillis &gt; 3000) {</span>
+      // use half the number of threads available if we took
+      // more than 3 seconds to copy
+<span class="nc" id="L120">      return Math.min(numberOfTimesWeCanCopyMax, Math.max(1, (MAX_THREADS / 2)));</span>
+    }
+    // use all threads
+<span class="nc" id="L123">    return Math.min(numberOfTimesWeCanCopyMax, MAX_THREADS);</span>
+  }
+
+  private void createWorkers(final GameData data) {
+<span class="nc" id="L127">    m_workers.clear();</span>
+<span class="nc bnc" id="L128" title="All 4 branches missed.">    if (data != null &amp;&amp; m_cancelCurrentOperation &gt;= 0) {</span>
+      // see how long 1 copy takes (some games can get REALLY big)
+<span class="nc" id="L130">      final long startTime = System.currentTimeMillis();</span>
+<span class="nc" id="L131">      final long startMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();</span>
+      final GameData newData;
+      try { // make first copy, then release lock on it so game can continue (ie: we don't want to lock on it while we
+            // copy it 16 times,
+            // when once is enough)
+        // don't let the data change while we make the first copy
+<span class="nc" id="L137">        data.acquireReadLock();</span>
+<span class="nc" id="L138">        newData = GameDataUtils.cloneGameData(data, false);</span>
+<span class="nc" id="L139">      } finally {</span>
+<span class="nc" id="L140">        data.releaseReadLock();</span>
+<span class="nc" id="L141">      }</span>
+<span class="nc" id="L142">      m_currentThreads = getThreadsToUse((System.currentTimeMillis() - startTime), startMemory);</span>
+      try {
+        // make sure all workers are using the same data
+<span class="nc" id="L145">        newData.acquireReadLock();</span>
+<span class="nc" id="L146">        int i = 0;</span>
+<span class="nc bnc" id="L147" title="All 4 branches missed.">        if (m_currentThreads &lt;= 2 || MAX_THREADS &lt;= 2) // we are already in 1 executor thread, so we have MAX_THREADS-1</span>
+                                                       // threads left to use
+        { // if 2 or fewer threads, do not multi-thread the copying (we have already copied it once above, so at most
+          // only 1 more copy to
+          // make)
+<span class="nc bnc" id="L152" title="All 4 branches missed.">          while (m_cancelCurrentOperation &gt;= 0 &amp;&amp; i &lt; m_currentThreads) {</span>
+            // the last one will use our already copied data from above, without copying it again
+<span class="nc bnc" id="L154" title="All 2 branches missed.">            m_workers.add(new OddsCalculator(newData, (m_currentThreads == ++i)));</span>
+          }
+<span class="nc" id="L156">        } else { // multi-thread our copying, cus why the heck not (it increases the speed of copying by about double)</span>
+<span class="nc" id="L157">          final CountDownLatch workerLatch = new CountDownLatch(m_currentThreads - 1);</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">          while (i &lt; (m_currentThreads - 1)) {</span>
+<span class="nc" id="L159">            ++i;</span>
+<span class="nc" id="L160">            m_executor.submit(() -&gt; {</span>
+<span class="nc bnc" id="L161" title="All 2 branches missed.">              if (m_cancelCurrentOperation &gt;= 0) {</span>
+<span class="nc" id="L162">                m_workers.add(new OddsCalculator(newData, false));</span>
+              }
+<span class="nc" id="L164">              workerLatch.countDown();</span>
+<span class="nc" id="L165">            });</span>
+          }
+          // the last one will use our already copied data from above, without copying it again
+<span class="nc" id="L168">          m_workers.add(new OddsCalculator(newData, true));</span>
+          try {
+<span class="nc" id="L170">            workerLatch.await();</span>
+<span class="nc" id="L171">          } catch (final InterruptedException e) {</span>
+          }
+        }
+<span class="nc" id="L174">      } finally {</span>
+<span class="nc" id="L175">        newData.releaseReadLock();</span>
+<span class="nc" id="L176">      }</span>
+    }
+<span class="nc bnc" id="L178" title="All 4 branches missed.">    if (m_cancelCurrentOperation &lt; 0 || data == null) {</span>
+      // we could have cancelled while setting data, so clear the workers again if so
+<span class="nc" id="L180">      m_workers.clear();</span>
+<span class="nc" id="L181">      m_isDataSet = false;</span>
+<span class="nc" id="L182">    } else {</span>
+      // should make sure that all workers have their game data set before we can call calculate and other things
+<span class="nc" id="L184">      m_isDataSet = true;</span>
+<span class="nc" id="L185">      notifyListenersGameDataIsSet();</span>
+    }
+    // allow setting new data to take place if it is waiting on us
+<span class="nc" id="L188">    m_latchWorkerThreadsCreation.countDown();</span>
+    // allow calcing and other stuff to go ahead
+<span class="nc" id="L190">    m_latchSetData.countDown();</span>
+<span class="nc" id="L191">    s_logger.fine(&quot;Initialized worker thread pool with size: &quot; + m_workers.size());</span>
+<span class="nc" id="L192">  }</span>
+
+  @Override
+  public void shutdown() {
+<span class="nc" id="L196">    m_isShutDown = true;</span>
+<span class="nc" id="L197">    m_cancelCurrentOperation = Integer.MIN_VALUE / 2;</span>
+<span class="nc" id="L198">    cancel();</span>
+<span class="nc" id="L199">    m_executor.shutdown();</span>
+<span class="nc" id="L200">    synchronized (m_listeners) {</span>
+<span class="nc" id="L201">      m_listeners.clear();</span>
+    }
+<span class="nc" id="L203">  }</span>
+
+  @Override
+  protected void finalize() throws Throwable {
+<span class="nc" id="L207">    shutdown();</span>
+<span class="nc" id="L208">    super.finalize();</span>
+<span class="nc" id="L209">  }</span>
+
+  private void awaitLatch() {
+    try {
+      // there is a small chance calculate or setCalculateData or something could be called in between calls to
+      // setGameData
+<span class="nc" id="L215">      m_latchSetData.await();</span>
+<span class="nc" id="L216">    } catch (final InterruptedException e) {</span>
+    }
+<span class="nc" id="L218">  }</span>
+
+  @Override
+  public void setCalculateData(final PlayerID attacker, final PlayerID defender, final Territory location,
+      final Collection&lt;Unit&gt; attacking, final Collection&lt;Unit&gt; defending, final Collection&lt;Unit&gt; bombarding,
+      final Collection&lt;TerritoryEffect&gt; territoryEffects, int runCount) {
+<span class="nc" id="L224">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L225">      awaitLatch();</span>
+<span class="nc" id="L226">      m_isCalcSet = false;</span>
+<span class="nc" id="L227">      final int workerNum = m_workers.size();</span>
+<span class="nc" id="L228">      final int workerRunCount = Math.max(1, (runCount / Math.max(1, workerNum)));</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc bnc" id="L230" title="All 4 branches missed.">        if (!m_isDataSet || m_isShutDown) {</span>
+          // we could have attempted to set a new game data, while the old one was still being set, causing it to abort
+          // with null data
+<span class="nc" id="L233">          return;</span>
+        }
+<span class="nc" id="L235">        worker.setCalculateData(attacker, defender, location, attacking, defending, bombarding, territoryEffects,</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">            (runCount &lt;= 0 ? 0 : workerRunCount));</span>
+<span class="nc" id="L237">        runCount -= workerRunCount;</span>
+      }
+<span class="nc bnc" id="L239" title="All 6 branches missed.">      if (!m_isDataSet || m_isShutDown || workerNum &lt;= 0) {</span>
+<span class="nc" id="L240">        return;</span>
+      }
+<span class="nc" id="L242">      m_isCalcSet = true;</span>
+    }
+<span class="nc" id="L244">  }</span>
+
+  /**
+   * Concurrently calculates odds using the OddsCalculatorWorker. It uses Executor to process the results. Then waits
+   * for all the future
+   * results and combines them together.
+   */
+  @Override
+  public AggregateResults calculate() throws IllegalStateException {
+<span class="nc" id="L253">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L254">      awaitLatch();</span>
+<span class="nc" id="L255">      final long start = System.currentTimeMillis();</span>
+      // Create worker thread pool and start all workers
+<span class="nc" id="L257">      int totalRunCount = 0;</span>
+<span class="nc" id="L258">      final List&lt;Future&lt;AggregateResults&gt;&gt; list = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">        if (!getIsReady()) {</span>
+          // we could have attempted to set a new game data, while the old one was still being set, causing it to abort
+          // with null data
+<span class="nc" id="L263">          return new AggregateResults(0);</span>
+        }
+<span class="nc bnc" id="L265" title="All 2 branches missed.">        if (!worker.getIsReady()) {</span>
+<span class="nc" id="L266">          throw new IllegalStateException(&quot;Called calculate before setting calculate data!&quot;);</span>
+        }
+<span class="nc bnc" id="L268" title="All 2 branches missed.">        if (worker.getRunCount() &gt; 0) {</span>
+<span class="nc" id="L269">          totalRunCount += worker.getRunCount();</span>
+<span class="nc" id="L270">          final Future&lt;AggregateResults&gt; workerResult = m_executor.submit(worker);</span>
+<span class="nc" id="L271">          list.add(workerResult);</span>
+        }
+      }
+      // Wait for all worker futures to complete and combine results
+<span class="nc" id="L275">      final AggregateResults results = new AggregateResults(totalRunCount);</span>
+<span class="nc" id="L276">      final Set&lt;InterruptedException&gt; interruptExceptions = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L277">      final Map&lt;String, Set&lt;ExecutionException&gt;&gt; executionExceptions = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">      for (final Future&lt;AggregateResults&gt; future : list) {</span>
+        try {
+<span class="nc" id="L280">          final AggregateResults result = future.get();</span>
+<span class="nc" id="L281">          results.addResults(result.getResults());</span>
+<span class="nc" id="L282">        } catch (final InterruptedException e) {</span>
+<span class="nc" id="L283">          interruptExceptions.add(e);</span>
+<span class="nc" id="L284">        } catch (final ExecutionException e) {</span>
+<span class="nc" id="L285">          final String cause = e.getCause().getLocalizedMessage();</span>
+<span class="nc" id="L286">          Set&lt;ExecutionException&gt; exceptions = executionExceptions.get(cause);</span>
+<span class="nc bnc" id="L287" title="All 2 branches missed.">          if (exceptions == null) {</span>
+<span class="nc" id="L288">            exceptions = new HashSet&lt;&gt;();</span>
+          }
+<span class="nc" id="L290">          exceptions.add(e);</span>
+<span class="nc" id="L291">          executionExceptions.put(cause, exceptions);</span>
+        }
+      }
+      // we don't want to scare the user with 8+ errors all for the same thing
+<span class="nc bnc" id="L295" title="All 2 branches missed.">      if (!interruptExceptions.isEmpty()) {</span>
+<span class="nc" id="L296">        s_logger.log(Level.SEVERE, interruptExceptions.size() + &quot; Battle results workers interrupted&quot;,</span>
+<span class="nc" id="L297">            interruptExceptions.iterator().next());</span>
+      }
+<span class="nc bnc" id="L299" title="All 2 branches missed.">      if (!executionExceptions.isEmpty()) {</span>
+<span class="nc" id="L300">        Exception e = null;</span>
+<span class="nc bnc" id="L301" title="All 2 branches missed.">        for (final Set&lt;ExecutionException&gt; entry : executionExceptions.values()) {</span>
+<span class="nc bnc" id="L302" title="All 2 branches missed.">          if (!entry.isEmpty()) {</span>
+<span class="nc" id="L303">            e = entry.iterator().next();</span>
+<span class="nc" id="L304">            s_logger.log(Level.SEVERE, entry.size() + &quot; Battle results workers aborted by exception&quot;, e.getCause());</span>
+          }
+        }
+<span class="nc bnc" id="L307" title="All 2 branches missed.">        if (e != null) {</span>
+<span class="nc" id="L308">          throw new IllegalStateException(e.getCause());</span>
+        }
+      }
+<span class="nc" id="L311">      results.setTime(System.currentTimeMillis() - start);</span>
+<span class="nc" id="L312">      return results;</span>
+    }
+  }
+
+  @Override
+  public AggregateResults setCalculateDataAndCalculate(final PlayerID attacker, final PlayerID defender,
+      final Territory location, final Collection&lt;Unit&gt; attacking, final Collection&lt;Unit&gt; defending,
+      final Collection&lt;Unit&gt; bombarding, final Collection&lt;TerritoryEffect&gt; territoryEffects, final int runCount) {
+<span class="nc" id="L320">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L321">      setCalculateData(attacker, defender, location, attacking, defending, bombarding, territoryEffects, runCount);</span>
+<span class="nc" id="L322">      return calculate();</span>
+    }
+  }
+
+  @Override
+  public boolean getIsReady() {
+<span class="nc bnc" id="L328" title="All 6 branches missed.">    return m_isDataSet &amp;&amp; m_isCalcSet &amp;&amp; !m_isShutDown;</span>
+  }
+
+  @Override
+  public int getRunCount() {
+<span class="nc" id="L333">    int totalRunCount = 0;</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">    for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L335">      totalRunCount += worker.getRunCount();</span>
+    }
+<span class="nc" id="L337">    return totalRunCount;</span>
+  }
+
+  @Override
+  public void setKeepOneAttackingLandUnit(final boolean bool) {
+<span class="nc" id="L342">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L343">      awaitLatch();</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L345">        worker.setKeepOneAttackingLandUnit(bool);</span>
+      }
+    }
+<span class="nc" id="L348">  }</span>
+
+  @Override
+  public void setAmphibious(final boolean bool) {
+<span class="nc" id="L352">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L353">      awaitLatch();</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L355">        worker.setAmphibious(bool);</span>
+      }
+    }
+<span class="nc" id="L358">  }</span>
+
+  @Override
+  public void setRetreatAfterRound(final int value) {
+<span class="nc" id="L362">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L363">      awaitLatch();</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L365">        worker.setRetreatAfterRound(value);</span>
+      }
+    }
+<span class="nc" id="L368">  }</span>
+
+  @Override
+  public void setRetreatAfterXUnitsLeft(final int value) {
+<span class="nc" id="L372">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L373">      awaitLatch();</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L375">        worker.setRetreatAfterXUnitsLeft(value);</span>
+      }
+    }
+<span class="nc" id="L378">  }</span>
+
+  @Override
+  public void setRetreatWhenOnlyAirLeft(final boolean value) {
+<span class="nc" id="L382">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L383">      awaitLatch();</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L385">        worker.setRetreatWhenOnlyAirLeft(value);</span>
+      }
+    }
+<span class="nc" id="L388">  }</span>
+
+
+  @Override
+  public void setAttackerOrderOfLosses(final String attackerOrderOfLosses) {
+<span class="nc" id="L393">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L394">      awaitLatch();</span>
+<span class="nc bnc" id="L395" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L396">        worker.setAttackerOrderOfLosses(attackerOrderOfLosses);</span>
+      }
+    }
+<span class="nc" id="L399">  }</span>
+
+  @Override
+  public void setDefenderOrderOfLosses(final String defenderOrderOfLosses) {
+<span class="nc" id="L403">    synchronized (m_mutexCalcIsRunning) {</span>
+<span class="nc" id="L404">      awaitLatch();</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">      for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L406">        worker.setDefenderOrderOfLosses(defenderOrderOfLosses);</span>
+      }
+    }
+<span class="nc" id="L409">  }</span>
+
+  // not on purpose, we need to be able to cancel at any time
+  @Override
+  public void cancel() {
+<span class="nc bnc" id="L414" title="All 2 branches missed.">    for (final OddsCalculator worker : m_workers) {</span>
+<span class="nc" id="L415">      worker.cancel();</span>
+    }
+<span class="nc" id="L417">  }</span>
+
+  @Override
+  public void addOddsCalculatorListener(final OddsCalculatorListener listener) {
+<span class="nc" id="L421">    synchronized (m_listeners) {</span>
+<span class="nc" id="L422">      m_listeners.add(listener);</span>
+    }
+<span class="nc" id="L424">  }</span>
+
+  @Override
+  public void removeOddsCalculatorListener(final OddsCalculatorListener listener) {
+<span class="nc" id="L428">    synchronized (m_listeners) {</span>
+<span class="nc" id="L429">      m_listeners.remove(listener);</span>
+    }
+<span class="nc" id="L431">  }</span>
+
+  private void notifyListenersGameDataIsSet() {
+<span class="nc" id="L434">    synchronized (m_listeners) {</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">      for (final OddsCalculatorListener listener : m_listeners) {</span>
+<span class="nc" id="L436">        listener.dataReady();</span>
+      }
+    }
+<span class="nc" id="L439">  }</span>
+}
+
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

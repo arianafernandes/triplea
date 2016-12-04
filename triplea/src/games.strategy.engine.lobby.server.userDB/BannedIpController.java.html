@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BannedIpController.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.userDB</a> &gt; <span class="el_source">BannedIpController.java</span></div><h1>BannedIpController.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server.userDB;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.Date;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.util.Tuple;
+
+/**
+ * Utilitiy class to create/read/delete banned ips (there is no update).
+ */
+<span class="fc" id="L17">public class BannedIpController {</span>
+<span class="fc" id="L18">  private static final Logger s_logger = Logger.getLogger(BannedIpController.class.getName());</span>
+
+  /**
+   * Ban the ip permanently
+   */
+  public void addBannedIp(final String ip) {
+<span class="fc" id="L24">    addBannedIp(ip, null);</span>
+<span class="fc" id="L25">  }</span>
+
+  /**
+   * Ban the given ip. If banTill is not null, the ban will expire when banTill is reached.
+   * &lt;p&gt;
+   * If this ip is already banned, this call will update the ban_end.
+   */
+  public void addBannedIp(final String ip, final Date banTill) {
+<span class="fc bfc" id="L33" title="All 2 branches covered.">    if (isIpBanned(ip).getFirst()) {</span>
+<span class="fc" id="L34">      removeBannedIp(ip);</span>
+    }
+<span class="fc" id="L36">    Timestamp banTillTs = null;</span>
+<span class="fc bfc" id="L37" title="All 2 branches covered.">    if (banTill != null) {</span>
+<span class="fc" id="L38">      banTillTs = new Timestamp(banTill.getTime());</span>
+    }
+<span class="fc" id="L40">    s_logger.fine(&quot;Banning ip:&quot; + ip);</span>
+<span class="fc" id="L41">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="fc" id="L43">      final PreparedStatement ps = con.prepareStatement(&quot;insert into banned_ips (ip, ban_till) values (?, ?)&quot;);</span>
+<span class="fc" id="L44">      ps.setString(1, ip);</span>
+<span class="fc" id="L45">      ps.setTimestamp(2, banTillTs);</span>
+<span class="fc" id="L46">      ps.execute();</span>
+<span class="fc" id="L47">      ps.close();</span>
+<span class="fc" id="L48">      con.commit();</span>
+<span class="pc" id="L49">    } catch (final SQLException sqle) {</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">      if (sqle.getErrorCode() == 30000) {</span>
+        // this is ok
+        // the ip is banned as expected
+<span class="nc" id="L53">        s_logger.info(&quot;Tried to create duplicate banned ip:&quot; + ip + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L54">        return;</span>
+      }
+<span class="nc" id="L56">      s_logger.log(Level.SEVERE, &quot;Error inserting banned ip:&quot; + ip, sqle);</span>
+<span class="nc" id="L57">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L58">    } finally {</span>
+<span class="pc" id="L59">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L60">    }</span>
+<span class="fc" id="L61">  }</span>
+
+  public void removeBannedIp(final String ip) {
+<span class="fc" id="L64">    s_logger.fine(&quot;Removing banned ip:&quot; + ip);</span>
+<span class="fc" id="L65">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="fc" id="L67">      final PreparedStatement ps = con.prepareStatement(&quot;delete from banned_ips where ip = ?&quot;);</span>
+<span class="fc" id="L68">      ps.setString(1, ip);</span>
+<span class="fc" id="L69">      ps.execute();</span>
+<span class="fc" id="L70">      ps.close();</span>
+<span class="fc" id="L71">      con.commit();</span>
+<span class="pc" id="L72">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L73">      s_logger.log(Level.SEVERE, &quot;Error deleting banned ip:&quot; + ip, sqle);</span>
+<span class="nc" id="L74">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L75">    } finally {</span>
+<span class="pc" id="L76">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L77">    }</span>
+<span class="fc" id="L78">  }</span>
+
+  /**
+   * Is the given ip banned? This may have the side effect of removing from the
+   * database any ip's whose ban has expired
+   */
+  public Tuple&lt;Boolean, Timestamp&gt; isIpBanned(final String ip) {
+<span class="fc" id="L85">    boolean found = false;</span>
+<span class="fc" id="L86">    boolean expired = false;</span>
+<span class="fc" id="L87">    Timestamp banTill = null;</span>
+<span class="fc" id="L88">    final String sql = &quot;select ip, ban_till from banned_ips where ip = ?&quot;;</span>
+<span class="fc" id="L89">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="fc" id="L91">      final PreparedStatement ps = con.prepareStatement(sql);</span>
+<span class="fc" id="L92">      ps.setString(1, ip);</span>
+<span class="fc" id="L93">      final ResultSet rs = ps.executeQuery();</span>
+<span class="fc" id="L94">      found = rs.next();</span>
+      // if the ban has expird, allow the ip
+<span class="fc bfc" id="L96" title="All 2 branches covered.">      if (found) {</span>
+<span class="fc" id="L97">        banTill = rs.getTimestamp(2);</span>
+<span class="pc bpc" id="L98" title="1 of 4 branches missed.">        if (banTill != null &amp;&amp; banTill.getTime() &lt; System.currentTimeMillis()) {</span>
+<span class="fc" id="L99">          s_logger.fine(&quot;Ban expired for:&quot; + ip);</span>
+<span class="fc" id="L100">          expired = true;</span>
+        }
+      }
+<span class="fc" id="L103">      rs.close();</span>
+<span class="fc" id="L104">      ps.close();</span>
+<span class="pc" id="L105">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L106">      s_logger.info(&quot;Error for testing banned ip existence:&quot; + ip + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L107">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L108">    } finally {</span>
+<span class="pc" id="L109">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L110">    }</span>
+<span class="fc bfc" id="L111" title="All 2 branches covered.">    if (expired) {</span>
+<span class="fc" id="L112">      removeBannedIp(ip);</span>
+<span class="fc" id="L113">      return Tuple.of(false, banTill);</span>
+    }
+<span class="fc" id="L115">    return Tuple.of(found, banTill);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

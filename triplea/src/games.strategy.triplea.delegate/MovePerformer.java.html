@@ -1,0 +1,484 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MovePerformer.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">MovePerformer.java</span></div><h1>MovePerformer.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipTracker;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.ui.MovePanel;
+import games.strategy.triplea.util.TransportUtils;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+public class MovePerformer implements Serializable {
+  private static final long serialVersionUID = 3752242292777658310L;
+  private transient AbstractMoveDelegate m_moveDelegate;
+  private transient IDelegateBridge m_bridge;
+  private transient PlayerID m_player;
+  private AAInMoveUtil m_aaInMoveUtil;
+<span class="fc" id="L45">  private final ExecutionStack m_executionStack = new ExecutionStack();</span>
+  private UndoableMove m_currentMove;
+  private Map&lt;Unit, Collection&lt;Unit&gt;&gt; m_newDependents;
+  private Optional&lt;Collection&lt;Unit&gt;&gt; arrivingUnits;
+
+<span class="fc" id="L50">  MovePerformer() {}</span>
+
+  private BattleTracker getBattleTracker() {
+<span class="fc" id="L53">    return DelegateFinder.battleDelegate(m_bridge.getData()).getBattleTracker();</span>
+  }
+
+  void initialize(final AbstractMoveDelegate delegate) {
+<span class="fc" id="L57">    m_moveDelegate = delegate;</span>
+<span class="fc" id="L58">    m_bridge = delegate.getBridge();</span>
+<span class="fc" id="L59">    m_player = m_bridge.getPlayerID();</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">    if (m_aaInMoveUtil != null) {</span>
+<span class="nc" id="L61">      m_aaInMoveUtil.initialize(m_bridge);</span>
+    }
+<span class="fc" id="L63">  }</span>
+
+  private ITripleAPlayer getRemotePlayer(final PlayerID id) {
+<span class="fc" id="L66">    return (ITripleAPlayer) m_bridge.getRemotePlayer(id);</span>
+  }
+
+  private ITripleAPlayer getRemotePlayer() {
+<span class="fc" id="L70">    return getRemotePlayer(m_player);</span>
+  }
+
+  void moveUnits(final Collection&lt;Unit&gt; units, final Route route, final PlayerID id,
+      final Collection&lt;Unit&gt; transportsToLoad, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; newDependents,
+      final UndoableMove currentMove) {
+<span class="fc" id="L76">    m_currentMove = currentMove;</span>
+<span class="fc" id="L77">    m_newDependents = newDependents;</span>
+<span class="fc" id="L78">    populateStack(units, route, id, transportsToLoad);</span>
+<span class="fc" id="L79">    m_executionStack.execute(m_bridge);</span>
+<span class="fc" id="L80">  }</span>
+
+  public void resume() {
+<span class="nc" id="L83">    m_executionStack.execute(m_bridge);</span>
+<span class="nc" id="L84">  }</span>
+
+  /**
+   * We assume that the move is valid
+   */
+  void populateStack(final Collection&lt;Unit&gt; units, final Route route, final PlayerID id,
+      final Collection&lt;Unit&gt; transportsToLoad) {
+<span class="fc" id="L91">    final IExecutable preAAFire = new IExecutable() {</span>
+      private static final long serialVersionUID = -7945930782650355037L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+        // if we are moving out of a battle zone, mark it
+        // this can happen for air units moving out of a battle zone
+<span class="fc bfc" id="L98" title="All 2 branches covered.">        for (final IBattle battle : getBattleTracker().getPendingBattles(route.getStart(), null)) {</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">          for (final Unit unit : units) {</span>
+<span class="fc" id="L100">            final Route routeUnitUsedToMove = m_moveDelegate.getRouteUsedToMoveInto(unit, route.getStart());</span>
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">            if (battle != null) {</span>
+<span class="fc" id="L102">              battle.removeAttack(routeUnitUsedToMove, Collections.singleton(unit));</span>
+            }
+          }
+        }
+<span class="fc" id="L106">      }</span>
+    };
+    // hack to allow the executables to share state
+<span class="fc" id="L109">    final IExecutable fireAA = new IExecutable() {</span>
+      private static final long serialVersionUID = -3780228078499895244L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L114">        final Collection&lt;Unit&gt; aaCasualties = fireAA(route, units);</span>
+<span class="fc" id="L115">        final Set&lt;Unit&gt; aaCasualtiesWithDependents = new HashSet&lt;&gt;();</span>
+        // need to remove any dependents here
+<span class="pc bpc" id="L117" title="1 of 2 branches missed.">        if (aaCasualties != null) {</span>
+<span class="fc" id="L118">          aaCasualtiesWithDependents.addAll(aaCasualties);</span>
+<span class="fc" id="L119">          final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependencies = TransportTracker.transporting(units, units);</span>
+<span class="fc bfc" id="L120" title="All 2 branches covered.">          for (final Unit u : aaCasualties) {</span>
+<span class="fc" id="L121">            final Collection&lt;Unit&gt; dependents = dependencies.get(u);</span>
+<span class="pc bpc" id="L122" title="1 of 2 branches missed.">            if (dependents != null) {</span>
+<span class="nc" id="L123">              aaCasualtiesWithDependents.addAll(dependents);</span>
+            }
+            // we might have new dependents too (ie: paratroopers)
+<span class="fc" id="L126">            final Collection&lt;Unit&gt; newDependents = m_newDependents.get(u);</span>
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">            if (newDependents != null) {</span>
+<span class="nc" id="L128">              aaCasualtiesWithDependents.addAll(newDependents);</span>
+            }
+          }
+        }
+<span class="fc" id="L132">        arrivingUnits = Optional.of(Util.difference(units, aaCasualtiesWithDependents));</span>
+<span class="fc" id="L133">      }</span>
+    };
+<span class="fc" id="L135">    final IExecutable postAAFire = new IExecutable() {</span>
+      private static final long serialVersionUID = 670783657414493643L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+        // if any non enemy territories on route
+        // or if any enemy units on route the
+        // battles on (note water could have enemy but its
+        // not owned)
+<span class="fc" id="L144">        final GameData data = bridge.getData();</span>
+<span class="fc" id="L145">        final CompositeMatch&lt;Territory&gt; mustFightThrough = getMustFightThroughMatch(id, data);</span>
+<span class="fc" id="L146">        final Collection&lt;Unit&gt; arrived = Collections.unmodifiableList(Util.intersection(units, arrivingUnits.get()));</span>
+        // Reset Optional
+<span class="fc" id="L148">        arrivingUnits = Optional.empty();</span>
+<span class="fc" id="L149">        final Collection&lt;Unit&gt; arrivedCopyForBattles = new ArrayList&lt;&gt;(arrived);</span>
+<span class="fc" id="L150">        final Map&lt;Unit, Unit&gt; transporting = TransportUtils.mapTransports(route, arrived, transportsToLoad);</span>
+        // If we have paratrooper land units being carried by air units, they should be dropped off in the last
+        // territory. This means they
+        // are still dependent during the middle steps of the route.
+<span class="fc" id="L154">        final Collection&lt;Unit&gt; dependentOnSomethingTilTheEndOfRoute = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L155">        final Collection&lt;Unit&gt; airTransports = Match.getMatches(arrived, Matches.UnitIsAirTransport);</span>
+<span class="fc" id="L156">        final Collection&lt;Unit&gt; paratroops = Match.getMatches(arrived, Matches.UnitIsAirTransportable);</span>
+<span class="fc bfc" id="L157" title="All 4 branches covered.">        if (!airTransports.isEmpty() &amp;&amp; !paratroops.isEmpty()) {</span>
+<span class="fc" id="L158">          final Map&lt;Unit, Unit&gt; transportingAir =</span>
+<span class="fc" id="L159">              TransportUtils.mapTransportsToLoad(paratroops, airTransports);</span>
+<span class="fc" id="L160">          dependentOnSomethingTilTheEndOfRoute.addAll(transportingAir.keySet());</span>
+        }
+<span class="fc" id="L162">        final Collection&lt;Unit&gt; presentFromStartTilEnd = new ArrayList&lt;&gt;(arrived);</span>
+<span class="fc" id="L163">        presentFromStartTilEnd.removeAll(dependentOnSomethingTilTheEndOfRoute);</span>
+<span class="fc" id="L164">        final CompositeChange change = new CompositeChange();</span>
+<span class="fc bfc" id="L165" title="All 2 branches covered.">        if (games.strategy.triplea.Properties.getUseFuelCost(data)) {</span>
+          // markFuelCostResourceChange must be done
+          // before we load/unload units
+<span class="fc" id="L168">          change.add(markFuelCostResourceChange(units, route, id, data));</span>
+        }
+<span class="fc" id="L170">        markTransportsMovement(arrived, transporting, route);</span>
+<span class="fc bfc" id="L171" title="All 4 branches covered.">        if (route.someMatch(mustFightThrough) &amp;&amp; arrived.size() != 0) {</span>
+<span class="fc" id="L172">          boolean bombing = false;</span>
+<span class="fc" id="L173">          boolean ignoreBattle = false;</span>
+          // could it be a bombing raid
+<span class="fc" id="L175">          final Collection&lt;Unit&gt; enemyUnits = route.getEnd().getUnits().getMatches(Matches.enemyUnit(id, data));</span>
+<span class="fc" id="L176">          final Collection&lt;Unit&gt; enemyTargetsTotal = Match.getMatches(enemyUnits,</span>
+<span class="fc" id="L177">              new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(route.getEnd()).invert(),</span>
+<span class="fc" id="L178">                  Matches.unitIsBeingTransported().invert()));</span>
+<span class="fc" id="L179">          final CompositeMatchOr&lt;Unit&gt; allBombingRaid = new CompositeMatchOr&lt;&gt;(Matches.UnitIsStrategicBomber);</span>
+<span class="pc" id="L180">          final boolean canCreateAirBattle =</span>
+<span class="fc bfc" id="L181" title="All 2 branches covered.">              !enemyTargetsTotal.isEmpty()</span>
+<span class="pc bpc" id="L182" title="1 of 2 branches missed.">                  &amp;&amp; games.strategy.triplea.Properties.getRaidsMayBePreceededByAirBattles(data)</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">                  &amp;&amp; AirBattle.territoryCouldPossiblyHaveAirBattleDefenders(route.getEnd(), id, data, true);</span>
+<span class="pc bpc" id="L184" title="1 of 2 branches missed.">          if (canCreateAirBattle) {</span>
+<span class="nc" id="L185">            allBombingRaid.add(Matches.unitCanEscort);</span>
+          }
+<span class="fc" id="L187">          final boolean allCanBomb = Match.allMatch(arrived, allBombingRaid);</span>
+<span class="fc" id="L188">          final Collection&lt;Unit&gt; enemyTargets =</span>
+<span class="fc" id="L189">              Match.getMatches(enemyTargetsTotal,</span>
+<span class="fc" id="L190">                  Matches.unitIsOfTypes(UnitAttachment</span>
+<span class="fc" id="L191">                      .getAllowedBombingTargetsIntersection(Match.getMatches(arrived, Matches.UnitIsStrategicBomber),</span>
+<span class="fc" id="L192">                          data)));</span>
+<span class="fc bfc" id="L193" title="All 2 branches covered.">          final boolean targetsOrEscort = !enemyTargets.isEmpty()</span>
+<span class="pc bpc" id="L194" title="3 of 6 branches missed.">              || (!enemyTargetsTotal.isEmpty() &amp;&amp; canCreateAirBattle &amp;&amp; Match.allMatch(arrived, Matches.unitCanEscort));</span>
+<span class="fc" id="L195">          boolean targetedAttack = false;</span>
+          // if it's all bombers and there's something to bomb
+<span class="pc bpc" id="L197" title="1 of 6 branches missed.">          if (allCanBomb &amp;&amp; targetsOrEscort &amp;&amp; GameStepPropertiesHelper.isCombatMove(data, false)) {</span>
+<span class="fc" id="L198">            bombing = getRemotePlayer().shouldBomberBomb(route.getEnd());</span>
+            // if bombing and there's something to target- ask what to bomb
+<span class="pc bpc" id="L200" title="1 of 2 branches missed.">            if (bombing) {</span>
+              // CompositeMatchOr&lt;Unit&gt; unitsToBeBombed = new CompositeMatchOr&lt;Unit&gt;(Matches.UnitIsFactory,
+              // Matches.UnitCanBeDamagedButIsNotFactory);
+              // determine which unit to bomb
+              Unit target;
+<span class="pc bpc" id="L205" title="1 of 2 branches missed.">              if (enemyTargets.size() &gt; 1</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">                  &amp;&amp; games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">                  &amp;&amp; !canCreateAirBattle) {</span>
+<span class="nc" id="L208">                target = getRemotePlayer().whatShouldBomberBomb(route.getEnd(), enemyTargets, arrived);</span>
+<span class="pc bpc" id="L209" title="1 of 2 branches missed.">              } else if (!enemyTargets.isEmpty()) {</span>
+<span class="fc" id="L210">                target = enemyTargets.iterator().next();</span>
+<span class="fc" id="L211">              } else {</span>
+                // in case we are escorts only
+<span class="nc" id="L213">                target = enemyTargetsTotal.iterator().next();</span>
+              }
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">              if (target == null) {</span>
+<span class="nc" id="L216">                bombing = false;</span>
+<span class="nc" id="L217">                targetedAttack = false;</span>
+<span class="nc" id="L218">              } else {</span>
+<span class="fc" id="L219">                targetedAttack = true;</span>
+<span class="fc" id="L220">                final HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L221">                targets.put(target, new HashSet&lt;&gt;(arrived));</span>
+                // createdBattle = true;
+<span class="fc" id="L223">                getBattleTracker().addBattle(route, arrivedCopyForBattles, bombing, id, m_bridge, m_currentMove,</span>
+<span class="fc" id="L224">                    dependentOnSomethingTilTheEndOfRoute, targets, false);</span>
+              }
+            }
+          }
+          // Ignore Trn on Trn forces.
+<span class="fc bfc" id="L229" title="All 2 branches covered.">          if (isIgnoreTransportInMovement(bridge.getData())) {</span>
+<span class="fc" id="L230">            final boolean allOwnedTransports = Match.allMatch(arrived, Matches.UnitIsTransportButNotCombatTransport);</span>
+<span class="fc" id="L231">            final boolean allEnemyTransports = Match.allMatch(enemyUnits, Matches.UnitIsTransportButNotCombatTransport);</span>
+            // If everybody is a transport, don't create a battle
+<span class="fc bfc" id="L233" title="All 4 branches covered.">            if (allOwnedTransports &amp;&amp; allEnemyTransports) {</span>
+<span class="fc" id="L234">              ignoreBattle = true;</span>
+            }
+          }
+<span class="fc bfc" id="L237" title="All 6 branches covered.">          if (!ignoreBattle &amp;&amp; GameStepPropertiesHelper.isCombatMove(data, false) &amp;&amp; !targetedAttack) {</span>
+            // createdBattle = true;
+<span class="fc" id="L239">            getBattleTracker().addBattle(route, arrivedCopyForBattles, bombing, id, m_bridge, m_currentMove,</span>
+<span class="fc" id="L240">                dependentOnSomethingTilTheEndOfRoute);</span>
+          }
+<span class="pc bpc" id="L242" title="1 of 6 branches missed.">          if (!ignoreBattle &amp;&amp; GameStepPropertiesHelper.isNonCombatMove(data, false) &amp;&amp; !targetedAttack) {</span>
+            // We are in non-combat move phase, and we are taking over friendly territories. No need for a battle. (This
+            // could get really
+            // difficult if we want these recorded in battle records).
+<span class="pc bpc" id="L246" title="1 of 2 branches missed.">            for (final Territory t : route</span>
+<span class="pc" id="L247">                .getMatches(new CompositeMatchAnd&lt;&gt;(</span>
+                    Matches
+<span class="fc" id="L249">                        .territoryIsOwnedByPlayerWhosRelationshipTypeCanTakeOverOwnedTerritoryAndPassableAndNotWater(</span>
+<span class="fc" id="L250">                            id),</span>
+<span class="fc" id="L251">                    Matches.TerritoryIsBlitzable(id, data)))) {</span>
+<span class="nc bnc" id="L252" title="All 4 branches missed.">              if (Matches.isTerritoryEnemy(id, data).match(t) || Matches.territoryHasEnemyUnits(id, data).match(t)) {</span>
+<span class="nc" id="L253">                continue;</span>
+              }
+<span class="nc bnc" id="L255" title="All 4 branches missed.">              if ((t.equals(route.getEnd()) &amp;&amp; Match.allMatch(arrivedCopyForBattles, Matches.UnitIsAir))</span>
+<span class="nc bnc" id="L256" title="All 4 branches missed.">                  || (!t.equals(route.getEnd()) &amp;&amp; Match.allMatch(presentFromStartTilEnd, Matches.UnitIsAir))) {</span>
+<span class="nc" id="L257">                continue;</span>
+              }
+              // createdBattle = true;
+<span class="nc" id="L260">              getBattleTracker().takeOver(t, id, bridge, m_currentMove, arrivedCopyForBattles);</span>
+            }
+          }
+        }
+        // mark movement
+<span class="fc" id="L265">        final Change moveChange = markMovementChange(arrived, route, id);</span>
+<span class="fc" id="L266">        change.add(moveChange);</span>
+        // actually move the units
+<span class="fc" id="L268">        Change remove = null;</span>
+<span class="fc" id="L269">        Change add = null;</span>
+<span class="pc bpc" id="L270" title="2 of 4 branches missed.">        if (route.getStart() != null &amp;&amp; route.getEnd() != null) {</span>
+          // ChangeFactory.addUnits(route.getEnd(), arrived);
+<span class="fc" id="L272">          remove = ChangeFactory.removeUnits(route.getStart(), units);</span>
+<span class="fc" id="L273">          add = ChangeFactory.addUnits(route.getEnd(), arrived);</span>
+<span class="fc" id="L274">          change.add(add, remove);</span>
+        }
+<span class="fc" id="L276">        m_bridge.addChange(change);</span>
+<span class="fc" id="L277">        m_currentMove.addChange(change);</span>
+<span class="fc" id="L278">        m_currentMove.setDescription(MyFormatter.unitsToTextNoOwner(arrived) + &quot; moved from &quot;</span>
+<span class="fc" id="L279">            + route.getStart().getName() + &quot; to &quot; + route.getEnd().getName());</span>
+<span class="fc" id="L280">        m_moveDelegate.updateUndoableMoves(m_currentMove);</span>
+<span class="fc" id="L281">      }</span>
+    };
+<span class="fc" id="L283">    m_executionStack.push(postAAFire);</span>
+<span class="fc" id="L284">    m_executionStack.push(fireAA);</span>
+<span class="fc" id="L285">    m_executionStack.push(preAAFire);</span>
+<span class="fc" id="L286">    m_executionStack.execute(m_bridge);</span>
+<span class="fc" id="L287">  }</span>
+
+  private static CompositeMatch&lt;Territory&gt; getMustFightThroughMatch(final PlayerID id, final GameData data) {
+<span class="fc" id="L290">    final CompositeMatch&lt;Territory&gt; mustFightThrough = new CompositeMatchOr&lt;&gt;();</span>
+<span class="fc" id="L291">    mustFightThrough.add(Matches.isTerritoryEnemyAndNotUnownedWaterOrImpassableOrRestricted(id, data));</span>
+<span class="fc" id="L292">    mustFightThrough.add(Matches.territoryHasNonSubmergedEnemyUnits(id, data));</span>
+<span class="fc" id="L293">    mustFightThrough</span>
+<span class="fc" id="L294">        .add(Matches.territoryIsOwnedByPlayerWhosRelationshipTypeCanTakeOverOwnedTerritoryAndPassableAndNotWater(id));</span>
+<span class="fc" id="L295">    return mustFightThrough;</span>
+  }
+
+  private Change markFuelCostResourceChange(final Collection&lt;Unit&gt; units, final Route route, final PlayerID id,
+      final GameData data) {
+<span class="fc" id="L300">    return ChangeFactory.removeResourceCollection(id,</span>
+<span class="fc" id="L301">        Route.getMovementFuelCostCharge(units, route, id, data /* , mustFight */));</span>
+  }
+
+  private Change markMovementChange(final Collection&lt;Unit&gt; units, final Route route, final PlayerID id) {
+<span class="fc" id="L305">    final GameData data = m_bridge.getData();</span>
+<span class="fc" id="L306">    final CompositeChange change = new CompositeChange();</span>
+<span class="fc" id="L307">    final Territory routeStart = route.getStart();</span>
+<span class="fc" id="L308">    final TerritoryAttachment taRouteStart = TerritoryAttachment.get(routeStart);</span>
+<span class="fc" id="L309">    final Territory routeEnd = route.getEnd();</span>
+<span class="fc" id="L310">    TerritoryAttachment taRouteEnd = null;</span>
+<span class="pc bpc" id="L311" title="1 of 2 branches missed.">    if (routeEnd != null) {</span>
+<span class="fc" id="L312">      taRouteEnd = TerritoryAttachment.get(routeEnd);</span>
+    }
+    // only units owned by us need to be marked
+<span class="fc" id="L315">    final Iterator&lt;Unit&gt; iter = Match.getMatches(units, Matches.unitIsOwnedBy(id)).iterator();</span>
+<span class="fc" id="L316">    final RelationshipTracker relationshipTracker = data.getRelationshipTracker();</span>
+<span class="fc bfc" id="L317" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L318">      final TripleAUnit unit = (TripleAUnit) iter.next();</span>
+<span class="fc" id="L319">      int moved = route.getMovementCost(unit);</span>
+<span class="fc" id="L320">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L321" title="All 2 branches covered.">      if (ua.getIsAir()) {</span>
+<span class="fc bfc" id="L322" title="All 4 branches covered.">        if (taRouteStart != null &amp;&amp; taRouteStart.getAirBase()</span>
+<span class="pc bpc" id="L323" title="1 of 2 branches missed.">            &amp;&amp; relationshipTracker.isAllied(route.getStart().getOwner(), unit.getOwner())) {</span>
+<span class="fc" id="L324">          moved--;</span>
+        }
+<span class="fc bfc" id="L326" title="All 4 branches covered.">        if (taRouteEnd != null &amp;&amp; taRouteEnd.getAirBase()</span>
+<span class="pc bpc" id="L327" title="1 of 2 branches missed.">            &amp;&amp; relationshipTracker.isAllied(route.getEnd().getOwner(), unit.getOwner())) {</span>
+<span class="fc" id="L328">          moved--;</span>
+        }
+      }
+<span class="fc" id="L331">      change.add(ChangeFactory.unitPropertyChange(unit, moved + unit.getAlreadyMoved(), TripleAUnit.ALREADY_MOVED));</span>
+    }
+    // if neutrals were taken over mark land units with 0 movement
+    // if entered a non blitzed conquered territory, mark with 0 movement
+<span class="fc bfc" id="L335" title="All 2 branches covered.">    if (GameStepPropertiesHelper.isCombatMove(data, false)</span>
+<span class="fc bfc" id="L336" title="All 4 branches covered.">        &amp;&amp; (MoveDelegate.getEmptyNeutral(route).size() != 0 || hasConqueredNonBlitzed(route))) {</span>
+<span class="fc bfc" id="L337" title="All 2 branches covered.">      for (final Unit unit : Match.getMatches(units, Matches.UnitIsLand)) {</span>
+<span class="fc" id="L338">        change.add(ChangeFactory.markNoMovementChange(Collections.singleton(unit)));</span>
+      }
+    }
+<span class="pc bpc" id="L341" title="1 of 4 branches missed.">    if (routeEnd != null &amp;&amp; games.strategy.triplea.Properties.getSubsCanEndNonCombatMoveWithEnemies(data)</span>
+<span class="fc bfc" id="L342" title="All 2 branches covered.">        &amp;&amp; GameStepPropertiesHelper.isNonCombatMove(data, false) &amp;&amp; routeEnd.getUnits()</span>
+<span class="pc bpc" id="L343" title="1 of 2 branches missed.">            .someMatch(new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, id), Matches.UnitIsDestroyer))) {</span>
+      // if we are allowed to have our subs enter any sea zone with enemies during noncombat, we want to make sure we
+      // can't keep moving them
+      // if there is an enemy destroyer there
+<span class="nc bnc" id="L347" title="All 2 branches missed.">      for (final Unit unit : Match.getMatches(units,</span>
+<span class="nc" id="L348">          new CompositeMatchAnd&lt;&gt;(Matches.UnitIsSub, Matches.UnitIsAir.invert()))) {</span>
+<span class="nc" id="L349">        change.add(ChangeFactory.markNoMovementChange(Collections.singleton(unit)));</span>
+      }
+    }
+<span class="fc" id="L352">    return change;</span>
+  }
+
+  /**
+   * Marks transports and units involved in unloading with no movement left.
+   */
+  private void markTransportsMovement(final Collection&lt;Unit&gt; arrived, final Map&lt;Unit, Unit&gt; transporting,
+      final Route route) {
+<span class="pc bpc" id="L360" title="1 of 2 branches missed.">    if (transporting == null) {</span>
+<span class="nc" id="L361">      return;</span>
+    }
+<span class="fc" id="L363">    final GameData data = m_bridge.getData();</span>
+<span class="fc" id="L364">    final CompositeMatch&lt;Unit&gt; paratroopNAirTransports = new CompositeMatchOr&lt;&gt;();</span>
+<span class="fc" id="L365">    paratroopNAirTransports.add(Matches.UnitIsAirTransport);</span>
+<span class="fc" id="L366">    paratroopNAirTransports.add(Matches.UnitIsAirTransportable);</span>
+<span class="fc bfc" id="L367" title="All 2 branches covered.">    final boolean paratroopsLanding = Match.someMatch(arrived, paratroopNAirTransports)</span>
+<span class="fc bfc" id="L368" title="All 2 branches covered.">        &amp;&amp; MoveValidator.allLandUnitsAreBeingParatroopered(arrived, route, m_player);</span>
+<span class="fc" id="L369">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependentAirTransportableUnits =</span>
+<span class="fc" id="L370">        MoveValidator.getDependents(Match.getMatches(arrived, Matches.UnitCanTransport), data);</span>
+    // add newly created dependents
+<span class="pc bpc" id="L372" title="1 of 2 branches missed.">    if (m_newDependents != null) {</span>
+<span class="pc bpc" id="L373" title="1 of 2 branches missed.">      for (final Entry&lt;Unit, Collection&lt;Unit&gt;&gt; entry : m_newDependents.entrySet()) {</span>
+<span class="nc" id="L374">        Collection&lt;Unit&gt; dependents = dependentAirTransportableUnits.get(entry.getKey());</span>
+<span class="nc bnc" id="L375" title="All 2 branches missed.">        if (dependents != null) {</span>
+<span class="nc" id="L376">          dependents.addAll(entry.getValue());</span>
+<span class="nc" id="L377">        } else {</span>
+<span class="nc" id="L378">          dependents = entry.getValue();</span>
+        }
+<span class="nc" id="L380">        dependentAirTransportableUnits.put(entry.getKey(), dependents);</span>
+      }
+    }
+    // If paratroops moved normally (within their normal movement) remove their dependency to the airTransports
+    // So they can all continue to move normally
+<span class="fc bfc" id="L385" title="All 4 branches covered.">    if (!paratroopsLanding &amp;&amp; !dependentAirTransportableUnits.isEmpty()) {</span>
+<span class="fc" id="L386">      final Collection&lt;Unit&gt; airTransports = Match.getMatches(arrived, Matches.UnitIsAirTransport);</span>
+<span class="fc" id="L387">      airTransports.addAll(dependentAirTransportableUnits.keySet());</span>
+<span class="fc" id="L388">      MovePanel.clearDependents(airTransports);</span>
+    }
+    // load the transports
+<span class="fc bfc" id="L391" title="All 4 branches covered.">    if (route.isLoad() || paratroopsLanding) {</span>
+      // mark transports as having transported
+<span class="fc" id="L393">      final Iterator&lt;Unit&gt; units = transporting.keySet().iterator();</span>
+<span class="fc bfc" id="L394" title="All 2 branches covered.">      while (units.hasNext()) {</span>
+<span class="fc" id="L395">        final Unit load = units.next();</span>
+<span class="fc" id="L396">        final Unit transport = transporting.get(load);</span>
+<span class="pc bpc" id="L397" title="1 of 2 branches missed.">        if (!TransportTracker.transporting(transport).contains(load)) {</span>
+<span class="fc" id="L398">          final Change change = TransportTracker.loadTransportChange((TripleAUnit) transport, load);</span>
+<span class="fc" id="L399">          m_currentMove.addChange(change);</span>
+<span class="fc" id="L400">          m_currentMove.load(transport);</span>
+<span class="fc" id="L401">          m_bridge.addChange(change);</span>
+        }
+      }
+<span class="fc bfc" id="L404" title="All 2 branches covered.">      if (transporting.isEmpty()) {</span>
+<span class="fc bfc" id="L405" title="All 2 branches covered.">        for (final Unit airTransport : dependentAirTransportableUnits.keySet()) {</span>
+<span class="pc bpc" id="L406" title="1 of 2 branches missed.">          for (final Unit unit : dependentAirTransportableUnits.get(airTransport)) {</span>
+<span class="nc" id="L407">            final Change change = TransportTracker.loadTransportChange((TripleAUnit) airTransport, unit);</span>
+<span class="nc" id="L408">            m_currentMove.addChange(change);</span>
+<span class="nc" id="L409">            m_currentMove.load(airTransport);</span>
+<span class="nc" id="L410">            m_bridge.addChange(change);</span>
+          }
+        }
+      }
+    }
+<span class="fc bfc" id="L415" title="All 4 branches covered.">    if (route.isUnload() || paratroopsLanding) {</span>
+<span class="fc" id="L416">      final Set&lt;Unit&gt; units = new HashSet&lt;&gt;();</span>
+<span class="fc" id="L417">      units.addAll(transporting.values());</span>
+<span class="fc" id="L418">      units.addAll(transporting.keySet());</span>
+      // if there are multiple units on a single transport, the transport will be in units list multiple times
+<span class="fc bfc" id="L420" title="All 2 branches covered.">      if (transporting.isEmpty()) {</span>
+<span class="fc" id="L421">        units.addAll(dependentAirTransportableUnits.keySet());</span>
+<span class="fc bfc" id="L422" title="All 2 branches covered.">        for (final Unit airTransport : dependentAirTransportableUnits.keySet()) {</span>
+<span class="fc" id="L423">          units.addAll(dependentAirTransportableUnits.get(airTransport));</span>
+        }
+      }
+      // any pending battles in the unloading zone?
+<span class="fc" id="L427">      final BattleTracker tracker = getBattleTracker();</span>
+<span class="fc bfc" id="L428" title="All 2 branches covered.">      final boolean pendingBattles = tracker.getPendingBattle(route.getStart(), false, BattleType.NORMAL) != null;</span>
+<span class="fc" id="L429">      final Iterator&lt;Unit&gt; iter = units.iterator();</span>
+<span class="fc bfc" id="L430" title="All 2 branches covered.">      while (iter.hasNext()) {</span>
+<span class="fc" id="L431">        final Unit unit = iter.next();</span>
+<span class="fc bfc" id="L432" title="All 2 branches covered.">        if (Matches.UnitIsAir.match(unit)) {</span>
+<span class="fc" id="L433">          continue;</span>
+        }
+<span class="fc" id="L435">        final Unit transportedBy = ((TripleAUnit) unit).getTransportedBy();</span>
+        // we will unload our paratroopers after they land in battle (after aa guns fire)
+<span class="pc bpc" id="L437" title="5 of 6 branches missed.">        if (paratroopsLanding &amp;&amp; transportedBy != null &amp;&amp; Matches.UnitIsAirTransport.match(transportedBy)</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">            &amp;&amp; GameStepPropertiesHelper.isCombatMove(data, false)</span>
+<span class="nc bnc" id="L439" title="All 2 branches missed.">            &amp;&amp; Matches.territoryHasNonSubmergedEnemyUnits(m_player, data).match(route.getEnd())) {</span>
+<span class="nc" id="L440">          continue;</span>
+        }
+        // unload the transports
+<span class="fc" id="L443">        final Change change1 = TransportTracker.unloadTransportChange((TripleAUnit) unit,</span>
+<span class="fc" id="L444">            m_currentMove.getRoute().getEnd(), m_player, pendingBattles);</span>
+<span class="fc" id="L445">        m_currentMove.addChange(change1);</span>
+<span class="fc" id="L446">        m_currentMove.unload(unit);</span>
+<span class="fc" id="L447">        m_bridge.addChange(change1);</span>
+        // set noMovement
+<span class="fc" id="L449">        final Change change2 = ChangeFactory.markNoMovementChange(Collections.singleton(unit));</span>
+<span class="fc" id="L450">        m_currentMove.addChange(change2);</span>
+<span class="fc" id="L451">        m_bridge.addChange(change2);</span>
+      }
+    }
+<span class="fc" id="L454">  }</span>
+
+  private boolean hasConqueredNonBlitzed(final Route route) {
+<span class="fc" id="L457">    final BattleTracker tracker = getBattleTracker();</span>
+<span class="fc bfc" id="L458" title="All 2 branches covered.">    for (final Territory current : route.getSteps()) {</span>
+<span class="fc bfc" id="L459" title="All 4 branches covered.">      if (tracker.wasConquered(current) &amp;&amp; !tracker.wasBlitzed(current)) {</span>
+<span class="fc" id="L460">        return true;</span>
+      }
+    }
+<span class="fc" id="L463">    return false;</span>
+  }
+
+  /**
+   * Fire aa guns. Returns units to remove.
+   */
+  private Collection&lt;Unit&gt; fireAA(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="pc bpc" id="L470" title="1 of 2 branches missed.">    if (m_aaInMoveUtil == null) {</span>
+<span class="fc" id="L471">      m_aaInMoveUtil = new AAInMoveUtil();</span>
+    }
+<span class="fc" id="L473">    m_aaInMoveUtil.initialize(m_bridge);</span>
+<span class="fc" id="L474">    final Collection&lt;Unit&gt; rVal =</span>
+<span class="fc" id="L475">        m_aaInMoveUtil.fireAA(route, units, UnitComparator.getLowestToHighestMovementComparator(), m_currentMove);</span>
+<span class="fc" id="L476">    m_aaInMoveUtil = null;</span>
+<span class="fc" id="L477">    return rVal;</span>
+  }
+
+  private static boolean isIgnoreTransportInMovement(final GameData data) {
+<span class="fc" id="L481">    return games.strategy.triplea.Properties.getIgnoreTransportInMovement(data);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

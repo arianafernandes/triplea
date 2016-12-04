@@ -1,0 +1,850 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MapPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">MapPanel.java</span></div><h1>MapPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.swing.SwingUtilities;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.ChangeAttachmentChange;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.events.GameDataChangeListener;
+import games.strategy.engine.data.events.TerritoryListener;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.ui.screen.SmallMapImageManager;
+import games.strategy.triplea.ui.screen.Tile;
+import games.strategy.triplea.ui.screen.TileManager;
+import games.strategy.triplea.ui.screen.UnitsDrawer;
+import games.strategy.triplea.ui.screen.drawable.IDrawable.OptionalExtraBorderLevel;
+import games.strategy.triplea.util.Stopwatch;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.ui.ImageScrollModel;
+import games.strategy.ui.ImageScrollerLargeView;
+import games.strategy.ui.Util;
+import games.strategy.util.ListenerList;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Responsible for drawing the large map and keeping it updated.
+ */
+public class MapPanel extends ImageScrollerLargeView {
+  private static final long serialVersionUID = -3571551538356292556L;
+<span class="fc" id="L71">  private static Logger logger = Logger.getLogger(MapPanel.class.getName());</span>
+<span class="nc" id="L72">  private final ListenerList&lt;MapSelectionListener&gt; mapSelectionListeners = new ListenerList&lt;&gt;();</span>
+<span class="nc" id="L73">  private final ListenerList&lt;UnitSelectionListener&gt; unitSelectionListeners = new ListenerList&lt;&gt;();</span>
+<span class="nc" id="L74">  private final ListenerList&lt;MouseOverUnitListener&gt; mouseOverUnitsListeners = new ListenerList&lt;&gt;();</span>
+  private GameData m_data;
+  // the territory that the mouse is
+  private Territory currentTerritory;
+  // currently over
+  // could be null
+  private final MapPanelSmallView smallView;
+  // units the mouse is currently over
+  private Tuple&lt;Territory, List&lt;Unit&gt;&gt; currentUnits;
+  private final SmallMapImageManager smallMapImageManager;
+  // keep a reference to the images from the last paint to
+  // prevent them from being gcd
+<span class="nc" id="L86">  private final List&lt;Tile&gt; images = new ArrayList&lt;&gt;();</span>
+  private RouteDescription routeDescription;
+  private final TileManager tileManager;
+  private final BackgroundDrawer backgroundDrawer;
+<span class="nc" id="L90">  private BufferedImage mouseShadowImage = null;</span>
+<span class="nc" id="L91">  private String movementLeftForCurrentUnits = &quot;&quot;;</span>
+  private final IUIContext uiContext;
+<span class="nc" id="L93">  private final LinkedBlockingQueue&lt;Tile&gt; undrawnTiles = new LinkedBlockingQueue&lt;&gt;();</span>
+  private Map&lt;Territory, List&lt;Unit&gt;&gt; highlightedUnits;
+<span class="nc" id="L95">  private Cursor hiddenCursor = null;</span>
+<span class="nc" id="L96">  private final MapRouteDrawer routeDrawer = new MapRouteDrawer();</span>
+
+
+  /** Creates new MapPanel */
+  public MapPanel(final GameData data, final MapPanelSmallView smallView, final IUIContext uiContext,
+      final ImageScrollModel model) {
+<span class="nc" id="L102">    super(uiContext.getMapData().getMapDimensions(), model);</span>
+<span class="nc" id="L103">    this.uiContext = uiContext;</span>
+<span class="nc" id="L104">    setCursor(this.uiContext.getCursor());</span>
+<span class="nc" id="L105">    this.m_scale = this.uiContext.getScale();</span>
+<span class="nc" id="L106">    this.backgroundDrawer = new BackgroundDrawer(this);</span>
+<span class="nc" id="L107">    this.tileManager = new TileManager(this.uiContext);</span>
+<span class="nc" id="L108">    final Thread t = new Thread(this.backgroundDrawer, &quot;Map panel background drawer&quot;);</span>
+<span class="nc" id="L109">    t.setDaemon(true);</span>
+<span class="nc" id="L110">    t.start();</span>
+<span class="nc" id="L111">    setDoubleBuffered(false);</span>
+<span class="nc" id="L112">    this.smallView = smallView;</span>
+<span class="nc" id="L113">    this.smallMapImageManager =</span>
+<span class="nc" id="L114">        new SmallMapImageManager(smallView, this.uiContext.getMapImage().getSmallMapImage(), this.tileManager);</span>
+<span class="nc" id="L115">    setGameData(data);</span>
+<span class="nc" id="L116">    this.addMouseListener(new MouseAdapter() {</span>
+      /**
+       * Invoked when the mouse exits a component.
+       */
+      @Override
+      public void mouseExited(final MouseEvent e) {
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        if (unitsChanged(null)) {</span>
+<span class="nc" id="L123">          final MouseDetails md = convert(e);</span>
+<span class="nc" id="L124">          currentUnits = null;</span>
+<span class="nc" id="L125">          notifyMouseEnterUnit(Collections.emptyList(), getTerritory(e.getX(), e.getY()), md);</span>
+        }
+<span class="nc" id="L127">      }</span>
+
+      // this can't be mouseClicked, since a lot of people complain that clicking doesn't work well
+      @Override
+      public void mouseReleased(final MouseEvent e) {
+<span class="nc" id="L132">        final MouseDetails md = convert(e);</span>
+<span class="nc" id="L133">        final double scaledMouseX = e.getX() / m_scale;</span>
+<span class="nc" id="L134">        final double scaledMouseY = e.getY() / m_scale;</span>
+<span class="nc" id="L135">        final double x = normalizeX(scaledMouseX + getXOffset());</span>
+<span class="nc" id="L136">        final double y = normalizeY(scaledMouseY + getYOffset());</span>
+<span class="nc" id="L137">        final Territory terr = getTerritory(x, y);</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">        if (terr != null) {</span>
+<span class="nc" id="L139">          notifyTerritorySelected(terr, md);</span>
+        }
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (!unitSelectionListeners.isEmpty()) {</span>
+<span class="nc" id="L142">          Tuple&lt;Territory, List&lt;Unit&gt;&gt; tuple = tileManager.getUnitsAtPoint(x, y, m_data);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">          if (tuple == null) {</span>
+<span class="nc" id="L144">            tuple = Tuple.of(getTerritory(x, y), new ArrayList&lt;Unit&gt;(0));</span>
+          }
+<span class="nc" id="L146">          notifyUnitSelected(tuple.getSecond(), tuple.getFirst(), md);</span>
+        }
+<span class="nc" id="L148">      }</span>
+    });
+<span class="nc" id="L150">    this.addMouseMotionListener(new MouseMotionAdapter() {</span>
+      @Override
+      public void mouseMoved(final MouseEvent e) {
+<span class="nc" id="L153">        final MouseDetails md = convert(e);</span>
+<span class="nc" id="L154">        final double scaledMouseX = e.getX() / m_scale;</span>
+<span class="nc" id="L155">        final double scaledMouseY = e.getY() / m_scale;</span>
+<span class="nc" id="L156">        final double x = normalizeX(scaledMouseX + getXOffset());</span>
+<span class="nc" id="L157">        final double y = normalizeY(scaledMouseY + getYOffset());</span>
+<span class="nc" id="L158">        final Territory terr = getTerritory(x, y);</span>
+        // we can use == here since they will be the same object.
+        // dont use .equals since we have nulls
+<span class="nc bnc" id="L161" title="All 2 branches missed.">        if (terr != currentTerritory) {</span>
+<span class="nc" id="L162">          currentTerritory = terr;</span>
+<span class="nc" id="L163">          notifyMouseEntered(terr);</span>
+        }
+<span class="nc" id="L165">        notifyMouseMoved(terr, md);</span>
+<span class="nc" id="L166">        final Tuple&lt;Territory, List&lt;Unit&gt;&gt; tuple = tileManager.getUnitsAtPoint(x, y, m_data);</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        if (unitsChanged(tuple)) {</span>
+<span class="nc" id="L168">          currentUnits = tuple;</span>
+<span class="nc bnc" id="L169" title="All 2 branches missed.">          if (tuple == null) {</span>
+<span class="nc" id="L170">            notifyMouseEnterUnit(Collections.emptyList(), getTerritory(x, y), md);</span>
+<span class="nc" id="L171">          } else {</span>
+<span class="nc" id="L172">            notifyMouseEnterUnit(tuple.getSecond(), tuple.getFirst(), md);</span>
+          }
+        }
+<span class="nc" id="L175">      }</span>
+    });
+<span class="nc" id="L177">    this.addScrollListener((x2, y2) -&gt; SwingUtilities.invokeLater(() -&gt; repaint()));</span>
+<span class="nc" id="L178">    recreateTiles(data, this.uiContext);</span>
+<span class="nc" id="L179">    this.uiContext.addActive(() -&gt; {</span>
+      // super.deactivate
+<span class="nc" id="L181">      MapPanel.this.deactivate();</span>
+<span class="nc" id="L182">      clearUndrawn();</span>
+<span class="nc" id="L183">      backgroundDrawer.stop();</span>
+<span class="nc" id="L184">    });</span>
+<span class="nc" id="L185">  }</span>
+
+  LinkedBlockingQueue&lt;Tile&gt; getUndrawnTiles() {
+<span class="nc" id="L188">    return undrawnTiles;</span>
+  }
+
+  private void recreateTiles(final GameData data, final IUIContext uiContext) {
+<span class="nc" id="L192">    this.tileManager.createTiles(new Rectangle(this.uiContext.getMapData().getMapDimensions()), data,</span>
+<span class="nc" id="L193">        this.uiContext.getMapData());</span>
+<span class="nc" id="L194">    this.tileManager.resetTiles(data, uiContext.getMapData());</span>
+<span class="nc" id="L195">  }</span>
+
+  GameData getData() {
+<span class="nc" id="L198">    return m_data;</span>
+  }
+
+  // Beagle Code used to chnage map skin
+  public void changeImage(final Dimension newDimensions) {
+<span class="nc" id="L203">    m_model.setMaxBounds((int) newDimensions.getWidth(), (int) newDimensions.getHeight());</span>
+<span class="nc" id="L204">    tileManager.createTiles(new Rectangle(newDimensions), m_data, uiContext.getMapData());</span>
+<span class="nc" id="L205">    tileManager.resetTiles(m_data, uiContext.getMapData());</span>
+<span class="nc" id="L206">  }</span>
+
+  @Override
+  public Dimension getPreferredSize() {
+<span class="nc" id="L210">    return getImageDimensions();</span>
+  }
+
+  @Override
+  public Dimension getMinimumSize() {
+<span class="nc" id="L215">    return new Dimension(200, 200);</span>
+  }
+
+  public boolean isShowing(final Territory territory) {
+<span class="nc" id="L219">    final Point territoryCenter = uiContext.getMapData().getCenter(territory);</span>
+<span class="nc" id="L220">    final Rectangle2D screenBounds =</span>
+<span class="nc" id="L221">        new Rectangle2D.Double(super.getXOffset(), super.getYOffset(), super.getScaledWidth(), super.getScaledHeight());</span>
+<span class="nc" id="L222">    return screenBounds.contains(territoryCenter);</span>
+  }
+
+  /**
+   * the units must all be in the same stack on the map, and exist in the given territory.
+   * call with an null args
+   */
+  public void setUnitHighlight(final Map&lt;Territory, List&lt;Unit&gt;&gt; units) {
+<span class="nc" id="L230">    highlightedUnits = units;</span>
+<span class="nc" id="L231">    SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L232">  }</span>
+
+  protected Map&lt;Territory, List&lt;Unit&gt;&gt; getHighlightedUnits() {
+<span class="nc" id="L235">    return highlightedUnits;</span>
+  }
+
+  public void centerOn(final Territory territory) {
+<span class="nc bnc" id="L239" title="All 4 branches missed.">    if (territory == null || uiContext.getLockMap()) {</span>
+<span class="nc" id="L240">      return;</span>
+    }
+<span class="nc" id="L242">    final Point p = uiContext.getMapData().getCenter(territory);</span>
+    // when centering dont want the map to wrap around,
+    // eg if centering on hawaii
+<span class="nc" id="L245">    super.setTopLeft((int) (p.x - (getScaledWidth() / 2)), (int) (p.y - (getScaledHeight() / 2)));</span>
+<span class="nc" id="L246">  }</span>
+
+  public void setRoute(final Route route) {
+<span class="nc" id="L249">    setRoute(route, null, null, null);</span>
+<span class="nc" id="L250">  }</span>
+
+  /**
+   * Set the route, could be null.
+   */
+  public void setRoute(final Route route, final Point start, final Point end, final Image cursorImage) {
+<span class="nc bnc" id="L256" title="All 2 branches missed.">    if (route == null) {</span>
+<span class="nc" id="L257">      routeDescription = null;</span>
+<span class="nc" id="L258">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L259">      return;</span>
+    }
+<span class="nc" id="L261">    final RouteDescription newRouteDescription = new RouteDescription(route, start, end, cursorImage);</span>
+<span class="nc bnc" id="L262" title="All 4 branches missed.">    if (routeDescription != null &amp;&amp; routeDescription.equals(newRouteDescription)) {</span>
+<span class="nc" id="L263">      return;</span>
+    }
+<span class="nc" id="L265">    routeDescription = newRouteDescription;</span>
+<span class="nc" id="L266">    SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L267">  }</span>
+
+  public void addMapSelectionListener(final MapSelectionListener listener) {
+<span class="nc" id="L270">    mapSelectionListeners.add(listener);</span>
+<span class="nc" id="L271">  }</span>
+
+  public void removeMapSelectionListener(final MapSelectionListener listener) {
+<span class="nc" id="L274">    mapSelectionListeners.remove(listener);</span>
+<span class="nc" id="L275">  }</span>
+
+  public void addMouseOverUnitListener(final MouseOverUnitListener listener) {
+<span class="nc" id="L278">    mouseOverUnitsListeners.add(listener);</span>
+<span class="nc" id="L279">  }</span>
+
+  public void removeMouseOverUnitListener(final MouseOverUnitListener listener) {
+<span class="nc" id="L282">    mouseOverUnitsListeners.remove(listener);</span>
+<span class="nc" id="L283">  }</span>
+
+  private void notifyTerritorySelected(final Territory t, final MouseDetails me) {
+<span class="nc bnc" id="L286" title="All 2 branches missed.">    for (final MapSelectionListener msl : mapSelectionListeners) {</span>
+<span class="nc" id="L287">      msl.territorySelected(t, me);</span>
+    }
+<span class="nc" id="L289">  }</span>
+
+  private void notifyMouseMoved(final Territory t, final MouseDetails me) {
+<span class="nc bnc" id="L292" title="All 2 branches missed.">    for (final MapSelectionListener msl : mapSelectionListeners) {</span>
+<span class="nc" id="L293">      msl.mouseMoved(t, me);</span>
+    }
+<span class="nc" id="L295">  }</span>
+
+  private void notifyMouseEntered(final Territory t) {
+<span class="nc bnc" id="L298" title="All 2 branches missed.">    for (final MapSelectionListener msl : mapSelectionListeners) {</span>
+<span class="nc" id="L299">      msl.mouseEntered(t);</span>
+    }
+<span class="nc" id="L301">  }</span>
+
+  public void addUnitSelectionListener(final UnitSelectionListener listener) {
+<span class="nc" id="L304">    unitSelectionListeners.add(listener);</span>
+<span class="nc" id="L305">  }</span>
+
+  public void removeUnitSelectionListener(final UnitSelectionListener listener) {
+<span class="nc" id="L308">    unitSelectionListeners.remove(listener);</span>
+<span class="nc" id="L309">  }</span>
+
+  private void notifyUnitSelected(final List&lt;Unit&gt; units, final Territory t, final MouseDetails me) {
+<span class="nc bnc" id="L312" title="All 2 branches missed.">    for (final UnitSelectionListener listener : unitSelectionListeners) {</span>
+<span class="nc" id="L313">      listener.unitsSelected(units, t, me);</span>
+    }
+<span class="nc" id="L315">  }</span>
+
+  private void notifyMouseEnterUnit(final List&lt;Unit&gt; units, final Territory t, final MouseDetails me) {
+<span class="nc bnc" id="L318" title="All 2 branches missed.">    for (final MouseOverUnitListener listener : mouseOverUnitsListeners) {</span>
+<span class="nc" id="L319">      listener.mouseEnter(units, t, me);</span>
+    }
+<span class="nc" id="L321">  }</span>
+
+  private Territory getTerritory(final double x, final double y) {
+<span class="nc" id="L324">    final String name = uiContext.getMapData().getTerritoryAt(normalizeX(x), normalizeY(y));</span>
+<span class="nc bnc" id="L325" title="All 2 branches missed.">    if (name == null) {</span>
+<span class="nc" id="L326">      return null;</span>
+    }
+<span class="nc" id="L328">    return m_data.getMap().getTerritory(name);</span>
+  }
+
+  private double normalizeX(double x) {
+<span class="nc bnc" id="L332" title="All 2 branches missed.">    if (!uiContext.getMapData().scrollWrapX()) {</span>
+<span class="nc" id="L333">      return x;</span>
+    }
+<span class="nc" id="L335">    final int imageWidth = (int) getImageDimensions().getWidth();</span>
+<span class="nc bnc" id="L336" title="All 2 branches missed.">    if (x &lt; 0) {</span>
+<span class="nc" id="L337">      x += imageWidth;</span>
+<span class="nc bnc" id="L338" title="All 2 branches missed.">    } else if (x &gt; imageWidth) {</span>
+<span class="nc" id="L339">      x -= imageWidth;</span>
+    }
+<span class="nc" id="L341">    return x;</span>
+  }
+
+  private double normalizeY(double y) {
+<span class="nc bnc" id="L345" title="All 2 branches missed.">    if (!uiContext.getMapData().scrollWrapY()) {</span>
+<span class="nc" id="L346">      return y;</span>
+    }
+<span class="nc" id="L348">    final int imageHeight = (int) getImageDimensions().getHeight();</span>
+<span class="nc bnc" id="L349" title="All 2 branches missed.">    if (y &lt; 0) {</span>
+<span class="nc" id="L350">      y += imageHeight;</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">    } else if (y &gt; imageHeight) {</span>
+<span class="nc" id="L352">      y -= imageHeight;</span>
+    }
+<span class="nc" id="L354">    return y;</span>
+  }
+
+  public void resetMap() {
+<span class="nc" id="L358">    tileManager.resetTiles(m_data, uiContext.getMapData());</span>
+<span class="nc" id="L359">    SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L360">    initSmallMap();</span>
+    // m_smallMapImageManager.update(m_data, m_uiContext.getMapData());
+<span class="nc" id="L362">  }</span>
+
+  private MouseDetails convert(final MouseEvent me) {
+<span class="nc" id="L365">    final double scaledMouseX = me.getX() / m_scale;</span>
+<span class="nc" id="L366">    final double scaledMouseY = me.getY() / m_scale;</span>
+<span class="nc" id="L367">    final double x = normalizeX(scaledMouseX + getXOffset());</span>
+<span class="nc" id="L368">    final double y = normalizeY(scaledMouseY + getYOffset());</span>
+<span class="nc" id="L369">    return new MouseDetails(me, x, y);</span>
+  }
+
+  private boolean unitsChanged(final Tuple&lt;Territory, List&lt;Unit&gt;&gt; newUnits) {
+    // both are null
+<span class="nc bnc" id="L374" title="All 2 branches missed.">    if (newUnits == currentUnits) {</span>
+<span class="nc" id="L375">      return false;</span>
+    }
+    // one is null
+<span class="nc bnc" id="L378" title="All 4 branches missed.">    if (newUnits == null || currentUnits == null) {</span>
+<span class="nc" id="L379">      return true;</span>
+    }
+<span class="nc bnc" id="L381" title="All 2 branches missed.">    if (!newUnits.getFirst().equals(currentUnits.getFirst())) {</span>
+<span class="nc" id="L382">      return true;</span>
+    }
+<span class="nc bnc" id="L384" title="All 2 branches missed.">    return !games.strategy.util.Util.equals(newUnits.getSecond(), currentUnits.getSecond());</span>
+  }
+
+  public void updateCountries(final Collection&lt;Territory&gt; countries) {
+<span class="nc" id="L388">    tileManager.updateTerritories(countries, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L389">    smallMapImageManager.update(m_data, uiContext.getMapData());</span>
+<span class="nc" id="L390">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L391">      smallView.repaint();</span>
+<span class="nc" id="L392">      repaint();</span>
+<span class="nc" id="L393">    });</span>
+<span class="nc" id="L394">  }</span>
+
+  public void setGameData(final GameData data) {
+    // clean up any old listeners
+<span class="nc bnc" id="L398" title="All 2 branches missed.">    if (m_data != null) {</span>
+<span class="nc" id="L399">      m_data.removeTerritoryListener(TERRITORY_LISTENER);</span>
+<span class="nc" id="L400">      m_data.removeDataChangeListener(TECH_UPDATE_LISTENER);</span>
+    }
+<span class="nc" id="L402">    m_data = data;</span>
+<span class="nc" id="L403">    m_data.addTerritoryListener(TERRITORY_LISTENER);</span>
+<span class="nc" id="L404">    m_data.addDataChangeListener(TECH_UPDATE_LISTENER);</span>
+<span class="nc" id="L405">    clearUndrawn();</span>
+<span class="nc" id="L406">    tileManager.resetTiles(m_data, uiContext.getMapData());</span>
+<span class="nc" id="L407">  }</span>
+
+<span class="nc" id="L409">  private final TerritoryListener TERRITORY_LISTENER = new TerritoryListener() {</span>
+    @Override
+    public void unitsChanged(final Territory territory) {
+<span class="nc" id="L412">      updateCountries(Collections.singleton(territory));</span>
+<span class="nc" id="L413">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L414">    }</span>
+
+    @Override
+    public void ownerChanged(final Territory territory) {
+<span class="nc" id="L418">      smallMapImageManager.updateTerritoryOwner(territory, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L419">      updateCountries(Collections.singleton(territory));</span>
+<span class="nc" id="L420">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L421">    }</span>
+
+    @Override
+    public void attachmentChanged(final Territory territory) {
+<span class="nc" id="L425">      updateCountries(Collections.singleton(territory));</span>
+<span class="nc" id="L426">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L427">    }</span>
+  };
+<span class="nc" id="L429">  private final GameDataChangeListener TECH_UPDATE_LISTENER = new GameDataChangeListener() {</span>
+    @Override
+    public void gameDataChanged(final Change aChange) {
+      // find the players with tech changes
+<span class="nc" id="L433">      final Set&lt;PlayerID&gt; playersWithTechChange = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L434">      getPlayersWithTechChanges(aChange, playersWithTechChange);</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">      if (playersWithTechChange.isEmpty()) {</span>
+<span class="nc" id="L436">        return;</span>
+      }
+<span class="nc" id="L438">      tileManager.resetTiles(m_data, uiContext.getMapData());</span>
+<span class="nc" id="L439">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L440">    }</span>
+
+    private void getPlayersWithTechChanges(final Change aChange, final Set&lt;PlayerID&gt; players) {
+<span class="nc bnc" id="L443" title="All 2 branches missed.">      if (aChange instanceof CompositeChange) {</span>
+<span class="nc" id="L444">        final CompositeChange composite = (CompositeChange) aChange;</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">        for (final Change item : composite.getChanges()) {</span>
+<span class="nc" id="L446">          getPlayersWithTechChanges(item, players);</span>
+        }
+<span class="nc" id="L448">      } else {</span>
+<span class="nc bnc" id="L449" title="All 2 branches missed.">        if (aChange instanceof ChangeAttachmentChange) {</span>
+<span class="nc" id="L450">          final ChangeAttachmentChange changeAttachment = (ChangeAttachmentChange) aChange;</span>
+<span class="nc bnc" id="L451" title="All 2 branches missed.">          if (changeAttachment.getAttachmentName().equals(Constants.TECH_ATTACHMENT_NAME)) {</span>
+<span class="nc" id="L452">            players.add((PlayerID) changeAttachment.getAttachedTo());</span>
+          }
+        }
+      }
+<span class="nc" id="L456">    }</span>
+  };
+
+  @Override
+  public void setTopLeft(final int x, final int y) {
+<span class="nc" id="L461">    super.setTopLeft(x, y);</span>
+<span class="nc" id="L462">  }</span>
+
+  // this one is useful for screenshots
+  @Override
+  public void print(final Graphics g) {
+<span class="nc" id="L467">    final Graphics2D g2d = (Graphics2D) g;</span>
+<span class="nc" id="L468">    super.print(g2d);</span>
+    // make sure we use the same data for the entire print
+<span class="nc" id="L470">    final GameData gameData = m_data;</span>
+<span class="nc" id="L471">    final Rectangle2D.Double bounds = new Rectangle2D.Double(0, 0, getImageWidth(), getImageHeight());</span>
+<span class="nc" id="L472">    final Collection&lt;Tile&gt; tileList = tileManager.getTiles(bounds);</span>
+<span class="nc bnc" id="L473" title="All 2 branches missed.">    for (final Tile tile : tileList) {</span>
+<span class="nc" id="L474">      Tile.S_TILE_LOCKUTIL.acquireLock(tile.getLock());</span>
+      try {
+<span class="nc" id="L476">        final Image img = tile.getImage(gameData, uiContext.getMapData());</span>
+<span class="nc bnc" id="L477" title="All 2 branches missed.">        if (img != null) {</span>
+<span class="nc" id="L478">          final AffineTransform t = new AffineTransform();</span>
+<span class="nc" id="L479">          t.translate((tile.getBounds().x - bounds.getX()) * m_scale, (tile.getBounds().y - bounds.getY()) * m_scale);</span>
+<span class="nc" id="L480">          g2d.drawImage(img, t, this);</span>
+        }
+<span class="nc" id="L482">      } finally {</span>
+<span class="nc" id="L483">        Tile.S_TILE_LOCKUTIL.releaseLock(tile.getLock());</span>
+<span class="nc" id="L484">      }</span>
+    }
+<span class="nc" id="L486">  }</span>
+
+  @Override
+  public void paint(final Graphics g) {
+<span class="nc" id="L490">    final Graphics2D g2d = (Graphics2D) g;</span>
+<span class="nc" id="L491">    super.paint(g2d);</span>
+<span class="nc" id="L492">    g2d.clip(new Rectangle2D.Double(0, 0, (getImageWidth() * m_scale), (getImageHeight() * m_scale)));</span>
+<span class="nc" id="L493">    int x = m_model.getX();</span>
+<span class="nc" id="L494">    int y = m_model.getY();</span>
+<span class="nc" id="L495">    final List&lt;Tile&gt; images = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L496">    final List&lt;Tile&gt; undrawnTiles = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L497">    final Stopwatch stopWatch = new Stopwatch(logger, Level.FINER, &quot;Paint&quot;);</span>
+    // make sure we use the same data for the entire paint
+<span class="nc" id="L499">    final GameData data = m_data;</span>
+    // if the map fits on screen, dont draw any overlap
+<span class="nc bnc" id="L501" title="All 4 branches missed.">    final boolean fitAxisX = !mapWidthFitsOnScreen() &amp;&amp; uiContext.getMapData().scrollWrapX();</span>
+<span class="nc bnc" id="L502" title="All 4 branches missed.">    final boolean fitAxisY = !mapHeightFitsOnScreen() &amp;&amp; uiContext.getMapData().scrollWrapY();</span>
+<span class="nc bnc" id="L503" title="All 4 branches missed.">    if (fitAxisX || fitAxisY) {</span>
+<span class="nc bnc" id="L504" title="All 4 branches missed.">      if (fitAxisX &amp;&amp; x + (int) getScaledWidth() &gt; m_model.getMaxWidth()) {</span>
+<span class="nc" id="L505">        x -= m_model.getMaxWidth();</span>
+      }
+<span class="nc bnc" id="L507" title="All 4 branches missed.">      if (fitAxisY &amp;&amp; y + (int) getScaledHeight() &gt; m_model.getMaxHeight()) {</span>
+<span class="nc" id="L508">        y -= m_model.getMaxHeight();</span>
+      }
+      // handle wrapping off the screen
+<span class="nc bnc" id="L511" title="All 4 branches missed.">      if (fitAxisX &amp;&amp; x &lt; 0) {</span>
+<span class="nc bnc" id="L512" title="All 4 branches missed.">        if (fitAxisY &amp;&amp; y &lt; 0) {</span>
+<span class="nc" id="L513">          final Rectangle2D.Double leftUpperBounds =</span>
+<span class="nc" id="L514">              new Rectangle2D.Double(m_model.getMaxWidth() + x, m_model.getMaxHeight() + y, -x, -y);</span>
+<span class="nc" id="L515">          drawTiles(g2d, images, data, leftUpperBounds, 0, 0, undrawnTiles);</span>
+        }
+<span class="nc" id="L517">        final Rectangle2D.Double leftBounds =</span>
+<span class="nc" id="L518">            new Rectangle2D.Double(m_model.getMaxWidth() + x, y, -x, getScaledHeight());</span>
+<span class="nc" id="L519">        drawTiles(g2d, images, data, leftBounds, 0, 0, undrawnTiles);</span>
+      }
+<span class="nc bnc" id="L521" title="All 4 branches missed.">      if (fitAxisY &amp;&amp; y &lt; 0) {</span>
+<span class="nc" id="L522">        final Rectangle2D.Double upperBounds =</span>
+<span class="nc" id="L523">            new Rectangle2D.Double(x, m_model.getMaxHeight() + y, getScaledWidth(), -y);</span>
+<span class="nc" id="L524">        drawTiles(g2d, images, data, upperBounds, 0, 0, undrawnTiles);</span>
+      }
+    }
+    // handle non overlap
+<span class="nc" id="L528">    final Rectangle2D.Double mainBounds = new Rectangle2D.Double(x, y, getScaledWidth(), getScaledHeight());</span>
+<span class="nc" id="L529">    drawTiles(g2d, images, data, mainBounds, 0, 0, undrawnTiles);</span>
+<span class="nc bnc" id="L530" title="All 6 branches missed.">    if (routeDescription != null &amp;&amp; mouseShadowImage != null &amp;&amp; routeDescription.getEnd() != null) {</span>
+<span class="nc" id="L531">      final AffineTransform t = new AffineTransform();</span>
+<span class="nc" id="L532">      t.translate(m_scale * normalizeX(routeDescription.getEnd().getX() - getXOffset()),</span>
+<span class="nc" id="L533">          m_scale * normalizeY(routeDescription.getEnd().getY() - getYOffset()));</span>
+<span class="nc" id="L534">      t.translate(mouseShadowImage.getWidth() / -2, mouseShadowImage.getHeight() / -2);</span>
+<span class="nc" id="L535">      t.scale(m_scale, m_scale);</span>
+<span class="nc" id="L536">      g2d.drawImage(mouseShadowImage, t, this);</span>
+    }
+<span class="nc bnc" id="L538" title="All 2 branches missed.">    if (routeDescription != null) {</span>
+<span class="nc" id="L539">      routeDrawer.drawRoute(g2d, routeDescription, this, uiContext.getMapData(), movementLeftForCurrentUnits);</span>
+    }
+    // used to keep strong references to what is on the screen so it wont be garbage collected
+    // other references to the images are weak references
+<span class="nc" id="L543">    this.images.clear();</span>
+<span class="nc" id="L544">    this.images.addAll(images);</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">    if (highlightedUnits != null) {</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">      for (final Entry&lt;Territory, List&lt;Unit&gt;&gt; entry : highlightedUnits.entrySet()) {</span>
+<span class="nc" id="L547">        final Set&lt;UnitCategory&gt; categories = UnitSeperator.categorize(entry.getValue());</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        for (final UnitCategory category : categories) {</span>
+<span class="nc" id="L549">          final List&lt;Unit&gt; territoryUnitsOfSameCategory = category.getUnits();</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">          if (territoryUnitsOfSameCategory.isEmpty()) {</span>
+<span class="nc" id="L551">            continue;</span>
+          }
+<span class="nc" id="L553">          final Rectangle r = tileManager.getUnitRect(territoryUnitsOfSameCategory, m_data);</span>
+<span class="nc bnc" id="L554" title="All 2 branches missed.">          if (r == null) {</span>
+<span class="nc" id="L555">            continue;</span>
+          }
+
+<span class="nc" id="L558">          final Optional&lt;Image&gt; image = uiContext.getUnitImageFactory().getHighlightImage(category.getType(),</span>
+<span class="nc" id="L559">              category.getOwner(), m_data, category.hasDamageOrBombingUnitDamage(), category.getDisabled());</span>
+<span class="nc bnc" id="L560" title="All 2 branches missed.">          if (image.isPresent()) {</span>
+<span class="nc" id="L561">            final AffineTransform t = new AffineTransform();</span>
+<span class="nc" id="L562">            t.translate(normalizeX(r.getX() - getXOffset()) * m_scale, normalizeY(r.getY() - getYOffset()) * m_scale);</span>
+<span class="nc" id="L563">            t.scale(m_scale, m_scale);</span>
+<span class="nc" id="L564">            g2d.drawImage(image.get(), t, this);</span>
+          }
+        }
+      }
+    }
+    // draw the tiles nearest us first
+    // then draw farther away
+<span class="nc" id="L571">    updateUndrawnTiles(undrawnTiles, 30, true);</span>
+<span class="nc" id="L572">    updateUndrawnTiles(undrawnTiles, 257, true);</span>
+    // when we are this far away, dont force the tiles to stay in memroy
+<span class="nc" id="L574">    updateUndrawnTiles(undrawnTiles, 513, false);</span>
+<span class="nc" id="L575">    updateUndrawnTiles(undrawnTiles, 767, false);</span>
+<span class="nc" id="L576">    clearUndrawn();</span>
+<span class="nc" id="L577">    this.undrawnTiles.addAll(undrawnTiles);</span>
+<span class="nc" id="L578">    stopWatch.done();</span>
+<span class="nc" id="L579">  }</span>
+
+  private void clearUndrawn() {
+<span class="nc bnc" id="L582" title="All 2 branches missed.">    for (int i = 0; i &lt; 3; i++) {</span>
+      try {
+        // several bug reports indicate that
+        // clear can throw an exception
+        // http://sourceforge.net/tracker/index.php?func=detail&amp;aid=1832130&amp;group_id=44492&amp;atid=439737
+        // ignore
+<span class="nc" id="L588">        undrawnTiles.clear();</span>
+<span class="nc" id="L589">        return;</span>
+<span class="nc" id="L590">      } catch (final Exception e) {</span>
+<span class="nc" id="L591">        e.printStackTrace(System.out);</span>
+      }
+    }
+<span class="nc" id="L594">  }</span>
+
+  boolean mapWidthFitsOnScreen() {
+<span class="nc bnc" id="L597" title="All 2 branches missed.">    return m_model.getMaxWidth() &lt; getScaledWidth();</span>
+  }
+
+  boolean mapHeightFitsOnScreen() {
+<span class="nc bnc" id="L601" title="All 2 branches missed.">    return m_model.getMaxHeight() &lt; getScaledHeight();</span>
+  }
+
+  /**
+   * If we have nothing left undrawn, draw the tiles within preDrawMargin of us, optionally
+   * forcing the tiles to remain in memory.
+   */
+  private void updateUndrawnTiles(final List&lt;Tile&gt; undrawnTiles, final int preDrawMargin, final boolean forceInMemory) {
+    // draw tiles near us if we have nothing left to draw
+    // that way when we scroll slowly we wont notice a glitch
+<span class="nc bnc" id="L611" title="All 2 branches missed.">    if (undrawnTiles.isEmpty()) {</span>
+<span class="nc" id="L612">      final Rectangle2D extendedBounds = new Rectangle2D.Double(Math.max(m_model.getX() - preDrawMargin, 0),</span>
+<span class="nc" id="L613">          Math.max(m_model.getY() - preDrawMargin, 0), getScaledWidth() + (2 * preDrawMargin),</span>
+<span class="nc" id="L614">          getScaledHeight() + (2 * preDrawMargin));</span>
+<span class="nc" id="L615">      final List&lt;Tile&gt; tileList = tileManager.getTiles(extendedBounds);</span>
+<span class="nc bnc" id="L616" title="All 2 branches missed.">      for (final Tile tile : tileList) {</span>
+<span class="nc bnc" id="L617" title="All 2 branches missed.">        if (tile.isDirty()) {</span>
+<span class="nc" id="L618">          undrawnTiles.add(tile);</span>
+<span class="nc bnc" id="L619" title="All 2 branches missed.">        } else if (forceInMemory) {</span>
+<span class="nc" id="L620">          images.add(tile);</span>
+        }
+      }
+    }
+<span class="nc" id="L624">  }</span>
+
+  private void drawTiles(final Graphics2D g, final List&lt;Tile&gt; images, final GameData data, Rectangle2D.Double bounds,
+      final double overlapX, final double overlapY, final List&lt;Tile&gt; undrawn) {
+<span class="nc" id="L628">    final List&lt;Tile&gt; tileList = tileManager.getTiles(bounds);</span>
+<span class="nc" id="L629">    bounds = new Rectangle2D.Double(bounds.getX(), bounds.getY(), bounds.getHeight(), bounds.getWidth());</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">    if (overlapX != 0) {</span>
+<span class="nc" id="L631">      bounds.x += overlapX - getScaledWidth();</span>
+    }
+<span class="nc bnc" id="L633" title="All 2 branches missed.">    if (overlapY != 0) {</span>
+<span class="nc" id="L634">      bounds.y += overlapY - getScaledHeight();</span>
+    }
+<span class="nc bnc" id="L636" title="All 2 branches missed.">    for (final Tile tile : tileList) {</span>
+<span class="nc" id="L637">      Image img = null;</span>
+<span class="nc" id="L638">      Tile.S_TILE_LOCKUTIL.acquireLock(tile.getLock());</span>
+      try {
+<span class="nc bnc" id="L640" title="All 2 branches missed.">        if (tile.isDirty()) {</span>
+          // take what we can get to avoid screen flicker
+<span class="nc" id="L642">          undrawn.add(tile);</span>
+<span class="nc" id="L643">          img = tile.getRawImage();</span>
+<span class="nc" id="L644">        } else {</span>
+<span class="nc" id="L645">          img = tile.getImage(data, uiContext.getMapData());</span>
+<span class="nc" id="L646">          images.add(tile);</span>
+        }
+<span class="nc bnc" id="L648" title="All 2 branches missed.">        if (img != null) {</span>
+<span class="nc" id="L649">          final AffineTransform t = new AffineTransform();</span>
+<span class="nc" id="L650">          t.translate(m_scale * (tile.getBounds().x - bounds.getX()), m_scale * (tile.getBounds().y - bounds.getY()));</span>
+<span class="nc" id="L651">          g.drawImage(img, t, this);</span>
+        }
+<span class="nc" id="L653">      } finally {</span>
+<span class="nc" id="L654">        Tile.S_TILE_LOCKUTIL.releaseLock(tile.getLock());</span>
+<span class="nc" id="L655">      }</span>
+    }
+<span class="nc" id="L657">  }</span>
+
+  public Image getTerritoryImage(final Territory territory) {
+<span class="nc" id="L660">    getData().acquireReadLock();</span>
+    try {
+<span class="nc" id="L662">      return tileManager.createTerritoryImage(territory, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L663">    } finally {</span>
+<span class="nc" id="L664">      getData().releaseReadLock();</span>
+<span class="nc" id="L665">    }</span>
+  }
+
+  public Image getTerritoryImage(final Territory territory, final Territory focusOn) {
+<span class="nc" id="L669">    getData().acquireReadLock();</span>
+    try {
+<span class="nc" id="L671">      return tileManager.createTerritoryImage(territory, focusOn, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L672">    } finally {</span>
+<span class="nc" id="L673">      getData().releaseReadLock();</span>
+<span class="nc" id="L674">    }</span>
+  }
+
+  public double getScale() {
+<span class="nc" id="L678">    return m_scale;</span>
+  }
+
+  @Override
+  public void setScale(final double newScale) {
+<span class="nc" id="L683">    super.setScale(newScale);</span>
+    // setScale will check bounds, and normalize the scale correctly
+<span class="nc" id="L685">    final double normalizedScale = m_scale;</span>
+<span class="nc" id="L686">    final OptionalExtraBorderLevel drawBorderOption = uiContext.getDrawTerritoryBordersAgain();</span>
+    // so what is happening here is that when we zoom out, the territory borders get blurred or even removed
+    // so we have a special setter to have them be drawn a second time, on top of the relief tiles
+<span class="nc bnc" id="L689" title="All 2 branches missed.">    if (normalizedScale &gt;= 1) {</span>
+<span class="nc bnc" id="L690" title="All 2 branches missed.">      if (drawBorderOption != OptionalExtraBorderLevel.LOW) {</span>
+<span class="nc" id="L691">        uiContext.resetDrawTerritoryBordersAgain();</span>
+      }
+<span class="nc" id="L693">    } else {</span>
+<span class="nc bnc" id="L694" title="All 2 branches missed.">      if (drawBorderOption == OptionalExtraBorderLevel.LOW) {</span>
+<span class="nc" id="L695">        uiContext.setDrawTerritoryBordersAgainToMedium();</span>
+      }
+    }
+<span class="nc" id="L698">    uiContext.setScale(normalizedScale);</span>
+<span class="nc" id="L699">    recreateTiles(getData(), uiContext);</span>
+<span class="nc" id="L700">    repaint();</span>
+<span class="nc" id="L701">  }</span>
+
+  public void initSmallMap() {
+<span class="nc" id="L704">    final Iterator&lt;Territory&gt; territories = m_data.getMap().getTerritories().iterator();</span>
+<span class="nc bnc" id="L705" title="All 2 branches missed.">    while (territories.hasNext()) {</span>
+<span class="nc" id="L706">      final Territory territory = territories.next();</span>
+<span class="nc" id="L707">      smallMapImageManager.updateTerritoryOwner(territory, m_data, uiContext.getMapData());</span>
+    }
+<span class="nc" id="L709">    smallMapImageManager.update(m_data, uiContext.getMapData());</span>
+<span class="nc" id="L710">  }</span>
+
+  public void changeSmallMapOffscreenMap() {
+<span class="nc" id="L713">    smallMapImageManager.updateOffscreenImage(uiContext.getMapImage().getSmallMapImage());</span>
+<span class="nc" id="L714">  }</span>
+
+  public void setMouseShadowUnits(final Collection&lt;Unit&gt; units) {
+<span class="nc bnc" id="L717" title="All 4 branches missed.">    if (units == null || units.isEmpty()) {</span>
+<span class="nc" id="L718">      movementLeftForCurrentUnits = &quot;&quot;;</span>
+<span class="nc" id="L719">      mouseShadowImage = null;</span>
+<span class="nc" id="L720">      SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L721">      return;</span>
+    }
+<span class="nc" id="L723">    final Tuple&lt;Integer, Integer&gt; movementLeft =</span>
+<span class="nc" id="L724">        TripleAUnit.getMinAndMaxMovementLeft(Match.getMatches(units, Matches.unitIsBeingTransported().invert()));</span>
+<span class="nc" id="L725">    movementLeftForCurrentUnits =</span>
+<span class="nc bnc" id="L726" title="All 2 branches missed.">        movementLeft.getFirst() + (movementLeft.getSecond() &gt; movementLeft.getFirst() ? &quot;+&quot; : &quot;&quot;);</span>
+<span class="nc" id="L727">    final Set&lt;UnitCategory&gt; categories = UnitSeperator.categorize(units);</span>
+<span class="nc" id="L728">    final int icon_width = uiContext.getUnitImageFactory().getUnitImageWidth();</span>
+<span class="nc" id="L729">    final int xSpace = 5;</span>
+<span class="nc" id="L730">    final BufferedImage img = Util.createImage(categories.size() * (xSpace + icon_width),</span>
+<span class="nc" id="L731">        uiContext.getUnitImageFactory().getUnitImageHeight(), true);</span>
+<span class="nc" id="L732">    final Graphics2D g = img.createGraphics();</span>
+<span class="nc" id="L733">    g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));</span>
+<span class="nc" id="L734">    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);</span>
+<span class="nc" id="L735">    g.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);</span>
+<span class="nc" id="L736">    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);</span>
+<span class="nc" id="L737">    final Rectangle bounds = new Rectangle(0, 0, 0, 0);</span>
+<span class="nc" id="L738">    getData().acquireReadLock();</span>
+    try {
+<span class="nc" id="L740">      int i = 0;</span>
+<span class="nc bnc" id="L741" title="All 2 branches missed.">      for (final UnitCategory category : categories) {</span>
+<span class="nc" id="L742">        final Point place = new Point(i * (icon_width + xSpace), 0);</span>
+<span class="nc" id="L743">        final UnitsDrawer drawer = new UnitsDrawer(category.getUnits().size(), category.getType().getName(),</span>
+<span class="nc" id="L744">            category.getOwner().getName(), place, category.getDamaged(), category.getBombingDamage(),</span>
+<span class="nc" id="L745">            category.getDisabled(), false, &quot;&quot;, uiContext);</span>
+<span class="nc" id="L746">        drawer.draw(bounds, m_data, g, uiContext.getMapData(), null, null);</span>
+<span class="nc" id="L747">        i++;</span>
+      }
+<span class="nc" id="L749">    } finally {</span>
+<span class="nc" id="L750">      getData().releaseReadLock();</span>
+<span class="nc" id="L751">    }</span>
+<span class="nc" id="L752">    mouseShadowImage = img;</span>
+<span class="nc" id="L753">    SwingUtilities.invokeLater(() -&gt; repaint());</span>
+<span class="nc" id="L754">    g.dispose();</span>
+<span class="nc" id="L755">  }</span>
+
+  public void setTerritoryOverlay(final Territory territory, final Color color, final int alpha) {
+<span class="nc" id="L758">    tileManager.setTerritoryOverlay(territory, color, alpha, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L759">  }</span>
+
+  public void setTerritoryOverlayForBorder(final Territory territory, final Color color) {
+<span class="nc" id="L762">    tileManager.setTerritoryOverlayForBorder(territory, color, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L763">  }</span>
+
+  public void clearTerritoryOverlay(final Territory territory) {
+<span class="nc" id="L766">    tileManager.clearTerritoryOverlay(territory, m_data, uiContext.getMapData());</span>
+<span class="nc" id="L767">  }</span>
+
+  public IUIContext getUIContext() {
+<span class="nc" id="L770">    return uiContext;</span>
+  }
+
+  public void hideMouseCursor() {
+<span class="nc bnc" id="L774" title="All 2 branches missed.">    if (hiddenCursor == null) {</span>
+<span class="nc" id="L775">      hiddenCursor = getToolkit().createCustomCursor(new BufferedImage(1, 1, BufferedImage.TYPE_4BYTE_ABGR),</span>
+<span class="nc" id="L776">          new Point(0, 0), &quot;Hidden&quot;);</span>
+    }
+<span class="nc" id="L778">    setCursor(hiddenCursor);</span>
+<span class="nc" id="L779">  }</span>
+
+  public void showMouseCursor() {
+<span class="nc" id="L782">    setCursor(uiContext.getCursor());</span>
+<span class="nc" id="L783">  }</span>
+
+  public Optional&lt;Image&gt; getErrorImage() {
+<span class="nc" id="L786">    return uiContext.getMapData().getErrorImage();</span>
+  }
+
+  public Optional&lt;Image&gt; getWarningImage() {
+<span class="nc" id="L790">    return uiContext.getMapData().getWarningImage();</span>
+  }
+
+  public Optional&lt;Image&gt; getInfoImage() {
+<span class="nc" id="L794">    return uiContext.getMapData().getInfoImage();</span>
+  }
+
+  public Optional&lt;Image&gt; getHelpImage() {
+<span class="nc" id="L798">    return uiContext.getMapData().getHelpImage();</span>
+  }
+}
+
+
+class BackgroundDrawer implements Runnable {
+  // use a weak reference, if we see the panel is gc'd, then we can stop this thread
+  private final WeakReference&lt;MapPanel&gt; m_mapPanelRef;
+
+<span class="nc" id="L807">  BackgroundDrawer(final MapPanel panel) {</span>
+<span class="nc" id="L808">    m_mapPanelRef = new WeakReference&lt;&gt;(panel);</span>
+<span class="nc" id="L809">  }</span>
+
+  public void stop() {
+    // the thread will eventually wake up and notice we are done
+<span class="nc" id="L813">    m_mapPanelRef.clear();</span>
+<span class="nc" id="L814">  }</span>
+
+  @Override
+  public void run() {
+<span class="nc bnc" id="L818" title="All 2 branches missed.">    while (m_mapPanelRef.get() != null) {</span>
+      BlockingQueue&lt;Tile&gt; undrawnTiles;
+<span class="nc" id="L820">      MapPanel panel = m_mapPanelRef.get();</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">      if (panel == null) {</span>
+<span class="nc" id="L822">        continue;</span>
+      }
+<span class="nc" id="L824">      undrawnTiles = panel.getUndrawnTiles();</span>
+<span class="nc" id="L825">      panel = null;</span>
+      Tile tile;
+      try {
+<span class="nc" id="L828">        tile = undrawnTiles.poll(2000, TimeUnit.MILLISECONDS);</span>
+<span class="nc" id="L829">      } catch (final InterruptedException e) {</span>
+<span class="nc" id="L830">        continue;</span>
+      }
+<span class="nc bnc" id="L832" title="All 2 branches missed.">      if (tile == null) {</span>
+<span class="nc" id="L833">        continue;</span>
+      }
+<span class="nc" id="L835">      final MapPanel mapPanel = m_mapPanelRef.get();</span>
+<span class="nc bnc" id="L836" title="All 2 branches missed.">      if (mapPanel == null) {</span>
+<span class="nc" id="L837">        continue;</span>
+      }
+<span class="nc" id="L839">      final GameData data = mapPanel.getData();</span>
+<span class="nc" id="L840">      data.acquireReadLock();</span>
+      try {
+<span class="nc" id="L842">        tile.getImage(data, mapPanel.getUIContext().getMapData());</span>
+<span class="nc" id="L843">      } finally {</span>
+<span class="nc" id="L844">        data.releaseReadLock();</span>
+<span class="nc" id="L845">      }</span>
+<span class="nc" id="L846">      SwingUtilities.invokeLater(() -&gt; mapPanel.repaint());</span>
+    }
+<span class="nc" id="L848">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

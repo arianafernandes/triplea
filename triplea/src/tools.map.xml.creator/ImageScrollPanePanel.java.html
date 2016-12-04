@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ImageScrollPanePanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.map.xml.creator</a> &gt; <span class="el_source">ImageScrollPanePanel.java</span></div><h1>ImageScrollPanePanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package tools.map.xml.creator;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.Rectangle2D;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JViewport;
+import javax.swing.SwingUtilities;
+
+import com.google.common.collect.Maps;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.util.PointFileReaderWriter;
+import tools.image.FileOpen;
+
+/**
+ * Base class for image *Panel classes that show a map for defining certain map XML properties.
+ * It contains the polygons and center points of the territories.
+ */
+public abstract class ImageScrollPanePanel {
+<span class="nc" id="L44">  private static Font font = null;</span>
+
+  private static MapXmlCreator mapXmlCreator;
+
+  // TODO: Check if only usage point outside this class can be erased
+  protected static MapXmlCreator getMapXmlCreator() {
+<span class="nc" id="L50">    return mapXmlCreator;</span>
+  }
+
+<span class="nc" id="L53">  protected static Map&lt;String, List&lt;Polygon&gt;&gt; polygons = Maps.newHashMap(); // hash map for polygon</span>
+                                                                            // points
+<span class="nc" id="L55">  public static boolean polygonsInvalid = true;</span>
+
+  private JPanel imagePanel;
+<span class="nc" id="L58">  private static Map&lt;String, Point&gt; centers = Maps.newHashMap();</span>
+
+  protected void layout(final JPanel stepActionPanel) {
+<span class="nc" id="L61">    final Dimension size = stepActionPanel.getSize();</span>
+<span class="nc" id="L62">    final JScrollPane js = new JScrollPane(createImagePanel());</span>
+<span class="nc" id="L63">    js.setBorder(null);</span>
+<span class="nc" id="L64">    stepActionPanel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L65">    stepActionPanel.add(js, BorderLayout.CENTER);</span>
+<span class="nc" id="L66">    stepActionPanel.setPreferredSize(size);</span>
+<span class="nc" id="L67">  }</span>
+
+  abstract protected void paintPreparation(final Map&lt;String, Point&gt; centers);
+
+  abstract protected void paintCenterSpecifics(final Graphics g, final String centerName, final FontMetrics fontMetrics,
+      final Point item, final int x_text_start);
+
+  abstract protected void paintOwnSpecifics(final Graphics g, final Map&lt;String, Point&gt; centers);
+
+  abstract protected void mouseClickedOnImage(final Map&lt;String, Point&gt; centers,
+      final MouseEvent e);
+
+  protected void repaint() {
+<span class="nc" id="L80">    SwingUtilities.invokeLater(() -&gt; imagePanel.repaint());</span>
+<span class="nc" id="L81">  }</span>
+
+  protected JPanel createImagePanel() {
+
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    if (polygonsInvalid) {</span>
+<span class="nc" id="L86">      polygons.clear();</span>
+<span class="nc" id="L87">      polygonsInvalid = false;</span>
+    }
+<span class="nc bnc" id="L89" title="All 2 branches missed.">    if (polygons.isEmpty()) {</span>
+<span class="nc" id="L90">      MapXmlCreator.mapPolygonsFile = loadPolygons();</span>
+    }
+
+<span class="nc" id="L93">    final Image mapImage = Toolkit.getDefaultToolkit().getImage(MapXmlCreator.mapImageFile.getAbsolutePath());</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">    if (centers.isEmpty()) {</span>
+<span class="nc" id="L95">      loadCenters();</span>
+    }
+
+<span class="nc" id="L98">    paintPreparation(centers);</span>
+
+<span class="nc" id="L100">    setImagePanel(mapImage);</span>
+
+<span class="nc" id="L102">    return imagePanel;</span>
+  }
+
+  /**
+   *
+   */
+  protected void addMouseAdapterToImagePanel() {
+<span class="nc" id="L109">    final MouseAdapter imageMouseAdapter = new MouseAdapter() {</span>
+<span class="nc" id="L110">      private final Cursor defCursor = Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR);</span>
+<span class="nc" id="L111">      private final Cursor hndCursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR);</span>
+<span class="nc" id="L112">      private final Point pp = new Point();</span>
+
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc" id="L116">        mouseClickedOnImage(centers, e);</span>
+<span class="nc" id="L117">      }</span>
+
+      @Override
+      public void mouseDragged(final MouseEvent e) {
+<span class="nc" id="L121">        final JViewport vport = (JViewport) imagePanel.getParent();</span>
+<span class="nc" id="L122">        final Point cp = e.getPoint();</span>
+<span class="nc" id="L123">        final Point vp = vport.getViewPosition();</span>
+<span class="nc" id="L124">        vp.translate(pp.x - cp.x, pp.y - cp.y);</span>
+<span class="nc" id="L125">        SwingUtilities.invokeLater(() -&gt; imagePanel.scrollRectToVisible(new Rectangle(vp, vport.getSize())));</span>
+<span class="nc" id="L126">        pp.setLocation(cp);</span>
+<span class="nc" id="L127">      }</span>
+
+      @Override
+      public void mousePressed(final MouseEvent e) {
+<span class="nc" id="L131">        imagePanel.setCursor(hndCursor);</span>
+<span class="nc" id="L132">        pp.setLocation(e.getPoint());</span>
+<span class="nc" id="L133">      }</span>
+
+      @Override
+      public void mouseReleased(final MouseEvent e) {
+<span class="nc" id="L137">        imagePanel.setCursor(defCursor);</span>
+<span class="nc" id="L138">        pp.setLocation(e.getPoint());</span>
+<span class="nc" id="L139">      }</span>
+    };
+<span class="nc" id="L141">    imagePanel.addMouseListener(imageMouseAdapter);</span>
+<span class="nc" id="L142">    imagePanel.addMouseMotionListener(imageMouseAdapter);</span>
+<span class="nc" id="L143">  }</span>
+
+  private void setImagePanel(final Image mapImage) {
+<span class="nc" id="L146">    imagePanel = getNewImagePanel(mapImage);</span>
+
+<span class="nc" id="L148">    final Dimension mapImageDim = getImageDimension(mapImage);</span>
+<span class="nc" id="L149">    SwingUtilities.invokeLater(() -&gt; imagePanel</span>
+<span class="nc" id="L150">        .setPreferredSize(mapImageDim));</span>
+<span class="nc" id="L151">    imagePanel</span>
+<span class="nc" id="L152">        .setPreferredSize(mapImageDim);</span>
+
+
+<span class="nc" id="L155">    addMouseAdapterToImagePanel();</span>
+<span class="nc" id="L156">  }</span>
+
+  private JPanel getNewImagePanel(final Image mapImage) {
+<span class="nc" id="L159">    return new JPanel() {</span>
+      private static final long serialVersionUID = -7130828419508975924L;
+
+      @Override
+      public void paint(final Graphics g) {
+
+<span class="nc" id="L165">        final Rectangle clipBounds = g.getClipBounds();</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        if (font == null) {</span>
+<span class="nc" id="L167">          font = g.getFont();</span>
+<span class="nc" id="L168">        } else {</span>
+<span class="nc" id="L169">          g.setFont(font);</span>
+        }
+
+<span class="nc" id="L172">        g.drawImage(mapImage, clipBounds.x, clipBounds.y, clipBounds.x + clipBounds.width,</span>
+<span class="nc" id="L173">            clipBounds.y + clipBounds.height, clipBounds.x, clipBounds.y, clipBounds.x + clipBounds.width,</span>
+<span class="nc" id="L174">            clipBounds.y + clipBounds.height, this);</span>
+<span class="nc" id="L175">        paintOwnSpecifics(g, centers);</span>
+<span class="nc" id="L176">        g.setColor(Color.red);</span>
+<span class="nc" id="L177">        final FontMetrics fontMetrics = g.getFontMetrics();</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        for (final Entry&lt;String, Point&gt; centerEntry : centers.entrySet()) {</span>
+<span class="nc" id="L179">          final String centerName = centerEntry.getKey();</span>
+<span class="nc" id="L180">          final Point item = centerEntry.getValue();</span>
+<span class="nc" id="L181">          final int x_text_start = item.x - centerName.length() / 2 * 5;</span>
+<span class="nc" id="L182">          final Rectangle2D stringBounds = fontMetrics.getStringBounds(centerName, g);</span>
+<span class="nc" id="L183">          final Rectangle boxRect = new Rectangle(Math.max(0, x_text_start - 2), Math.max(0, item.y - 6),</span>
+<span class="nc" id="L184">              (int) stringBounds.getWidth() + 4, (int) stringBounds.getHeight());</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">          if (clipBounds.intersects(boxRect)) {</span>
+<span class="nc" id="L186">            g.setColor(Color.white);</span>
+<span class="nc" id="L187">            g.fillRect(boxRect.x, boxRect.y, boxRect.width, boxRect.height);</span>
+<span class="nc" id="L188">            g.setColor(Color.red);</span>
+<span class="nc" id="L189">            g.drawString(centerName, Math.max(0, x_text_start), item.y + 5);</span>
+          }
+<span class="nc" id="L191">          boxRect.width += boxRect.width;</span>
+<span class="nc" id="L192">          boxRect.height += boxRect.height;</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">          if (clipBounds.intersects(boxRect)) {</span>
+<span class="nc" id="L194">            paintCenterSpecifics(g, centerName, fontMetrics, item, x_text_start);</span>
+          }
+        }
+<span class="nc" id="L197">      }</span>
+
+    };
+  }
+
+  private Dimension getImageDimension(final Image mapImage) {
+<span class="nc" id="L203">    return new Dimension(mapImage.getWidth(mapXmlCreator), mapImage.getHeight(mapXmlCreator));</span>
+  }
+
+  protected JPanel getImagePanel() {
+<span class="nc" id="L207">    return imagePanel;</span>
+  }
+
+  private static File loadPolygons() {
+<span class="nc" id="L211">    File file = null;</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">    if (MapXmlCreator.mapPolygonsFile == null) {</span>
+<span class="nc bnc" id="L213" title="All 4 branches missed.">      if (MapXmlCreator.mapFolderLocation != null &amp;&amp; MapXmlCreator.mapFolderLocation.exists()) {</span>
+<span class="nc" id="L214">        file = new File(MapXmlCreator.mapFolderLocation, &quot;polygons.txt&quot;);</span>
+      }
+<span class="nc bnc" id="L216" title="All 4 branches missed.">      if (file == null || !file.exists()) {</span>
+<span class="nc" id="L217">        file = new File(MapXmlCreator.mapImageFile.getParent() + File.separator + &quot;polygons.txt&quot;);</span>
+      }
+<span class="nc" id="L219">    } else {</span>
+<span class="nc" id="L220">      file = MapXmlCreator.mapPolygonsFile;</span>
+    }
+<span class="nc bnc" id="L222" title="All 2 branches missed.">    if (MapXmlCreator.mapPolygonsFile != null</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        || file.exists()</span>
+<span class="nc bnc" id="L224" title="All 2 branches missed.">            &amp;&amp; (JOptionPane.showConfirmDialog(new JPanel(),</span>
+<span class="nc" id="L225">                &quot;A polygons.txt file was found in the map's folder, do you want to use the file to supply the territory shapes?&quot;,</span>
+<span class="nc" id="L226">                &quot;File Suggestion&quot;,</span>
+<span class="nc" id="L227">                1) == 0)) {</span>
+      try {
+<span class="nc" id="L229">        Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.INFO,</span>
+<span class="nc" id="L230">            &quot;Load Polygons from &quot; + file.getPath());</span>
+<span class="nc" id="L231">        polygons = PointFileReaderWriter.readOneToManyPolygons(new FileInputStream(file.getPath()));</span>
+<span class="nc" id="L232">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L233">        Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.SEVERE,</span>
+<span class="nc" id="L234">            &quot;Something wrong with your Polygons file&quot;);</span>
+<span class="nc" id="L235">        ex1.printStackTrace();</span>
+      }
+<span class="nc" id="L237">    } else {</span>
+      try {
+<span class="nc" id="L239">        Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.FINE, &quot;Select the Polygons file&quot;);</span>
+<span class="nc" id="L240">        final String polyPath =</span>
+<span class="nc" id="L241">            new FileOpen(&quot;Select A Polygon File&quot;, MapXmlCreator.mapFolderLocation, &quot;.txt&quot;).getPathString();</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">        if (polyPath != null) {</span>
+<span class="nc" id="L243">          Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.FINE, &quot;Polygons : &quot; + polyPath);</span>
+<span class="nc" id="L244">          polygons = PointFileReaderWriter.readOneToManyPolygons(new FileInputStream(polyPath));</span>
+<span class="nc" id="L245">        } else {</span>
+<span class="nc" id="L246">          Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.WARNING,</span>
+<span class="nc" id="L247">              &quot;Polygons file not given. Will run regardless&quot;);</span>
+        }
+<span class="nc" id="L249">      } catch (final IOException ex1) {</span>
+<span class="nc" id="L250">        Logger.getLogger(MapXmlCreator.MAP_XML_CREATOR_LOGGER_NAME).log(Level.SEVERE,</span>
+<span class="nc" id="L251">            &quot;Something wrong with your Polygons file&quot;);</span>
+<span class="nc" id="L252">        ex1.printStackTrace();</span>
+      }
+    }
+<span class="nc" id="L255">    return file;</span>
+  }
+
+  private static Map&lt;String, Point&gt; loadCenters() {
+<span class="nc" id="L259">    centers.clear();</span>
+<span class="nc" id="L260">    final String fileName = &quot;Load Centers from &quot; + MapXmlCreator.mapCentersFile.getAbsolutePath();</span>
+    try {
+<span class="nc" id="L262">      final FileInputStream in = new FileInputStream(MapXmlCreator.mapCentersFile);</span>
+<span class="nc" id="L263">      centers = PointFileReaderWriter.readOneToOne(in);</span>
+<span class="nc" id="L264">    } catch (final Exception ex) {</span>
+<span class="nc" id="L265">      ClientLogger.logQuietly(&quot;failed to load file: &quot; + &quot;Load Centers from &quot; + fileName, ex);</span>
+    }
+<span class="nc" id="L267">    return centers;</span>
+  }
+
+  protected static void setMapXmlCreator(final MapXmlCreator mapXmlCreator) {
+<span class="nc" id="L271">    ImageScrollPanePanel.mapXmlCreator = mapXmlCreator;</span>
+<span class="nc" id="L272">  }</span>
+
+  public ImageScrollPanePanel() {
+<span class="nc" id="L275">    super();</span>
+<span class="nc" id="L276">  }</span>
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

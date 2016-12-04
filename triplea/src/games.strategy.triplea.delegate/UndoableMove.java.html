@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>UndoableMove.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">UndoableMove.java</span></div><h1>UndoableMove.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.dataObjects.MoveDescription;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.triplea.ui.MovePanel;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/**
+ * Contains all the data to describe a move and to undo it.
+ */
+public class UndoableMove extends AbstractUndoableMove {
+  private static final long serialVersionUID = 8490182214651531358L;
+  private String m_reasonCantUndo;
+  private String m_description;
+  // this move is dependent on these moves
+  // these moves cant be undone until this one has been
+<span class="fc" id="L35">  private final Set&lt;UndoableMove&gt; m_iDependOn = new HashSet&lt;&gt;();</span>
+  // these moves depend on me
+  // we cant be undone until this is empty
+<span class="fc" id="L38">  private final Set&lt;UndoableMove&gt; m_dependOnMe = new HashSet&lt;&gt;();</span>
+  // list of countries we took over
+<span class="fc" id="L40">  private final Set&lt;Territory&gt; m_conquered = new HashSet&lt;&gt;();</span>
+  // transports loaded by this move
+<span class="fc" id="L42">  private final Set&lt;Unit&gt; m_loaded = new HashSet&lt;&gt;();</span>
+  // transports unloaded by this move
+<span class="fc" id="L44">  private final Set&lt;Unit&gt; m_unloaded = new HashSet&lt;&gt;();</span>
+  private final Route m_route;
+
+  public void addToConquered(final Territory t) {
+<span class="fc" id="L48">    m_conquered.add(t);</span>
+<span class="fc" id="L49">  }</span>
+
+  public Route getRoute() {
+<span class="fc" id="L52">    return m_route;</span>
+  }
+
+  public boolean getcanUndo() {
+<span class="pc bpc" id="L56" title="1 of 4 branches missed.">    return m_reasonCantUndo == null &amp;&amp; m_dependOnMe.isEmpty();</span>
+  }
+
+  public String getReasonCantUndo() {
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    if (m_reasonCantUndo != null) {</span>
+<span class="nc" id="L61">      return m_reasonCantUndo;</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">    } else if (!m_dependOnMe.isEmpty()) {</span>
+<span class="nc" id="L63">      return &quot;Move &quot; + (m_dependOnMe.iterator().next().getIndex() + 1) + &quot; must be undone first&quot;;</span>
+    } else {
+<span class="nc" id="L65">      throw new IllegalStateException(&quot;no reason&quot;);</span>
+    }
+  }
+
+  public void setCantUndo(final String reason) {
+<span class="fc" id="L70">    m_reasonCantUndo = reason;</span>
+<span class="fc" id="L71">  }</span>
+
+  public String getDescription() {
+<span class="nc" id="L74">    return m_description;</span>
+  }
+
+  public void setDescription(final String description) {
+<span class="fc" id="L78">    m_description = description;</span>
+<span class="fc" id="L79">  }</span>
+
+  public UndoableMove(final Collection&lt;Unit&gt; units, final Route route) {
+<span class="fc" id="L82">    super(new CompositeChange(), units);</span>
+<span class="fc" id="L83">    m_route = route;</span>
+<span class="fc" id="L84">  }</span>
+
+  public void load(final Unit transport) {
+<span class="fc" id="L87">    m_loaded.add(transport);</span>
+<span class="fc" id="L88">  }</span>
+
+  public void unload(final Unit transport) {
+<span class="fc" id="L91">    m_unloaded.add(transport);</span>
+<span class="fc" id="L92">  }</span>
+
+  @Override
+  protected void undoSpecific(final IDelegateBridge bridge) {
+<span class="fc" id="L96">    final GameData data = bridge.getData();</span>
+<span class="fc" id="L97">    final BattleTracker battleTracker = DelegateFinder.battleDelegate(data).getBattleTracker();</span>
+<span class="fc" id="L98">    battleTracker.undoBattle(m_route, m_units, bridge.getPlayerID(), bridge);</span>
+    // clean up dependencies
+<span class="fc" id="L100">    final Iterator&lt;UndoableMove&gt; iter1 = m_iDependOn.iterator();</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">    while (iter1.hasNext()) {</span>
+<span class="fc" id="L102">      final UndoableMove other = iter1.next();</span>
+<span class="fc" id="L103">      other.m_dependOnMe.remove(this);</span>
+    }
+    // if we are moving out of a battle zone, mark it
+    // this can happen for air units moving out of a battle zone
+<span class="fc bfc" id="L107" title="All 2 branches covered.">    for (final IBattle battle : battleTracker.getPendingBattles(m_route.getStart(), null)) {</span>
+<span class="pc bpc" id="L108" title="2 of 4 branches missed.">      if (battle == null || battle.isOver()) {</span>
+<span class="nc" id="L109">        continue;</span>
+      }
+<span class="fc bfc" id="L111" title="All 2 branches covered.">      for (final Unit unit : m_units) {</span>
+<span class="fc" id="L112">        final Route routeUnitUsedToMove =</span>
+<span class="fc" id="L113">            DelegateFinder.moveDelegate(data).getRouteUsedToMoveInto(unit, m_route.getStart());</span>
+<span class="pc bpc" id="L114" title="1 of 2 branches missed.">        if (!battle.getBattleType().isBombingRun()) {</span>
+          // route units used to move will be null in the case
+          // where an enemy sub is submerged in the territory, and another unit
+          // moved in to attack it, but some of the units in the original
+          // territory are moved out. Undoing this last move, the route used to move
+          // into the battle zone will be null
+<span class="pc bpc" id="L120" title="1 of 2 branches missed.">          if (routeUnitUsedToMove != null) {</span>
+<span class="nc" id="L121">            final Change change = battle.addAttackChange(routeUnitUsedToMove, Collections.singleton(unit), null);</span>
+<span class="nc" id="L122">            bridge.addChange(change);</span>
+          }
+<span class="nc" id="L124">        } else {</span>
+<span class="nc" id="L125">          HashMap&lt;Unit, HashSet&lt;Unit&gt;&gt; targets = null;</span>
+<span class="nc" id="L126">          Unit target = null;</span>
+<span class="nc bnc" id="L127" title="All 4 branches missed.">          if (routeUnitUsedToMove != null &amp;&amp; routeUnitUsedToMove.getEnd() != null) {</span>
+<span class="nc" id="L128">            final Territory end = routeUnitUsedToMove.getEnd();</span>
+<span class="nc" id="L129">            final Collection&lt;Unit&gt; enemyTargetsTotal = end.getUnits()</span>
+<span class="nc" id="L130">                .getMatches(new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(bridge.getPlayerID(), data),</span>
+<span class="nc" id="L131">                    Matches.UnitIsAtMaxDamageOrNotCanBeDamaged(end).invert(),</span>
+<span class="nc" id="L132">                    Matches.unitIsBeingTransported().invert()));</span>
+<span class="nc" id="L133">            final Collection&lt;Unit&gt; enemyTargets = Match.getMatches(enemyTargetsTotal,</span>
+<span class="nc" id="L134">                Matches.unitIsOfTypes(UnitAttachment.getAllowedBombingTargetsIntersection(</span>
+<span class="nc" id="L135">                    Match.getMatches(Collections.singleton(unit), Matches.UnitIsStrategicBomber), data)));</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">            if (enemyTargets.size() &gt; 1</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">                &amp;&amp; games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">                &amp;&amp; !games.strategy.triplea.Properties.getRaidsMayBePreceededByAirBattles(data)) {</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">              while (target == null) {</span>
+<span class="nc" id="L140">                target = ((ITripleAPlayer) bridge.getRemotePlayer(bridge.getPlayerID())).whatShouldBomberBomb(end,</span>
+<span class="nc" id="L141">                    enemyTargets, Collections.singletonList(unit));</span>
+              }
+<span class="nc bnc" id="L143" title="All 2 branches missed.">            } else if (!enemyTargets.isEmpty()) {</span>
+<span class="nc" id="L144">              target = enemyTargets.iterator().next();</span>
+            }
+<span class="nc bnc" id="L146" title="All 2 branches missed.">            if (target != null) {</span>
+<span class="nc" id="L147">              targets = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L148">              targets.put(target, new HashSet&lt;&gt;(Collections.singleton(unit)));</span>
+            }
+          }
+<span class="nc" id="L151">          final Change change = battle.addAttackChange(routeUnitUsedToMove, Collections.singleton(unit), targets);</span>
+<span class="nc" id="L152">          bridge.addChange(change);</span>
+        }
+      }
+    }
+    // Clear any temporary dependents
+<span class="fc" id="L157">    MovePanel.clearDependents(m_units);</span>
+<span class="fc" id="L158">  }</span>
+
+  /**
+   * Update the dependencies.
+   *
+   * @param undoableMoves
+   *        list of moves that should be undone
+   */
+  public void initializeDependencies(final List&lt;UndoableMove&gt; undoableMoves) {
+<span class="fc bfc" id="L167" title="All 2 branches covered.">    for (final UndoableMove other : undoableMoves) {</span>
+<span class="pc bpc" id="L168" title="1 of 2 branches missed.">      if (other == null) {</span>
+<span class="nc" id="L169">        System.err.println(undoableMoves);</span>
+<span class="nc" id="L170">        throw new IllegalStateException(&quot;other should not be null&quot;);</span>
+      }
+      if ( // if the other move has moves that depend on this
+<span class="fc bfc" id="L173" title="All 2 branches covered.">      !Util.intersection(other.getUnits(), this.getUnits()).isEmpty() ||</span>
+      // if the other move has transports that we are loading
+<span class="fc bfc" id="L175" title="All 2 branches covered.">          !Util.intersection(other.m_units, this.m_loaded).isEmpty() ||</span>
+          // or we are moving through a previously conqueured territory
+          // we should be able to take this out later
+          // we need to add logic for this move to take over the same territories
+          // when the other move is undone
+<span class="fc bfc" id="L180" title="All 2 branches covered.">          !Util.intersection(other.m_conquered, m_route.getAllTerritories()).isEmpty() ||</span>
+          // or we are unloading transports that have moved in another turn
+<span class="pc bpc" id="L182" title="1 of 2 branches missed.">          !Util.intersection(other.m_units, this.m_unloaded).isEmpty()</span>
+<span class="fc bfc" id="L183" title="All 2 branches covered.">          || !Util.intersection(other.m_unloaded, this.m_unloaded).isEmpty()) {</span>
+<span class="fc" id="L184">        m_iDependOn.add(other);</span>
+<span class="fc" id="L185">        other.m_dependOnMe.add(this);</span>
+      }
+    }
+<span class="fc" id="L188">  }</span>
+
+  // for use with airborne moving
+  public void addDependency(final List&lt;UndoableMove&gt; undoableMoves) {
+<span class="nc bnc" id="L192" title="All 2 branches missed.">    for (final UndoableMove other : undoableMoves) {</span>
+<span class="nc" id="L193">      addDependency(other);</span>
+    }
+<span class="nc" id="L195">  }</span>
+
+  // for use with airborne moving
+  public void addDependency(final UndoableMove undoableMove) {
+<span class="nc" id="L199">    m_iDependOn.add(undoableMove);</span>
+<span class="nc" id="L200">    undoableMove.m_dependOnMe.add(this);</span>
+<span class="nc" id="L201">  }</span>
+
+  public boolean wasTransportUnloaded(final Unit transport) {
+<span class="fc" id="L204">    return m_unloaded.contains(transport);</span>
+  }
+
+  public boolean wasTransportLoaded(final Unit transport) {
+<span class="fc" id="L208">    return m_loaded.contains(transport);</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L213">    return &quot;UndoableMove index;&quot; + m_index + &quot; description:&quot; + m_description;</span>
+  }
+
+  @Override
+  public final String getMoveLabel() {
+<span class="nc" id="L218">    return m_route.getStart() + &quot; -&gt; &quot; + m_route.getEnd();</span>
+  }
+
+  @Override
+  public final Territory getEnd() {
+<span class="nc" id="L223">    return m_route.getEnd();</span>
+  }
+
+  public final Territory getStart() {
+<span class="nc" id="L227">    return m_route.getStart();</span>
+  }
+
+  @Override
+  protected final MoveDescription getDescriptionObject() {
+<span class="fc" id="L232">    return new MoveDescription(m_units, m_route);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

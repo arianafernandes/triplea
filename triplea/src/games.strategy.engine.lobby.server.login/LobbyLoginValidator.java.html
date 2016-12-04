@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>LobbyLoginValidator.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.login</a> &gt; <span class="el_source">LobbyLoginValidator.java</span></div><h1>LobbyLoginValidator.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server.login;
+
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.sql.Timestamp;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
+
+import games.strategy.engine.framework.startup.ui.InGameLobbyWatcher;
+import games.strategy.engine.lobby.server.LobbyServer;
+import games.strategy.engine.lobby.server.userDB.BadWordController;
+import games.strategy.engine.lobby.server.userDB.BannedIpController;
+import games.strategy.engine.lobby.server.userDB.BannedMacController;
+import games.strategy.engine.lobby.server.userDB.BannedUsernameController;
+import games.strategy.engine.lobby.server.userDB.DBUserController;
+import games.strategy.net.ILoginValidator;
+import games.strategy.util.MD5Crypt;
+import games.strategy.util.Tuple;
+import games.strategy.util.Version;
+
+public class LobbyLoginValidator implements ILoginValidator {
+  static final String THATS_NOT_A_NICE_NAME = &quot;That's not a nice name.&quot;;
+  static final String YOU_HAVE_BEEN_BANNED = &quot;You have been banned from the TripleA lobby.&quot;;
+  static final String USERNAME_HAS_BEEN_BANNED = &quot;This username is banned, please create a new one.&quot;;
+  static final String UNABLE_TO_OBTAIN_MAC = &quot;Unable to obtain mac address.&quot;;
+  static final String INVALID_MAC = &quot;Invalid mac address.&quot;;
+<span class="fc" id="L30">  private final static Logger s_logger = Logger.getLogger(LobbyLoginValidator.class.getName());</span>
+  public static final String LOBBY_VERSION = &quot;LOBBY_VERSION&quot;;
+  public static final String REGISTER_NEW_USER_KEY = &quot;REGISTER_USER&quot;;
+  public static final String ANONYMOUS_LOGIN = &quot;ANONYMOUS_LOGIN&quot;;
+  public static final String LOBBY_WATCHER_LOGIN = &quot;LOBBY_WATCHER_LOGIN&quot;;
+  public static final String LOGIN_KEY = &quot;LOGIN&quot;;
+  public static final String HASHED_PASSWORD_KEY = &quot;HASHEDPWD&quot;;
+  public static final String EMAIL_KEY = &quot;EMAIL&quot;;
+<span class="fc" id="L38">  public static final String SALT_KEY = &quot;SALT&quot;;</span>
+
+<span class="fc" id="L40">  public LobbyLoginValidator() {}</span>
+
+  @Override
+  public Map&lt;String, String&gt; getChallengeProperties(final String userName, final SocketAddress remoteAddress) {
+    // we need to give the user the salt key for the username
+<span class="fc" id="L45">    final String password = new DBUserController().getPassword(userName);</span>
+<span class="fc" id="L46">    final Map&lt;String, String&gt; rVal = new HashMap&lt;&gt;();</span>
+<span class="fc bfc" id="L47" title="All 2 branches covered.">    if (password != null) {</span>
+<span class="fc" id="L48">      rVal.put(SALT_KEY, MD5Crypt.getSalt(MD5Crypt.MAGIC, password));</span>
+    }
+<span class="fc" id="L50">    return rVal;</span>
+  }
+
+  @Override
+  public String verifyConnection(final Map&lt;String, String&gt; propertiesSentToClient,
+      final Map&lt;String, String&gt; propertiesReadFromClient, final String clientName, final String clientMac,
+      final SocketAddress remoteAddress) {
+<span class="fc" id="L57">    final String error = verifyConnectionInternal(propertiesReadFromClient, clientName, clientMac, remoteAddress);</span>
+<span class="fc bfc" id="L58" title="All 2 branches covered.">    if (error != null) {</span>
+<span class="fc" id="L59">      s_logger.info(&quot;Bad login attemp from &quot; + remoteAddress + &quot; for user &quot; + clientName + &quot; error:&quot; + error);</span>
+<span class="fc" id="L60">      AccessLog.failedLogin(clientName, ((InetSocketAddress) remoteAddress).getAddress(), error);</span>
+<span class="fc" id="L61">    } else {</span>
+<span class="fc" id="L62">      s_logger.info(&quot;Successful login from:&quot; + remoteAddress + &quot; for user:&quot; + clientName);</span>
+<span class="fc" id="L63">      AccessLog.successfulLogin(clientName, ((InetSocketAddress) remoteAddress).getAddress());</span>
+    }
+<span class="fc" id="L65">    return error;</span>
+  }
+
+  private String verifyConnectionInternal(final Map&lt;String, String&gt; propertiesReadFromClient, final String clientName,
+      final String hashedMac, final SocketAddress remoteAddress) {
+<span class="pc bpc" id="L70" title="1 of 2 branches missed.">    if (propertiesReadFromClient == null) {</span>
+<span class="nc" id="L71">      return &quot;No Client Properties&quot;;</span>
+    }
+<span class="fc" id="L73">    final String clientVersionString = propertiesReadFromClient.get(LOBBY_VERSION);</span>
+<span class="pc bpc" id="L74" title="1 of 2 branches missed.">    if (clientVersionString == null) {</span>
+<span class="nc" id="L75">      return &quot;No Client Version&quot;;</span>
+    }
+<span class="fc" id="L77">    final Version clientVersion = new Version(clientVersionString);</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">    if (!clientVersion.equals(LobbyServer.LOBBY_VERSION)) {</span>
+<span class="fc" id="L79">      return &quot;Wrong version, we require&quot; + LobbyServer.LOBBY_VERSION.toString() + &quot; but trying to log in with &quot;</span>
+<span class="fc" id="L80">          + clientVersionString;</span>
+    }
+<span class="fc bfc" id="L82" title="All 2 branches covered.">    for (final String s : getBadWords()) {</span>
+<span class="fc bfc" id="L83" title="All 2 branches covered.">      if (clientName.toLowerCase().contains(s.toLowerCase())) {</span>
+<span class="fc" id="L84">        return THATS_NOT_A_NICE_NAME;</span>
+      }
+    }
+<span class="fc" id="L87">    final String remoteIp = ((InetSocketAddress) remoteAddress).getAddress().getHostAddress();</span>
+<span class="fc" id="L88">    final Tuple&lt;Boolean, Timestamp&gt; ipBanned = new BannedIpController().isIpBanned(remoteIp);</span>
+<span class="fc bfc" id="L89" title="All 2 branches covered.">    if (ipBanned.getFirst()) {</span>
+<span class="fc" id="L90">      return YOU_HAVE_BEEN_BANNED + &quot; &quot; + getBanDurationBreakdown(ipBanned.getSecond());</span>
+    }
+<span class="pc bpc" id="L92" title="1 of 2 branches missed.">    if (hashedMac == null) {</span>
+<span class="nc" id="L93">      return UNABLE_TO_OBTAIN_MAC;</span>
+    }
+<span class="pc bpc" id="L95" title="2 of 4 branches missed.">    if (hashedMac.length() != 28 || !hashedMac.startsWith(MD5Crypt.MAGIC + &quot;MH$&quot;)</span>
+<span class="pc bpc" id="L96" title="1 of 2 branches missed.">        || !hashedMac.matches(&quot;[0-9a-zA-Z$./]+&quot;)) {</span>
+      // Must have been tampered with
+<span class="nc" id="L98">      return INVALID_MAC;</span>
+    }
+<span class="fc" id="L100">    final Tuple&lt;Boolean, Timestamp&gt; macBanned = new BannedMacController().isMacBanned(hashedMac);</span>
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">    if (macBanned.getFirst()) {</span>
+<span class="nc" id="L102">      return YOU_HAVE_BEEN_BANNED + &quot; &quot; + getBanDurationBreakdown(macBanned.getSecond());</span>
+    }
+    // test for username ban after testing normal bans, because if it is only a username ban then the user should know
+    // they can change their
+    // name
+<span class="fc" id="L107">    final Tuple&lt;Boolean, Timestamp&gt; usernameBanned = new BannedUsernameController().isUsernameBanned(clientName);</span>
+<span class="pc bpc" id="L108" title="1 of 2 branches missed.">    if (usernameBanned.getFirst()) {</span>
+<span class="nc" id="L109">      return USERNAME_HAS_BEEN_BANNED + &quot; &quot; + getBanDurationBreakdown(usernameBanned.getSecond());</span>
+    }
+<span class="fc bfc" id="L111" title="All 2 branches covered.">    if (propertiesReadFromClient.containsKey(REGISTER_NEW_USER_KEY)) {</span>
+<span class="fc" id="L112">      return createUser(propertiesReadFromClient, clientName);</span>
+    }
+<span class="fc bfc" id="L114" title="All 2 branches covered.">    if (propertiesReadFromClient.containsKey(ANONYMOUS_LOGIN)) {</span>
+<span class="fc" id="L115">      return anonymousLogin(propertiesReadFromClient, clientName);</span>
+    } else {
+<span class="fc" id="L117">      return validatePassword(propertiesReadFromClient, clientName);</span>
+    }
+  }
+
+  static String getBanDurationBreakdown(final Timestamp stamp) {
+<span class="pc bpc" id="L122" title="1 of 2 branches missed.">    if (stamp == null) {</span>
+<span class="fc" id="L123">      return &quot;Banned Forever&quot;;</span>
+    }
+<span class="nc" id="L125">    final long millis = stamp.getTime() - System.currentTimeMillis();</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">    if (millis &lt; 0) {</span>
+<span class="nc" id="L127">      return &quot;Ban time left: 1 Minute&quot;;</span>
+    }
+<span class="nc" id="L129">    long seconds = Math.max(1, TimeUnit.MILLISECONDS.toSeconds(millis));</span>
+<span class="nc" id="L130">    final int minutesInSeconds = 60;</span>
+<span class="nc" id="L131">    final int hoursInSeconds = 60 * 60;</span>
+<span class="nc" id="L132">    final int daysInSeconds = 60 * 60 * 24;</span>
+<span class="nc" id="L133">    final long days = seconds / daysInSeconds;</span>
+<span class="nc" id="L134">    seconds -= days * daysInSeconds;</span>
+<span class="nc" id="L135">    final long hours = seconds / hoursInSeconds;</span>
+<span class="nc" id="L136">    seconds -= hours * hoursInSeconds;</span>
+<span class="nc" id="L137">    final long minutes = Math.max(1, seconds / minutesInSeconds);</span>
+
+<span class="nc" id="L139">    final StringBuilder sb = new StringBuilder(64);</span>
+<span class="nc" id="L140">    sb.append(&quot;Ban time left: &quot;);</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">    if (days &gt; 0) {</span>
+<span class="nc" id="L142">      sb.append(days);</span>
+<span class="nc" id="L143">      sb.append(&quot; Days &quot;);</span>
+    }
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    if (hours &gt; 0) {</span>
+<span class="nc" id="L146">      sb.append(hours);</span>
+<span class="nc" id="L147">      sb.append(&quot; Hours &quot;);</span>
+    }
+<span class="nc bnc" id="L149" title="All 2 branches missed.">    if (minutes &gt; 0) {</span>
+<span class="nc" id="L150">      sb.append(minutes);</span>
+<span class="nc" id="L151">      sb.append(&quot; Minutes &quot;);</span>
+    }
+<span class="nc" id="L153">    return (sb.toString());</span>
+  }
+
+  private List&lt;String&gt; getBadWords() {
+<span class="fc" id="L157">    return new BadWordController().list();</span>
+  }
+
+  private static String validatePassword(final Map&lt;String, String&gt; propertiesReadFromClient, final String clientName) {
+<span class="fc" id="L161">    final DBUserController userController = new DBUserController();</span>
+<span class="fc bfc" id="L162" title="All 2 branches covered.">    if (!userController.login(clientName, propertiesReadFromClient.get(HASHED_PASSWORD_KEY))) {</span>
+<span class="fc bfc" id="L163" title="All 2 branches covered.">      if (userController.doesUserExist(clientName)) {</span>
+<span class="fc" id="L164">        return &quot;Incorrect password&quot;;</span>
+      } else {
+<span class="fc" id="L166">        return &quot;Username does not exist&quot;;</span>
+      }
+    } else {
+<span class="fc" id="L169">      return null;</span>
+    }
+  }
+
+  private static String anonymousLogin(final Map&lt;String, String&gt; propertiesReadFromClient, final String userName) {
+<span class="fc bfc" id="L174" title="All 2 branches covered.">    if (new DBUserController().doesUserExist(userName)) {</span>
+<span class="fc" id="L175">      return &quot;Can't login anonymously, username already exists&quot;;</span>
+    }
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">    if (propertiesReadFromClient.get(LOBBY_WATCHER_LOGIN) != null</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">        &amp;&amp; propertiesReadFromClient.get(LOBBY_WATCHER_LOGIN).equals(Boolean.TRUE.toString())) // If this is a lobby</span>
+                                                                                              // watcher, use a
+                                                                                              // different
+                                                                                              // set of validation
+    {
+<span class="nc bnc" id="L183" title="All 2 branches missed.">      if (!userName.endsWith(InGameLobbyWatcher.LOBBY_WATCHER_NAME)) {</span>
+<span class="nc" id="L184">        return &quot;Lobby watcher usernames must end with 'lobby_watcher'&quot;;</span>
+      }
+<span class="nc" id="L186">      final String hostName = userName.substring(0, userName.indexOf(InGameLobbyWatcher.LOBBY_WATCHER_NAME));</span>
+<span class="nc" id="L187">      final String issue = DBUserController.validateUserName(hostName);</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">      if (issue != null) {</span>
+<span class="nc" id="L189">        return issue;</span>
+      }
+    } else {
+<span class="fc" id="L192">      final String issue = DBUserController.validateUserName(userName);</span>
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">      if (issue != null) {</span>
+<span class="nc" id="L194">        return issue;</span>
+      }
+    }
+<span class="fc" id="L197">    return null;</span>
+  }
+
+  private static String createUser(final Map&lt;String, String&gt; propertiesReadFromClient, final String userName) {
+<span class="fc" id="L201">    final String email = propertiesReadFromClient.get(EMAIL_KEY);</span>
+<span class="fc" id="L202">    final String hashedPassword = propertiesReadFromClient.get(HASHED_PASSWORD_KEY);</span>
+<span class="fc" id="L203">    final DBUserController controller = new DBUserController();</span>
+<span class="fc" id="L204">    final String error = controller.validate(userName, email, hashedPassword);</span>
+<span class="pc bpc" id="L205" title="1 of 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L206">      return error;</span>
+    }
+    try {
+<span class="fc" id="L209">      controller.createUser(userName, email, hashedPassword, false);</span>
+<span class="fc" id="L210">      return null;</span>
+<span class="fc" id="L211">    } catch (final IllegalStateException ise) {</span>
+<span class="fc" id="L212">      return ise.getMessage();</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

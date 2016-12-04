@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProBattleUtils.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI.util</a> &gt; <span class="el_source">ProBattleUtils.java</span></div><h1>ProBattleUtils.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI.util;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.ai.proAI.ProData;
+import games.strategy.triplea.ai.proAI.data.ProPlaceTerritory;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseTerritory;
+import games.strategy.triplea.ai.proAI.data.ProTerritory;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.TerritoryEffectHelper;
+import games.strategy.triplea.delegate.UnitBattleComparator;
+import games.strategy.util.Match;
+
+/**
+ * Pro AI battle utilities.
+ */
+<span class="nc" id="L32">public class ProBattleUtils {</span>
+
+  public final static int SHORT_RANGE = 2;
+  public final static int MEDIUM_RANGE = 3;
+
+  public static boolean checkForOverwhelmingWin(final PlayerID player, final Territory t,
+      final List&lt;Unit&gt; attackingUnits, final List&lt;Unit&gt; defendingUnits) {
+<span class="nc" id="L39">    final GameData data = ProData.getData();</span>
+
+<span class="nc bnc" id="L41" title="All 4 branches missed.">    if (defendingUnits.isEmpty() &amp;&amp; !attackingUnits.isEmpty()) {</span>
+<span class="nc" id="L42">      return true;</span>
+    }
+
+    // Check that defender has at least 1 power
+<span class="nc" id="L46">    final double power = estimatePower(t, defendingUnits, attackingUnits, false);</span>
+<span class="nc bnc" id="L47" title="All 4 branches missed.">    if (power == 0 &amp;&amp; !attackingUnits.isEmpty()) {</span>
+<span class="nc" id="L48">      return true;</span>
+    }
+
+    // Determine if enough attack power to win in 1 round
+<span class="nc" id="L52">    final List&lt;Unit&gt; sortedUnitsList = new ArrayList&lt;&gt;(attackingUnits);</span>
+<span class="nc" id="L53">    Collections.sort(sortedUnitsList,</span>
+<span class="nc" id="L54">        new UnitBattleComparator(false, ProData.unitValueMap, TerritoryEffectHelper.getEffects(t), data, false, false));</span>
+<span class="nc" id="L55">    Collections.reverse(sortedUnitsList);</span>
+<span class="nc" id="L56">    final int attackPower = DiceRoll.getTotalPower(DiceRoll.getUnitPowerAndRollsForNormalBattles(sortedUnitsList,</span>
+<span class="nc" id="L57">        defendingUnits, false, false, data, t, TerritoryEffectHelper.getEffects(t), false, null), data);</span>
+<span class="nc" id="L58">    final List&lt;Unit&gt; defendersWithHitPoints = Match.getMatches(defendingUnits, Matches.UnitIsInfrastructure.invert());</span>
+<span class="nc" id="L59">    final int totalDefenderHitPoints = BattleCalculator.getTotalHitpointsLeft(defendersWithHitPoints);</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    return ((attackPower / data.getDiceSides()) &gt;= totalDefenderHitPoints);</span>
+  }
+
+  public static double estimateStrengthDifference(final Territory t, final List&lt;Unit&gt; attackingUnits,
+      final List&lt;Unit&gt; defendingUnits) {
+
+<span class="nc bnc" id="L66" title="All 2 branches missed.">    if (attackingUnits.size() == 0) {</span>
+<span class="nc" id="L67">      return 0;</span>
+    }
+<span class="nc" id="L69">    final List&lt;Unit&gt; actualDefenders = Match.getMatches(defendingUnits, Matches.UnitIsInfrastructure.invert());</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">    if (actualDefenders.size() == 0) {</span>
+<span class="nc" id="L71">      return 100;</span>
+    }
+<span class="nc" id="L73">    final double attackerStrength = estimateStrength(t, attackingUnits, actualDefenders, true);</span>
+<span class="nc" id="L74">    final double defenderStrength = estimateStrength(t, actualDefenders, attackingUnits, false);</span>
+<span class="nc" id="L75">    return ((attackerStrength - defenderStrength) / Math.pow(defenderStrength, 0.85) * 50 + 50);</span>
+  }
+
+  public static double estimateStrength(final Territory t, final List&lt;Unit&gt; myUnits, final List&lt;Unit&gt; enemyUnits,
+      final boolean attacking) {
+<span class="nc" id="L80">    final GameData data = ProData.getData();</span>
+
+<span class="nc" id="L82">    List&lt;Unit&gt; unitsThatCanFight =</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">        Match.getMatches(myUnits, Matches.UnitCanBeInBattle(attacking, !t.isWater(), data, 1, false, true, true));</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (Properties.getTransportCasualtiesRestricted(data)) {</span>
+<span class="nc" id="L85">      unitsThatCanFight = Match.getMatches(unitsThatCanFight, Matches.UnitIsTransportButNotCombatTransport.invert());</span>
+    }
+<span class="nc" id="L87">    final int myHP = BattleCalculator.getTotalHitpointsLeft(unitsThatCanFight);</span>
+<span class="nc" id="L88">    final double myPower = estimatePower(t, myUnits, enemyUnits, attacking);</span>
+<span class="nc" id="L89">    return (2 * myHP) + myPower;</span>
+  }
+
+  private static double estimatePower(final Territory t, final List&lt;Unit&gt; myUnits, final List&lt;Unit&gt; enemyUnits,
+      final boolean attacking) {
+<span class="nc" id="L94">    final GameData data = ProData.getData();</span>
+
+<span class="nc" id="L96">    final List&lt;Unit&gt; unitsThatCanFight =</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        Match.getMatches(myUnits, Matches.UnitCanBeInBattle(attacking, !t.isWater(), data, 1, false, true, true));</span>
+<span class="nc" id="L98">    final List&lt;Unit&gt; sortedUnitsList = new ArrayList&lt;&gt;(unitsThatCanFight);</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    Collections.sort(sortedUnitsList, new UnitBattleComparator(!attacking, ProData.unitValueMap,</span>
+<span class="nc" id="L100">        TerritoryEffectHelper.getEffects(t), data, false, false));</span>
+<span class="nc" id="L101">    Collections.reverse(sortedUnitsList);</span>
+<span class="nc" id="L102">    final int myPower = DiceRoll.getTotalPower(DiceRoll.getUnitPowerAndRollsForNormalBattles(sortedUnitsList,</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        enemyUnits, !attacking, false, data, t, TerritoryEffectHelper.getEffects(t), false, null), data);</span>
+<span class="nc" id="L104">    return (myPower * 6.0 / data.getDiceSides());</span>
+  }
+
+  public static boolean territoryHasLocalLandSuperiority(final Territory t, final int distance, final PlayerID player) {
+<span class="nc" id="L108">    return territoryHasLocalLandSuperiority(t, distance, player, new HashMap&lt;&gt;());</span>
+  }
+
+  public static boolean territoryHasLocalLandSuperiority(final Territory t, final int distance, final PlayerID player,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+
+<span class="nc" id="L114">    final GameData data = ProData.getData();</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">    if (t == null) {</span>
+<span class="nc" id="L116">      return true;</span>
+    }
+
+<span class="nc bnc" id="L119" title="All 2 branches missed.">    for (int i = 2; i &lt;= distance; i++) {</span>
+
+      // Find enemy strength
+<span class="nc" id="L122">      final Set&lt;Territory&gt; nearbyTerritoriesForEnemy =</span>
+<span class="nc" id="L123">          data.getMap().getNeighbors(t, i, ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L124">      nearbyTerritoriesForEnemy.add(t);</span>
+<span class="nc" id="L125">      final List&lt;Unit&gt; enemyUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L126" title="All 2 branches missed.">      for (final Territory nearbyTerritory : nearbyTerritoriesForEnemy) {</span>
+<span class="nc" id="L127">        enemyUnits.addAll(nearbyTerritory.getUnits().getMatches(ProMatches.unitIsEnemyNotNeutral(player, data)));</span>
+      }
+
+      // Find allied strength
+<span class="nc" id="L131">      final Set&lt;Territory&gt; nearbyTerritoriesForAllied =</span>
+<span class="nc" id="L132">          data.getMap().getNeighbors(t, i - 1, ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L133">      nearbyTerritoriesForAllied.add(t);</span>
+<span class="nc" id="L134">      final List&lt;Unit&gt; alliedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      for (final Territory nearbyTerritory : nearbyTerritoriesForAllied) {</span>
+<span class="nc" id="L136">        alliedUnits.addAll(nearbyTerritory.getUnits().getMatches(Matches.isUnitAllied(player, data)));</span>
+      }
+<span class="nc bnc" id="L138" title="All 2 branches missed.">      for (final Territory purchaseTerritory : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        for (final ProPlaceTerritory ppt : purchaseTerritories.get(purchaseTerritory).getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">          if (nearbyTerritoriesForAllied.contains(ppt.getTerritory())) {</span>
+<span class="nc" id="L141">            alliedUnits.addAll(ppt.getPlaceUnits());</span>
+          }
+        }
+      }
+
+      // Determine strength difference
+<span class="nc" id="L147">      final double strengthDifference = estimateStrengthDifference(t, enemyUnits, alliedUnits);</span>
+<span class="nc" id="L148">      ProLogger.trace(t + &quot;, current enemy land strengthDifference=&quot; + strengthDifference + &quot;, distance=&quot; + i</span>
+<span class="nc" id="L149">          + &quot;, enemySize=&quot; + enemyUnits.size() + &quot;, alliedSize=&quot; + alliedUnits.size());</span>
+<span class="nc bnc" id="L150" title="All 2 branches missed.">      if (strengthDifference &gt; 50) {</span>
+<span class="nc" id="L151">        return false;</span>
+      }
+    }
+<span class="nc" id="L154">    return true;</span>
+  }
+
+  public static boolean territoryHasLocalLandSuperiorityAfterMoves(final Territory t, final int distance,
+      final PlayerID player, final Map&lt;Territory, ProTerritory&gt; moveMap) {
+<span class="nc" id="L159">    final GameData data = ProData.getData();</span>
+
+    // Find enemy strength
+<span class="nc" id="L162">    final Set&lt;Territory&gt; nearbyTerritoriesForEnemy =</span>
+<span class="nc" id="L163">        data.getMap().getNeighbors(t, distance, ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L164">    nearbyTerritoriesForEnemy.add(t);</span>
+<span class="nc" id="L165">    final List&lt;Unit&gt; enemyUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L166" title="All 2 branches missed.">    for (final Territory nearbyTerritory : nearbyTerritoriesForEnemy) {</span>
+<span class="nc" id="L167">      enemyUnits.addAll(nearbyTerritory.getUnits().getMatches(ProMatches.unitIsEnemyNotNeutral(player, data)));</span>
+    }
+
+    // Find allied strength
+<span class="nc" id="L171">    final Set&lt;Territory&gt; nearbyTerritoriesForAllied =</span>
+<span class="nc" id="L172">        data.getMap().getNeighbors(t, distance - 1, ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L173">    nearbyTerritoriesForAllied.add(t);</span>
+<span class="nc" id="L174">    final List&lt;Unit&gt; alliedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    for (final Territory nearbyTerritory : nearbyTerritoriesForAllied) {</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">      if (moveMap.get(nearbyTerritory) != null) {</span>
+<span class="nc" id="L177">        alliedUnits.addAll(moveMap.get(nearbyTerritory).getAllDefenders());</span>
+      }
+    }
+
+    // Determine strength difference
+<span class="nc" id="L182">    final double strengthDifference = estimateStrengthDifference(t, enemyUnits, alliedUnits);</span>
+<span class="nc" id="L183">    ProLogger.trace(t + &quot;, current enemy land strengthDifference=&quot; + strengthDifference + &quot;, enemySize=&quot;</span>
+<span class="nc" id="L184">        + enemyUnits.size() + &quot;, alliedSize=&quot; + alliedUnits.size());</span>
+<span class="nc bnc" id="L185" title="All 2 branches missed.">    return strengthDifference &lt;= 50;</span>
+  }
+
+  public static boolean territoryHasLocalNavalSuperiority(final Territory t, final PlayerID player,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories, final List&lt;Unit&gt; unitsToPlace) {
+<span class="nc" id="L190">    final GameData data = ProData.getData();</span>
+
+<span class="nc" id="L192">    int landDistance = ProUtils.getClosestEnemyLandTerritoryDistanceOverWater(data, player, t);</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    if (landDistance &lt;= 0) {</span>
+<span class="nc" id="L194">      landDistance = 10;</span>
+    }
+<span class="nc" id="L196">    final int enemyDistance = Math.max(3, (landDistance + 1));</span>
+<span class="nc" id="L197">    final int alliedDistance = (enemyDistance + 1) / 2;</span>
+<span class="nc" id="L198">    final Set&lt;Territory&gt; nearbyTerritories = data.getMap().getNeighbors(t, enemyDistance);</span>
+<span class="nc" id="L199">    final List&lt;Territory&gt; nearbyLandTerritories = Match.getMatches(nearbyTerritories, Matches.TerritoryIsLand);</span>
+<span class="nc" id="L200">    final Set&lt;Territory&gt; nearbyEnemySeaTerritories =</span>
+<span class="nc" id="L201">        data.getMap().getNeighbors(t, enemyDistance, Matches.TerritoryIsWater);</span>
+<span class="nc" id="L202">    nearbyEnemySeaTerritories.add(t);</span>
+<span class="nc" id="L203">    final Set&lt;Territory&gt; nearbyAlliedSeaTerritories =</span>
+<span class="nc" id="L204">        data.getMap().getNeighbors(t, alliedDistance, Matches.TerritoryIsWater);</span>
+<span class="nc" id="L205">    nearbyAlliedSeaTerritories.add(t);</span>
+<span class="nc" id="L206">    final List&lt;Unit&gt; enemyUnitsInSeaTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L207">    final List&lt;Unit&gt; enemyUnitsInLandTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L208">    final List&lt;Unit&gt; myUnitsInSeaTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L209">    final List&lt;Unit&gt; alliedUnitsInSeaTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">    for (final Territory nearbyLandTerritory : nearbyLandTerritories) {</span>
+<span class="nc" id="L211">      enemyUnitsInLandTerritories</span>
+<span class="nc" id="L212">          .addAll(nearbyLandTerritory.getUnits().getMatches(ProMatches.unitIsEnemyAir(player, data)));</span>
+    }
+<span class="nc bnc" id="L214" title="All 2 branches missed.">    for (final Territory nearbySeaTerritory : nearbyEnemySeaTerritories) {</span>
+<span class="nc" id="L215">      final List&lt;Unit&gt; enemySeaUnits =</span>
+<span class="nc" id="L216">          nearbySeaTerritory.getUnits().getMatches(ProMatches.unitIsEnemyNotLand(player, data));</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">      if (enemySeaUnits.isEmpty()) {</span>
+<span class="nc" id="L218">        continue;</span>
+      }
+<span class="nc" id="L220">      final Route route = data.getMap().getRoute_IgnoreEnd(t, nearbySeaTerritory, Matches.TerritoryIsWater);</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">      if (route == null) {</span>
+<span class="nc" id="L222">        continue;</span>
+      }
+<span class="nc bnc" id="L224" title="All 2 branches missed.">      if (MoveValidator.validateCanal(route, enemySeaUnits, enemySeaUnits.get(0).getOwner(), data) != null) {</span>
+<span class="nc" id="L225">        continue;</span>
+      }
+<span class="nc" id="L227">      final int routeLength = route.numberOfSteps();</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">      if (routeLength &lt;= enemyDistance) {</span>
+<span class="nc" id="L229">        enemyUnitsInSeaTerritories.addAll(enemySeaUnits);</span>
+      }
+    }
+<span class="nc bnc" id="L232" title="All 2 branches missed.">    for (final Territory nearbySeaTerritory : nearbyAlliedSeaTerritories) {</span>
+<span class="nc" id="L233">      myUnitsInSeaTerritories</span>
+<span class="nc" id="L234">          .addAll(nearbySeaTerritory.getUnits().getMatches(ProMatches.unitIsOwnedNotLand(player, data)));</span>
+<span class="nc" id="L235">      myUnitsInSeaTerritories.addAll(ProPurchaseUtils.getPlaceUnits(nearbySeaTerritory, purchaseTerritories));</span>
+<span class="nc" id="L236">      alliedUnitsInSeaTerritories</span>
+<span class="nc" id="L237">          .addAll(nearbySeaTerritory.getUnits().getMatches(ProMatches.unitIsAlliedNotOwned(player, data)));</span>
+    }
+<span class="nc" id="L239">    ProLogger.trace(t + &quot;, enemyDistance=&quot; + enemyDistance + &quot;, alliedDistance=&quot; + alliedDistance + &quot;, enemyAirUnits=&quot;</span>
+<span class="nc" id="L240">        + enemyUnitsInLandTerritories + &quot;, enemySeaUnits=&quot; + enemyUnitsInSeaTerritories + &quot;, mySeaUnits=&quot;</span>
+<span class="nc" id="L241">        + myUnitsInSeaTerritories);</span>
+
+    // Find current naval defense strength
+<span class="nc" id="L244">    final List&lt;Unit&gt; myUnits = new ArrayList&lt;&gt;(myUnitsInSeaTerritories);</span>
+<span class="nc" id="L245">    myUnits.addAll(unitsToPlace);</span>
+<span class="nc" id="L246">    myUnits.addAll(alliedUnitsInSeaTerritories);</span>
+<span class="nc" id="L247">    final List&lt;Unit&gt; enemyAttackers = new ArrayList&lt;&gt;(enemyUnitsInSeaTerritories);</span>
+<span class="nc" id="L248">    enemyAttackers.addAll(enemyUnitsInLandTerritories);</span>
+<span class="nc" id="L249">    final double defenseStrengthDifference = estimateStrengthDifference(t, enemyAttackers, myUnits);</span>
+<span class="nc" id="L250">    ProLogger.trace(t + &quot;, current enemy naval attack strengthDifference=&quot; + defenseStrengthDifference + &quot;, enemySize=&quot;</span>
+<span class="nc" id="L251">        + enemyAttackers.size() + &quot;, alliedSize=&quot; + myUnits.size());</span>
+
+    // Find current naval attack strength
+<span class="nc" id="L254">    double attackStrengthDifference = estimateStrengthDifference(t, myUnits, enemyUnitsInSeaTerritories);</span>
+<span class="nc" id="L255">    attackStrengthDifference +=</span>
+<span class="nc" id="L256">        0.5 * estimateStrengthDifference(t, alliedUnitsInSeaTerritories, enemyUnitsInSeaTerritories);</span>
+<span class="nc" id="L257">    ProLogger.trace(t + &quot;, current allied naval attack strengthDifference=&quot; + attackStrengthDifference + &quot;, alliedSize=&quot;</span>
+<span class="nc" id="L258">        + myUnits.size() + &quot;, enemySize=&quot; + enemyUnitsInSeaTerritories.size());</span>
+
+    // If I have naval attack/defense superiority then break
+<span class="nc bnc" id="L261" title="All 4 branches missed.">    return (defenseStrengthDifference &lt; 50 &amp;&amp; attackStrengthDifference &gt; 50);</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

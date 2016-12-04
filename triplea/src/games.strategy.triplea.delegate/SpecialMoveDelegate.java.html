@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>SpecialMoveDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">SpecialMoveDelegate.java</span></div><h1>SpecialMoveDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameMap;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.dataObjects.MoveValidationResult;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * SpecialMoveDelegate is a move delegate made for special movements like the new paratrooper/airborne movement.
+ * Airborne Attacks is actually Paratroopers tech for Global 1940, except that I really do not want to confuse myself by
+ * naming yet another
+ * thing Paratroopers, so this is now getting a new name.
+ * This is very different than &quot;paratroopers&quot; for AA50. We are actually launching the units from a static unit (an
+ * airbase) to another
+ * territory, instead of carrying them.
+ */
+@MapSupport
+public class SpecialMoveDelegate extends AbstractMoveDelegate {
+<span class="fc" id="L42">  private boolean m_needToInitialize = true;</span>
+
+  // private boolean m_allowAirborne = true;
+<span class="fc" id="L45">  public SpecialMoveDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run, AND before &quot;start&quot; is called.
+   */
+  @Override
+  public void setDelegateBridgeAndPlayer(final IDelegateBridge iDelegateBridge) {
+<span class="nc" id="L52">    super.setDelegateBridgeAndPlayer(new GameDelegateBridge(iDelegateBridge));</span>
+<span class="nc" id="L53">  }</span>
+
+  @Override
+  public void start() {
+<span class="nc" id="L57">    super.start();</span>
+<span class="nc" id="L58">    final GameData data = getData();</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">    if (!allowAirborne(m_player, data)) {</span>
+<span class="nc" id="L60">      return;</span>
+    }
+<span class="nc" id="L62">    final boolean onlyWhereUnderAttackAlready =</span>
+<span class="nc" id="L63">        games.strategy.triplea.Properties.getAirborneAttacksOnlyInExistingBattles(data);</span>
+<span class="nc" id="L64">    final BattleTracker battleTracker = AbstractMoveDelegate.getBattleTracker(data);</span>
+<span class="nc bnc" id="L65" title="All 4 branches missed.">    if (m_needToInitialize &amp;&amp; onlyWhereUnderAttackAlready) {</span>
+      // we do this to clear any 'finishedBattles' and also to create battles for units that didn't move
+<span class="nc" id="L67">      BattleDelegate.doInitialize(battleTracker, m_bridge);</span>
+<span class="nc" id="L68">      m_needToInitialize = false;</span>
+    }
+<span class="nc" id="L70">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L74">    super.end();</span>
+<span class="nc" id="L75">    m_needToInitialize = true;</span>
+<span class="nc" id="L76">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L80">    final SpecialMoveExtendedDelegateState state = new SpecialMoveExtendedDelegateState();</span>
+<span class="nc" id="L81">    state.superState = super.saveState();</span>
+<span class="nc" id="L82">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L83">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L88">    final SpecialMoveExtendedDelegateState s = (SpecialMoveExtendedDelegateState) state;</span>
+<span class="nc" id="L89">    super.loadState(s.superState);</span>
+<span class="nc" id="L90">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L91">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc" id="L95">    return allowAirborne(m_player, getData());</span>
+  }
+
+  @Override
+  public String move(final Collection&lt;Unit&gt; units, final Route route, final Collection&lt;Unit&gt; transportsThatCanBeLoaded,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; newDependents) {
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    if (!allowAirborne(m_player, getData())) {</span>
+<span class="nc" id="L102">      return &quot;No Airborne Movement Allowed Yet&quot;;</span>
+    }
+<span class="nc" id="L104">    final GameData data = getData();</span>
+    // there reason we use this, is because if we are in edit mode, we may have a different unit owner than the current
+    // player.
+<span class="nc" id="L107">    final PlayerID player = getUnitsOwner(units);</span>
+    // here we have our own new validation method....
+<span class="nc" id="L109">    final MoveValidationResult result =</span>
+<span class="nc" id="L110">        SpecialMoveDelegate.validateMove(units, route, player, transportsThatCanBeLoaded, newDependents,</span>
+<span class="nc" id="L111">            GameStepPropertiesHelper.isNonCombatMove(data, false), m_movesToUndo, data);</span>
+<span class="nc" id="L112">    final StringBuilder errorMsg = new StringBuilder(100);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">    final int numProblems = result.getTotalWarningCount() - (result.hasError() ? 0 : 1);</span>
+<span class="nc" id="L114">    final String numErrorsMsg =</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        numProblems &gt; 0 ? (&quot;; &quot; + numProblems + &quot; &quot; + MyFormatter.pluralize(&quot;error&quot;, numProblems) + &quot; not shown&quot;) : &quot;&quot;;</span>
+<span class="nc bnc" id="L116" title="All 2 branches missed.">    if (result.hasError()) {</span>
+<span class="nc" id="L117">      return errorMsg.append(result.getError()).append(numErrorsMsg).toString();</span>
+    }
+<span class="nc bnc" id="L119" title="All 2 branches missed.">    if (result.hasDisallowedUnits()) {</span>
+<span class="nc" id="L120">      return errorMsg.append(result.getDisallowedUnitWarning(0)).append(numErrorsMsg).toString();</span>
+    }
+<span class="nc bnc" id="L122" title="All 2 branches missed.">    if (result.hasUnresolvedUnits()) {</span>
+<span class="nc" id="L123">      return errorMsg.append(result.getUnresolvedUnitWarning(0)).append(numErrorsMsg).toString();</span>
+    }
+    // allow user to cancel move if aa guns will fire
+<span class="nc" id="L126">    final AAInMoveUtil aaInMoveUtil = new AAInMoveUtil();</span>
+<span class="nc" id="L127">    aaInMoveUtil.initialize(m_bridge);</span>
+<span class="nc" id="L128">    final Collection&lt;Territory&gt; aaFiringTerritores = aaInMoveUtil.getTerritoriesWhereAAWillFire(route, units);</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">    if (!aaFiringTerritores.isEmpty()) {</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">      if (!getRemotePlayer().confirmMoveInFaceOfAA(aaFiringTerritores)) {</span>
+<span class="nc" id="L131">        return null;</span>
+      }
+    }
+    // do the move
+<span class="nc" id="L135">    final UndoableMove currentMove = new UndoableMove(units, route);</span>
+    // add dependencies (any move that came before this, from this start territory, is a dependency)
+<span class="nc bnc" id="L137" title="All 2 branches missed.">    for (final UndoableMove otherMove : m_movesToUndo) {</span>
+<span class="nc bnc" id="L138" title="All 2 branches missed.">      if (otherMove.getStart().equals(route.getStart())) {</span>
+<span class="nc" id="L139">        currentMove.addDependency(otherMove);</span>
+      }
+    }
+    // make the units airborne
+<span class="nc" id="L143">    final CompositeChange airborneChange = new CompositeChange();</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc" id="L145">      airborneChange.add(ChangeFactory.unitPropertyChange(u, true, TripleAUnit.AIRBORNE));</span>
+    }
+<span class="nc" id="L147">    currentMove.addChange(airborneChange);</span>
+    // make the bases start filling up their capacity
+<span class="nc" id="L149">    final Collection&lt;Unit&gt; basesAtStart = route.getStart().getUnits().getMatches(getAirborneBaseMatch(player, data));</span>
+<span class="nc" id="L150">    final Change fillLaunchCapacity = getNewAssignmentOfNumberLaunchedChange(units.size(), basesAtStart, player, data);</span>
+<span class="nc" id="L151">    currentMove.addChange(fillLaunchCapacity);</span>
+    // start event
+<span class="nc" id="L153">    final String transcriptText = MyFormatter.unitsToTextNoOwner(units) + &quot; moved from &quot; + route.getStart().getName()</span>
+<span class="nc" id="L154">        + &quot; to &quot; + route.getEnd().getName();</span>
+<span class="nc" id="L155">    m_bridge.getHistoryWriter().startEvent(transcriptText, currentMove.getDescriptionObject());</span>
+    // actually do our special changes
+<span class="nc" id="L157">    m_bridge.addChange(airborneChange);</span>
+<span class="nc" id="L158">    m_bridge.addChange(fillLaunchCapacity);</span>
+<span class="nc" id="L159">    m_tempMovePerformer = new MovePerformer();</span>
+<span class="nc" id="L160">    m_tempMovePerformer.initialize(this);</span>
+<span class="nc" id="L161">    m_tempMovePerformer.moveUnits(units, route, player, transportsThatCanBeLoaded, newDependents, currentMove);</span>
+<span class="nc" id="L162">    m_tempMovePerformer = null;</span>
+<span class="nc" id="L163">    return null;</span>
+  }
+
+  public static MoveValidationResult validateMove(final Collection&lt;Unit&gt; units, final Route route,
+      final PlayerID player, final Collection&lt;Unit&gt; transportsToLoad, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; newDependents,
+      final boolean isNonCombat, final List&lt;UndoableMove&gt; undoableMoves, final GameData data) {
+<span class="nc" id="L169">    final MoveValidationResult result = new MoveValidationResult();</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">    if (route.hasNoSteps()) {</span>
+<span class="nc" id="L171">      return result;</span>
+    }
+<span class="nc bnc" id="L173" title="All 2 branches missed.">    if (MoveValidator.validateFirst(data, units, route, player, result).getError() != null) {</span>
+<span class="nc" id="L174">      return result;</span>
+    }
+<span class="nc bnc" id="L176" title="All 2 branches missed.">    if (MoveValidator.validateFuel(data, units, route, player, result).getError() != null) {</span>
+<span class="nc" id="L177">      return result;</span>
+    }
+<span class="nc" id="L179">    final boolean isEditMode = getEditMode(data);</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">    if (!isEditMode) {</span>
+      // make sure all units are at least friendly
+<span class="nc bnc" id="L182" title="All 2 branches missed.">      for (final Unit unit : Match.getMatches(units, Matches.unitIsOwnedBy(player).invert())) {</span>
+<span class="nc" id="L183">        result.addDisallowedUnit(&quot;Can only move owned units&quot;, unit);</span>
+      }
+    }
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    if (validateAirborneMovements(data, units, route, player, result).getError() != null) {</span>
+<span class="nc" id="L187">      return result;</span>
+    }
+<span class="nc" id="L189">    return result;</span>
+  }
+
+  private static MoveValidationResult validateAirborneMovements(final GameData data, final Collection&lt;Unit&gt; units,
+      final Route route, final PlayerID player, final MoveValidationResult result) {
+<span class="nc bnc" id="L194" title="All 2 branches missed.">    if (!TechAbilityAttachment.getAllowAirborneForces(player, data)) {</span>
+<span class="nc" id="L195">      return result.setErrorReturnResult(&quot;Do Not Have Airborne Tech&quot;);</span>
+    }
+<span class="nc" id="L197">    final int airborneDistance = TechAbilityAttachment.getAirborneDistance(player, data);</span>
+<span class="nc" id="L198">    final Set&lt;UnitType&gt; airborneBases = TechAbilityAttachment.getAirborneBases(player, data);</span>
+<span class="nc" id="L199">    final Set&lt;UnitType&gt; airborneTypes = TechAbilityAttachment.getAirborneTypes(player, data);</span>
+<span class="nc bnc" id="L200" title="All 6 branches missed.">    if (airborneDistance &lt;= 0 || airborneBases.isEmpty() || airborneTypes.isEmpty()) {</span>
+<span class="nc" id="L201">      return result.setErrorReturnResult(&quot;Require Airborne Forces And Launch Capacity Tech&quot;);</span>
+    }
+<span class="nc bnc" id="L203" title="All 2 branches missed.">    if (route.numberOfSteps() &gt; airborneDistance) {</span>
+<span class="nc" id="L204">      return result.setErrorReturnResult(&quot;Destination Is Out Of Range&quot;);</span>
+    }
+<span class="nc" id="L206">    final Collection&lt;PlayerID&gt; alliesForBases = data.getRelationshipTracker().getAllies(player, true);</span>
+<span class="nc" id="L207">    final Match&lt;Unit&gt; airborneBaseMatch = getAirborneMatch(player, airborneBases, alliesForBases);</span>
+<span class="nc" id="L208">    final Territory start = route.getStart();</span>
+<span class="nc" id="L209">    final Territory end = route.getEnd();</span>
+<span class="nc" id="L210">    final Collection&lt;Unit&gt; basesAtStart = start.getUnits().getMatches(airborneBaseMatch);</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">    if (basesAtStart.isEmpty()) {</span>
+<span class="nc" id="L212">      return result.setErrorReturnResult(&quot;Require Airborne Base At Originating Territory&quot;);</span>
+    }
+<span class="nc" id="L214">    final int airborneCapacity = TechAbilityAttachment.getAirborneCapacity(basesAtStart, player, data);</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (airborneCapacity &lt;= 0) {</span>
+<span class="nc" id="L216">      return result.setErrorReturnResult(&quot;Airborne Bases Must Have Launch Capacity&quot;);</span>
+<span class="nc bnc" id="L217" title="All 2 branches missed.">    } else if (airborneCapacity &lt; units.size()) {</span>
+<span class="nc" id="L218">      final Collection&lt;Unit&gt; overMax = new ArrayList&lt;&gt;(units);</span>
+<span class="nc" id="L219">      overMax.removeAll(Match.getNMatches(units, airborneCapacity, Match.getAlwaysMatch()));</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">      for (final Unit u : overMax) {</span>
+<span class="nc" id="L221">        result.addDisallowedUnit(&quot;Airborne Base Capacity Has Been Reached&quot;, u);</span>
+      }
+    }
+<span class="nc" id="L224">    final Collection&lt;Unit&gt; airborne = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">    for (final Unit u : units) {</span>
+<span class="nc bnc" id="L226" title="All 2 branches missed.">      if (!Matches.unitIsOwnedBy(player).match(u)) {</span>
+<span class="nc" id="L227">        result.addDisallowedUnit(&quot;Must Own All Airborne Forces&quot;, u);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">      } else if (!Matches.unitIsOfTypes(airborneTypes).match(u)) {</span>
+<span class="nc" id="L229">        result.addDisallowedUnit(&quot;Can Only Launch Airborne Forces&quot;, u);</span>
+<span class="nc bnc" id="L230" title="All 2 branches missed.">      } else if (Matches.UnitIsDisabled.match(u)) {</span>
+<span class="nc" id="L231">        result.addDisallowedUnit(&quot;Must Not Be Disabled&quot;, u);</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">      } else if (!Matches.unitHasNotMoved.match(u)) {</span>
+<span class="nc" id="L233">        result.addDisallowedUnit(&quot;Must Not Have Previously Moved Airborne Forces&quot;, u);</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">      } else if (Matches.UnitIsAirborne.match(u)) {</span>
+<span class="nc" id="L235">        result.addDisallowedUnit(&quot;Cannot Move Units Already Airborne&quot;, u);</span>
+<span class="nc" id="L236">      } else {</span>
+<span class="nc" id="L237">        airborne.add(u);</span>
+      }
+    }
+<span class="nc bnc" id="L240" title="All 2 branches missed.">    if (airborne.isEmpty()) {</span>
+<span class="nc" id="L241">      return result;</span>
+    }
+<span class="nc" id="L243">    final BattleTracker battleTracker = AbstractMoveDelegate.getBattleTracker(data);</span>
+<span class="nc" id="L244">    final boolean onlyWhereUnderAttackAlready =</span>
+<span class="nc" id="L245">        games.strategy.triplea.Properties.getAirborneAttacksOnlyInExistingBattles(data);</span>
+<span class="nc" id="L246">    final boolean onlyEnemyTerritories =</span>
+<span class="nc" id="L247">        games.strategy.triplea.Properties.getAirborneAttacksOnlyInEnemyTerritories(data);</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">    if (!Match.allMatch(route.getSteps(), Matches.TerritoryIsPassableAndNotRestricted(player, data))) {</span>
+<span class="nc" id="L249">      return result.setErrorReturnResult(&quot;May Not Fly Over Impassable or Restricted Territories&quot;);</span>
+    }
+<span class="nc bnc" id="L251" title="All 2 branches missed.">    if (!Match.allMatch(route.getSteps(), Matches.TerritoryAllowsCanMoveAirUnitsOverOwnedLand(player, data))) {</span>
+<span class="nc" id="L252">      return result.setErrorReturnResult(&quot;May Only Fly Over Territories Where Air May Move&quot;);</span>
+    }
+<span class="nc" id="L254">    final boolean someLand = Match.someMatch(airborne, Matches.UnitIsLand);</span>
+<span class="nc" id="L255">    final boolean someSea = Match.someMatch(airborne, Matches.UnitIsSea);</span>
+<span class="nc" id="L256">    final boolean land = Matches.TerritoryIsLand.match(end);</span>
+<span class="nc" id="L257">    final boolean sea = Matches.TerritoryIsWater.match(end);</span>
+<span class="nc bnc" id="L258" title="All 4 branches missed.">    if (someLand &amp;&amp; someSea) {</span>
+<span class="nc" id="L259">      return result.setErrorReturnResult(&quot;Cannot Mix Land and Sea Units&quot;);</span>
+<span class="nc bnc" id="L260" title="All 2 branches missed.">    } else if (someLand) {</span>
+<span class="nc bnc" id="L261" title="All 2 branches missed.">      if (!land) {</span>
+<span class="nc" id="L262">        return result.setErrorReturnResult(&quot;Cannot Move Land Units To Sea&quot;);</span>
+      }
+<span class="nc bnc" id="L264" title="All 2 branches missed.">    } else if (someSea) {</span>
+<span class="nc bnc" id="L265" title="All 2 branches missed.">      if (!sea) {</span>
+<span class="nc" id="L266">        return result.setErrorReturnResult(&quot;Cannot Move Sea Units To Land&quot;);</span>
+      }
+    }
+<span class="nc bnc" id="L269" title="All 2 branches missed.">    if (onlyWhereUnderAttackAlready) {</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">      if (!battleTracker.getConquered().contains(end)) {</span>
+<span class="nc" id="L271">        final IBattle battle = battleTracker.getPendingBattle(end, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L272" title="All 2 branches missed.">        if (battle == null) {</span>
+<span class="nc" id="L273">          return result.setErrorReturnResult(&quot;Airborne May Only Attack Territories Already Under Assault&quot;);</span>
+<span class="nc bnc" id="L274" title="All 6 branches missed.">        } else if (land &amp;&amp; someLand &amp;&amp; !Match.someMatch(battle.getAttackingUnits(), Matches.UnitIsLand)) {</span>
+<span class="nc" id="L275">          return result.setErrorReturnResult(&quot;Battle Must Have Some Land Units Participating Already&quot;);</span>
+<span class="nc bnc" id="L276" title="All 6 branches missed.">        } else if (sea &amp;&amp; someSea &amp;&amp; !Match.someMatch(battle.getAttackingUnits(), Matches.UnitIsSea)) {</span>
+<span class="nc" id="L277">          return result.setErrorReturnResult(&quot;Battle Must Have Some Sea Units Participating Already&quot;);</span>
+        }
+      }
+<span class="nc bnc" id="L280" title="All 2 branches missed.">    } else if (onlyEnemyTerritories) {</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">      if (!(Matches.isTerritoryEnemyAndNotUnownedWater(player, data).match(end)</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">          || Matches.territoryHasEnemyUnits(player, data).match(end))) {</span>
+<span class="nc" id="L283">        return result.setErrorReturnResult(&quot;Destination Must Be Enemy Or Contain Enemy Units&quot;);</span>
+      }
+    }
+<span class="nc" id="L286">    return result;</span>
+  }
+
+  private static Match&lt;Unit&gt; getAirborneBaseMatch(final PlayerID player, final GameData data) {
+<span class="nc" id="L290">    return getAirborneMatch(player, TechAbilityAttachment.getAirborneBases(player, data),</span>
+<span class="nc" id="L291">        data.getRelationshipTracker().getAllies(player, true));</span>
+  }
+
+  private static Match&lt;Unit&gt; getAirborneMatch(final PlayerID player, final Set&lt;UnitType&gt; types,
+      final Collection&lt;PlayerID&gt; unitOwners) {
+<span class="nc" id="L296">    return new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedByOfAnyOfThesePlayers(unitOwners),</span>
+<span class="nc" id="L297">        Matches.unitIsOfTypes(types), Matches.UnitIsNotDisabled, Matches.unitHasNotMoved,</span>
+<span class="nc" id="L298">        Matches.UnitIsAirborne.invert());</span>
+  }
+
+  private static Change getNewAssignmentOfNumberLaunchedChange(int newNumberLaunched, final Collection&lt;Unit&gt; bases,
+      final PlayerID player, final GameData data) {
+<span class="nc" id="L303">    final CompositeChange launchedChange = new CompositeChange();</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">    if (newNumberLaunched &lt;= 0) {</span>
+<span class="nc" id="L305">      return launchedChange;</span>
+    }
+<span class="nc" id="L307">    final IntegerMap&lt;UnitType&gt; capacityMap = TechAbilityAttachment.getAirborneCapacity(player, data);</span>
+<span class="nc bnc" id="L308" title="All 2 branches missed.">    for (final Unit u : bases) {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">      if (newNumberLaunched &lt;= 0) {</span>
+<span class="nc" id="L310">        break;</span>
+      }
+<span class="nc" id="L312">      final int numberLaunchedAlready = ((TripleAUnit) u).getLaunched();</span>
+<span class="nc" id="L313">      final int capacity = capacityMap.getInt(u.getType());</span>
+<span class="nc" id="L314">      final int toAdd = Math.min(newNumberLaunched, capacity - numberLaunchedAlready);</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">      if (toAdd &lt;= 0) {</span>
+<span class="nc" id="L316">        continue;</span>
+      }
+<span class="nc" id="L318">      newNumberLaunched -= toAdd;</span>
+<span class="nc" id="L319">      launchedChange.add(ChangeFactory.unitPropertyChange(u, (toAdd + numberLaunchedAlready), TripleAUnit.LAUNCHED));</span>
+    }
+<span class="nc" id="L321">    return launchedChange;</span>
+  }
+
+  private static boolean allowAirborne(final PlayerID player, final GameData data) {
+<span class="nc bnc" id="L325" title="All 2 branches missed.">    if (!TechAbilityAttachment.getAllowAirborneForces(player, data)) {</span>
+<span class="nc" id="L326">      return false;</span>
+    }
+<span class="nc" id="L328">    final int airborneDistance = TechAbilityAttachment.getAirborneDistance(player, data);</span>
+<span class="nc" id="L329">    final Set&lt;UnitType&gt; airborneBases = TechAbilityAttachment.getAirborneBases(player, data);</span>
+<span class="nc" id="L330">    final Set&lt;UnitType&gt; airborneTypes = TechAbilityAttachment.getAirborneTypes(player, data);</span>
+<span class="nc bnc" id="L331" title="All 6 branches missed.">    if (airborneDistance &lt;= 0 || airborneBases.isEmpty() || airborneTypes.isEmpty()) {</span>
+<span class="nc" id="L332">      return false;</span>
+    }
+<span class="nc" id="L334">    final GameMap map = data.getMap();</span>
+<span class="nc" id="L335">    final Collection&lt;PlayerID&gt; alliesForBases = data.getRelationshipTracker().getAllies(player, true);</span>
+<span class="nc" id="L336">    final Collection&lt;Territory&gt; territoriesWeCanLaunchFrom = Match.getMatches(map.getTerritories(),</span>
+<span class="nc" id="L337">        Matches.territoryHasUnitsThatMatch(getAirborneMatch(player, airborneBases, alliesForBases)));</span>
+
+<span class="nc bnc" id="L339" title="All 2 branches missed.">    return !territoriesWeCanLaunchFrom.isEmpty();</span>
+  }
+
+  private static boolean getEditMode(final GameData data) {
+<span class="nc" id="L343">    return BaseEditDelegate.getEditMode(data);</span>
+  }
+
+  @Override
+  public int PUsAlreadyLost(final Territory t) {
+    // Auto-generated method stub
+<span class="nc" id="L349">    return 0;</span>
+  }
+
+  @Override
+  public void PUsLost(final Territory t, final int amt) {
+    // Auto-generated method stub
+<span class="nc" id="L355">  }</span>
+}
+
+
+<span class="nc" id="L359">class SpecialMoveExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 7781410008392307104L;
+  Serializable superState;
+  public boolean m_needToInitialize;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

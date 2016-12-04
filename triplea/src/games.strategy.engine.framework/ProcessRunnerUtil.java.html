@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProcessRunnerUtil.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework</a> &gt; <span class="el_source">ProcessRunnerUtil.java</span></div><h1>ProcessRunnerUtil.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.framework.system.Memory;
+import games.strategy.engine.framework.system.SystemProperties;
+import games.strategy.util.Version;
+
+/**
+ * To hold various static utility methods for running a java program.
+ */
+<span class="nc" id="L18">public class ProcessRunnerUtil {</span>
+
+  public static void runClass(final Class&lt;?&gt; mainClass) {
+<span class="nc" id="L21">    final List&lt;String&gt; commands = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L22">    populateBasicJavaArgs(commands);</span>
+<span class="nc" id="L23">    commands.add(mainClass.getName());</span>
+<span class="nc" id="L24">    exec(commands);</span>
+<span class="nc" id="L25">  }</span>
+
+  public static void populateBasicJavaArgs(final List&lt;String&gt; commands) {
+<span class="nc" id="L28">    populateBasicJavaArgs(commands, System.getProperty(&quot;java.class.path&quot;));</span>
+<span class="nc" id="L29">  }</span>
+
+  public static void populateBasicJavaArgs(final List&lt;String&gt; commands, final long maxMemory) {
+<span class="nc" id="L32">    populateBasicJavaArgs(commands, System.getProperty(&quot;java.class.path&quot;), maxMemory);</span>
+<span class="nc" id="L33">  }</span>
+
+  public static void populateBasicJavaArgs(final List&lt;String&gt; commands, final String newClasspath) {
+    // for whatever reason, .maxMemory() returns a value about 12% smaller than the real Xmx value, so we are going to
+    // add 64m to that to
+    // compensate
+    // final long maxMemory = ((long) (Runtime.getRuntime().maxMemory() * 1.15) + 67108864);
+<span class="nc" id="L40">    final long maxMemory = Memory.getMaxMemoryInBytes();</span>
+<span class="nc" id="L41">    System.out.println(&quot;Setting memory for new triplea process to: &quot; + (maxMemory / (1024 * 1024)) + &quot;m&quot;);</span>
+<span class="nc" id="L42">    populateBasicJavaArgs(commands, newClasspath, maxMemory);</span>
+<span class="nc" id="L43">  }</span>
+
+  public static void populateBasicJavaArgs(final List&lt;String&gt; commands, final String classpath, final long maxMemory) {
+<span class="nc" id="L46">    final String javaCommand = System.getProperty(&quot;java.home&quot;) + File.separator + &quot;bin&quot; + File.separator + &quot;java&quot;;</span>
+<span class="nc" id="L47">    commands.add(javaCommand);</span>
+<span class="nc" id="L48">    commands.add(&quot;-classpath&quot;);</span>
+<span class="nc bnc" id="L49" title="All 4 branches missed.">    if (classpath != null &amp;&amp; classpath.length() &gt; 0) {</span>
+<span class="nc" id="L50">      commands.add(classpath);</span>
+<span class="nc" id="L51">    } else {</span>
+<span class="nc" id="L52">      commands.add(System.getProperty(&quot;java.class.path&quot;));</span>
+    }
+<span class="nc" id="L54">    commands.add(&quot;-Xmx&quot; + maxMemory);</span>
+    // this should never ever go above 1000mb, because some users have errors because some JVM's can't handle
+    // that much
+    // commands.add(&quot;-Xmx896m&quot;);
+    // preserve noddraw to fix 1742775
+<span class="nc" id="L59">    final String[] preservedSystemProperties = {&quot;sun.java2d.noddraw&quot;};</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    for (final String key : preservedSystemProperties) {</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">      if (System.getProperties().getProperty(key) != null) {</span>
+<span class="nc" id="L62">        final String value = System.getProperties().getProperty(key);</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (value.matches(&quot;[a-zA-Z0-9.]+&quot;)) {</span>
+<span class="nc" id="L64">          commands.add(&quot;-D&quot; + key + &quot;=&quot; + value);</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L68" title="All 2 branches missed.">    if (SystemProperties.isMac()) {</span>
+<span class="nc" id="L69">      commands.add(&quot;-Dapple.laf.useScreenMenuBar=true&quot;);</span>
+<span class="nc" id="L70">      commands.add(&quot;-Xdock:name=\&quot;TripleA\&quot;&quot;);</span>
+<span class="nc" id="L71">      final File icons = new File(ClientFileSystemHelper.getRootFolder(), &quot;icons/triplea_icon.png&quot;);</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">      if (!icons.exists()) {</span>
+<span class="nc" id="L73">        throw new IllegalStateException(&quot;Icon file not found&quot;);</span>
+      }
+<span class="nc" id="L75">      commands.add(&quot;-Xdock:icon=&quot; + icons.getAbsolutePath() + &quot;&quot;);</span>
+    }
+<span class="nc" id="L77">    final String version = System.getProperty(GameRunner.TRIPLEA_ENGINE_VERSION_BIN);</span>
+<span class="nc bnc" id="L78" title="All 4 branches missed.">    if (version != null &amp;&amp; version.length() &gt; 0) {</span>
+      final Version testVersion;
+      try {
+<span class="nc" id="L81">        testVersion = new Version(version);</span>
+<span class="nc" id="L82">        commands.add(&quot;-D&quot; + GameRunner.TRIPLEA_ENGINE_VERSION_BIN + &quot;=&quot; + testVersion.toString());</span>
+<span class="nc" id="L83">      } catch (final Exception e) {</span>
+        // nothing
+      }
+    }
+    // since we are setting the xmx already, we need to
+    // make sure this property is set so that triplea
+    // doesn't restart
+<span class="nc" id="L90">    commands.add(&quot;-D&quot; + Memory.TRIPLEA_MEMORY_SET + &quot;=&quot; + Boolean.TRUE.toString());</span>
+<span class="nc" id="L91">  }</span>
+
+  public static void exec(final List&lt;String&gt; commands) {
+    // System.out.println(&quot;Commands: &quot; + commands);
+<span class="nc" id="L95">    final ProcessBuilder builder = new ProcessBuilder(commands);</span>
+    // merge the streams, so we only have to start one reader thread
+<span class="nc" id="L97">    builder.redirectErrorStream(true);</span>
+    try {
+<span class="nc" id="L99">      final Process p = builder.start();</span>
+<span class="nc" id="L100">      final InputStream s = p.getInputStream();</span>
+      // we need to read the input stream to prevent possible
+      // deadlocks
+<span class="nc" id="L103">      final Thread t = new Thread(() -&gt; {</span>
+        try {
+<span class="nc bnc" id="L105" title="All 2 branches missed.">          while (s.read() &gt;= 0) {</span>
+            // just read
+          }
+<span class="nc" id="L108">        } catch (final IOException e) {</span>
+<span class="nc" id="L109">          ClientLogger.logQuietly(e);</span>
+        }
+<span class="nc" id="L111">      }, &quot;Process output gobbler&quot;);</span>
+<span class="nc" id="L112">      t.setDaemon(true);</span>
+<span class="nc" id="L113">      t.start();</span>
+<span class="nc" id="L114">    } catch (final IOException e) {</span>
+<span class="nc" id="L115">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L117">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

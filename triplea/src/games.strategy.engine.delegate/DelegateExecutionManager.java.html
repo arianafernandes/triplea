@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>DelegateExecutionManager.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.delegate</a> &gt; <span class="el_source">DelegateExecutionManager.java</span></div><h1>DelegateExecutionManager.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.delegate;</span>
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.GameOverException;
+import games.strategy.engine.framework.headlessGameServer.HeadlessGameServer;
+import games.strategy.engine.message.MessengerException;
+import games.strategy.triplea.util.WrappedInvocationHandler;
+
+/**
+ * Manages when delegates are allowed to execute.
+ * &lt;p&gt;
+ * When saving a game, we want to ensure that no delegate is executing, otherwise the delegate could modify the state of
+ * the game while the
+ * game is being saved, resulting in an invalid save game.
+ * &lt;p&gt;
+ * This class effectivly keeps a count of how many threads are executing in the delegates, and provides a way of
+ * blocking further threads
+ * from starting execution in a delegate.
+ * &lt;p&gt;
+ */
+<span class="nc" id="L29">public class DelegateExecutionManager {</span>
+<span class="nc" id="L30">  private final Logger sm_logger = Logger.getLogger(DelegateExecutionManager.class.getName());</span>
+  /*
+   * Delegate execution can be thought of as a read/write lock.
+   * Many delegates can be executing at one time (to execute you acquire the read lock), but
+   * only 1 block can be held (the block is equivalent to the read lock).
+   */
+<span class="nc" id="L36">  private final ReentrantReadWriteLock m_readWriteLock = new ReentrantReadWriteLock();</span>
+<span class="nc" id="L37">  private final ThreadLocal&lt;Boolean&gt; m_currentThreadHasReadLock = new ThreadLocal&lt;&gt;();</span>
+<span class="nc" id="L38">  private volatile boolean m_isGameOver = false;</span>
+
+  public void setGameOver() {
+<span class="nc" id="L41">    m_isGameOver = true;</span>
+<span class="nc" id="L42">  }</span>
+
+  /**
+   * When this method returns true, threads will not be able to enter delegates until
+   * a call to resumeDelegateExecution is made.
+   * &lt;p&gt;
+   * When delegateExecution is blocked, it also blocks subsequent cals to blockDelegateExecution(...)
+   * &lt;p&gt;
+   * If timeToWaitMS is &gt; 0, we will give up trying to block delegate execution after timeTiWaitMS has elapsed.
+   * &lt;p&gt;
+   *
+   * @param timeToWait
+   */
+  public boolean blockDelegateExecution(final int timeToWaitMS) throws InterruptedException {
+<span class="nc" id="L56">    final boolean rVal = m_readWriteLock.writeLock().tryLock(timeToWaitMS, TimeUnit.MILLISECONDS);</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">    if (!rVal) {</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">      if (sm_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L59">        sm_logger.fine(&quot;Could not block delegate execution. Read Lock count: &quot; + m_readWriteLock.getReadLockCount()</span>
+<span class="nc" id="L60">            + &quot; Write Hold count: &quot; + m_readWriteLock.getWriteHoldCount() + &quot; Queue Length: &quot;</span>
+<span class="nc" id="L61">            + m_readWriteLock.getQueueLength() + &quot; Current Thread Has Lock: &quot;</span>
+<span class="nc" id="L62">            + m_readWriteLock.isWriteLockedByCurrentThread() + &quot; Has Queued Threads: &quot;</span>
+<span class="nc" id="L63">            + m_readWriteLock.hasQueuedThreads() + &quot; Is Write Locked: &quot; + m_readWriteLock.isWriteLocked()</span>
+<span class="nc" id="L64">            + &quot; toString: &quot; + m_readWriteLock.toString());</span>
+<span class="nc" id="L65">      } else {</span>
+<span class="nc" id="L66">        HeadlessGameServer.log(&quot;Could not block delegate execution. Read Lock count: &quot;</span>
+<span class="nc" id="L67">            + m_readWriteLock.getReadLockCount() + &quot; Write Hold count: &quot; + m_readWriteLock.getWriteHoldCount()</span>
+<span class="nc" id="L68">            + &quot; Queue Length: &quot; + m_readWriteLock.getQueueLength() + &quot; Current Thread Has Lock: &quot;</span>
+<span class="nc" id="L69">            + m_readWriteLock.isWriteLockedByCurrentThread() + &quot; Has Queued Threads: &quot;</span>
+<span class="nc" id="L70">            + m_readWriteLock.hasQueuedThreads() + &quot; Is Write Locked: &quot; + m_readWriteLock.isWriteLocked()</span>
+<span class="nc" id="L71">            + &quot; toString: &quot; + m_readWriteLock.toString());</span>
+      }
+<span class="nc" id="L73">    } else {</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">      if (sm_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L75">        sm_logger.fine(Thread.currentThread().getName() + &quot; block delegate execution.&quot;);</span>
+      }
+    }
+<span class="nc" id="L78">    return rVal;</span>
+  }
+
+  /**
+   * Allow delegate execution to resume.
+   */
+  public void resumeDelegateExecution() {
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    if (sm_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L86">      sm_logger.fine(Thread.currentThread().getName() + &quot; resumes delegate execution.&quot;);</span>
+    }
+<span class="nc" id="L88">    m_readWriteLock.writeLock().unlock();</span>
+<span class="nc" id="L89">  }</span>
+
+  private boolean currentThreadHasReadLock() {
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    return m_currentThreadHasReadLock.get() == Boolean.TRUE;</span>
+  }
+
+  /**
+   * Used to create an object the exits delegate execution.
+   * &lt;p&gt;
+   * Objects on this method will decrement the thread lock count when called, and will increment it again when execution
+   * is finished.
+   */
+  public Object createOutboundImplementation(final Object implementor, final Class&lt;?&gt;[] interfaces) {
+<span class="nc" id="L102">    assertGameNotOver();</span>
+<span class="nc" id="L103">    final InvocationHandler ih = (proxy, method, args) -&gt; {</span>
+<span class="nc" id="L104">      assertGameNotOver();</span>
+<span class="nc" id="L105">      final boolean threadLocks = currentThreadHasReadLock();</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">      if (threadLocks) {</span>
+<span class="nc" id="L107">        leaveDelegateExecution();</span>
+      }
+      try {
+<span class="nc" id="L110">        return method.invoke(implementor, args);</span>
+<span class="nc" id="L111">      } catch (final MessengerException me) {</span>
+<span class="nc" id="L112">        throw new GameOverException(&quot;Game Over!&quot;);</span>
+<span class="nc" id="L113">      } catch (final InvocationTargetException ite) {</span>
+<span class="nc" id="L114">        assertGameNotOver();</span>
+<span class="nc" id="L115">        throw ite;</span>
+<span class="nc" id="L116">      } finally {</span>
+<span class="nc bnc" id="L117" title="All 4 branches missed.">        if (threadLocks) {</span>
+<span class="nc" id="L118">          enterDelegateExecution();</span>
+        }
+<span class="nc" id="L120">      }</span>
+    };
+<span class="nc" id="L122">    return Proxy.newProxyInstance(implementor.getClass().getClassLoader(), interfaces, ih);</span>
+  }
+
+  private void assertGameNotOver() {
+<span class="nc bnc" id="L126" title="All 2 branches missed.">    if (m_isGameOver) {</span>
+<span class="nc" id="L127">      throw new GameOverException(&quot;Game Over&quot;);</span>
+    }
+<span class="nc" id="L129">  }</span>
+
+  /**
+   * Use to create an object that begins delegate execution.
+   * &lt;p&gt;
+   * Objects on this method will increment the thread lock count when called, and will decrement it again when execution
+   * is finished.
+   */
+  public Object createInboundImplementation(final Object implementor, final Class&lt;?&gt;[] interfaces) {
+<span class="nc" id="L138">    assertGameNotOver();</span>
+<span class="nc" id="L139">    final InvocationHandler ih = new WrappedInvocationHandler(implementor) {</span>
+      @Override
+      public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
+<span class="nc bnc" id="L142" title="All 2 branches missed.">        if (super.shouldHandle(method, args)) {</span>
+<span class="nc" id="L143">          return super.handle(method, args);</span>
+        }
+<span class="nc" id="L145">        assertGameNotOver();</span>
+<span class="nc" id="L146">        enterDelegateExecution();</span>
+        try {
+<span class="nc" id="L148">          return method.invoke(implementor, args);</span>
+<span class="nc" id="L149">        } catch (final InvocationTargetException ite) {</span>
+<span class="nc" id="L150">          assertGameNotOver();</span>
+<span class="nc" id="L151">          throw ite.getCause();</span>
+<span class="nc" id="L152">        } catch (final RuntimeException re) {</span>
+<span class="nc" id="L153">          assertGameNotOver();</span>
+<span class="nc" id="L154">          throw re;</span>
+<span class="nc" id="L155">        } finally {</span>
+<span class="nc" id="L156">          leaveDelegateExecution();</span>
+<span class="nc" id="L157">        }</span>
+      }
+    };
+<span class="nc" id="L160">    return Proxy.newProxyInstance(implementor.getClass().getClassLoader(), interfaces, ih);</span>
+  }
+
+  public void leaveDelegateExecution() {
+<span class="nc bnc" id="L164" title="All 2 branches missed.">    if (sm_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L165">      sm_logger.fine(Thread.currentThread().getName() + &quot; leaves delegate execution.&quot;);</span>
+    }
+<span class="nc" id="L167">    m_readWriteLock.readLock().unlock();</span>
+<span class="nc" id="L168">    m_currentThreadHasReadLock.set(null);</span>
+<span class="nc" id="L169">  }</span>
+
+  public void enterDelegateExecution() {
+<span class="nc bnc" id="L172" title="All 2 branches missed.">    if (sm_logger.isLoggable(Level.FINE)) {</span>
+<span class="nc" id="L173">      sm_logger.fine(Thread.currentThread().getName() + &quot; enters delegate execution.&quot;);</span>
+    }
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    if (currentThreadHasReadLock()) {</span>
+<span class="nc" id="L176">      throw new IllegalStateException(&quot;Already locked?&quot;);</span>
+    }
+<span class="nc" id="L178">    m_readWriteLock.readLock().lock();</span>
+<span class="nc" id="L179">    m_currentThreadHasReadLock.set(Boolean.TRUE);</span>
+<span class="nc" id="L180">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

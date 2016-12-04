@@ -1,0 +1,426 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PurchaseDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">PurchaseDelegate.java</span></div><h1>PurchaseDelegate.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.TreeSet;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.NamedAttachable;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.RepairRule;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.message.IRemote;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.AbstractTriggerAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.TechAbilityAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.attachments.UnitTypeComparator;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * Logic for purchasing units.
+ * Subclasses can override canAfford(...) to test if a purchase can be made
+ * Subclasses can over ride addToPlayer(...) and removeFromPlayer(...) to change how
+ * the adding or removing of resources is done.
+ */
+@MapSupport
+<span class="fc" id="L54">public class PurchaseDelegate extends BaseTripleADelegate implements IPurchaseDelegate {</span>
+<span class="fc" id="L55">  private boolean m_needToInitialize = true;</span>
+  public final static String NOT_ENOUGH_RESOURCES = &quot;Not enough resources&quot;;
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L63">    super.start();</span>
+<span class="fc" id="L64">    final GameData data = getData();</span>
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">    if (m_needToInitialize) {</span>
+<span class="fc bfc" id="L66" title="All 2 branches covered.">      if (games.strategy.triplea.Properties.getTriggers(data)) {</span>
+        // First set up a match for what we want to have fire as a default in this delegate. List out as a composite
+        // match OR.
+        // use 'null, null' because this is the Default firing location for any trigger that does NOT have 'when' set.
+<span class="fc" id="L70">        final Match&lt;TriggerAttachment&gt; purchaseDelegateTriggerMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L71">            AbstractTriggerAttachment.availableUses, AbstractTriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="fc" id="L72">            new CompositeMatchOr&lt;TriggerAttachment&gt;(TriggerAttachment.prodMatch(),</span>
+<span class="fc" id="L73">                TriggerAttachment.prodFrontierEditMatch(), TriggerAttachment.purchaseMatch()));</span>
+        // get all possible triggers based on this match.
+<span class="fc" id="L75">        final HashSet&lt;TriggerAttachment&gt; toFirePossible = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="fc" id="L76">            new HashSet&lt;&gt;(Collections.singleton(m_player)), purchaseDelegateTriggerMatch, m_bridge);</span>
+<span class="pc bpc" id="L77" title="1 of 2 branches missed.">        if (!toFirePossible.isEmpty()) {</span>
+          // get all conditions possibly needed by these triggers, and then test them.
+<span class="fc" id="L79">          final HashMap&lt;ICondition, Boolean&gt; testedConditions =</span>
+<span class="fc" id="L80">              TriggerAttachment.collectTestsForAllTriggers(toFirePossible, m_bridge);</span>
+          // get all triggers that are satisfied based on the tested conditions.
+<span class="fc" id="L82">          final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="fc" id="L83">              Match.getMatches(toFirePossible, AbstractTriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+          // now list out individual types to fire, once for each of the matches above.
+<span class="fc" id="L85">          TriggerAttachment.triggerProductionChange(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="fc" id="L86">              true);</span>
+<span class="fc" id="L87">          TriggerAttachment.triggerProductionFrontierEditChange(toFireTestedAndSatisfied, m_bridge, null, null, true,</span>
+<span class="fc" id="L88">              true, true, true);</span>
+<span class="fc" id="L89">          TriggerAttachment.triggerPurchase(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true, true);</span>
+        }
+      }
+<span class="fc" id="L92">      giveBonusIncomeToAI();</span>
+<span class="fc" id="L93">      m_needToInitialize = false;</span>
+    }
+<span class="fc" id="L95">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L99">    super.end();</span>
+<span class="nc" id="L100">    m_needToInitialize = true;</span>
+<span class="nc" id="L101">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L105">    final PurchaseExtendedDelegateState state = new PurchaseExtendedDelegateState();</span>
+<span class="nc" id="L106">    state.superState = super.saveState();</span>
+<span class="nc" id="L107">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L108">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L113">    final PurchaseExtendedDelegateState s = (PurchaseExtendedDelegateState) state;</span>
+<span class="nc" id="L114">    super.loadState(s.superState);</span>
+<span class="nc" id="L115">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L116">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc bnc" id="L120" title="All 4 branches missed.">    if ((m_player.getProductionFrontier() == null || m_player.getProductionFrontier().getRules().isEmpty())</span>
+<span class="nc bnc" id="L121" title="All 4 branches missed.">        &amp;&amp; (m_player.getRepairFrontier() == null || m_player.getRepairFrontier().getRules().isEmpty())) {</span>
+<span class="nc" id="L122">      return false;</span>
+    }
+<span class="nc bnc" id="L124" title="All 2 branches missed.">    if (!canWePurchaseOrRepair()) {</span>
+<span class="nc" id="L125">      return false;</span>
+    }
+    // if my capital is captured, I can't produce, but I may have PUs if I captured someone else's capital
+<span class="nc" id="L128">    return TerritoryAttachment.doWeHaveEnoughCapitalsToProduce(m_player, getData());</span>
+  }
+
+  protected boolean canWePurchaseOrRepair() {
+<span class="nc bnc" id="L132" title="All 4 branches missed.">    if (m_player.getProductionFrontier() != null &amp;&amp; m_player.getProductionFrontier().getRules() != null) {</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">      for (final ProductionRule rule : m_player.getProductionFrontier().getRules()) {</span>
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        if (m_player.getResources().has(rule.getCosts())) {</span>
+<span class="nc" id="L135">          return true;</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L139" title="All 4 branches missed.">    if (m_player.getRepairFrontier() != null &amp;&amp; m_player.getRepairFrontier().getRules() != null) {</span>
+<span class="nc bnc" id="L140" title="All 2 branches missed.">      for (final RepairRule rule : m_player.getRepairFrontier().getRules()) {</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">        if (m_player.getResources().has(rule.getCosts())) {</span>
+<span class="nc" id="L142">          return true;</span>
+        }
+      }
+    }
+<span class="nc" id="L146">    return false;</span>
+  }
+
+  /**
+   * subclasses can over ride this method to use different restrictions as to what a player can buy
+   */
+  protected boolean canAfford(final IntegerMap&lt;Resource&gt; costs, final PlayerID player) {
+<span class="fc" id="L153">    return player.getResources().has(costs);</span>
+  }
+
+  /**
+   * Returns an error code, or null if all is good.
+   */
+  @Override
+  public String purchase(final IntegerMap&lt;ProductionRule&gt; productionRules) {
+<span class="fc" id="L161">    final IntegerMap&lt;Resource&gt; costs = getCosts(productionRules, m_player);</span>
+<span class="fc" id="L162">    final IntegerMap&lt;NamedAttachable&gt; results = getResults(productionRules);</span>
+<span class="fc bfc" id="L163" title="All 2 branches covered.">    if (!(canAfford(costs, m_player))) {</span>
+<span class="fc" id="L164">      return NOT_ENOUGH_RESOURCES;</span>
+    }
+    // check to see if player has too many of any building with a building limit
+<span class="fc" id="L167">    final Iterator&lt;NamedAttachable&gt; iter2 = results.keySet().iterator();</span>
+<span class="fc bfc" id="L168" title="All 2 branches covered.">    while (iter2.hasNext()) {</span>
+<span class="fc" id="L169">      final Object next = iter2.next();</span>
+<span class="pc bpc" id="L170" title="1 of 2 branches missed.">      if (!(next instanceof Resource)) {</span>
+<span class="fc" id="L171">        final UnitType type = (UnitType) next;</span>
+<span class="fc" id="L172">        final int quantity = results.getInt(type);</span>
+<span class="fc" id="L173">        final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L174">        final int maxBuilt = ua.getMaxBuiltPerPlayer();</span>
+<span class="pc bpc" id="L175" title="1 of 2 branches missed.">        if (maxBuilt == 0) {</span>
+<span class="nc" id="L176">          return &quot;May not build any of this unit right now: &quot; + type.getName();</span>
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">        } else if (maxBuilt &gt; 0) {</span>
+          // count how many units are yet to be placed or are in the field
+<span class="nc" id="L179">          int currentlyBuilt = m_player.getUnits().countMatches(Matches.unitIsOfType(type));</span>
+
+<span class="nc" id="L181">          final CompositeMatch&lt;Unit&gt; unitTypeOwnedBy =</span>
+<span class="nc" id="L182">              new CompositeMatchAnd&lt;&gt;(Matches.unitIsOfType(type), Matches.unitIsOwnedBy(m_player));</span>
+<span class="nc" id="L183">          final Collection&lt;Territory&gt; allTerrs = getData().getMap().getTerritories();</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">          for (final Territory t : allTerrs) {</span>
+<span class="nc" id="L185">            currentlyBuilt += t.getUnits().countMatches(unitTypeOwnedBy);</span>
+          }
+
+<span class="nc" id="L188">          final int allowedBuild = maxBuilt - currentlyBuilt;</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">          if (allowedBuild - quantity &lt; 0) {</span>
+<span class="nc" id="L190">            return &quot;May only build &quot; + allowedBuild + &quot; of &quot; + type.getName() + &quot; this turn, may only build &quot; + maxBuilt</span>
+<span class="nc" id="L191">                + &quot; total&quot;;</span>
+          }
+        }
+      }
+    }
+    // remove first, since add logs PUs remaining
+<span class="fc" id="L197">    final Iterator&lt;NamedAttachable&gt; iter = results.keySet().iterator();</span>
+<span class="fc" id="L198">    final Collection&lt;Unit&gt; totalUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L199">    final Collection&lt;UnitType&gt; totalUnitTypes = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L200">    final Collection&lt;Resource&gt; totalResources = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L201">    final Collection&lt;NamedAttachable&gt; totalAll = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L202">    final CompositeChange changes = new CompositeChange();</span>
+    // add changes for added resources
+    // and find all added units
+<span class="fc bfc" id="L205" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L206">      final Object next = iter.next();</span>
+<span class="pc bpc" id="L207" title="1 of 2 branches missed.">      if (next instanceof Resource) {</span>
+<span class="nc" id="L208">        final Resource resource = (Resource) next;</span>
+<span class="nc" id="L209">        final int quantity = results.getInt(resource);</span>
+<span class="nc" id="L210">        final Change change = ChangeFactory.changeResourcesChange(m_player, resource, quantity);</span>
+<span class="nc" id="L211">        changes.add(change);</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        for (int i = 0; i &lt; quantity; i++) {</span>
+<span class="nc" id="L213">          totalResources.add(resource);</span>
+        }
+<span class="nc" id="L215">      } else {</span>
+<span class="fc" id="L216">        final UnitType type = (UnitType) next;</span>
+<span class="fc" id="L217">        final int quantity = results.getInt(type);</span>
+<span class="fc" id="L218">        final Collection&lt;Unit&gt; units = type.create(quantity, m_player);</span>
+<span class="fc" id="L219">        totalUnits.addAll(units);</span>
+<span class="fc bfc" id="L220" title="All 2 branches covered.">        for (int i = 0; i &lt; quantity; i++) {</span>
+<span class="fc" id="L221">          totalUnitTypes.add(type);</span>
+        }
+      }
+    }
+<span class="fc" id="L225">    totalAll.addAll(totalUnitTypes);</span>
+<span class="fc" id="L226">    totalAll.addAll(totalResources);</span>
+    // add changes for added units
+<span class="pc bpc" id="L228" title="1 of 2 branches missed.">    if (!totalUnits.isEmpty()) {</span>
+<span class="fc" id="L229">      final Change change = ChangeFactory.addUnits(m_player, totalUnits);</span>
+<span class="fc" id="L230">      changes.add(change);</span>
+    }
+    // add changes for spent resources
+<span class="fc" id="L233">    final String remaining = removeFromPlayer(m_player, costs, changes);</span>
+    // add history event
+    String transcriptText;
+<span class="pc bpc" id="L236" title="1 of 2 branches missed.">    if (!totalUnits.isEmpty()) {</span>
+<span class="fc" id="L237">      transcriptText =</span>
+<span class="fc" id="L238">          m_player.getName() + &quot; buy &quot; + MyFormatter.defaultNamedToTextList(totalAll, &quot;, &quot;, true) + &quot;; &quot; + remaining;</span>
+<span class="fc" id="L239">    } else {</span>
+<span class="nc" id="L240">      transcriptText = m_player.getName() + &quot; buy nothing; &quot; + remaining;</span>
+    }
+<span class="fc" id="L242">    m_bridge.getHistoryWriter().startEvent(transcriptText, totalUnits);</span>
+    // commit changes
+<span class="fc" id="L244">    m_bridge.addChange(changes);</span>
+<span class="fc" id="L245">    return null;</span>
+  }
+
+  /**
+   * Returns an error code, or null if all is good.
+   */
+  @Override
+  public String purchaseRepair(final Map&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; repairRules) {
+<span class="fc" id="L253">    final IntegerMap&lt;Resource&gt; costs = getRepairCosts(repairRules, m_player);</span>
+<span class="pc bpc" id="L254" title="1 of 2 branches missed.">    if (!(canAfford(costs, m_player))) {</span>
+<span class="nc" id="L255">      return NOT_ENOUGH_RESOURCES;</span>
+    }
+<span class="pc bpc" id="L257" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(getData())) {</span>
+<span class="nc" id="L258">      return null;</span>
+    }
+    // Get the map of the factories that were repaired and how much for each
+<span class="fc" id="L261">    final IntegerMap&lt;Unit&gt; repairMap = getUnitRepairs(repairRules);</span>
+<span class="pc bpc" id="L262" title="1 of 2 branches missed.">    if (repairMap.isEmpty()) {</span>
+<span class="nc" id="L263">      return null;</span>
+    }
+    // remove first, since add logs PUs remaining
+<span class="fc" id="L266">    final CompositeChange changes = new CompositeChange();</span>
+<span class="fc" id="L267">    final Set&lt;Unit&gt; repairUnits = new HashSet&lt;&gt;(repairMap.keySet());</span>
+<span class="fc" id="L268">    final IntegerMap&lt;Unit&gt; damageMap = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L269" title="All 2 branches covered.">    for (final Unit u : repairUnits) {</span>
+<span class="fc" id="L270">      final int repairCount = repairMap.getInt(u);</span>
+      // Display appropriate damaged/repaired factory and factory damage totals
+<span class="pc bpc" id="L272" title="1 of 2 branches missed.">      if (repairCount &gt; 0) {</span>
+<span class="fc" id="L273">        final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="fc" id="L274">        final int newDamageTotal = Math.max(0, taUnit.getUnitDamage() - repairCount);</span>
+<span class="pc bpc" id="L275" title="1 of 2 branches missed.">        if (newDamageTotal != taUnit.getUnitDamage()) {</span>
+<span class="fc" id="L276">          damageMap.put(u, newDamageTotal);</span>
+        }
+      }
+    }
+<span class="pc bpc" id="L280" title="1 of 2 branches missed.">    if (!damageMap.isEmpty()) {</span>
+<span class="fc" id="L281">      changes.add(ChangeFactory.bombingUnitDamage(damageMap));</span>
+    }
+    // add changes for spent resources
+<span class="fc" id="L284">    final String remaining = removeFromPlayer(m_player, costs, changes);</span>
+    // add history event
+    String transcriptText;
+<span class="pc bpc" id="L287" title="1 of 2 branches missed.">    if (!damageMap.isEmpty()) {</span>
+<span class="fc" id="L288">      transcriptText = m_player.getName() + &quot; repair damage of &quot;</span>
+<span class="fc" id="L289">          + MyFormatter.integerUnitMapToString(repairMap, &quot;, &quot;, &quot;x &quot;, true) + &quot;; &quot; + remaining;</span>
+<span class="fc" id="L290">    } else {</span>
+<span class="nc" id="L291">      transcriptText = m_player.getName() + &quot; repair nothing; &quot; + remaining;</span>
+    }
+<span class="fc" id="L293">    m_bridge.getHistoryWriter().startEvent(transcriptText, new HashSet&lt;&gt;(damageMap.keySet()));</span>
+    // commit changes
+<span class="pc bpc" id="L295" title="1 of 2 branches missed.">    if (!changes.isEmpty()) {</span>
+<span class="fc" id="L296">      m_bridge.addChange(changes);</span>
+    }
+<span class="fc" id="L298">    return null;</span>
+  }
+
+  private IntegerMap&lt;Unit&gt; getUnitRepairs(final Map&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; repairRules) {
+<span class="fc" id="L302">    final IntegerMap&lt;Unit&gt; repairMap = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L303" title="All 2 branches covered.">    for (final Unit u : repairRules.keySet()) {</span>
+<span class="fc" id="L304">      final IntegerMap&lt;RepairRule&gt; rules = repairRules.get(u);</span>
+<span class="fc" id="L305">      final TreeSet&lt;RepairRule&gt; repRules = new TreeSet&lt;&gt;(repairRuleComparator);</span>
+<span class="fc" id="L306">      repRules.addAll(rules.keySet());</span>
+<span class="fc bfc" id="L307" title="All 2 branches covered.">      for (final RepairRule repairRule : repRules) {</span>
+<span class="fc" id="L308">        final int quantity = rules.getInt(repairRule) * repairRule.getResults().getInt(u.getType());</span>
+<span class="fc" id="L309">        repairMap.add(u, quantity);</span>
+      }
+    }
+<span class="fc" id="L312">    return repairMap;</span>
+  }
+
+<span class="fc" id="L315">  Comparator&lt;RepairRule&gt; repairRuleComparator = new Comparator&lt;RepairRule&gt;() {</span>
+<span class="fc" id="L316">    UnitTypeComparator utc = new UnitTypeComparator();</span>
+
+    @Override
+    public int compare(final RepairRule o1, final RepairRule o2) {
+<span class="fc" id="L320">      final UnitType u1 = (UnitType) o1.getResults().keySet().iterator().next();</span>
+<span class="fc" id="L321">      final UnitType u2 = (UnitType) o2.getResults().keySet().iterator().next();</span>
+<span class="fc" id="L322">      return utc.compare(u1, u2);</span>
+    }
+  };
+
+  private IntegerMap&lt;Resource&gt; getCosts(final IntegerMap&lt;ProductionRule&gt; productionRules, final PlayerID player) {
+<span class="fc" id="L327">    final IntegerMap&lt;Resource&gt; costs = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L328">    final Iterator&lt;ProductionRule&gt; rules = productionRules.keySet().iterator();</span>
+<span class="fc bfc" id="L329" title="All 2 branches covered.">    while (rules.hasNext()) {</span>
+<span class="fc" id="L330">      final ProductionRule rule = rules.next();</span>
+<span class="fc" id="L331">      costs.addMultiple(rule.getCosts(), productionRules.getInt(rule));</span>
+    }
+<span class="fc" id="L333">    return costs;</span>
+  }
+
+  private IntegerMap&lt;Resource&gt; getRepairCosts(final Map&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; repairRules,
+      final PlayerID player) {
+<span class="fc" id="L338">    final Collection&lt;Unit&gt; units = repairRules.keySet();</span>
+<span class="fc" id="L339">    final Iterator&lt;Unit&gt; iter = units.iterator();</span>
+<span class="fc" id="L340">    final IntegerMap&lt;Resource&gt; costs = new IntegerMap&lt;&gt;();</span>
+<span class="fc bfc" id="L341" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L342">      final Unit u = iter.next();</span>
+<span class="fc" id="L343">      final Iterator&lt;RepairRule&gt; rules = repairRules.get(u).keySet().iterator();</span>
+<span class="fc bfc" id="L344" title="All 2 branches covered.">      while (rules.hasNext()) {</span>
+<span class="fc" id="L345">        final RepairRule rule = rules.next();</span>
+<span class="fc" id="L346">        costs.addMultiple(rule.getCosts(), repairRules.get(u).getInt(rule));</span>
+      }
+    }
+<span class="fc" id="L349">    final double discount = TechAbilityAttachment.getRepairDiscount(player, getData());</span>
+<span class="fc bfc" id="L350" title="All 2 branches covered.">    if (discount != 1.0D) {</span>
+<span class="fc" id="L351">      costs.multiplyAllValuesBy(discount, 3);</span>
+    }
+<span class="fc" id="L353">    return costs;</span>
+  }
+
+  private IntegerMap&lt;NamedAttachable&gt; getResults(final IntegerMap&lt;ProductionRule&gt; productionRules) {
+<span class="fc" id="L357">    final IntegerMap&lt;NamedAttachable&gt; costs = new IntegerMap&lt;&gt;();</span>
+<span class="fc" id="L358">    final Iterator&lt;ProductionRule&gt; rules = productionRules.keySet().iterator();</span>
+<span class="fc bfc" id="L359" title="All 2 branches covered.">    while (rules.hasNext()) {</span>
+<span class="fc" id="L360">      final ProductionRule rule = rules.next();</span>
+<span class="fc" id="L361">      costs.addMultiple(rule.getResults(), productionRules.getInt(rule));</span>
+    }
+<span class="fc" id="L363">    return costs;</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L368">    return IPurchaseDelegate.class;</span>
+  }
+
+  protected String removeFromPlayer(final PlayerID player, final IntegerMap&lt;Resource&gt; costs,
+      final CompositeChange changes) {
+<span class="fc" id="L373">    final StringBuffer returnString = new StringBuffer(&quot;Remaining resources: &quot;);</span>
+<span class="fc" id="L374">    final IntegerMap&lt;Resource&gt; left = m_player.getResources().getResourcesCopy();</span>
+<span class="fc" id="L375">    left.subtract(costs);</span>
+<span class="fc bfc" id="L376" title="All 2 branches covered.">    for (final Entry&lt;Resource, Integer&gt; entry : left.entrySet()) {</span>
+<span class="fc" id="L377">      returnString.append(entry.getValue()).append(&quot; &quot;).append(entry.getKey().getName()).append(&quot;; &quot;);</span>
+    }
+<span class="fc bfc" id="L379" title="All 2 branches covered.">    for (final Resource resource : costs.keySet()) {</span>
+<span class="fc" id="L380">      final float quantity = costs.getInt(resource);</span>
+<span class="fc" id="L381">      final int cost = (int) quantity;</span>
+<span class="fc" id="L382">      final Change change = ChangeFactory.changeResourcesChange(m_player, resource, -cost);</span>
+<span class="fc" id="L383">      changes.add(change);</span>
+    }
+<span class="fc" id="L385">    return returnString.toString();</span>
+  }
+
+  private void giveBonusIncomeToAI() {
+    // TODO and other resources?
+<span class="pc bpc" id="L390" title="1 of 2 branches missed.">    if (!m_player.isAI()) {</span>
+<span class="fc" id="L391">      return;</span>
+    }
+<span class="nc" id="L393">    final int currentPUs = m_player.getResources().getQuantity(Constants.PUS);</span>
+<span class="nc bnc" id="L394" title="All 2 branches missed.">    if (currentPUs &lt;= 0) {</span>
+<span class="nc" id="L395">      return;</span>
+    }
+<span class="nc" id="L397">    int toGive = 0;</span>
+<span class="nc" id="L398">    final int bonusPercent = games.strategy.triplea.Properties.getAIBonusIncomePercentage(getData());</span>
+<span class="nc bnc" id="L399" title="All 2 branches missed.">    if (bonusPercent != 0) {</span>
+<span class="nc" id="L400">      toGive += (int) Math.round(((double) currentPUs * (double) bonusPercent / 100));</span>
+<span class="nc bnc" id="L401" title="All 6 branches missed.">      if (toGive == 0 &amp;&amp; bonusPercent &gt; 0 &amp;&amp; currentPUs &gt; 0) {</span>
+<span class="nc" id="L402">        toGive += 1;</span>
+      }
+    }
+<span class="nc" id="L405">    toGive += games.strategy.triplea.Properties.getAIBonusIncomeFlatRate(getData());</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">    if (toGive + currentPUs &lt; 0) {</span>
+<span class="nc" id="L407">      toGive = currentPUs * -1;</span>
+    }
+<span class="nc bnc" id="L409" title="All 2 branches missed.">    if (toGive == 0) {</span>
+<span class="nc" id="L410">      return;</span>
+    }
+<span class="nc" id="L412">    m_bridge.getHistoryWriter()</span>
+<span class="nc" id="L413">        .startEvent(&quot;Giving AI player bonus income modifier of &quot; + toGive + MyFormatter.pluralize(&quot; PU&quot;, toGive));</span>
+<span class="nc" id="L414">    m_bridge.addChange(</span>
+<span class="nc" id="L415">        ChangeFactory.changeResourcesChange(m_player, getData().getResourceList().getResource(Constants.PUS), toGive));</span>
+<span class="nc" id="L416">  }</span>
+}
+
+
+<span class="nc" id="L420">class PurchaseExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 2326864364534284490L;
+  Serializable superState;
+  // add other variables here:
+  public boolean m_needToInitialize;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

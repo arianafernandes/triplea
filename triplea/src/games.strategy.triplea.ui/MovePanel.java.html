@@ -1,0 +1,1548 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MovePanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">MovePanel.java</span></div><h1>MovePanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import javax.swing.JOptionPane;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.TechAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.AbstractMoveDelegate;
+import games.strategy.triplea.delegate.AbstractMoveDelegate.MoveType;
+import games.strategy.triplea.delegate.BaseEditDelegate;
+import games.strategy.triplea.delegate.GameStepPropertiesHelper;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.triplea.delegate.UnitComparator;
+import games.strategy.triplea.delegate.dataObjects.MoveDescription;
+import games.strategy.triplea.delegate.dataObjects.MoveValidationResult;
+import games.strategy.triplea.delegate.dataObjects.MustMoveWithDetails;
+import games.strategy.triplea.util.TransportUtils;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.InverseMatch;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+public class MovePanel extends AbstractMovePanel {
+  private static final long serialVersionUID = 5004515340964828564L;
+  private static final int s_defaultMinTransportCost = 5;
+  /**
+   * @param s_deselectNumber
+   *        adds or removes 10 units (used to remove 1/s_deselectNumber of total units (useful for splitting large
+   *        armies), but changed it
+   *        after feedback)
+   */
+  private static final int s_deselectNumber = 10;
+  // access only through getter and setter!
+  private Territory firstSelectedTerritory;
+  private Territory selectedEndpointTerritory;
+  private Territory mouseCurrentTerritory;
+  private Territory lastFocusedTerritory;
+  private List&lt;Territory&gt; forced;
+  private boolean nonCombat;
+  private Point mouseSelectedPoint;
+  private Point mouseCurrentPoint;
+  private Point mouseLastUpdatePoint;
+  // use a LinkedHashSet because we want to know the order
+<span class="nc" id="L74">  private final Set&lt;Unit&gt; selectedUnits = new LinkedHashSet&lt;&gt;();</span>
+<span class="fc" id="L75">  private static Map&lt;Unit, Collection&lt;Unit&gt;&gt; s_dependentUnits = new HashMap&lt;&gt;();</span>
+  // the must move with details for the currently selected territory
+  // note this is kept in sync because we do not modify selectedTerritory directly
+  // instead we only do so through the private setter
+<span class="nc" id="L79">  private MustMoveWithDetails mustMoveWithDetails = null;</span>
+  // cache this so we can update it only when territory/units change
+  private List&lt;Unit&gt; unitsThatCanMoveOnRoute;
+  private Image currentCursorImage;
+<span class="nc" id="L83">  private Route routeCached = null;</span>
+<span class="nc" id="L84">  private String displayText = &quot;Combat Move&quot;;</span>
+<span class="nc" id="L85">  private MoveType moveType = MoveType.DEFAULT;</span>
+
+  /** Creates new MovePanel */
+  public MovePanel(final GameData data, final MapPanel map, final TripleAFrame frame) {
+<span class="nc" id="L89">    super(data, map, frame);</span>
+<span class="nc" id="L90">    m_undoableMovesPanel = new UndoableMovesPanel(data, this);</span>
+<span class="nc" id="L91">    mouseCurrentTerritory = null;</span>
+<span class="nc" id="L92">    unitsThatCanMoveOnRoute = Collections.emptyList();</span>
+<span class="nc" id="L93">    currentCursorImage = null;</span>
+<span class="nc" id="L94">  }</span>
+
+  // Same as above! Delete this crap after refactoring.
+  public static void clearDependents(final Collection&lt;Unit&gt; units) {
+<span class="fc bfc" id="L98" title="All 2 branches covered.">    for (final Unit unit : units) {</span>
+<span class="fc bfc" id="L99" title="All 2 branches covered.">      if (Matches.UnitIsAirTransport.match(unit)) {</span>
+<span class="fc" id="L100">        s_dependentUnits.remove(unit);</span>
+      }
+    }
+<span class="fc" id="L103">  }</span>
+
+  @Override
+  protected void clearDependencies() {
+<span class="nc" id="L107">    s_dependentUnits.clear();</span>
+<span class="nc" id="L108">  }</span>
+
+  public void setMoveType(final MoveType moveType) {
+<span class="nc" id="L111">    this.moveType = moveType;</span>
+<span class="nc" id="L112">  }</span>
+
+  private PlayerID getUnitOwner(final Collection&lt;Unit&gt; units) {
+<span class="nc bnc" id="L115" title="All 6 branches missed.">    if (BaseEditDelegate.getEditMode(getData()) &amp;&amp; units != null &amp;&amp; !units.isEmpty()) {</span>
+<span class="nc" id="L116">      return units.iterator().next().getOwner();</span>
+    } else {
+<span class="nc" id="L118">      return getCurrentPlayer();</span>
+    }
+  }
+
+  /**
+   * Sort the specified units in preferred movement or unload order.
+   */
+  private void sortUnitsToMove(final List&lt;Unit&gt; units, final Route route) {
+<span class="nc bnc" id="L126" title="All 4 branches missed.">    if (units == null || units.isEmpty()) {</span>
+<span class="nc" id="L127">      return;</span>
+<span class="nc bnc" id="L128" title="All 2 branches missed.">    } else if (route == null) {</span>
+<span class="nc" id="L129">      final Exception nullRouteError = (new IllegalArgumentException(&quot;route is not supposed to be null&quot;));</span>
+<span class="nc" id="L130">      ClientLogger.logQuietly(</span>
+<span class="nc" id="L131">          &quot;Programming error, route should not be null here. Aborting sort operation and returning.&quot;, nullRouteError);</span>
+    }
+
+    final Comparator&lt;Unit&gt; unitComparator;
+    // sort units based on which transports are allowed to unload
+<span class="nc bnc" id="L136" title="All 4 branches missed.">    if (route.isUnload() &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="nc" id="L137">      unitComparator = UnitComparator.getUnloadableUnitsComparator(units, route, getUnitOwner(units));</span>
+<span class="nc" id="L138">    } else {</span>
+<span class="nc" id="L139">      unitComparator = UnitComparator.getMovableUnitsComparator(units, route);</span>
+    }
+
+<span class="nc" id="L142">    Collections.sort(units, unitComparator);</span>
+<span class="nc" id="L143">  }</span>
+
+  /**
+   * Sort the specified transports in preferred load order.
+   */
+  private void sortTransportsToLoad(final List&lt;Unit&gt; transports, final Route route) {
+<span class="nc bnc" id="L149" title="All 2 branches missed.">    if (transports.isEmpty()) {</span>
+<span class="nc" id="L150">      return;</span>
+    }
+<span class="nc" id="L152">    Collections.sort(transports,</span>
+<span class="nc" id="L153">        UnitComparator.getLoadableTransportsComparator(transports, route, getUnitOwner(transports)));</span>
+<span class="nc" id="L154">  }</span>
+
+  /**
+   * Sort the specified transports in preferred unload order.
+   */
+  private void sortTransportsToUnload(final List&lt;Unit&gt; transports, final Route route) {
+<span class="nc bnc" id="L160" title="All 2 branches missed.">    if (transports.isEmpty()) {</span>
+<span class="nc" id="L161">      return;</span>
+    }
+<span class="nc" id="L163">    Collections.sort(transports,</span>
+<span class="nc" id="L164">        UnitComparator.getUnloadableTransportsComparator(transports, route, getUnitOwner(transports), true));</span>
+<span class="nc" id="L165">  }</span>
+
+  /**
+   * Return the units that are to be unloaded for this route.
+   * If needed will ask the user what transports to unload.
+   * This is needed because the user needs to be able to select what transports to unload
+   * in the case where some transports have different movement, different
+   * units etc
+   */
+  private Collection&lt;Unit&gt; getUnitsToUnload(final Route route, final Collection&lt;Unit&gt; unitsToUnload) {
+<span class="nc" id="L175">    final Collection&lt;Unit&gt; allUnits = getFirstSelectedTerritory().getUnits().getUnits();</span>
+<span class="nc" id="L176">    final List&lt;Unit&gt; candidateUnits = Match.getMatches(allUnits, getUnloadableMatch(route, unitsToUnload));</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">    if (unitsToUnload.size() == candidateUnits.size()) {</span>
+<span class="nc" id="L178">      return unitsToUnload;</span>
+    }
+<span class="nc" id="L180">    final List&lt;Unit&gt; candidateTransports =</span>
+<span class="nc" id="L181">        Match.getMatches(allUnits, Matches.unitIsTransportingSomeCategories(candidateUnits));</span>
+
+    // Remove all incapable transports
+<span class="nc" id="L184">    final Collection&lt;Unit&gt; incapableTransports =</span>
+<span class="nc" id="L185">        Match.getMatches(candidateTransports, Matches.transportCannotUnload(route.getEnd()));</span>
+<span class="nc" id="L186">    candidateTransports.removeAll(incapableTransports);</span>
+<span class="nc bnc" id="L187" title="All 2 branches missed.">    if (candidateTransports.size() == 0) {</span>
+<span class="nc" id="L188">      return Collections.emptyList();</span>
+    }
+
+    // Just one transport, don't bother to ask
+<span class="nc bnc" id="L192" title="All 2 branches missed.">    if (candidateTransports.size() == 1) {</span>
+<span class="nc" id="L193">      return unitsToUnload;</span>
+    }
+
+    // Are the transports all of the same type and if they are, then don't ask
+<span class="nc" id="L197">    final Collection&lt;UnitCategory&gt; categories =</span>
+<span class="nc" id="L198">        UnitSeperator.categorize(candidateTransports, mustMoveWithDetails.getMustMoveWith(), true, false);</span>
+<span class="nc bnc" id="L199" title="All 2 branches missed.">    if (categories.size() == 1) {</span>
+<span class="nc" id="L200">      return unitsToUnload;</span>
+    }
+<span class="nc" id="L202">    sortTransportsToUnload(candidateTransports, route);</span>
+
+    // unitsToUnload are actually dependents, but need to select transports
+<span class="nc" id="L205">    final Set&lt;Unit&gt; defaultSelections = TransportUtils.findMinTransportsToUnload(unitsToUnload, candidateTransports);</span>
+
+    // Match criteria to ensure that chosen transports will match selected units
+<span class="nc" id="L208">    final Match&lt;Collection&lt;Unit&gt;&gt; transportsToUnloadMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+      @Override
+      public boolean match(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L211">        final List&lt;Unit&gt; sortedTransports = Match.getMatches(units, Matches.UnitIsTransport);</span>
+<span class="nc" id="L212">        final Collection&lt;Unit&gt; availableUnits = new ArrayList&lt;&gt;(unitsToUnload);</span>
+
+        // track the changing capacities of the transports as we assign units
+<span class="nc" id="L215">        final IntegerMap&lt;Unit&gt; capacityMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L216" title="All 2 branches missed.">        for (final Unit transport : sortedTransports) {</span>
+<span class="nc" id="L217">          final Collection&lt;Unit&gt; transporting = TripleAUnit.get(transport).getTransporting();</span>
+<span class="nc" id="L218">          capacityMap.add(transport, TransportUtils.getTransportCost(transporting));</span>
+        }
+<span class="nc" id="L220">        boolean hasChanged = false;</span>
+<span class="nc" id="L221">        final Comparator&lt;Unit&gt; increasingCapacityComparator =</span>
+<span class="nc" id="L222">            UnitComparator.getIncreasingCapacityComparator(sortedTransports);</span>
+
+        // This algorithm will ensure that it is actually possible to distribute
+        // the selected units amongst the current selection of chosen transports.
+        do {
+<span class="nc" id="L227">          hasChanged = false;</span>
+
+          // Sort transports by increasing capacity
+<span class="nc" id="L230">          Collections.sort(sortedTransports, increasingCapacityComparator);</span>
+
+          // Try to remove one unit from each transport, in succession
+<span class="nc" id="L233">          final Iterator&lt;Unit&gt; transportIter = sortedTransports.iterator();</span>
+<span class="nc bnc" id="L234" title="All 2 branches missed.">          while (transportIter.hasNext()) {</span>
+<span class="nc" id="L235">            final Unit transport = transportIter.next();</span>
+<span class="nc" id="L236">            final Collection&lt;Unit&gt; transporting = TripleAUnit.get(transport).getTransporting();</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">            if (transporting == null) {</span>
+<span class="nc" id="L238">              continue;</span>
+            }
+<span class="nc" id="L240">            final Collection&lt;UnitCategory&gt; transCategories = UnitSeperator.categorize(transporting);</span>
+<span class="nc" id="L241">            final Iterator&lt;Unit&gt; unitIter = availableUnits.iterator();</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            while (unitIter.hasNext()) {</span>
+<span class="nc" id="L243">              final Unit unit = unitIter.next();</span>
+<span class="nc" id="L244">              final Collection&lt;UnitCategory&gt; unitCategory = UnitSeperator.categorize(Collections.singleton(unit));</span>
+
+              // Is one of the transported units of the same type we want to unload?
+<span class="nc bnc" id="L247" title="All 2 branches missed.">              if (Util.someIntersect(transCategories, unitCategory)) {</span>
+
+                // Unload the unit, remove the transport from our list, and continue
+<span class="nc" id="L250">                hasChanged = true;</span>
+<span class="nc" id="L251">                unitIter.remove();</span>
+<span class="nc" id="L252">                transportIter.remove();</span>
+<span class="nc" id="L253">                break;</span>
+              }
+            }
+          }
+          // Repeat until there are no units left or no changes occur
+<span class="nc bnc" id="L258" title="All 4 branches missed.">        } while (availableUnits.size() &gt; 0 &amp;&amp; hasChanged);</span>
+
+        // If we haven't seen all of the transports (and removed them) then there are extra transports that don't fit
+<span class="nc bnc" id="L261" title="All 2 branches missed.">        return (sortedTransports.size() == 0);</span>
+      }
+    };
+
+    // Choosing what transports to unload
+<span class="nc" id="L266">    final UnitChooser chooser = new UnitChooser(candidateTransports, defaultSelections,</span>
+<span class="nc" id="L267">        mustMoveWithDetails.getMustMoveWith(), /* categorizeMovement */true, /* categorizeTransportCost */false,</span>
+<span class="nc" id="L268">        getGameData(), /* allowTwoHit */false, getMap().getUIContext(), transportsToUnloadMatch);</span>
+<span class="nc" id="L269">    chooser.setTitle(&quot;What transports do you want to unload&quot;);</span>
+<span class="nc" id="L270">    final int option =</span>
+<span class="nc" id="L271">        JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, &quot;What transports do you want to unload&quot;,</span>
+<span class="nc" id="L272">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L273" title="All 2 branches missed.">    if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L274">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L276">    final Collection&lt;Unit&gt; chosenTransports = Match.getMatches(chooser.getSelected(), Matches.UnitIsTransport);</span>
+<span class="nc" id="L277">    final List&lt;Unit&gt; allUnitsInSelectedTransports = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">    for (final Unit transport : chosenTransports) {</span>
+<span class="nc" id="L279">      final Collection&lt;Unit&gt; transporting = TripleAUnit.get(transport).getTransporting();</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">      if (transporting != null) {</span>
+<span class="nc" id="L281">        allUnitsInSelectedTransports.addAll(transporting);</span>
+      }
+    }
+<span class="nc" id="L284">    allUnitsInSelectedTransports.retainAll(candidateUnits);</span>
+<span class="nc" id="L285">    sortUnitsToMove(allUnitsInSelectedTransports, route);</span>
+<span class="nc" id="L286">    final List&lt;Unit&gt; rVal = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L287">    final List&lt;Unit&gt; sortedTransports = new ArrayList&lt;&gt;(chosenTransports);</span>
+<span class="nc" id="L288">    Collections.sort(sortedTransports, UnitComparator.getIncreasingCapacityComparator(sortedTransports));</span>
+<span class="nc" id="L289">    final Collection&lt;Unit&gt; selectedUnits = new ArrayList&lt;&gt;(unitsToUnload);</span>
+
+    // First pass: choose one unit from each selected transport
+<span class="nc bnc" id="L292" title="All 2 branches missed.">    for (final Unit transport : sortedTransports) {</span>
+<span class="nc" id="L293">      boolean hasChanged = false;</span>
+<span class="nc" id="L294">      final Iterator&lt;Unit&gt; selectedIter = selectedUnits.iterator();</span>
+<span class="nc bnc" id="L295" title="All 2 branches missed.">      while (selectedIter.hasNext()) {</span>
+<span class="nc" id="L296">        final Unit selected = selectedIter.next();</span>
+<span class="nc" id="L297">        final Collection&lt;Unit&gt; transporting = TripleAUnit.get(transport).getTransporting();</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">        for (final Unit candidate : transporting) {</span>
+<span class="nc bnc" id="L299" title="All 4 branches missed.">          if (selected.getType().equals(candidate.getType()) &amp;&amp; selected.getOwner().equals(candidate.getOwner())</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">              &amp;&amp; selected.getHits() == candidate.getHits()) {</span>
+<span class="nc" id="L301">            hasChanged = true;</span>
+<span class="nc" id="L302">            rVal.add(candidate);</span>
+<span class="nc" id="L303">            allUnitsInSelectedTransports.remove(candidate);</span>
+<span class="nc" id="L304">            selectedIter.remove();</span>
+<span class="nc" id="L305">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L308" title="All 2 branches missed.">        if (hasChanged) {</span>
+<span class="nc" id="L309">          break;</span>
+        }
+      }
+    }
+
+    // Now fill remaining slots in preferred unit order
+<span class="nc bnc" id="L315" title="All 2 branches missed.">    for (final Unit selected : selectedUnits) {</span>
+<span class="nc" id="L316">      final Iterator&lt;Unit&gt; candidateIter = allUnitsInSelectedTransports.iterator();</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">      while (candidateIter.hasNext()) {</span>
+<span class="nc" id="L318">        final Unit candidate = candidateIter.next();</span>
+<span class="nc bnc" id="L319" title="All 4 branches missed.">        if (selected.getType().equals(candidate.getType()) &amp;&amp; selected.getOwner().equals(candidate.getOwner())</span>
+<span class="nc bnc" id="L320" title="All 2 branches missed.">            &amp;&amp; selected.getHits() == candidate.getHits()) {</span>
+<span class="nc" id="L321">          rVal.add(candidate);</span>
+<span class="nc" id="L322">          candidateIter.remove();</span>
+<span class="nc" id="L323">          break;</span>
+        }
+      }
+    }
+<span class="nc" id="L327">    return rVal;</span>
+  }
+
+  private CompositeMatch&lt;Unit&gt; getUnloadableMatch(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L331">    final CompositeMatch&lt;Unit&gt; unloadable = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L332">    unloadable.add(getMovableMatch(route, units));</span>
+<span class="nc" id="L333">    unloadable.add(Matches.UnitIsLand);</span>
+<span class="nc" id="L334">    return unloadable;</span>
+  }
+
+  private CompositeMatch&lt;Unit&gt; getMovableMatch(final Route route, final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L338">    final CompositeMatch&lt;Unit&gt; movable = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc bnc" id="L339" title="All 2 branches missed.">    if (!BaseEditDelegate.getEditMode(getData())) {</span>
+<span class="nc" id="L340">      movable.add(Matches.unitIsOwnedBy(getCurrentPlayer()));</span>
+    }
+    /*
+     * if you do not have selection of zero-movement units enabled,
+     * this will restrict selection to units with 1 or more movement
+     */
+<span class="nc bnc" id="L346" title="All 2 branches missed.">    if (!games.strategy.triplea.Properties.getSelectableZeroMovementUnits(getData())) {</span>
+<span class="nc" id="L347">      movable.add(Matches.UnitCanMove);</span>
+    }
+<span class="nc bnc" id="L349" title="All 2 branches missed.">    if (!nonCombat) {</span>
+<span class="nc" id="L350">      movable.add(Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+    }
+<span class="nc bnc" id="L352" title="All 2 branches missed.">    if (route != null) {</span>
+<span class="nc" id="L353">      final Match&lt;Unit&gt; enoughMovement = new Match&lt;Unit&gt;() {</span>
+        @Override
+        public boolean match(final Unit u) {
+<span class="nc bnc" id="L356" title="All 2 branches missed.">          if (BaseEditDelegate.getEditMode(getData())) {</span>
+<span class="nc" id="L357">            return true;</span>
+          }
+<span class="nc bnc" id="L359" title="All 2 branches missed.">          return TripleAUnit.get(u).getMovementLeft() &gt;= route.getMovementCost(u);</span>
+        }
+      };
+<span class="nc bnc" id="L362" title="All 2 branches missed.">      if (route.isUnload()) {</span>
+<span class="nc" id="L363">        final CompositeMatch&lt;Unit&gt; landOrCanMove = new CompositeMatchOr&lt;&gt;();</span>
+<span class="nc" id="L364">        landOrCanMove.add(Matches.UnitIsLand);</span>
+<span class="nc" id="L365">        final CompositeMatch&lt;Unit&gt; notLandAndCanMove = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L366">        notLandAndCanMove.add(enoughMovement);</span>
+<span class="nc" id="L367">        notLandAndCanMove.add(Matches.UnitIsNotLand);</span>
+<span class="nc" id="L368">        landOrCanMove.add(notLandAndCanMove);</span>
+<span class="nc" id="L369">        movable.add(landOrCanMove);</span>
+<span class="nc" id="L370">      } else {</span>
+<span class="nc" id="L371">        movable.add(enoughMovement);</span>
+      }
+    }
+<span class="nc bnc" id="L374" title="All 4 branches missed.">    if (route != null &amp;&amp; route.getEnd() != null) {</span>
+<span class="nc" id="L375">      final boolean water = route.getEnd().isWater();</span>
+<span class="nc bnc" id="L376" title="All 4 branches missed.">      if (water &amp;&amp; !route.isLoad()) {</span>
+<span class="nc" id="L377">        movable.add(Matches.UnitIsNotLand);</span>
+      }
+<span class="nc bnc" id="L379" title="All 2 branches missed.">      if (!water) {</span>
+<span class="nc" id="L380">        movable.add(Matches.UnitIsNotSea);</span>
+      }
+    }
+<span class="nc bnc" id="L383" title="All 4 branches missed.">    if (units != null &amp;&amp; !units.isEmpty()) {</span>
+      // force all units to have the same owner in edit mode
+<span class="nc" id="L385">      final PlayerID owner = getUnitOwner(units);</span>
+<span class="nc bnc" id="L386" title="All 2 branches missed.">      if (BaseEditDelegate.getEditMode(getData())) {</span>
+<span class="nc" id="L387">        movable.add(Matches.unitIsOwnedBy(owner));</span>
+      }
+<span class="nc" id="L389">      final CompositeMatch&lt;Unit&gt; rightUnitTypeMatch = new CompositeMatchOr&lt;&gt;();</span>
+<span class="nc bnc" id="L390" title="All 2 branches missed.">      for (final Unit unit : units) {</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">        if (unit.getOwner().equals(owner)) {</span>
+<span class="nc" id="L392">          rightUnitTypeMatch.add(Matches.unitIsOfType(unit.getType()));</span>
+        }
+      }
+<span class="nc" id="L395">      movable.add(rightUnitTypeMatch);</span>
+    }
+<span class="nc" id="L397">    return movable;</span>
+  }
+
+  private Route getRoute(final Territory start, final Territory end, final Collection&lt;Unit&gt; selectedUnits) {
+<span class="nc" id="L401">    getData().acquireReadLock();</span>
+    try {
+<span class="nc bnc" id="L403" title="All 2 branches missed.">      if (forced == null) {</span>
+<span class="nc" id="L404">        return getRouteNonForced(start, end, selectedUnits);</span>
+      } else {
+<span class="nc" id="L406">        return getRouteForced(start, end, selectedUnits);</span>
+      }
+<span class="nc" id="L408">    } finally {</span>
+<span class="nc" id="L409">      getData().releaseReadLock();</span>
+<span class="nc" id="L410">    }</span>
+  }
+
+  /**
+   * Get the route including the territories that we are forced to move through.
+   */
+  private Route getRouteForced(final Territory start, final Territory end, final Collection&lt;Unit&gt; selectedUnits) {
+<span class="nc bnc" id="L417" title="All 4 branches missed.">    if (forced == null || forced.size() == 0) {</span>
+<span class="nc" id="L418">      throw new IllegalStateException(&quot;No forced territories:&quot; + forced + &quot; end:&quot; + end + &quot; start:&quot; + start);</span>
+    }
+<span class="nc" id="L420">    final Iterator&lt;Territory&gt; iter = forced.iterator();</span>
+<span class="nc" id="L421">    Territory last = getFirstSelectedTerritory();</span>
+<span class="nc" id="L422">    Territory current = null;</span>
+<span class="nc" id="L423">    Route total = new Route();</span>
+<span class="nc" id="L424">    total.setStart(last);</span>
+<span class="nc bnc" id="L425" title="All 2 branches missed.">    while (iter.hasNext()) {</span>
+<span class="nc" id="L426">      current = iter.next();</span>
+<span class="nc" id="L427">      final Route add = getData().getMap().getRoute(last, current);</span>
+<span class="nc" id="L428">      final Route newTotal = Route.join(total, add);</span>
+<span class="nc bnc" id="L429" title="All 2 branches missed.">      if (newTotal == null) {</span>
+<span class="nc" id="L430">        return total;</span>
+      }
+<span class="nc" id="L432">      total = newTotal;</span>
+<span class="nc" id="L433">      last = current;</span>
+    }
+<span class="nc bnc" id="L435" title="All 2 branches missed.">    if (!end.equals(last)) {</span>
+<span class="nc" id="L436">      final Route add = getRouteNonForced(last, end, selectedUnits);</span>
+<span class="nc" id="L437">      final Route newTotal = Route.join(total, add);</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">      if (newTotal != null) {</span>
+<span class="nc" id="L439">        total = newTotal;</span>
+      }
+    }
+<span class="nc" id="L442">    return total;</span>
+  }
+
+  /**
+   * Get the route ignoring forced territories
+   */
+  private Route getRouteNonForced(final Territory start, final Territory end, final Collection&lt;Unit&gt; selectedUnits) {
+    // can't rely on current player being the unit owner in Edit Mode
+    // look at the units being moved to determine allies and enemies
+<span class="nc" id="L451">    final PlayerID owner = getUnitOwner(selectedUnits);</span>
+<span class="nc" id="L452">    return MoveValidator.getBestRoute(start, end, getData(), owner, selectedUnits,</span>
+<span class="nc bnc" id="L453" title="All 2 branches missed.">        !GameStepPropertiesHelper.isAirborneMove(getData()));</span>
+  }
+
+  private void updateUnitsThatCanMoveOnRoute(final Collection&lt;Unit&gt; units, final Route route) {
+<span class="nc bnc" id="L457" title="All 4 branches missed.">    if (route == null || route.hasNoSteps()) {</span>
+<span class="nc" id="L458">      clearStatusMessage();</span>
+<span class="nc" id="L459">      getMap().showMouseCursor();</span>
+<span class="nc" id="L460">      currentCursorImage = null;</span>
+<span class="nc" id="L461">      unitsThatCanMoveOnRoute = new ArrayList&lt;&gt;(units);</span>
+<span class="nc" id="L462">      return;</span>
+    }
+<span class="nc" id="L464">    getMap().hideMouseCursor();</span>
+    // TODO kev check for already loaded airTransports
+<span class="nc" id="L466">    Collection&lt;Unit&gt; transportsToLoad = Collections.emptyList();</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">    if (MoveValidator.isLoad(units, s_dependentUnits, route, getData(), getCurrentPlayer())) {</span>
+<span class="nc" id="L468">      transportsToLoad = route.getEnd().getUnits().getMatches(</span>
+<span class="nc" id="L469">          new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransport, Matches.alliedUnit(getCurrentPlayer(), getData())));</span>
+    }
+<span class="nc" id="L471">    List&lt;Unit&gt; best = new ArrayList&lt;&gt;(units);</span>
+    // if the player selects a land unit and other units
+    // when the
+    // only consider the non land units
+<span class="nc bnc" id="L475" title="All 8 branches missed.">    if (route.getStart().isWater() &amp;&amp; route.getEnd() != null &amp;&amp; route.getEnd().isWater() &amp;&amp; !route.isLoad()) {</span>
+<span class="nc" id="L476">      best = Match.getMatches(best, new InverseMatch&lt;&gt;(Matches.UnitIsLand));</span>
+    }
+<span class="nc" id="L478">    sortUnitsToMove(best, route);</span>
+<span class="nc" id="L479">    Collections.reverse(best);</span>
+<span class="nc" id="L480">    List&lt;Unit&gt; bestWithDependents = addMustMoveWith(best);</span>
+    MoveValidationResult allResults;
+<span class="nc" id="L482">    getData().acquireReadLock();</span>
+    try {
+<span class="nc" id="L484">      allResults = AbstractMoveDelegate.validateMove(moveType, bestWithDependents, route, getCurrentPlayer(),</span>
+<span class="nc" id="L485">          transportsToLoad, s_dependentUnits, nonCombat, getUndoableMoves(), getData());</span>
+<span class="nc" id="L486">    } finally {</span>
+<span class="nc" id="L487">      getData().releaseReadLock();</span>
+<span class="nc" id="L488">    }</span>
+<span class="nc" id="L489">    MoveValidationResult lastResults = allResults;</span>
+<span class="nc bnc" id="L490" title="All 2 branches missed.">    if (!allResults.isMoveValid()) {</span>
+      // if the player is invading only consider units that can invade
+<span class="nc bnc" id="L492" title="All 4 branches missed.">      if (!nonCombat &amp;&amp; route.isUnload()</span>
+<span class="nc bnc" id="L493" title="All 2 branches missed.">          &amp;&amp; Matches.isTerritoryEnemy(getCurrentPlayer(), getData()).match(route.getEnd())) {</span>
+<span class="nc" id="L494">        best = Match.getMatches(best, Matches.UnitCanInvade);</span>
+<span class="nc" id="L495">        bestWithDependents = addMustMoveWith(best);</span>
+<span class="nc" id="L496">        lastResults = AbstractMoveDelegate.validateMove(moveType, bestWithDependents, route, getCurrentPlayer(),</span>
+<span class="nc" id="L497">            transportsToLoad, s_dependentUnits, nonCombat, getUndoableMoves(), getData());</span>
+      }
+<span class="nc bnc" id="L499" title="All 4 branches missed.">      while (!best.isEmpty() &amp;&amp; !lastResults.isMoveValid()) {</span>
+<span class="nc" id="L500">        best = best.subList(1, best.size());</span>
+<span class="nc" id="L501">        bestWithDependents = addMustMoveWith(best);</span>
+<span class="nc" id="L502">        lastResults = AbstractMoveDelegate.validateMove(moveType, bestWithDependents, route, getCurrentPlayer(),</span>
+<span class="nc" id="L503">            transportsToLoad, s_dependentUnits, nonCombat, getUndoableMoves(), getData());</span>
+      }
+    }
+<span class="nc bnc" id="L506" title="All 2 branches missed.">    if (allResults.isMoveValid()) {</span>
+      // valid move
+<span class="nc bnc" id="L508" title="All 2 branches missed.">      if (bestWithDependents.containsAll(selectedUnits)) {</span>
+<span class="nc" id="L509">        clearStatusMessage();</span>
+<span class="nc" id="L510">        currentCursorImage = null;</span>
+<span class="nc" id="L511">      } else {</span>
+<span class="nc" id="L512">        setStatusWarningMessage(&quot;Not all units can move there&quot;);</span>
+<span class="nc" id="L513">        currentCursorImage = getMap().getWarningImage().orElse(null);</span>
+      }
+<span class="nc" id="L515">    } else {</span>
+<span class="nc" id="L516">      String message = allResults.getError();</span>
+<span class="nc bnc" id="L517" title="All 2 branches missed.">      if (message == null) {</span>
+<span class="nc" id="L518">        message = allResults.getDisallowedUnitWarning(0);</span>
+      }
+<span class="nc bnc" id="L520" title="All 2 branches missed.">      if (message == null) {</span>
+<span class="nc" id="L521">        message = allResults.getUnresolvedUnitWarning(0);</span>
+      }
+<span class="nc bnc" id="L523" title="All 2 branches missed.">      if (!lastResults.isMoveValid()) {</span>
+<span class="nc" id="L524">        setStatusErrorMessage(message);</span>
+<span class="nc" id="L525">        currentCursorImage = getMap().getErrorImage().orElse(null);</span>
+<span class="nc" id="L526">      } else {</span>
+<span class="nc" id="L527">        setStatusWarningMessage(message);</span>
+<span class="nc" id="L528">        currentCursorImage = getMap().getWarningImage().orElse(null);</span>
+      }
+    }
+<span class="nc bnc" id="L531" title="All 2 branches missed.">    if (unitsThatCanMoveOnRoute.size() != new HashSet&lt;&gt;(unitsThatCanMoveOnRoute).size()) {</span>
+<span class="nc" id="L532">      cancelMove();</span>
+<span class="nc" id="L533">      return;</span>
+    }
+<span class="nc" id="L535">    unitsThatCanMoveOnRoute = new ArrayList&lt;&gt;(bestWithDependents);</span>
+<span class="nc" id="L536">  }</span>
+
+  private List&lt;Unit&gt; addMustMoveWith(final List&lt;Unit&gt; best) {
+<span class="nc" id="L539">    final List&lt;Unit&gt; bestWithDependents = new ArrayList&lt;&gt;(best);</span>
+<span class="nc bnc" id="L540" title="All 2 branches missed.">    for (final Unit u : best) {</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">      if (mustMoveWithDetails.getMustMoveWith().containsKey(u)) {</span>
+<span class="nc" id="L542">        final Collection&lt;Unit&gt; mustMoveWith = mustMoveWithDetails.getMustMoveWith().get(u);</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">        if (mustMoveWith != null) {</span>
+<span class="nc bnc" id="L544" title="All 2 branches missed.">          for (final Unit m : mustMoveWith) {</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">            if (!bestWithDependents.contains(m)) {</span>
+<span class="nc" id="L546">              bestWithDependents.addAll(mustMoveWith);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L552">    return bestWithDependents;</span>
+  }
+
+  /**
+   * Route can be null.
+   */
+  final void updateRouteAndMouseShadowUnits(final Route route) {
+<span class="nc" id="L559">    routeCached = route;</span>
+<span class="nc" id="L560">    getMap().setRoute(route, mouseSelectedPoint, mouseCurrentPoint, currentCursorImage);</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">    if (route == null) {</span>
+<span class="nc" id="L562">      getMap().setMouseShadowUnits(null);</span>
+<span class="nc" id="L563">    } else {</span>
+<span class="nc" id="L564">      getMap().setMouseShadowUnits(unitsThatCanMoveOnRoute);</span>
+    }
+<span class="nc" id="L566">  }</span>
+
+  /**
+   * Allow the user to select what transports to load.
+   * If null is returned, the move should be canceled.
+   */
+  private Collection&lt;Unit&gt; getTransportsToLoad(final Route route, final Collection&lt;Unit&gt; unitsToLoad,
+      final boolean disablePrompts) {
+<span class="nc bnc" id="L574" title="All 2 branches missed.">    if (!route.isLoad()) {</span>
+<span class="nc" id="L575">      return Collections.emptyList();</span>
+    }
+<span class="nc bnc" id="L577" title="All 2 branches missed.">    if (Match.someMatch(unitsToLoad, Matches.UnitIsAir)) {</span>
+<span class="nc" id="L578">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L580">    final Collection&lt;Unit&gt; endOwnedUnits = route.getEnd().getUnits().getUnits();</span>
+<span class="nc" id="L581">    final PlayerID unitOwner = getUnitOwner(unitsToLoad);</span>
+<span class="nc" id="L582">    final MustMoveWithDetails endMustMoveWith =</span>
+<span class="nc" id="L583">        MoveValidator.getMustMoveWith(route.getEnd(), endOwnedUnits, s_dependentUnits, getData(), unitOwner);</span>
+<span class="nc" id="L584">    int minTransportCost = s_defaultMinTransportCost;</span>
+<span class="nc bnc" id="L585" title="All 2 branches missed.">    for (final Unit unit : unitsToLoad) {</span>
+<span class="nc" id="L586">      minTransportCost = Math.min(minTransportCost, UnitAttachment.get(unit.getType()).getTransportCost());</span>
+    }
+<span class="nc" id="L588">    final CompositeMatch&lt;Unit&gt; candidateTransportsMatch = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L589">    candidateTransportsMatch.add(Matches.UnitIsTransport);</span>
+<span class="nc" id="L590">    candidateTransportsMatch.add(Matches.alliedUnit(unitOwner, getGameData()));</span>
+<span class="nc" id="L591">    final List&lt;Unit&gt; candidateTransports = Match.getMatches(endOwnedUnits, candidateTransportsMatch);</span>
+
+    // remove transports that don't have enough capacity
+<span class="nc" id="L594">    final Iterator&lt;Unit&gt; transportIter = candidateTransports.iterator();</span>
+<span class="nc bnc" id="L595" title="All 2 branches missed.">    while (transportIter.hasNext()) {</span>
+<span class="nc" id="L596">      final Unit transport = transportIter.next();</span>
+<span class="nc" id="L597">      final int capacity = TransportTracker.getAvailableCapacity(transport);</span>
+<span class="nc bnc" id="L598" title="All 2 branches missed.">      if (capacity &lt; minTransportCost) {</span>
+<span class="nc" id="L599">        transportIter.remove();</span>
+      }
+    }
+
+    // nothing to choose
+<span class="nc bnc" id="L604" title="All 2 branches missed.">    if (candidateTransports.isEmpty()) {</span>
+<span class="nc" id="L605">      return Collections.emptyList();</span>
+    }
+
+    // sort transports in preferred load order
+<span class="nc" id="L609">    sortTransportsToLoad(candidateTransports, route);</span>
+<span class="nc" id="L610">    final List&lt;Unit&gt; availableUnits = new ArrayList&lt;&gt;(unitsToLoad);</span>
+<span class="nc" id="L611">    final IntegerMap&lt;Unit&gt; availableCapacityMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L612" title="All 2 branches missed.">    for (final Unit transport : candidateTransports) {</span>
+<span class="nc" id="L613">      final int capacity = TransportTracker.getAvailableCapacity(transport);</span>
+<span class="nc" id="L614">      availableCapacityMap.put(transport, capacity);</span>
+    }
+<span class="nc" id="L616">    final Set&lt;Unit&gt; defaultSelections = new HashSet&lt;&gt;();</span>
+
+    // Algorithm to choose defaultSelections (transports to load)
+    // We are trying to determine which transports are the best defaults to select for loading,
+    // and so we need a modified algorithm based strictly on candidateTransports order:
+    // - owned, capable transports are chosen first; attempt to fill them
+    // - allied, capable transports are chosen next; attempt to fill them
+    // - finally, incapable transports are chosen last (will generate errors)
+    // Note that if any allied transports qualify as defaults, we will always prompt with a
+    // UnitChooser later on so that it is obvious to the player.
+<span class="nc" id="L626">    boolean useAlliedTransports = false;</span>
+<span class="nc" id="L627">    final Collection&lt;Unit&gt; capableTransports = new ArrayList&lt;&gt;(candidateTransports);</span>
+
+    // only allow incapable transports for updateUnitsThatCanMoveOnRoute
+    // so that we can have a nice UI error shown if these transports
+    // are selected, since it may not be obvious
+<span class="nc" id="L632">    final Collection&lt;Unit&gt; incapableTransports =</span>
+<span class="nc" id="L633">        Match.getMatches(capableTransports, Matches.transportCannotUnload(route.getEnd()));</span>
+<span class="nc" id="L634">    capableTransports.removeAll(incapableTransports);</span>
+<span class="nc" id="L635">    final Match&lt;Unit&gt; alliedMatch = new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit transport) {
+<span class="nc bnc" id="L638" title="All 2 branches missed.">        return (!transport.getOwner().equals(unitOwner));</span>
+      }
+    };
+<span class="nc" id="L641">    final Collection&lt;Unit&gt; alliedTransports = Match.getMatches(capableTransports, alliedMatch);</span>
+<span class="nc" id="L642">    capableTransports.removeAll(alliedTransports);</span>
+
+    // First, load capable transports
+<span class="nc" id="L645">    final Map&lt;Unit, Unit&gt; unitsToCapableTransports =</span>
+<span class="nc" id="L646">        TransportUtils.mapTransportsToLoadUsingMinTransports(availableUnits, capableTransports);</span>
+<span class="nc bnc" id="L647" title="All 2 branches missed.">    for (final Unit unit : unitsToCapableTransports.keySet()) {</span>
+<span class="nc" id="L648">      final Unit transport = unitsToCapableTransports.get(unit);</span>
+<span class="nc" id="L649">      final int unitCost = UnitAttachment.get(unit.getType()).getTransportCost();</span>
+<span class="nc" id="L650">      availableCapacityMap.add(transport, (-1 * unitCost));</span>
+<span class="nc" id="L651">      defaultSelections.add(transport);</span>
+    }
+<span class="nc" id="L653">    availableUnits.removeAll(unitsToCapableTransports.keySet());</span>
+
+    // Next, load allied transports
+<span class="nc" id="L656">    final Map&lt;Unit, Unit&gt; unitsToAlliedTransports =</span>
+<span class="nc" id="L657">        TransportUtils.mapTransportsToLoadUsingMinTransports(availableUnits, alliedTransports);</span>
+<span class="nc bnc" id="L658" title="All 2 branches missed.">    for (final Unit unit : unitsToAlliedTransports.keySet()) {</span>
+<span class="nc" id="L659">      final Unit transport = unitsToAlliedTransports.get(unit);</span>
+<span class="nc" id="L660">      final int unitCost = UnitAttachment.get(unit.getType()).getTransportCost();</span>
+<span class="nc" id="L661">      availableCapacityMap.add(transport, (-1 * unitCost));</span>
+<span class="nc" id="L662">      defaultSelections.add(transport);</span>
+<span class="nc" id="L663">      useAlliedTransports = true;</span>
+    }
+<span class="nc" id="L665">    availableUnits.removeAll(unitsToAlliedTransports.keySet());</span>
+
+    // only allow incapable transports for updateUnitsThatCanMoveOnRoute
+    // so that we can have a nice UI error shown if these transports
+    // are selected, since it may not be obvious
+<span class="nc bnc" id="L670" title="All 2 branches missed.">    if (getSelectedEndpointTerritory() == null) {</span>
+<span class="nc" id="L671">      final Map&lt;Unit, Unit&gt; unitsToIncapableTransports =</span>
+<span class="nc" id="L672">          TransportUtils.mapTransportsToLoadUsingMinTransports(availableUnits, incapableTransports);</span>
+<span class="nc bnc" id="L673" title="All 2 branches missed.">      for (final Unit unit : unitsToIncapableTransports.keySet()) {</span>
+<span class="nc" id="L674">        final Unit transport = unitsToIncapableTransports.get(unit);</span>
+<span class="nc" id="L675">        final int unitCost = UnitAttachment.get(unit.getType()).getTransportCost();</span>
+<span class="nc" id="L676">        availableCapacityMap.add(transport, (-1 * unitCost));</span>
+<span class="nc" id="L677">        defaultSelections.add(transport);</span>
+      }
+<span class="nc" id="L679">      availableUnits.removeAll(unitsToIncapableTransports.keySet());</span>
+<span class="nc" id="L680">    } else {</span>
+<span class="nc" id="L681">      candidateTransports.removeAll(incapableTransports);</span>
+    }
+
+    // return defaults if we aren't allowed to prompt
+<span class="nc bnc" id="L685" title="All 2 branches missed.">    if (disablePrompts) {</span>
+<span class="nc" id="L686">      return defaultSelections;</span>
+    }
+
+    // force UnitChooser to pop up if we are choosing allied transports
+<span class="nc bnc" id="L690" title="All 2 branches missed.">    if (!useAlliedTransports) {</span>
+<span class="nc bnc" id="L691" title="All 2 branches missed.">      if (candidateTransports.size() == 1) {</span>
+<span class="nc" id="L692">        return candidateTransports;</span>
+      }
+      // all the same type, dont ask unless we have more than 1 unit type
+<span class="nc bnc" id="L695" title="All 2 branches missed.">      if (UnitSeperator.categorize(candidateTransports, endMustMoveWith.getMustMoveWith(), true, false).size() == 1</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">          &amp;&amp; unitsToLoad.size() == 1) {</span>
+<span class="nc" id="L697">        return candidateTransports;</span>
+      }
+      // If we've filled all transports, then no user intervention is required.
+      // It is possible to make &quot;wrong&quot; decisions if there are mixed unit types and
+      // mixed transport categories, but there is no UI to manage that anyway.
+      // Players will need to load incrementally in such cases.
+<span class="nc bnc" id="L703" title="All 2 branches missed.">      if (defaultSelections.containsAll(candidateTransports)) {</span>
+<span class="nc" id="L704">        return candidateTransports;</span>
+      }
+    }
+
+    // the match criteria to ensure that chosen transports will match selected units
+<span class="nc" id="L709">    final Match&lt;Collection&lt;Unit&gt;&gt; transportsToLoadMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+      @Override
+      public boolean match(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L712">        final Collection&lt;Unit&gt; transports = Match.getMatches(units, Matches.UnitIsTransport);</span>
+        // prevent too many transports from being selected
+<span class="nc bnc" id="L714" title="All 2 branches missed.">        return (transports.size() &lt;= Math.min(unitsToLoad.size(), candidateTransports.size()));</span>
+      }
+    };
+<span class="nc" id="L717">    final UnitChooser chooser = new UnitChooser(candidateTransports, defaultSelections,</span>
+<span class="nc" id="L718">        endMustMoveWith.getMustMoveWith(), /* categorizeMovement */true, /* categorizeTransportCost */false,</span>
+<span class="nc" id="L719">        getGameData(), /* allowTwoHit */false, getMap().getUIContext(), transportsToLoadMatch);</span>
+<span class="nc" id="L720">    chooser.setTitle(&quot;What transports do you want to load&quot;);</span>
+<span class="nc" id="L721">    final int option =</span>
+<span class="nc" id="L722">        JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, &quot;What transports do you want to load&quot;,</span>
+<span class="nc" id="L723">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L724" title="All 2 branches missed.">    if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L725">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L727">    return chooser.getSelected(false);</span>
+  }
+
+<span class="nc" id="L730">  private final UnitSelectionListener UNIT_SELECTION_LISTENER = new UnitSelectionListener() {</span>
+    @Override
+    public void unitsSelected(final List&lt;Unit&gt; units, final Territory t, final MouseDetails me) {
+<span class="nc bnc" id="L733" title="All 2 branches missed.">      if (!getListening()) {</span>
+<span class="nc" id="L734">        return;</span>
+      }
+      // check if we can handle this event, are we active?
+<span class="nc bnc" id="L737" title="All 2 branches missed.">      if (!getActive()) {</span>
+<span class="nc" id="L738">        return;</span>
+      }
+<span class="nc bnc" id="L740" title="All 2 branches missed.">      if (t == null) {</span>
+<span class="nc" id="L741">        return;</span>
+      }
+<span class="nc" id="L743">      final boolean rightMouse = me.isRightButton();</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">      final boolean noSelectedTerritory = (firstSelectedTerritory == null);</span>
+<span class="nc bnc" id="L745" title="All 2 branches missed.">      final boolean isFirstSelectedTerritory = (firstSelectedTerritory == t);</span>
+      // select units
+<span class="nc" id="L747">      final GameData data = getData();</span>
+<span class="nc" id="L748">      data.acquireReadLock();</span>
+      try {
+        // de select units
+<span class="nc bnc" id="L751" title="All 4 branches missed.">        if (rightMouse &amp;&amp; !noSelectedTerritory) {</span>
+<span class="nc" id="L752">          deselectUnits(units, t, me);</span>
+<span class="nc bnc" id="L753" title="All 6 branches missed.">        } else if (!rightMouse &amp;&amp; (noSelectedTerritory || isFirstSelectedTerritory)) {</span>
+<span class="nc" id="L754">          selectUnitsToMove(units, t, me);</span>
+<span class="nc bnc" id="L755" title="All 6 branches missed.">        } else if (!rightMouse &amp;&amp; me.isControlDown() &amp;&amp; !isFirstSelectedTerritory) {</span>
+<span class="nc" id="L756">          selectWayPoint(t);</span>
+<span class="nc bnc" id="L757" title="All 6 branches missed.">        } else if (!rightMouse &amp;&amp; !noSelectedTerritory &amp;&amp; !isFirstSelectedTerritory) {</span>
+<span class="nc" id="L758">          selectEndPoint(t);</span>
+        }
+<span class="nc" id="L760">      } finally {</span>
+<span class="nc" id="L761">        data.releaseReadLock();</span>
+<span class="nc" id="L762">      }</span>
+<span class="nc" id="L763">      getMap().requestFocusInWindow();</span>
+<span class="nc" id="L764">    }</span>
+
+    private void selectUnitsToMove(final List&lt;Unit&gt; units, final Territory t, final MouseDetails me) {
+      // are any of the units ours, note - if no units selected thats still ok
+<span class="nc bnc" id="L768" title="All 4 branches missed.">      if (!BaseEditDelegate.getEditMode(getData()) || !selectedUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L769" title="All 2 branches missed.">        for (final Unit unit : units) {</span>
+<span class="nc bnc" id="L770" title="All 2 branches missed.">          if (!unit.getOwner().equals(getUnitOwner(selectedUnits))) {</span>
+<span class="nc" id="L771">            return;</span>
+          }
+        }
+      }
+      // basic match criteria only
+<span class="nc" id="L776">      final CompositeMatch&lt;Unit&gt; unitsToMoveMatch = getMovableMatch(null, null);</span>
+<span class="nc" id="L777">      final Match&lt;Collection&lt;Unit&gt;&gt; ownerMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+        @Override
+        public boolean match(final Collection&lt;Unit&gt; unitsToCheck) {
+<span class="nc" id="L780">          final PlayerID owner = unitsToCheck.iterator().next().getOwner();</span>
+<span class="nc bnc" id="L781" title="All 2 branches missed.">          for (final Unit unit : unitsToCheck) {</span>
+<span class="nc bnc" id="L782" title="All 2 branches missed.">            if (!owner.equals(unit.getOwner())) {</span>
+<span class="nc" id="L783">              return false;</span>
+            }
+          }
+<span class="nc" id="L786">          return true;</span>
+        }
+      };
+<span class="nc bnc" id="L789" title="All 4 branches missed.">      if (units.isEmpty() &amp;&amp; selectedUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L790" title="All 2 branches missed.">        if (!me.isShiftDown()) {</span>
+<span class="nc" id="L791">          final List&lt;Unit&gt; unitsToMove = t.getUnits().getMatches(unitsToMoveMatch);</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">          if (unitsToMove.isEmpty()) {</span>
+<span class="nc" id="L793">            return;</span>
+          }
+<span class="nc" id="L795">          final String text = &quot;Select units to move from &quot; + t.getName();</span>
+          UnitChooser chooser;
+<span class="nc bnc" id="L797" title="All 2 branches missed.">          if (BaseEditDelegate.getEditMode(getData()) &amp;&amp; !Match</span>
+<span class="nc bnc" id="L798" title="All 2 branches missed.">              .getMatches(unitsToMove, Matches.unitIsOwnedBy(getUnitOwner(unitsToMove))).containsAll(unitsToMove)) {</span>
+            // use matcher to prevent units of different owners being chosen
+<span class="nc" id="L800">            chooser = new UnitChooser(unitsToMove, selectedUnits, /* mustMoveWith */null,</span>
+<span class="nc" id="L801">                /* categorizeMovement */false, /* categorizeTransportCost */false, getData(), /* allowTwoHit */false,</span>
+<span class="nc" id="L802">                getMap().getUIContext(), ownerMatch);</span>
+<span class="nc" id="L803">          } else {</span>
+<span class="nc" id="L804">            chooser =</span>
+<span class="nc" id="L805">                new UnitChooser(unitsToMove, selectedUnits, /* mustMoveWith */null, /* categorizeMovement */false,</span>
+<span class="nc" id="L806">                    /* categorizeTransportCost */false, getData(), /* allowTwoHit */false, getMap().getUIContext());</span>
+          }
+<span class="nc" id="L808">          final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, text,</span>
+<span class="nc" id="L809">              JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L810" title="All 2 branches missed.">          if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L811">            return;</span>
+          }
+<span class="nc bnc" id="L813" title="All 2 branches missed.">          if (chooser.getSelected(false).isEmpty()) {</span>
+<span class="nc" id="L814">            return;</span>
+          }
+<span class="nc" id="L816">          selectedUnits.addAll(chooser.getSelected(false));</span>
+        }
+      }
+<span class="nc bnc" id="L819" title="All 2 branches missed.">      if (getFirstSelectedTerritory() == null) {</span>
+<span class="nc" id="L820">        setFirstSelectedTerritory(t);</span>
+<span class="nc" id="L821">        mouseSelectedPoint = me.getMapPoint();</span>
+<span class="nc" id="L822">        mouseCurrentPoint = me.getMapPoint();</span>
+<span class="nc" id="L823">        enableCancelButton();</span>
+      }
+<span class="nc bnc" id="L825" title="All 2 branches missed.">      if (!getFirstSelectedTerritory().equals(t)) {</span>
+<span class="nc" id="L826">        throw new IllegalStateException(&quot;Wrong selected territory&quot;);</span>
+      }
+      // add all
+<span class="nc bnc" id="L829" title="All 2 branches missed.">      if (me.isShiftDown()) {</span>
+        // prevent units of multiple owners from being chosen in edit mode
+<span class="nc" id="L831">        final CompositeMatch&lt;Unit&gt; ownedNotFactory = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc bnc" id="L832" title="All 2 branches missed.">        if (!BaseEditDelegate.getEditMode(getData())) {</span>
+<span class="nc" id="L833">          ownedNotFactory.add(unitsToMoveMatch);</span>
+<span class="nc bnc" id="L834" title="All 2 branches missed.">        } else if (!selectedUnits.isEmpty()) {</span>
+<span class="nc" id="L835">          ownedNotFactory.add(unitsToMoveMatch);</span>
+<span class="nc" id="L836">          ownedNotFactory.add(Matches.unitIsOwnedBy(getUnitOwner(selectedUnits)));</span>
+<span class="nc" id="L837">        } else {</span>
+<span class="nc" id="L838">          ownedNotFactory.add(unitsToMoveMatch);</span>
+<span class="nc" id="L839">          ownedNotFactory.add(Matches.unitIsOwnedBy(getUnitOwner(t.getUnits().getUnits())));</span>
+        }
+<span class="nc" id="L841">        selectedUnits.addAll(t.getUnits().getMatches(ownedNotFactory));</span>
+<span class="nc bnc" id="L842" title="All 2 branches missed.">      } else if (me.isControlDown()) {</span>
+<span class="nc" id="L843">        selectedUnits.addAll(Match.getMatches(units, unitsToMoveMatch));</span>
+<span class="nc" id="L844">      }</span>
+      // add one
+      else {
+        // best candidate unit for route is chosen dynamically later
+        // check for alt key - add 1/10 of total units (useful for splitting large armies)
+<span class="nc" id="L849">        final List&lt;Unit&gt; unitsToMove = Match.getMatches(units, unitsToMoveMatch);</span>
+<span class="nc" id="L850">        Collections.sort(unitsToMove, UnitComparator.getHighestToLowestMovementComparator());</span>
+
+<span class="nc bnc" id="L852" title="All 2 branches missed.">        final int iterCount = (me.isAltDown()) ? s_deselectNumber : 1;</span>
+
+<span class="nc" id="L854">        int addCount = 0;</span>
+<span class="nc bnc" id="L855" title="All 2 branches missed.">        for (final Unit unit : unitsToMove) {</span>
+<span class="nc bnc" id="L856" title="All 2 branches missed.">          if (!selectedUnits.contains(unit)) {</span>
+<span class="nc" id="L857">            selectedUnits.add(unit);</span>
+<span class="nc" id="L858">            addCount++;</span>
+<span class="nc bnc" id="L859" title="All 2 branches missed.">            if (addCount &gt;= iterCount) {</span>
+<span class="nc" id="L860">              break;</span>
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L865" title="All 2 branches missed.">      if (!selectedUnits.isEmpty()) {</span>
+<span class="nc" id="L866">        mouseLastUpdatePoint = me.getMapPoint();</span>
+<span class="nc" id="L867">        final Route route = getRoute(getFirstSelectedTerritory(), t, selectedUnits);</span>
+        // Load Bombers with paratroops
+<span class="nc bnc" id="L869" title="All 4 branches missed.">        if ((!nonCombat || IsParatroopersCanMoveDuringNonCombat(getData()))</span>
+<span class="nc bnc" id="L870" title="All 2 branches missed.">            &amp;&amp; TechAttachment.isAirTransportable(getCurrentPlayer())</span>
+<span class="nc" id="L871">            &amp;&amp; Match.someMatch(selectedUnits,</span>
+<span class="nc bnc" id="L872" title="All 2 branches missed.">                new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAirTransport, Matches.unitHasNotMoved))) {</span>
+<span class="nc" id="L873">          final PlayerID player = getCurrentPlayer();</span>
+          // TODO Transporting allied units
+          // Get the potential units to load
+<span class="nc" id="L876">          final CompositeMatch&lt;Unit&gt; unitsToLoadMatch = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L877">          unitsToLoadMatch.add(Matches.UnitIsAirTransportable);</span>
+<span class="nc" id="L878">          unitsToLoadMatch.add(Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L879">          unitsToLoadMatch.add(Matches.unitHasNotMoved);</span>
+<span class="nc" id="L880">          final Collection&lt;Unit&gt; unitsToLoad =</span>
+<span class="nc" id="L881">              Match.getMatches(route.getStart().getUnits().getUnits(), unitsToLoadMatch);</span>
+<span class="nc" id="L882">          unitsToLoad.removeAll(selectedUnits);</span>
+<span class="nc bnc" id="L883" title="All 2 branches missed.">          for (final Unit u : s_dependentUnits.keySet()) {</span>
+<span class="nc" id="L884">            unitsToLoad.removeAll(s_dependentUnits.get(u));</span>
+          }
+          // Get the potential air transports to load
+<span class="nc" id="L887">          final CompositeMatch&lt;Unit&gt; candidateAirTransportsMatch = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L888">          candidateAirTransportsMatch.add(Matches.UnitIsAirTransport);</span>
+<span class="nc" id="L889">          candidateAirTransportsMatch.add(Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L890">          candidateAirTransportsMatch.add(Matches.unitHasNotMoved);</span>
+<span class="nc" id="L891">          candidateAirTransportsMatch.add(Matches.transportIsNotTransporting());</span>
+<span class="nc" id="L892">          final Collection&lt;Unit&gt; candidateAirTransports =</span>
+<span class="nc" id="L893">              Match.getMatches(t.getUnits().getMatches(unitsToMoveMatch), candidateAirTransportsMatch);</span>
+          // candidateAirTransports.removeAll(selectedUnits);
+<span class="nc" id="L895">          candidateAirTransports.removeAll(s_dependentUnits.keySet());</span>
+<span class="nc bnc" id="L896" title="All 4 branches missed.">          if (unitsToLoad.size() &gt; 0 &amp;&amp; candidateAirTransports.size() &gt; 0) {</span>
+<span class="nc" id="L897">            final Collection&lt;Unit&gt; airTransportsToLoad = getAirTransportsToLoad(candidateAirTransports);</span>
+<span class="nc" id="L898">            selectedUnits.addAll(airTransportsToLoad);</span>
+<span class="nc bnc" id="L899" title="All 2 branches missed.">            if (!airTransportsToLoad.isEmpty()) {</span>
+<span class="nc" id="L900">              final Collection&lt;Unit&gt; loadedAirTransports =</span>
+<span class="nc" id="L901">                  getLoadedAirTransports(route, unitsToLoad, airTransportsToLoad, player);</span>
+<span class="nc" id="L902">              selectedUnits.addAll(loadedAirTransports);</span>
+<span class="nc" id="L903">              final MoveDescription message =</span>
+<span class="nc" id="L904">                  new MoveDescription(loadedAirTransports, route, airTransportsToLoad, s_dependentUnits);</span>
+<span class="nc" id="L905">              setMoveMessage(message);</span>
+            }
+          }
+        }
+<span class="nc" id="L909">        updateUnitsThatCanMoveOnRoute(selectedUnits, route);</span>
+<span class="nc" id="L910">        updateRouteAndMouseShadowUnits(route);</span>
+<span class="nc" id="L911">      } else {</span>
+<span class="nc" id="L912">        setFirstSelectedTerritory(null);</span>
+      }
+<span class="nc" id="L914">    }</span>
+
+    public Collection&lt;Unit&gt; getAirTransportsToLoad(final Collection&lt;Unit&gt; candidateAirTransports) {
+<span class="nc" id="L917">      final Set&lt;Unit&gt; defaultSelections = new HashSet&lt;&gt;();</span>
+      // prevent too many bombers from being selected
+<span class="nc" id="L919">      final Match&lt;Collection&lt;Unit&gt;&gt; transportsToLoadMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+        @Override
+        public boolean match(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L922">          final Collection&lt;Unit&gt; airTransports = Match.getMatches(units, Matches.UnitIsAirTransport);</span>
+<span class="nc bnc" id="L923" title="All 2 branches missed.">          return (airTransports.size() &lt;= candidateAirTransports.size());</span>
+        }
+      };
+      // Allow player to select which to load.
+<span class="nc" id="L927">      final UnitChooser chooser = new UnitChooser(candidateAirTransports, defaultSelections, s_dependentUnits,</span>
+<span class="nc" id="L928">          /* categorizeMovement */true, /* categorizeTransportCost */false, getGameData(), /* allowTwoHit */false,</span>
+<span class="nc" id="L929">          getMap().getUIContext(), transportsToLoadMatch);</span>
+<span class="nc" id="L930">      chooser.setTitle(&quot;Select air transports to load&quot;);</span>
+<span class="nc" id="L931">      final int option =</span>
+<span class="nc" id="L932">          JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, &quot;What transports do you want to load&quot;,</span>
+<span class="nc" id="L933">              JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L934" title="All 2 branches missed.">      if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L935">        return Collections.emptyList();</span>
+      }
+<span class="nc" id="L937">      return chooser.getSelected(true);</span>
+    }
+
+    /**
+     * Allow the user to select what units to load.
+     * If null is returned, the move should be canceled.
+     */
+    public Collection&lt;Unit&gt; getLoadedAirTransports(final Route route, final Collection&lt;Unit&gt; capableUnitsToLoad,
+        final Collection&lt;Unit&gt; capableTransportsToLoad, final PlayerID player) {
+      // Get the minimum transport cost of a candidate unit
+<span class="nc" id="L947">      int minTransportCost = Integer.MAX_VALUE;</span>
+<span class="nc bnc" id="L948" title="All 2 branches missed.">      for (final Unit unit : capableUnitsToLoad) {</span>
+<span class="nc" id="L949">        minTransportCost = Math.min(minTransportCost, UnitAttachment.get(unit.getType()).getTransportCost());</span>
+      }
+<span class="nc" id="L951">      final Collection&lt;Unit&gt; airTransportsToLoad = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L952" title="All 2 branches missed.">      for (final Unit bomber : capableTransportsToLoad) {</span>
+<span class="nc" id="L953">        final int capacity = TransportTracker.getAvailableCapacity(bomber);</span>
+<span class="nc bnc" id="L954" title="All 2 branches missed.">        if (capacity &gt;= minTransportCost) {</span>
+<span class="nc" id="L955">          airTransportsToLoad.add(bomber);</span>
+        }
+      }
+      // If no airTransports can be loaded, return the empty set
+<span class="nc bnc" id="L959" title="All 2 branches missed.">      if (airTransportsToLoad.isEmpty()) {</span>
+<span class="nc" id="L960">        return airTransportsToLoad;</span>
+      }
+<span class="nc" id="L962">      final Set&lt;Unit&gt; defaultSelections = new HashSet&lt;&gt;();</span>
+      // Check to see if there's room for the selected units
+<span class="nc" id="L964">      final Match&lt;Collection&lt;Unit&gt;&gt; unitsToLoadMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+        @Override
+        public boolean match(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L967">          final Collection&lt;Unit&gt; unitsToLoad = Match.getMatches(units, Matches.UnitIsAirTransportable);</span>
+<span class="nc" id="L968">          final Map&lt;Unit, Unit&gt; unitMap = TransportUtils.mapTransportsToLoad(unitsToLoad, airTransportsToLoad);</span>
+<span class="nc" id="L969">          boolean ableToLoad = true;</span>
+<span class="nc bnc" id="L970" title="All 2 branches missed.">          for (final Unit unit : unitsToLoad) {</span>
+<span class="nc bnc" id="L971" title="All 2 branches missed.">            if (!unitMap.keySet().contains(unit)) {</span>
+<span class="nc" id="L972">              ableToLoad = false;</span>
+            }
+          }
+<span class="nc" id="L975">          return ableToLoad;</span>
+        }
+      };
+<span class="nc" id="L978">      List&lt;Unit&gt; loadedUnits = new ArrayList&lt;&gt;(capableUnitsToLoad);</span>
+<span class="nc bnc" id="L979" title="All 2 branches missed.">      if (!airTransportsToLoad.isEmpty()) {</span>
+        // Get a list of the units that could be loaded on the transport (based upon transport capacity)
+<span class="nc" id="L981">        final List&lt;Unit&gt; unitsToLoad =</span>
+<span class="nc" id="L982">            TransportUtils.findUnitsToLoadOnAirTransports(capableUnitsToLoad, airTransportsToLoad);</span>
+<span class="nc" id="L983">        final String title = &quot;Load air transports&quot;;</span>
+<span class="nc" id="L984">        final String action = &quot;load&quot;;</span>
+<span class="nc" id="L985">        loadedUnits = UserChooseUnits(defaultSelections, unitsToLoadMatch, unitsToLoad, title, action);</span>
+<span class="nc" id="L986">        final Map&lt;Unit, Unit&gt; mapping = TransportUtils.mapTransportsToLoad(loadedUnits, airTransportsToLoad);</span>
+<span class="nc bnc" id="L987" title="All 2 branches missed.">        for (final Unit unit : mapping.keySet()) {</span>
+<span class="nc" id="L988">          final Collection&lt;Unit&gt; unitsColl = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L989">          unitsColl.add(unit);</span>
+<span class="nc" id="L990">          final Unit airTransport = mapping.get(unit);</span>
+<span class="nc bnc" id="L991" title="All 2 branches missed.">          if (s_dependentUnits.containsKey(airTransport)) {</span>
+<span class="nc" id="L992">            unitsColl.addAll(s_dependentUnits.get(airTransport));</span>
+          }
+<span class="nc" id="L994">          s_dependentUnits.put(airTransport, unitsColl);</span>
+<span class="nc" id="L995">          mustMoveWithDetails = MoveValidator.getMustMoveWith(route.getStart(),</span>
+<span class="nc" id="L996">              route.getStart().getUnits().getUnits(), s_dependentUnits, getData(), player);</span>
+        }
+      }
+<span class="nc" id="L999">      return loadedUnits;</span>
+    }
+
+    private void deselectUnits(List&lt;Unit&gt; units, final Territory t, final MouseDetails me) {
+<span class="nc" id="L1003">      final Collection&lt;Unit&gt; unitsToRemove = new ArrayList&lt;&gt;(selectedUnits.size());</span>
+      // we have right clicked on a unit stack in a different territory
+<span class="nc bnc" id="L1005" title="All 2 branches missed.">      if (!getFirstSelectedTerritory().equals(t)) {</span>
+<span class="nc" id="L1006">        units = Collections.emptyList();</span>
+      }
+      // remove the dependent units so we don't have to micromanage them
+<span class="nc" id="L1009">      final List&lt;Unit&gt; unitsWithoutDependents = new ArrayList&lt;&gt;(selectedUnits);</span>
+<span class="nc bnc" id="L1010" title="All 2 branches missed.">      for (final Unit unit : selectedUnits) {</span>
+<span class="nc" id="L1011">        final Collection&lt;Unit&gt; forced = mustMoveWithDetails.getMustMoveWith().get(unit);</span>
+<span class="nc bnc" id="L1012" title="All 2 branches missed.">        if (forced != null) {</span>
+<span class="nc" id="L1013">          unitsWithoutDependents.removeAll(forced);</span>
+        }
+      }
+      // no unit selected, remove the most recent, but skip dependents
+<span class="nc bnc" id="L1017" title="All 2 branches missed.">      if (units.isEmpty()) {</span>
+<span class="nc bnc" id="L1018" title="All 2 branches missed.">        if (me.isControlDown()) {</span>
+<span class="nc" id="L1019">          selectedUnits.clear();</span>
+          // Clear the stored dependents for AirTransports
+<span class="nc bnc" id="L1021" title="All 2 branches missed.">          if (!s_dependentUnits.isEmpty()) {</span>
+<span class="nc" id="L1022">            s_dependentUnits.clear();</span>
+          }
+<span class="nc bnc" id="L1024" title="All 2 branches missed.">        } else if (!unitsWithoutDependents.isEmpty()) {</span>
+          // check for alt key - remove 1/10 of total units (useful for splitting large armies)
+<span class="nc bnc" id="L1026" title="All 2 branches missed.">          final int iterCount = (me.isAltDown()) ? s_deselectNumber : 1;</span>
+          // remove the last iterCount elements
+<span class="nc bnc" id="L1028" title="All 2 branches missed.">          for (int i = 0; i &lt; iterCount; i++) {</span>
+<span class="nc" id="L1029">            unitsToRemove.add(unitsWithoutDependents.get(unitsWithoutDependents.size() - 1));</span>
+            // Clear the stored dependents for AirTransports
+<span class="nc bnc" id="L1031" title="All 2 branches missed.">            if (!s_dependentUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L1032" title="All 2 branches missed.">              for (final Unit airTransport : unitsWithoutDependents) {</span>
+<span class="nc bnc" id="L1033" title="All 2 branches missed.">                if (s_dependentUnits.containsKey(airTransport)) {</span>
+<span class="nc" id="L1034">                  unitsToRemove.addAll(s_dependentUnits.get(airTransport));</span>
+<span class="nc" id="L1035">                  s_dependentUnits.remove(airTransport);</span>
+                }
+              }
+            }
+          }
+        }
+<span class="nc" id="L1041">      }</span>
+      // we have actually clicked on a specific unit
+      else {
+        // remove all if control is down
+<span class="nc bnc" id="L1045" title="All 2 branches missed.">        if (me.isControlDown()) {</span>
+<span class="nc" id="L1046">          unitsToRemove.addAll(units);</span>
+          // Clear the stored dependents for AirTransports
+<span class="nc bnc" id="L1048" title="All 2 branches missed.">          if (!s_dependentUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L1049" title="All 2 branches missed.">            for (final Unit airTransport : unitsWithoutDependents) {</span>
+<span class="nc bnc" id="L1050" title="All 2 branches missed.">              if (s_dependentUnits.containsKey(airTransport)) {</span>
+<span class="nc" id="L1051">                unitsToRemove.addAll(s_dependentUnits.get(airTransport));</span>
+<span class="nc" id="L1052">                s_dependentUnits.remove(airTransport);</span>
+              }
+            }
+          }
+<span class="nc" id="L1056">        }</span>
+        // remove one
+        else {
+<span class="nc bnc" id="L1059" title="All 2 branches missed.">          if (!getFirstSelectedTerritory().equals(t)) {</span>
+<span class="nc" id="L1060">            throw new IllegalStateException(&quot;Wrong selected territory&quot;);</span>
+          }
+          // doesn't matter which unit we remove since units are assigned to routes later
+          // check for alt key - remove 1/10 of total units (useful for splitting large armies)
+          // changed to just remove 10 units
+          // (int) Math.max(1, Math.floor(units.size() / s_deselectNumber))
+<span class="nc bnc" id="L1066" title="All 2 branches missed.">          final int iterCount = (me.isAltDown()) ? s_deselectNumber : 1;</span>
+<span class="nc" id="L1067">          int remCount = 0;</span>
+<span class="nc bnc" id="L1068" title="All 2 branches missed.">          for (final Unit unit : units) {</span>
+<span class="nc bnc" id="L1069" title="All 4 branches missed.">            if (selectedUnits.contains(unit) &amp;&amp; !unitsToRemove.contains(unit)) {</span>
+<span class="nc" id="L1070">              unitsToRemove.add(unit);</span>
+              // Clear the stored dependents for AirTransports
+<span class="nc bnc" id="L1072" title="All 2 branches missed.">              if (!s_dependentUnits.isEmpty()) {</span>
+<span class="nc bnc" id="L1073" title="All 2 branches missed.">                for (final Unit airTransport : unitsWithoutDependents) {</span>
+<span class="nc bnc" id="L1074" title="All 2 branches missed.">                  if (s_dependentUnits.containsKey(airTransport)) {</span>
+<span class="nc" id="L1075">                    s_dependentUnits.get(airTransport).remove(unit);</span>
+                  }
+                }
+              }
+<span class="nc" id="L1079">              remCount++;</span>
+<span class="nc bnc" id="L1080" title="All 2 branches missed.">              if (remCount &gt;= iterCount) {</span>
+<span class="nc" id="L1081">                break;</span>
+              }
+            }
+          }
+        }
+      }
+      // perform the remove
+<span class="nc" id="L1088">      selectedUnits.removeAll(unitsToRemove);</span>
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">      if (selectedUnits.isEmpty()) {</span>
+        // nothing left, cancel move
+<span class="nc" id="L1091">        cancelMove();</span>
+<span class="nc" id="L1092">      } else {</span>
+<span class="nc" id="L1093">        mouseLastUpdatePoint = me.getMapPoint();</span>
+<span class="nc" id="L1094">        updateUnitsThatCanMoveOnRoute(selectedUnits, getRoute(getFirstSelectedTerritory(), t, selectedUnits));</span>
+<span class="nc" id="L1095">        updateRouteAndMouseShadowUnits(getRoute(getFirstSelectedTerritory(), t, selectedUnits));</span>
+      }
+<span class="nc" id="L1097">    }</span>
+
+    private void selectWayPoint(final Territory territory) {
+<span class="nc bnc" id="L1100" title="All 2 branches missed.">      if (forced == null) {</span>
+<span class="nc" id="L1101">        forced = new ArrayList&lt;&gt;();</span>
+      }
+<span class="nc bnc" id="L1103" title="All 2 branches missed.">      if (!forced.contains(territory)) {</span>
+<span class="nc" id="L1104">        forced.add(territory);</span>
+      }
+<span class="nc" id="L1106">      updateRouteAndMouseShadowUnits(</span>
+<span class="nc" id="L1107">          getRoute(getFirstSelectedTerritory(), getFirstSelectedTerritory(), selectedUnits));</span>
+<span class="nc" id="L1108">    }</span>
+
+    private CompositeMatch&lt;Unit&gt; getUnloadableMatch() {
+      // are we unloading everything? if we are then we dont need to select the transports
+<span class="nc" id="L1112">      final CompositeMatch&lt;Unit&gt; unloadable = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L1113">      unloadable.add(Matches.unitIsOwnedBy(getCurrentPlayer()));</span>
+<span class="nc" id="L1114">      unloadable.add(Matches.UnitIsLand);</span>
+<span class="nc bnc" id="L1115" title="All 2 branches missed.">      if (nonCombat) {</span>
+<span class="nc" id="L1116">        unloadable.add(Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+      }
+<span class="nc" id="L1118">      return unloadable;</span>
+    }
+
+    private void selectEndPoint(final Territory territory) {
+<span class="nc" id="L1122">      final Route route = getRoute(getFirstSelectedTerritory(), territory, selectedUnits);</span>
+<span class="nc" id="L1123">      final List&lt;Unit&gt; units = unitsThatCanMoveOnRoute;</span>
+<span class="nc" id="L1124">      setSelectedEndpointTerritory(territory);</span>
+<span class="nc bnc" id="L1125" title="All 4 branches missed.">      if (units.isEmpty() || route == null) {</span>
+<span class="nc" id="L1126">        cancelMove();</span>
+<span class="nc" id="L1127">        return;</span>
+      }
+<span class="nc" id="L1129">      Collection&lt;Unit&gt; transports = null;</span>
+<span class="nc" id="L1130">      final CompositeMatch&lt;Unit&gt; paratroopNBombers = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L1131">      paratroopNBombers.add(Matches.UnitIsAirTransport);</span>
+<span class="nc" id="L1132">      paratroopNBombers.add(Matches.UnitIsAirTransportable);</span>
+<span class="nc" id="L1133">      final boolean paratroopsLanding = Match.someMatch(units, paratroopNBombers);</span>
+<span class="nc bnc" id="L1134" title="All 4 branches missed.">      if (route.isLoad() &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) {</span>
+<span class="nc" id="L1135">        transports = getTransportsToLoad(route, units, false);</span>
+<span class="nc bnc" id="L1136" title="All 2 branches missed.">        if (transports.isEmpty()) {</span>
+<span class="nc" id="L1137">          cancelMove();</span>
+<span class="nc" id="L1138">          return;</span>
+        }
+<span class="nc bnc" id="L1140" title="All 6 branches missed.">      } else if ((route.isUnload() &amp;&amp; Match.someMatch(units, Matches.UnitIsLand)) || paratroopsLanding) {</span>
+<span class="nc" id="L1141">        final List&lt;Unit&gt; unloadAble = Match.getMatches(selectedUnits, getUnloadableMatch());</span>
+<span class="nc" id="L1142">        final Collection&lt;Unit&gt; canMove = new ArrayList&lt;&gt;(getUnitsToUnload(route, unloadAble));</span>
+<span class="nc" id="L1143">        canMove.addAll(Match.getMatches(selectedUnits, new InverseMatch&lt;&gt;(getUnloadableMatch())));</span>
+<span class="nc bnc" id="L1144" title="All 2 branches missed.">        if (paratroopsLanding) {</span>
+<span class="nc" id="L1145">          transports = canMove;</span>
+        }
+<span class="nc bnc" id="L1147" title="All 2 branches missed.">        if (canMove.isEmpty()) {</span>
+<span class="nc" id="L1148">          cancelMove();</span>
+<span class="nc" id="L1149">          return;</span>
+        } else {
+<span class="nc" id="L1151">          selectedUnits.clear();</span>
+<span class="nc" id="L1152">          selectedUnits.addAll(canMove);</span>
+        }
+<span class="nc" id="L1154">      } else {</span>
+        // keep a map of the max number of each eligible unitType that can be chosen
+<span class="nc" id="L1156">        final IntegerMap&lt;UnitType&gt; maxMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">        for (final Unit unit : units) {</span>
+<span class="nc" id="L1158">          maxMap.add(unit.getType(), 1);</span>
+        }
+        // this match will make sure we can't select more units
+        // of a specific type then we had originally selected
+<span class="nc" id="L1162">        final Match&lt;Collection&lt;Unit&gt;&gt; unitTypeCountMatch = new Match&lt;Collection&lt;Unit&gt;&gt;() {</span>
+          @Override
+          public boolean match(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L1165">            final IntegerMap&lt;UnitType&gt; currentMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1166" title="All 2 branches missed.">            for (final Unit unit : units) {</span>
+<span class="nc" id="L1167">              currentMap.add(unit.getType(), 1);</span>
+            }
+<span class="nc" id="L1169">            return maxMap.greaterThanOrEqualTo(currentMap);</span>
+          }
+        };
+<span class="nc" id="L1172">        allowSpecificUnitSelection(units, route, false, unitTypeCountMatch);</span>
+<span class="nc bnc" id="L1173" title="All 2 branches missed.">        if (units.isEmpty()) {</span>
+<span class="nc" id="L1174">          cancelMove();</span>
+<span class="nc" id="L1175">          return;</span>
+        }
+      }
+<span class="nc" id="L1178">      final MoveDescription message = new MoveDescription(units, route, transports, s_dependentUnits);</span>
+<span class="nc" id="L1179">      setMoveMessage(message);</span>
+<span class="nc" id="L1180">      setFirstSelectedTerritory(null);</span>
+<span class="nc" id="L1181">      setSelectedEndpointTerritory(null);</span>
+<span class="nc" id="L1182">      mouseCurrentTerritory = null;</span>
+<span class="nc" id="L1183">      forced = null;</span>
+<span class="nc" id="L1184">      updateRouteAndMouseShadowUnits(null);</span>
+<span class="nc" id="L1185">      release();</span>
+<span class="nc" id="L1186">    }</span>
+  };
+
+  /**
+   * Allow the user to select specific units, if for example some units
+   * have different movement
+   * Units are sorted in preferred order, so units represents the default selections.
+   */
+  private boolean allowSpecificUnitSelection(final Collection&lt;Unit&gt; units, final Route route, boolean mustQueryUser,
+      final Match&lt;Collection&lt;Unit&gt;&gt; matchCriteria) {
+<span class="nc" id="L1196">    final List&lt;Unit&gt; candidateUnits = getFirstSelectedTerritory().getUnits().getMatches(getMovableMatch(route, units));</span>
+<span class="nc bnc" id="L1197" title="All 2 branches missed.">    if (!mustQueryUser) {</span>
+<span class="nc" id="L1198">      final Set&lt;UnitCategory&gt; categories =</span>
+<span class="nc" id="L1199">          UnitSeperator.categorize(candidateUnits, mustMoveWithDetails.getMustMoveWith(), true, false);</span>
+<span class="nc bnc" id="L1200" title="All 2 branches missed.">      for (final UnitCategory category1 : categories) {</span>
+        // we cant move these, dont bother to check
+<span class="nc bnc" id="L1202" title="All 2 branches missed.">        if (category1.getMovement() == 0) {</span>
+<span class="nc" id="L1203">          continue;</span>
+        }
+<span class="nc bnc" id="L1205" title="All 2 branches missed.">        for (final UnitCategory category2 : categories) {</span>
+          // we cant move these, dont bother to check
+<span class="nc bnc" id="L1207" title="All 2 branches missed.">          if (category2.getMovement() == 0) {</span>
+<span class="nc" id="L1208">            continue;</span>
+          }
+          // if we find that two categories are compatable, and some units
+          // are selected from one category, but not the other
+          // then the user has to refine his selection
+<span class="nc bnc" id="L1213" title="All 6 branches missed.">          if (category1 != category2 &amp;&amp; category1.getType() == category2.getType() &amp;&amp; !category1.equals(category2)) {</span>
+            // if we are moving all the units from both categories, then nothing to choose
+<span class="nc bnc" id="L1215" title="All 4 branches missed.">            if (units.containsAll(category1.getUnits()) &amp;&amp; units.containsAll(category2.getUnits())) {</span>
+<span class="nc" id="L1216">              continue;</span>
+            }
+            // if we are moving some of the units from either category, then we need to stop
+<span class="nc bnc" id="L1219" title="All 2 branches missed.">            if (!Util.intersection(category1.getUnits(), units).isEmpty()</span>
+<span class="nc bnc" id="L1220" title="All 2 branches missed.">                || !Util.intersection(category2.getUnits(), units).isEmpty()) {</span>
+<span class="nc" id="L1221">              mustQueryUser = true;</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L1227" title="All 2 branches missed.">    if (mustQueryUser) {</span>
+<span class="nc" id="L1228">      final List&lt;Unit&gt; defaultSelections = new ArrayList&lt;&gt;(units.size());</span>
+<span class="nc bnc" id="L1229" title="All 2 branches missed.">      if (route.isLoad()) {</span>
+<span class="nc" id="L1230">        final Collection&lt;Unit&gt; transportsToLoad = new ArrayList&lt;&gt;(getTransportsToLoad(route, units, false));</span>
+<span class="nc" id="L1231">        defaultSelections.addAll(TransportUtils.mapTransports(route, units, transportsToLoad).keySet());</span>
+<span class="nc" id="L1232">      } else {</span>
+<span class="nc" id="L1233">        defaultSelections.addAll(units);</span>
+      }
+      // sort candidateUnits in preferred order
+<span class="nc" id="L1236">      sortUnitsToMove(candidateUnits, route);</span>
+<span class="nc" id="L1237">      final UnitChooser chooser =</span>
+<span class="nc" id="L1238">          new UnitChooser(candidateUnits, defaultSelections, mustMoveWithDetails.getMustMoveWith(), true, false,</span>
+<span class="nc" id="L1239">              getGameData(), false, getMap().getUIContext(), matchCriteria);</span>
+<span class="nc" id="L1240">      final String text = &quot;Select units to move from &quot; + getFirstSelectedTerritory() + &quot;.&quot;;</span>
+<span class="nc" id="L1241">      final int option = JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, text,</span>
+<span class="nc" id="L1242">          JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L1243" title="All 2 branches missed.">      if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L1244">        units.clear();</span>
+<span class="nc" id="L1245">        return false;</span>
+      }
+<span class="nc" id="L1247">      units.clear();</span>
+<span class="nc" id="L1248">      units.addAll(chooser.getSelected(false));</span>
+    }
+    // add the dependent units
+<span class="nc" id="L1251">    final List&lt;Unit&gt; unitsCopy = new ArrayList&lt;&gt;(units);</span>
+<span class="nc bnc" id="L1252" title="All 2 branches missed.">    for (final Unit unit : unitsCopy) {</span>
+<span class="nc" id="L1253">      final Collection&lt;Unit&gt; forced = mustMoveWithDetails.getMustMoveWith().get(unit);</span>
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">      if (forced != null) {</span>
+        // add dependent if necessary
+<span class="nc bnc" id="L1256" title="All 2 branches missed.">        for (final Unit dependent : forced) {</span>
+<span class="nc bnc" id="L1257" title="All 2 branches missed.">          if (unitsCopy.indexOf(dependent) == -1) {</span>
+<span class="nc" id="L1258">            units.add(dependent);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L1263">    return true;</span>
+  }
+
+<span class="nc" id="L1266">  private final MouseOverUnitListener MOUSE_OVER_UNIT_LISTENER = new MouseOverUnitListener() {</span>
+    @Override
+    public void mouseEnter(final List&lt;Unit&gt; units, final Territory territory, final MouseDetails me) {
+<span class="nc bnc" id="L1269" title="All 2 branches missed.">      if (!getListening()) {</span>
+<span class="nc" id="L1270">        return;</span>
+      }
+<span class="nc" id="L1272">      final PlayerID owner = getUnitOwner(selectedUnits);</span>
+<span class="nc" id="L1273">      final CompositeMatchAnd&lt;Unit&gt; match =</span>
+<span class="nc" id="L1274">          new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(owner)/* , Matches.UnitIsNotFactory */);</span>
+<span class="nc" id="L1275">      match.add(Matches.UnitCanMove);</span>
+<span class="nc" id="L1276">      final boolean someOwned = Match.someMatch(units, match);</span>
+<span class="nc bnc" id="L1277" title="All 4 branches missed.">      final boolean isCorrectTerritory = firstSelectedTerritory == null || firstSelectedTerritory == territory;</span>
+<span class="nc bnc" id="L1278" title="All 4 branches missed.">      if (someOwned &amp;&amp; isCorrectTerritory) {</span>
+<span class="nc" id="L1279">        final Map&lt;Territory, List&lt;Unit&gt;&gt; highlight = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1280">        highlight.put(territory, units);</span>
+<span class="nc" id="L1281">        getMap().setUnitHighlight(highlight);</span>
+<span class="nc" id="L1282">      } else {</span>
+<span class="nc" id="L1283">        getMap().setUnitHighlight(null);</span>
+      }
+<span class="nc" id="L1285">    }</span>
+  };
+<span class="nc" id="L1287">  private final MapSelectionListener MAP_SELECTION_LISTENER = new DefaultMapSelectionListener() {</span>
+    @Override
+<span class="nc" id="L1289">    public void territorySelected(final Territory territory, final MouseDetails me) {}</span>
+
+    @Override
+    public void mouseMoved(final Territory territory, final MouseDetails me) {
+<span class="nc bnc" id="L1293" title="All 2 branches missed.">      if (!getListening()) {</span>
+<span class="nc" id="L1294">        return;</span>
+      }
+<span class="nc bnc" id="L1296" title="All 4 branches missed.">      if (getFirstSelectedTerritory() != null &amp;&amp; territory != null) {</span>
+        Route route;
+<span class="nc bnc" id="L1298" title="All 4 branches missed.">        if (mouseCurrentTerritory == null || !mouseCurrentTerritory.equals(territory)</span>
+<span class="nc bnc" id="L1299" title="All 2 branches missed.">            || mouseCurrentPoint.equals(mouseLastUpdatePoint)) {</span>
+<span class="nc" id="L1300">          route = getRoute(getFirstSelectedTerritory(), territory, selectedUnits);</span>
+<span class="nc" id="L1301">          getData().acquireReadLock();</span>
+          try {
+<span class="nc" id="L1303">            updateUnitsThatCanMoveOnRoute(selectedUnits, route);</span>
+            // now, check if there is a better route for just the units that can get there (we check only air since that
+            // is the only one for
+            // which the route may actually change much)
+<span class="nc bnc" id="L1307" title="All 4 branches missed.">            if (unitsThatCanMoveOnRoute.size() &lt; selectedUnits.size() &amp;&amp; (unitsThatCanMoveOnRoute.size() == 0</span>
+<span class="nc bnc" id="L1308" title="All 2 branches missed.">                || Match.allMatch(unitsThatCanMoveOnRoute, Matches.UnitIsAir))) {</span>
+<span class="nc" id="L1309">              final Collection&lt;Unit&gt; airUnits = Match.getMatches(selectedUnits, Matches.UnitIsAir);</span>
+<span class="nc bnc" id="L1310" title="All 2 branches missed.">              if (airUnits.size() &gt; 0) {</span>
+<span class="nc" id="L1311">                route = getRoute(getFirstSelectedTerritory(), territory, airUnits);</span>
+<span class="nc" id="L1312">                updateUnitsThatCanMoveOnRoute(airUnits, route);</span>
+              }
+            }
+<span class="nc" id="L1315">          } finally {</span>
+<span class="nc" id="L1316">            getData().releaseReadLock();</span>
+<span class="nc" id="L1317">          }</span>
+<span class="nc" id="L1318">        } else {</span>
+<span class="nc" id="L1319">          route = routeCached;</span>
+        }
+<span class="nc" id="L1321">        mouseCurrentPoint = me.getMapPoint();</span>
+<span class="nc" id="L1322">        updateRouteAndMouseShadowUnits(route);</span>
+      }
+<span class="nc" id="L1324">      mouseCurrentTerritory = territory;</span>
+<span class="nc" id="L1325">    }</span>
+  };
+
+  @Override
+  public final String toString() {
+<span class="nc" id="L1330">    return &quot;MovePanel&quot;;</span>
+  }
+
+  final void setFirstSelectedTerritory(final Territory firstSelectedTerritory) {
+<span class="nc bnc" id="L1334" title="All 2 branches missed.">    if (this.firstSelectedTerritory == firstSelectedTerritory) {</span>
+<span class="nc" id="L1335">      return;</span>
+    }
+<span class="nc" id="L1337">    this.firstSelectedTerritory = firstSelectedTerritory;</span>
+<span class="nc bnc" id="L1338" title="All 2 branches missed.">    if (firstSelectedTerritory == null) {</span>
+<span class="nc" id="L1339">      mustMoveWithDetails = null;</span>
+<span class="nc" id="L1340">    } else {</span>
+<span class="nc" id="L1341">      mustMoveWithDetails = MoveValidator.getMustMoveWith(firstSelectedTerritory,</span>
+<span class="nc" id="L1342">          firstSelectedTerritory.getUnits().getUnits(), s_dependentUnits, getData(), getCurrentPlayer());</span>
+    }
+<span class="nc" id="L1344">  }</span>
+
+  private Territory getFirstSelectedTerritory() {
+<span class="nc" id="L1347">    return firstSelectedTerritory;</span>
+  }
+
+  final void setSelectedEndpointTerritory(final Territory selectedEndpointTerritory) {
+<span class="nc" id="L1351">    this.selectedEndpointTerritory = selectedEndpointTerritory;</span>
+<span class="nc" id="L1352">  }</span>
+
+  private Territory getSelectedEndpointTerritory() {
+<span class="nc" id="L1355">    return selectedEndpointTerritory;</span>
+  }
+
+  private static boolean IsParatroopersCanMoveDuringNonCombat(final GameData data) {
+<span class="nc" id="L1359">    return games.strategy.triplea.Properties.getParatroopersCanMoveDuringNonCombat(data);</span>
+  }
+
+  private final List&lt;Unit&gt; UserChooseUnits(final Set&lt;Unit&gt; defaultSelections,
+      final Match&lt;Collection&lt;Unit&gt;&gt; unitsToLoadMatch, final List&lt;Unit&gt; unitsToLoad, final String title,
+      final String action) {
+    // Allow player to select which to load.
+<span class="nc" id="L1366">    final UnitChooser chooser = new UnitChooser(unitsToLoad, defaultSelections, s_dependentUnits,</span>
+<span class="nc" id="L1367">        /* categorizeMovement */false, /* categorizeTransportCost */true, getGameData(), /* allowTwoHit */false,</span>
+<span class="nc" id="L1368">        getMap().getUIContext(), unitsToLoadMatch);</span>
+<span class="nc" id="L1369">    chooser.setTitle(title);</span>
+<span class="nc" id="L1370">    final int option =</span>
+<span class="nc" id="L1371">        JOptionPane.showOptionDialog(getTopLevelAncestor(), chooser, &quot;What units do you want to &quot; + action,</span>
+<span class="nc" id="L1372">            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, null, null);</span>
+<span class="nc bnc" id="L1373" title="All 2 branches missed.">    if (option != JOptionPane.OK_OPTION) {</span>
+<span class="nc" id="L1374">      return Collections.emptyList();</span>
+    }
+<span class="nc" id="L1376">    return chooser.getSelected(true);</span>
+  }
+
+  @Override
+  protected final void cleanUpSpecific() {
+<span class="nc" id="L1381">    getMap().removeMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L1382">    getMap().removeUnitSelectionListener(UNIT_SELECTION_LISTENER);</span>
+<span class="nc" id="L1383">    getMap().removeMouseOverUnitListener(MOUSE_OVER_UNIT_LISTENER);</span>
+<span class="nc" id="L1384">    getMap().setUnitHighlight(null);</span>
+<span class="nc" id="L1385">    selectedUnits.clear();</span>
+<span class="nc" id="L1386">    updateRouteAndMouseShadowUnits(null);</span>
+<span class="nc" id="L1387">    forced = null;</span>
+<span class="nc" id="L1388">  }</span>
+
+  @Override
+  protected final void cancelMoveAction() {
+<span class="nc" id="L1392">    setFirstSelectedTerritory(null);</span>
+<span class="nc" id="L1393">    setSelectedEndpointTerritory(null);</span>
+<span class="nc" id="L1394">    mouseCurrentTerritory = null;</span>
+<span class="nc" id="L1395">    forced = null;</span>
+<span class="nc" id="L1396">    selectedUnits.clear();</span>
+<span class="nc" id="L1397">    currentCursorImage = null;</span>
+<span class="nc" id="L1398">    updateRouteAndMouseShadowUnits(null);</span>
+<span class="nc" id="L1399">    getMap().showMouseCursor();</span>
+<span class="nc" id="L1400">    getMap().setMouseShadowUnits(null);</span>
+<span class="nc" id="L1401">  }</span>
+
+  @Override
+  protected final void undoMoveSpecific() {
+<span class="nc" id="L1405">    getMap().setRoute(null);</span>
+<span class="nc" id="L1406">  }</span>
+
+  public final void setNonCombat(final boolean nonCombat) {
+<span class="nc" id="L1409">    this.nonCombat = nonCombat;</span>
+<span class="nc" id="L1410">  }</span>
+
+  public final void setDisplayText(final String displayText) {
+<span class="nc" id="L1413">    this.displayText = displayText;</span>
+<span class="nc" id="L1414">  }</span>
+
+  @Override
+  public final void display(final PlayerID id) {
+<span class="nc" id="L1418">    super.display(id, displayText);</span>
+<span class="nc" id="L1419">  }</span>
+
+  @Override
+  protected final void setUpSpecific() {
+<span class="nc" id="L1423">    setFirstSelectedTerritory(null);</span>
+<span class="nc" id="L1424">    forced = null;</span>
+<span class="nc" id="L1425">    getMap().addMapSelectionListener(MAP_SELECTION_LISTENER);</span>
+<span class="nc" id="L1426">    getMap().addUnitSelectionListener(UNIT_SELECTION_LISTENER);</span>
+<span class="nc" id="L1427">    getMap().addMouseOverUnitListener(MOUSE_OVER_UNIT_LISTENER);</span>
+<span class="nc" id="L1428">  }</span>
+
+  public KeyListener getCustomKeyListeners() {
+<span class="nc" id="L1431">    return new KeyListener() {</span>
+      @Override
+<span class="nc" id="L1433">      public void keyTyped(final KeyEvent e) {}</span>
+
+      @Override
+      public void keyPressed(final KeyEvent e) {
+<span class="nc bnc" id="L1437" title="All 4 branches missed.">        switch (e.getKeyCode()) {</span>
+          case KeyEvent.VK_N:
+<span class="nc" id="L1439">            centerOnNextMoveableUnit();</span>
+<span class="nc" id="L1440">            break;</span>
+          case KeyEvent.VK_F:
+<span class="nc" id="L1442">            highlightMoveableUnits();</span>
+<span class="nc" id="L1443">            break;</span>
+          case KeyEvent.VK_U:
+<span class="nc bnc" id="L1445" title="All 4 branches missed.">            if (getMap().getHighlightedUnits() != null &amp;&amp; !getMap().getHighlightedUnits().isEmpty()) {</span>
+<span class="nc" id="L1446">              m_undoableMovesPanel.undoMoves(getMap().getHighlightedUnits());</span>
+            }
+            break;
+        }
+<span class="nc" id="L1450">      }</span>
+
+      @Override
+<span class="nc" id="L1453">      public void keyReleased(final KeyEvent e) {}</span>
+    };
+
+  }
+
+
+  @Override
+  protected boolean doneMoveAction() {
+<span class="nc bnc" id="L1461" title="All 2 branches missed.">    if (m_undoableMovesPanel.getCountOfMovesMade() == 0) {</span>
+<span class="nc" id="L1462">      final int rVal = JOptionPane.showConfirmDialog(JOptionPane.getFrameForComponent(MovePanel.this),</span>
+<span class="nc" id="L1463">          &quot;Are you sure you dont want to move?&quot;, &quot;End Move&quot;, JOptionPane.YES_NO_OPTION);</span>
+<span class="nc bnc" id="L1464" title="All 2 branches missed.">      return rVal == JOptionPane.YES_OPTION;</span>
+    }
+<span class="nc" id="L1466">    return true;</span>
+  }
+
+  @Override
+  protected boolean setCancelButton() {
+<span class="nc" id="L1471">    return true;</span>
+  }
+
+  private void centerOnNextMoveableUnit() {
+    final List&lt;Territory&gt; allTerritories;
+<span class="nc" id="L1476">    getData().acquireReadLock();</span>
+    try {
+<span class="nc" id="L1478">      allTerritories = new ArrayList&lt;&gt;(getData().getMap().getTerritories());</span>
+<span class="nc" id="L1479">    } finally {</span>
+<span class="nc" id="L1480">      getData().releaseReadLock();</span>
+<span class="nc" id="L1481">    }</span>
+<span class="nc" id="L1482">    final CompositeMatchAnd&lt;Unit&gt; moveableUnitOwnedByMe =</span>
+<span class="nc" id="L1483">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(getCurrentPlayer()), Matches.unitHasMovementLeft);</span>
+<span class="nc bnc" id="L1484" title="All 2 branches missed.">    if (!nonCombat) {</span>
+      // if not non combat, cannot move aa units
+<span class="nc" id="L1486">      moveableUnitOwnedByMe.add(Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+    }
+<span class="nc" id="L1488">    final int size = allTerritories.size();</span>
+    // new focused index is 1 greater
+<span class="nc bnc" id="L1490" title="All 2 branches missed.">    int newFocusedIndex = lastFocusedTerritory == null ? 0 : allTerritories.indexOf(lastFocusedTerritory) + 1;</span>
+<span class="nc bnc" id="L1491" title="All 2 branches missed.">    if (newFocusedIndex &gt;= size) {</span>
+      // if we are larger than the number of territories, we must start back at zero
+<span class="nc" id="L1493">      newFocusedIndex = 0;</span>
+    }
+<span class="nc" id="L1495">    Territory newFocusedTerritory = null;</span>
+    // make sure we go through every single territory on the board
+<span class="nc" id="L1497">    int i = 0;</span>
+<span class="nc bnc" id="L1498" title="All 2 branches missed.">    while (i &lt; size) {</span>
+<span class="nc" id="L1499">      final Territory t = allTerritories.get(newFocusedIndex);</span>
+<span class="nc" id="L1500">      final List&lt;Unit&gt; matchedUnits = t.getUnits().getMatches(moveableUnitOwnedByMe);</span>
+<span class="nc bnc" id="L1501" title="All 2 branches missed.">      if (matchedUnits.size() &gt; 0) {</span>
+<span class="nc" id="L1502">        newFocusedTerritory = t;</span>
+<span class="nc" id="L1503">        final Map&lt;Territory, List&lt;Unit&gt;&gt; highlight = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L1504">        highlight.put(t, matchedUnits);</span>
+<span class="nc" id="L1505">        getMap().setUnitHighlight(highlight);</span>
+<span class="nc" id="L1506">        break;</span>
+      }
+      // make sure to cycle through the front half of territories
+<span class="nc bnc" id="L1509" title="All 2 branches missed.">      if ((newFocusedIndex + 1) &gt;= size) {</span>
+<span class="nc" id="L1510">        newFocusedIndex = 0;</span>
+<span class="nc" id="L1511">      } else {</span>
+<span class="nc" id="L1512">        newFocusedIndex++;</span>
+      }
+<span class="nc" id="L1514">      i++;</span>
+    }
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">    if (newFocusedTerritory != null) {</span>
+<span class="nc" id="L1517">      lastFocusedTerritory = newFocusedTerritory;</span>
+<span class="nc" id="L1518">      getMap().centerOn(newFocusedTerritory);</span>
+    }
+<span class="nc" id="L1520">  }</span>
+
+  private void highlightMoveableUnits() {
+    final List&lt;Territory&gt; allTerritories;
+<span class="nc" id="L1524">    getData().acquireReadLock();</span>
+    try {
+<span class="nc" id="L1526">      allTerritories = new ArrayList&lt;&gt;(getData().getMap().getTerritories());</span>
+<span class="nc" id="L1527">    } finally {</span>
+<span class="nc" id="L1528">      getData().releaseReadLock();</span>
+<span class="nc" id="L1529">    }</span>
+<span class="nc" id="L1530">    final CompositeMatchAnd&lt;Unit&gt; moveableUnitOwnedByMe =</span>
+<span class="nc" id="L1531">        new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(getCurrentPlayer()), Matches.unitHasMovementLeft);</span>
+<span class="nc bnc" id="L1532" title="All 2 branches missed.">    if (!nonCombat) {</span>
+      // if not non combat, cannot move aa units
+<span class="nc" id="L1534">      moveableUnitOwnedByMe.add(Matches.UnitCanNotMoveDuringCombatMove.invert());</span>
+    }
+<span class="nc" id="L1536">    final Map&lt;Territory, List&lt;Unit&gt;&gt; highlight = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1537" title="All 2 branches missed.">    for (final Territory t : allTerritories) {</span>
+<span class="nc" id="L1538">      final List&lt;Unit&gt; moveableUnits = t.getUnits().getMatches(moveableUnitOwnedByMe);</span>
+<span class="nc bnc" id="L1539" title="All 2 branches missed.">      if (!moveableUnits.isEmpty()) {</span>
+<span class="nc" id="L1540">        highlight.put(t, moveableUnits);</span>
+      }
+    }
+<span class="nc bnc" id="L1543" title="All 2 branches missed.">    if (!highlight.isEmpty()) {</span>
+<span class="nc" id="L1544">      getMap().setUnitHighlight(highlight);</span>
+    }
+<span class="nc" id="L1546">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

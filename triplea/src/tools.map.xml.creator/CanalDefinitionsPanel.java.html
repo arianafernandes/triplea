@@ -1,0 +1,454 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>CanalDefinitionsPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">tools.map.xml.creator</a> &gt; <span class="el_source">CanalDefinitionsPanel.java</span></div><h1>CanalDefinitionsPanel.java</h1><pre class="source lang-java linenums">package tools.map.xml.creator;
+
+import java.awt.Color;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Point;
+import java.awt.event.MouseEvent;
+import java.awt.geom.Rectangle2D;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
+
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import tools.map.xml.creator.TerritoryDefinitionDialog.DEFINITION;
+
+
+final public class CanalDefinitionsPanel extends ImageScrollPanePanel {
+  private static final String MSG_TITLE_AUTO_FILL_RESULT = &quot;Auto-Fill Result&quot;;
+  // TODO: consider rework HTML strings for XML file creation and parsing
+  static final String HTML_CANAL_KEY_POSTFIX = &quot;: &quot;;
+  static final String HTML_CANAL_KEY_PREFIX = &quot;&lt;br/&gt; - &quot;;
+  private static final double PI_HALF = Math.PI / 2;
+  private static final String NEW_CANAL_OPTION = &quot;&lt;new Canal&gt;&quot;;
+
+<span class="nc" id="L39">  private Set&lt;String&gt; selectedLandTerritories = new TreeSet&lt;&gt;();</span>
+<span class="nc" id="L40">  private Set&lt;String&gt; selectedWaterTerritories = new TreeSet&lt;&gt;();</span>
+<span class="nc" id="L41">  private Optional&lt;String&gt; currentCanalName = Optional.empty();</span>
+
+<span class="nc" id="L43">  private CanalDefinitionsPanel() {}</span>
+
+  public static void layout(final MapXmlCreator mapXmlCreator) {
+<span class="nc" id="L46">    setMapXmlCreator(mapXmlCreator);</span>
+<span class="nc" id="L47">    final CanalDefinitionsPanel panel = new CanalDefinitionsPanel();</span>
+<span class="nc" id="L48">    panel.layout(mapXmlCreator.getStepActionPanel());</span>
+<span class="nc" id="L49">    mapXmlCreator.setAutoFillAction(SwingAction.of(e -&gt; {</span>
+<span class="nc" id="L50">      final int prevCanalCount = MapXmlHelper.getCanalDefinitionsMap().size();</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">      if (prevCanalCount &gt; 0) {</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">        if (JOptionPane.YES_OPTION != MapXmlUIHelper.showYesNoOptionDialog(&quot;Auto-Fill Warning&quot;,</span>
+<span class="nc" id="L53">            &quot;All current canal definitions will be deleted.\rDo you want to continue with Auto-Fill?&quot;,</span>
+<span class="nc" id="L54">            JOptionPane.WARNING_MESSAGE)) {</span>
+<span class="nc" id="L55">          return;</span>
+        }
+<span class="nc" id="L57">        MapXmlHelper.clearCanalDefinitions();</span>
+      }
+<span class="nc" id="L59">      panel.clearSelection();</span>
+
+<span class="nc" id="L61">      final Map&lt;String, Set&lt;String&gt;&gt; landWaterTerritoyConnections = MapXmlData.getLandWaterTerritoryConnections();</span>
+
+<span class="nc" id="L63">      MapXmlHelper.validateAndAddCanalDefinitions(landWaterTerritoyConnections);</span>
+
+<span class="nc" id="L65">      final boolean noNewCanalsBuild = MapXmlHelper.getCanalDefinitionsMap().isEmpty();</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">      if (noNewCanalsBuild) {</span>
+<span class="nc" id="L67">        JOptionPane.showMessageDialog(null, &quot;No canals have been build!&quot;, MSG_TITLE_AUTO_FILL_RESULT,</span>
+<span class="nc" id="L68">            JOptionPane.PLAIN_MESSAGE);</span>
+<span class="nc" id="L69">      } else {</span>
+<span class="nc" id="L70">        JOptionPane.showMessageDialog(null, MapXmlHelper.getHtmlStringFromCanalDefinitions(),</span>
+<span class="nc" id="L71">            MSG_TITLE_AUTO_FILL_RESULT,</span>
+<span class="nc" id="L72">            JOptionPane.PLAIN_MESSAGE);</span>
+      }
+<span class="nc bnc" id="L74" title="All 4 branches missed.">      if (prevCanalCount &gt; 0 || !noNewCanalsBuild) {</span>
+<span class="nc" id="L75">        panel.repaint();</span>
+      }
+
+<span class="nc" id="L78">    }));</span>
+<span class="nc" id="L79">  }</span>
+
+
+  @Override
+  protected void paintCenterSpecifics(final Graphics g, final String centerName, final FontMetrics fontMetrics,
+      final Point item, final int xTextStart) {
+<span class="nc bnc" id="L85" title="All 4 branches missed.">    if (selectedLandTerritories.contains(centerName) || selectedWaterTerritories.contains(centerName)) {</span>
+<span class="nc" id="L86">      final Rectangle2D stringBounds = fontMetrics.getStringBounds(centerName, g);</span>
+<span class="nc" id="L87">      g.setColor(Color.yellow);</span>
+<span class="nc" id="L88">      g.fillRect(Math.max(0, xTextStart - 2), Math.max(0, item.y - 6), (int) stringBounds.getWidth() + 4,</span>
+<span class="nc" id="L89">          (int) stringBounds.getHeight());</span>
+<span class="nc" id="L90">      g.setColor(Color.red);</span>
+<span class="nc" id="L91">      g.drawString(centerName, Math.max(0, xTextStart), item.y + 5);</span>
+    }
+<span class="nc" id="L93">    g.setColor(Color.red);</span>
+<span class="nc" id="L94">  }</span>
+
+  @Override
+<span class="nc" id="L97">  protected void paintPreparation(final Map&lt;String, Point&gt; centers) {}</span>
+
+  @Override
+  protected void paintOwnSpecifics(final Graphics g, final Map&lt;String, Point&gt; centers) {
+<span class="nc" id="L101">    final Graphics2D g2d = (Graphics2D) g;</span>
+<span class="nc" id="L102">    final FontMetrics fontMetrics = g.getFontMetrics();</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">    for (final Entry&lt;String, CanalTerritoriesTuple&gt; canalDef : MapXmlHelper.getCanalDefinitionsMap()</span>
+<span class="nc" id="L104">        .entrySet()) {</span>
+<span class="nc" id="L105">      final Set&lt;String&gt; terrSet1 = canalDef.getValue().getWaterTerritories();</span>
+<span class="nc" id="L106">      final Set&lt;String&gt; remainingTerrs = new TreeSet&lt;&gt;(terrSet1);</span>
+<span class="nc" id="L107">      paintOwnSpecificsToWaterTerritories(centers, g2d, fontMetrics, terrSet1, remainingTerrs, canalDef.getKey());</span>
+<span class="nc" id="L108">      paintOwnSpecificsToLandTerritories(g, centers, canalDef);</span>
+    }
+
+<span class="nc" id="L111">  }</span>
+
+  public void paintOwnSpecificsToLandTerritories(final Graphics g, final Map&lt;String, Point&gt; centers,
+      final Entry&lt;String, CanalTerritoriesTuple&gt; canalDef) {
+<span class="nc" id="L115">    g.setColor(Color.GREEN);</span>
+<span class="nc" id="L116">    final Set&lt;String&gt; terrLandSet = canalDef.getValue().getLandTerritories();</span>
+<span class="nc" id="L117">    final Set&lt;String&gt; terrLandRemainingSet = new TreeSet&lt;&gt;(terrLandSet);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">    for (final String terrLand : terrLandSet) {</span>
+<span class="nc" id="L119">      final Point centerLandTerr = centers.get(terrLand);</span>
+<span class="nc" id="L120">      terrLandRemainingSet.remove(terrLand);</span>
+<span class="nc bnc" id="L121" title="All 2 branches missed.">      for (final String terrLandRemaining : terrLandRemainingSet) {</span>
+<span class="nc" id="L122">        final Point centerLandRemainingTerr = centers.get(terrLandRemaining);</span>
+<span class="nc" id="L123">        g.drawLine(centerLandTerr.x, centerLandTerr.y, centerLandRemainingTerr.x, centerLandRemainingTerr.y);</span>
+      }
+    }
+<span class="nc" id="L126">  }</span>
+
+  public void paintOwnSpecificsToWaterTerritories(final Map&lt;String, Point&gt; centers, final Graphics2D g2d,
+      final FontMetrics fontMetrics, final Set&lt;String&gt; terrSet1, final Set&lt;String&gt; remainingTerrs,
+      final String canalName) {
+<span class="nc" id="L131">    g2d.setColor(Color.BLUE);</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">    for (final String terr1 : terrSet1) {</span>
+<span class="nc" id="L133">      final Point center1 = centers.get(terr1);</span>
+<span class="nc" id="L134">      remainingTerrs.remove(terr1);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      for (final String terr2 : remainingTerrs) {</span>
+<span class="nc" id="L136">        final Point center2 = centers.get(terr2);</span>
+<span class="nc" id="L137">        g2d.drawLine(center1.x, center1.y, center2.x, center2.y);</span>
+<span class="nc" id="L138">        final Rectangle2D stringBounds = fontMetrics.getStringBounds(canalName, g2d);</span>
+<span class="nc" id="L139">        final int dX = center2.x - center1.x;</span>
+<span class="nc" id="L140">        final int dY = center2.y - center1.y;</span>
+<span class="nc" id="L141">        final Point lineCenter = new Point(center1.x + dX / 2, center1.y + dY / 2);</span>
+<span class="nc" id="L142">        final double centerDistance = center2.distance(center1);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">        if (centerDistance &gt; stringBounds.getWidth()) {</span>
+<span class="nc" id="L144">          drawRotate(g2d, lineCenter.x, lineCenter.y, Math.atan2(dY, dX), canalName,</span>
+<span class="nc" id="L145">              (int) (stringBounds.getWidth()) / -2);</span>
+<span class="nc" id="L146">        } else {</span>
+<span class="nc" id="L147">          g2d.drawString(canalName, lineCenter.x, lineCenter.y);</span>
+        }
+      }
+    }
+<span class="nc" id="L151">  }</span>
+
+  public static void drawRotate(final Graphics2D g2d, final double x, final double y, double radianAngle,
+      final String text, final int xOffset) {
+<span class="nc" id="L155">    g2d.translate((float) x, (float) y);</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">    if (radianAngle &gt; PI_HALF) {</span>
+<span class="nc" id="L157">      radianAngle -= Math.PI;</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">    } else if (radianAngle &lt; -PI_HALF) {</span>
+<span class="nc" id="L159">      radianAngle += Math.PI;</span>
+    }
+<span class="nc" id="L161">    g2d.rotate(radianAngle);</span>
+<span class="nc" id="L162">    g2d.drawString(text, xOffset, -2);</span>
+<span class="nc" id="L163">    g2d.rotate(-radianAngle);</span>
+<span class="nc" id="L164">    g2d.translate(-(float) x, -(float) y);</span>
+<span class="nc" id="L165">  }</span>
+
+  @Override
+  protected void mouseClickedOnImage(final Map&lt;String, Point&gt; centers, final MouseEvent e) {
+<span class="nc bnc" id="L169" title="All 2 branches missed.">    if (SwingUtilities.isRightMouseButton(e)) {</span>
+<span class="nc" id="L170">      mouseRightClickedOnImage();</span>
+<span class="nc" id="L171">      return;</span>
+    }
+
+<span class="nc" id="L174">    final Optional&lt;String&gt; newTerrNameOptional = Util.findTerritoryName(e.getPoint(), polygons);</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    if (!newTerrNameOptional.isPresent()) {</span>
+<span class="nc" id="L176">      return;</span>
+    }
+<span class="nc" id="L178">    final String newTerrName = newTerrNameOptional.get();</span>
+
+<span class="nc" id="L180">    Boolean newTerrIsWater = MapXmlHelper.getTerritoryDefintionsMap().get(newTerrName).get(DEFINITION.IS_WATER);</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">    if (newTerrIsWater == null) {</span>
+<span class="nc" id="L182">      newTerrIsWater = false;</span>
+    }
+
+<span class="nc bnc" id="L185" title="All 2 branches missed.">    final Set&lt;String&gt; newTerrNeighborsDiffType = getNeighborsByType(newTerrName, !newTerrIsWater);</span>
+
+<span class="nc" id="L187">    final List&lt;String&gt; terrCanals = getCanalsLinkedToTerritory(newTerrName, newTerrIsWater);</span>
+
+<span class="nc bnc" id="L189" title="All 2 branches missed.">    if (!evaluateSelectedTerritoryToCurrentCanal(newTerrName, newTerrIsWater, newTerrNeighborsDiffType, terrCanals)) {</span>
+<span class="nc" id="L190">      return;</span>
+    }
+
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    if (!handleSelectedTerritoryToCurrentCanal(newTerrName, newTerrIsWater, newTerrNeighborsDiffType)) {</span>
+<span class="nc" id="L194">      return;</span>
+    }
+
+<span class="nc" id="L197">    repaint();</span>
+<span class="nc" id="L198">  }</span>
+
+  /**
+   * @param newTerrName - territory name
+   * @param newTerrIsWater - IS_WATER property of newTerrName territory
+   * @param newTerrNeighborsDiffType - list of neighbor territories with/without (defined by newTerrIsWater) property
+   *        IS_WATER
+   * @return whether handling was successful or not
+   */
+  private boolean handleSelectedTerritoryToCurrentCanal(final String newTerrName, final boolean newTerrIsWater,
+      final Set&lt;String&gt; newTerrNeighborsDiffType) {
+<span class="nc bnc" id="L209" title="All 2 branches missed.">    if (currentCanalName.isPresent()) {</span>
+<span class="nc" id="L210">      setSelectedTerritoriesFromTerritory();</span>
+
+      final Set&lt;String&gt; selectedTerrsSameType;
+<span class="nc bnc" id="L213" title="All 2 branches missed.">      if (newTerrIsWater) {</span>
+<span class="nc" id="L214">        selectedTerrsSameType = selectedWaterTerritories;</span>
+<span class="nc" id="L215">      } else {</span>
+<span class="nc" id="L216">        selectedTerrsSameType = selectedLandTerritories;</span>
+      }
+
+<span class="nc bnc" id="L219" title="All 2 branches missed.">      if (selectedTerrsSameType.size() &gt; 0) {</span>
+<span class="nc" id="L220">        final Set&lt;String&gt; commonNeighborsDiffType =</span>
+<span class="nc bnc" id="L221" title="All 2 branches missed.">            getCommonNeighborsOfType(selectedTerrsSameType, !newTerrIsWater);</span>
+<span class="nc" id="L222">        commonNeighborsDiffType.retainAll(newTerrNeighborsDiffType);</span>
+
+<span class="nc bnc" id="L224" title="All 2 branches missed.">        if (commonNeighborsDiffType.size() &lt; 2) {</span>
+<span class="nc" id="L225">          JOptionPane.showMessageDialog(null,</span>
+<span class="nc" id="L226">              getMessageTextOnToFewSuitableNeighbors(newTerrIsWater, selectedTerrsSameType.size()), &quot;Input Error&quot;,</span>
+<span class="nc" id="L227">              JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L228">          return false;</span>
+        }
+      }
+
+<span class="nc bnc" id="L232" title="All 2 branches missed.">      if (selectedTerrsSameType.contains(newTerrName)) {</span>
+<span class="nc" id="L233">        selectedTerrsSameType.remove(newTerrName);</span>
+<span class="nc" id="L234">      } else {</span>
+<span class="nc" id="L235">        selectedTerrsSameType.add(newTerrName);</span>
+      }
+
+    }
+<span class="nc" id="L239">    return true;</span>
+  }
+
+  private void setSelectedTerritoriesFromTerritory() {
+<span class="nc" id="L243">    CanalTerritoriesTuple canalTerrs = MapXmlHelper.getCanalDefinitionsMap().get(currentCanalName.get());</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">    if (canalTerrs == null) {</span>
+<span class="nc" id="L245">      canalTerrs = new CanalTerritoriesTuple();</span>
+<span class="nc" id="L246">      MapXmlHelper.putCanalDefinitions(currentCanalName.get(), canalTerrs);</span>
+    }
+
+<span class="nc" id="L249">    selectedWaterTerritories = canalTerrs.getWaterTerritories();</span>
+<span class="nc" id="L250">    selectedLandTerritories = canalTerrs.getLandTerritories();</span>
+<span class="nc" id="L251">  }</span>
+
+
+  /**
+   * The method evaluated the current selected territory with the current canal name and provides some message feedback
+   * in case of problems (either by an error message or by the possibility to refine the selection purpose).
+   *
+   * @param imagePanel - JPanel
+   * @param newTerrName - territory name
+   * @param newTerrIsWater - IS_WATER property of newTerrName territory
+   * @param newTerrNeighborsDiffType - list of neighbor territories with/without (defined by newTerrIsWater) property
+   *        IS_WATER
+   * @param terrCanals - list of canals the newTerrName territory is linked to
+   * @return evaluation result
+   */
+  private boolean evaluateSelectedTerritoryToCurrentCanal(final String newTerrName, final boolean newTerrIsWater,
+      final Set&lt;String&gt; newTerrNeighborsDiffType, final List&lt;String&gt; terrCanals) {
+<span class="nc bnc" id="L268" title="All 2 branches missed.">    if (currentCanalName.isPresent()) {</span>
+<span class="nc bnc" id="L269" title="All 2 branches missed.">      if (newTerrNeighborsDiffType.size() &lt; 2) {</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">        JOptionPane.showMessageDialog(null, &quot;The selected &quot; + (newTerrIsWater ? &quot;water&quot; : &quot;land&quot;)</span>
+<span class="nc bnc" id="L271" title="All 2 branches missed.">            + &quot; territory is connected to less than 2 &quot; + (!newTerrIsWater ? &quot;water&quot; : &quot;land&quot;)</span>
+<span class="nc" id="L272">            + &quot; territories!&quot;, &quot;Input Error&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L273">        return false;</span>
+      }
+<span class="nc bnc" id="L275" title="All 2 branches missed.">      if (!terrCanals.isEmpty()) {</span>
+<span class="nc" id="L276">        terrCanals.add(NEW_CANAL_OPTION);</span>
+<span class="nc" id="L277">        currentCanalName = Optional.ofNullable((String) JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L278">            &quot;Which canal should be selected for territory '&quot; + newTerrName + &quot;?&quot;, &quot;Choose Canal&quot;,</span>
+<span class="nc" id="L279">            JOptionPane.QUESTION_MESSAGE,</span>
+<span class="nc" id="L280">            null, terrCanals.toArray(new String[terrCanals.size()]), // Array of choices</span>
+<span class="nc" id="L281">            terrCanals.get(0))); // Initial choice</span>
+      }
+<span class="nc bnc" id="L283" title="All 4 branches missed.">      if (terrCanals.isEmpty() || NEW_CANAL_OPTION.equals(currentCanalName.orElse(&quot;&quot;))) {</span>
+<span class="nc" id="L284">        final String suggestedCanalName = getSuggestedCanalName();</span>
+<span class="nc" id="L285">        currentCanalName = Optional.ofNullable(JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L286">            &quot;Which canal should be selected for territory '&quot; + newTerrName + &quot;?&quot;, suggestedCanalName));</span>
+
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        while (MapXmlHelper.getCanalDefinitionsMap().keySet().contains(currentCanalName.get())) {</span>
+<span class="nc" id="L289">          JOptionPane.showMessageDialog(null, &quot;The canal name &quot; + currentCanalName + &quot; is already in use!&quot;,</span>
+<span class="nc" id="L290">              &quot;Input Error&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L291">          currentCanalName = Optional.ofNullable(JOptionPane.showInputDialog(null,</span>
+<span class="nc" id="L292">              &quot;Which canal should be selected for territory '&quot; + newTerrName + &quot;?&quot;, currentCanalName));</span>
+        }
+<span class="nc bnc" id="L294" title="All 2 branches missed.">      } else if (currentCanalName.isPresent()) {</span>
+<span class="nc" id="L295">        final CanalTerritoriesTuple canalTerrs =</span>
+<span class="nc" id="L296">            MapXmlHelper.getCanalDefinitionsMap().get(currentCanalName.get());</span>
+<span class="nc" id="L297">        selectedWaterTerritories = canalTerrs.getWaterTerritories();</span>
+<span class="nc" id="L298">        selectedLandTerritories = canalTerrs.getLandTerritories();</span>
+<span class="nc" id="L299">        repaint();</span>
+<span class="nc" id="L300">        return false;</span>
+      }
+<span class="nc bnc" id="L302" title="All 2 branches missed.">      if (!currentCanalName.isPresent()) {</span>
+<span class="nc" id="L303">        return false;</span>
+      }
+    }
+<span class="nc" id="L306">    return true;</span>
+  }
+
+  private void mouseRightClickedOnImage() {
+<span class="nc bnc" id="L310" title="All 2 branches missed.">    if (currentCanalName.isPresent()</span>
+<span class="nc bnc" id="L311" title="All 4 branches missed.">        &amp;&amp; (selectedLandTerritories.size() &lt; 2 || selectedWaterTerritories.size() &lt; 2)) {</span>
+<span class="nc bnc" id="L312" title="All 2 branches missed.">      if (JOptionPane.YES_OPTION != MapXmlUIHelper.showYesNoOptionDialog(&quot;Canal incomplete&quot;,</span>
+<span class="nc" id="L313">          &quot;Canal '&quot; + currentCanalName</span>
+<span class="nc" id="L314">              + &quot;' is incomplete. A canal needs at least 2 land and 2 water territories.\rDo you want to continue to deselect the canal?&quot;,</span>
+<span class="nc" id="L315">          JOptionPane.WARNING_MESSAGE)) {</span>
+<span class="nc" id="L316">        return;</span>
+      }
+<span class="nc" id="L318">      MapXmlHelper.getCanalDefinitionsMap().remove(currentCanalName.get());</span>
+    }
+<span class="nc" id="L320">    currentCanalName = Optional.empty();</span>
+<span class="nc bnc" id="L321" title="All 4 branches missed.">    if (!selectedLandTerritories.isEmpty() || !selectedWaterTerritories.isEmpty()) {</span>
+<span class="nc" id="L322">      clearSelection();</span>
+<span class="nc" id="L323">      SwingUtilities.invokeLater(() -&gt; getImagePanel().repaint());</span>
+    }
+<span class="nc" id="L325">  }</span>
+
+  /**
+   * @param newTerrName - base territory
+   * @param newTerrIsWater - IS_WATER property of base territory
+   * @param terrCanals - list of canals the base territory is linked to
+   */
+  private List&lt;String&gt; getCanalsLinkedToTerritory(final String newTerrName, final boolean newTerrIsWater) {
+<span class="nc" id="L333">    final List&lt;String&gt; terrCanals = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">    if (newTerrIsWater) {</span>
+<span class="nc bnc" id="L335" title="All 2 branches missed.">      for (final Entry&lt;String, CanalTerritoriesTuple&gt; canalDef : MapXmlHelper.getCanalDefinitionsMap()</span>
+<span class="nc" id="L336">          .entrySet()) {</span>
+<span class="nc bnc" id="L337" title="All 2 branches missed.">        if (canalDef.getValue().getWaterTerritories().contains(newTerrName)) {</span>
+<span class="nc" id="L338">          terrCanals.add(canalDef.getKey());</span>
+        }
+      }
+<span class="nc" id="L341">    } else {</span>
+<span class="nc bnc" id="L342" title="All 2 branches missed.">      for (final Entry&lt;String, CanalTerritoriesTuple&gt; canalDef : MapXmlHelper.getCanalDefinitionsMap()</span>
+<span class="nc" id="L343">          .entrySet()) {</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        if (canalDef.getValue().getLandTerritories().contains(newTerrName)) {</span>
+<span class="nc" id="L345">          terrCanals.add(canalDef.getKey());</span>
+        }
+      }
+    }
+<span class="nc" id="L349">    return terrCanals;</span>
+  }
+
+  private String getMessageTextOnToFewSuitableNeighbors(final boolean newTerrIsWater,
+      final int selectedTerrsSameTypeCount) {
+<span class="nc bnc" id="L354" title="All 2 branches missed.">    return &quot;The selected &quot; + (newTerrIsWater ? &quot;water&quot; : &quot;land&quot;)</span>
+<span class="nc bnc" id="L355" title="All 2 branches missed.">        + &quot; territory is connected to less than 2 common &quot; + (!newTerrIsWater ? &quot;water&quot; : &quot;land&quot;)</span>
+<span class="nc bnc" id="L356" title="All 2 branches missed.">        + &quot; territories with the other &quot; + (newTerrIsWater ? &quot;water&quot; : &quot;land&quot;) + &quot; territor&quot;</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        + (selectedTerrsSameTypeCount == 1 ? &quot;y&quot; : &quot;ies&quot;)</span>
+<span class="nc" id="L358">        + &quot;!\rRight click to deselect current canal '&quot; + currentCanalName + &quot;'.&quot;;</span>
+  }
+
+  /**
+   * @return suggested canal name
+   */
+  private String getSuggestedCanalName() {
+    String suggestedCanalName;
+<span class="nc" id="L366">    int counter = MapXmlHelper.getCanalDefinitionsMap().size();</span>
+    do {
+<span class="nc" id="L368">      suggestedCanalName = &quot;Canal&quot; + counter;</span>
+<span class="nc" id="L369">      ++counter;</span>
+<span class="nc bnc" id="L370" title="All 2 branches missed.">    } while (MapXmlHelper.getCanalDefinitionsMap().keySet().contains(suggestedCanalName));</span>
+<span class="nc" id="L371">    return suggestedCanalName;</span>
+  }
+
+  protected void clearSelection() {
+<span class="nc" id="L375">    currentCanalName = Optional.empty();</span>
+<span class="nc" id="L376">    selectedLandTerritories = new TreeSet&lt;&gt;();</span>
+<span class="nc" id="L377">    selectedWaterTerritories = new TreeSet&lt;&gt;();</span>
+<span class="nc" id="L378">  }</span>
+
+  /**
+   *
+   * @param newTerrName - territory name
+   * @param waterNeighbors - whether IS_WATER property is supposed to be present or not
+   * @return list of neighbor territories with/without (defined by waterNeighbors) property IS_WATER
+   */
+  protected Set&lt;String&gt; getNeighborsByType(final String newTerrName, final boolean waterNeighbors) {
+<span class="nc" id="L387">    final Set&lt;String&gt; neighborsByType = Sets.newLinkedHashSet();</span>
+<span class="nc" id="L388">    final Set&lt;String&gt; neighbors = MapXmlHelper.getTerritoryConnectionsMap().get(newTerrName);</span>
+<span class="nc bnc" id="L389" title="All 2 branches missed.">    for (final Entry&lt;String, Set&lt;String&gt;&gt; terrConnEntry : MapXmlHelper.getTerritoryConnectionsMap().entrySet()) {</span>
+<span class="nc" id="L390">      if (MapXmlHelper.getTerritoryDefintionsMap().get(terrConnEntry.getKey())</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">          .get(DEFINITION.IS_WATER) == waterNeighbors</span>
+<span class="nc bnc" id="L392" title="All 2 branches missed.">          &amp;&amp; terrConnEntry.getValue().contains(newTerrName)) {</span>
+<span class="nc" id="L393">        neighborsByType.add(terrConnEntry.getKey());</span>
+      }
+    }
+<span class="nc bnc" id="L396" title="All 2 branches missed.">    if (neighbors != null) {</span>
+<span class="nc bnc" id="L397" title="All 2 branches missed.">      for (final String neighbor : neighbors) {</span>
+<span class="nc bnc" id="L398" title="All 2 branches missed.">        if (MapXmlHelper.getTerritoryDefintionsMap().get(neighbor).get(DEFINITION.IS_WATER) == waterNeighbors) {</span>
+<span class="nc" id="L399">          neighborsByType.add(neighbor);</span>
+        }
+      }
+    }
+<span class="nc" id="L403">    return neighborsByType;</span>
+  }
+
+  private Set&lt;String&gt; getCommonNeighborsOfType(final Set&lt;String&gt; terrList, final boolean typeIsWater) {
+<span class="nc" id="L407">    final Set&lt;String&gt; commonNeighborsOfType = new TreeSet&lt;&gt;();</span>
+<span class="nc" id="L408">    final Map&lt;String, Collection&lt;String&gt;&gt; neighborsMap = getNeighborsMapWaterDefinitionBeing(terrList, typeIsWater);</span>
+<span class="nc" id="L409">    commonNeighborsOfType.addAll(neighborsMap.values().iterator().next());</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">    if (commonNeighborsOfType.size() &gt;= 2) {</span>
+<span class="nc bnc" id="L411" title="All 2 branches missed.">      for (final Collection&lt;String&gt; waterNeighors : neighborsMap.values()) {</span>
+<span class="nc" id="L412">        commonNeighborsOfType.retainAll(waterNeighors);</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">        if (commonNeighborsOfType.size() &lt; 2) {</span>
+<span class="nc" id="L414">          break;</span>
+        }
+      }
+    }
+<span class="nc" id="L418">    return commonNeighborsOfType;</span>
+  }
+
+  /**
+   * @param terrList - list of territories for which neighbors should be evaluated
+   * @param typeIsWater - filter criteria of neighbors by their property IS_WATER
+   * @return map of terrList list territory entry -&gt; neighbor territories with/without (defined by typeIsWater) IS_WATER
+   *         property
+   */
+  private Map&lt;String, Collection&lt;String&gt;&gt; getNeighborsMapWaterDefinitionBeing(final Set&lt;String&gt; terrList,
+      final boolean typeIsWater) {
+<span class="nc" id="L429">    final Map&lt;String, Collection&lt;String&gt;&gt; neighborsMap = Maps.newHashMap();</span>
+<span class="nc bnc" id="L430" title="All 2 branches missed.">    for (final String terr : terrList) {</span>
+<span class="nc" id="L431">      neighborsMap.put(terr, new ArrayList&lt;&gt;());</span>
+    }
+<span class="nc bnc" id="L433" title="All 2 branches missed.">    for (final Entry&lt;String, Set&lt;String&gt;&gt; terrConnEntry : MapXmlHelper.getTerritoryConnectionsMap().entrySet()) {</span>
+<span class="nc" id="L434">      final String terr1 = terrConnEntry.getKey();</span>
+<span class="nc bnc" id="L435" title="All 2 branches missed.">      if (terrList.contains(terr1)) {</span>
+<span class="nc bnc" id="L436" title="All 2 branches missed.">        for (final String terr2 : terrConnEntry.getValue()) {</span>
+<span class="nc bnc" id="L437" title="All 2 branches missed.">          if (MapXmlHelper.getTerritoryDefintionsMap().get(terr2).get(DEFINITION.IS_WATER) == typeIsWater) {</span>
+<span class="nc" id="L438">            neighborsMap.get(terr1).add(terr2);</span>
+          }
+        }
+<span class="nc" id="L441">      } else {</span>
+<span class="nc bnc" id="L442" title="All 2 branches missed.">        if (MapXmlHelper.getTerritoryDefintionsMap().get(terr1).get(DEFINITION.IS_WATER) == typeIsWater) {</span>
+<span class="nc" id="L443">          final SortedSet&lt;String&gt; selectedTerritoriesCopy = new TreeSet&lt;&gt;(terrList);</span>
+<span class="nc" id="L444">          selectedTerritoriesCopy.retainAll(terrConnEntry.getValue());</span>
+<span class="nc bnc" id="L445" title="All 2 branches missed.">          for (final String terr2 : selectedTerritoriesCopy) {</span>
+<span class="nc" id="L446">            neighborsMap.get(terr2).add(terr1);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L451">    return neighborsMap;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

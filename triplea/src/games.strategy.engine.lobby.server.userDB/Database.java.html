@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Database.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.userDB</a> &gt; <span class="el_source">Database.java</span></div><h1>Database.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server.userDB;
+
+import java.io.File;
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.swing.JFileChooser;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.framework.startup.launcher.ServerLauncher;
+import games.strategy.util.ThreadUtil;
+
+/**
+ * Utility to get connections to the database.
+ * &lt;p&gt;
+ * The database is embedded within the jvm.
+ * &lt;p&gt;
+ * Getting a connection will cause the database (and the neccessary tables) to be created if it does not already exist.
+ * &lt;p&gt;
+ * The database will be shutdown on System.exit through a shutdown hook.
+ * &lt;p&gt;
+ * Getting a connection will also schedule backups at regular intervals.
+ * &lt;p&gt;
+ */
+<span class="nc" id="L36">public class Database {</span>
+<span class="fc" id="L37">  private final static Logger s_logger = Logger.getLogger(Database.class.getName());</span>
+<span class="fc" id="L38">  private static final Object s_dbSetupLock = new Object();</span>
+<span class="fc" id="L39">  private static boolean s_isDbSetup = false;</span>
+<span class="fc" id="L40">  private static boolean s_areDBTablesCreated = false;</span>
+
+  private static File getCurrentDataBaseDir() {
+<span class="fc" id="L43">    final File dbRootDir = getDBRoot();</span>
+<span class="fc" id="L44">    final File dbDir = new File(dbRootDir, &quot;current&quot;);</span>
+<span class="pc bpc" id="L45" title="1 of 2 branches missed.">    if (!dbDir.exists()) {</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">      if (!dbDir.mkdirs()) {</span>
+<span class="nc" id="L47">        throw new IllegalStateException(&quot;Could not create derby dir&quot;);</span>
+      }
+    }
+<span class="fc" id="L50">    return dbDir;</span>
+  }
+
+  private static File getDBRoot() {
+    File root;
+<span class="pc bpc" id="L55" title="1 of 2 branches missed.">    if (System.getProperties().containsKey(ServerLauncher.SERVER_ROOT_DIR_PROPERTY)) {</span>
+<span class="nc" id="L56">      root = new File(System.getProperties().getProperty(ServerLauncher.SERVER_ROOT_DIR_PROPERTY));</span>
+<span class="nc" id="L57">    } else {</span>
+<span class="fc" id="L58">      root = ClientFileSystemHelper.getRootFolder();</span>
+    }
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">    if (!root.exists()) {</span>
+<span class="nc" id="L61">      throw new IllegalStateException(&quot;Root dir does not exist&quot;);</span>
+    }
+<span class="fc" id="L63">    final File dbRootDir = new File(root, &quot;derby_db&quot;);</span>
+<span class="fc" id="L64">    return dbRootDir;</span>
+  }
+
+  public static Connection getConnection() {
+<span class="fc" id="L68">    ensureDbIsSetup();</span>
+<span class="fc" id="L69">    Connection conn = null;</span>
+<span class="fc" id="L70">    final Properties props = getDbProps();</span>
+    /*
+     * The connection specifies create=true to cause
+     * the database to be created. To remove the database,
+     * remove the directory derbyDB and its contents.
+     * The directory derbyDB will be created under
+     * the directory that the system property
+     * derby.system.home points to, or the current
+     * directory if derby.system.home is not set.
+     */
+<span class="fc" id="L80">    final String url = &quot;jdbc:derby:ta_users;create=true&quot;;</span>
+    try {
+<span class="fc" id="L82">      conn = DriverManager.getConnection(url, props);</span>
+<span class="pc" id="L83">    } catch (final SQLException e) {</span>
+<span class="nc" id="L84">      s_logger.log(Level.SEVERE, e.getMessage(), e);</span>
+<span class="nc" id="L85">      throw new IllegalStateException(&quot;Could not create db connection&quot;);</span>
+    }
+<span class="fc" id="L87">    ensureDbTablesAreCreated(conn);</span>
+<span class="fc" id="L88">    return conn;</span>
+  }
+
+  /**
+   * The connection passed in to this method is not closed, except in case of error.
+   */
+  private static void ensureDbTablesAreCreated(final Connection conn) {
+<span class="pc" id="L95">    synchronized (s_dbSetupLock) {</span>
+      try {
+<span class="fc bfc" id="L97" title="All 2 branches covered.">        if (s_areDBTablesCreated) {</span>
+<span class="fc" id="L98">          return;</span>
+        }
+<span class="fc" id="L100">        final ResultSet rs = conn.getMetaData().getTables(null, null, null, null);</span>
+<span class="fc" id="L101">        final List&lt;String&gt; existing = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L102" title="All 2 branches covered.">        while (rs.next()) {</span>
+<span class="fc" id="L103">          existing.add(rs.getString(&quot;TABLE_NAME&quot;).toUpperCase());</span>
+        }
+<span class="fc" id="L105">        rs.close();</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">        if (!existing.contains(&quot;TA_USERS&quot;)) {</span>
+<span class="nc" id="L107">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L108">          s.execute(&quot;create table ta_users&quot; + &quot;(&quot; + &quot;userName varchar(40) NOT NULL PRIMARY KEY, &quot;</span>
+              + &quot;password varchar(40) NOT NULL, &quot; + &quot;email varchar(40) NOT NULL, &quot; + &quot;joined timestamp NOT NULL, &quot;
+              + &quot;lastLogin timestamp NOT NULL, &quot; + &quot;admin integer NOT NULL &quot; + &quot;)&quot;);
+<span class="nc" id="L111">          s.close();</span>
+        }
+<span class="pc bpc" id="L113" title="1 of 2 branches missed.">        if (!existing.contains(&quot;BANNED_USERNAMES&quot;)) {</span>
+<span class="nc" id="L114">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L115">          s.execute(&quot;create table banned_usernames&quot; + &quot;(&quot; + &quot;username varchar(40) NOT NULL PRIMARY KEY, &quot;</span>
+              + &quot;ban_till timestamp  &quot; + &quot;)&quot;);
+<span class="nc" id="L117">          s.close();</span>
+        }
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">        if (!existing.contains(&quot;BANNED_IPS&quot;)) {</span>
+<span class="nc" id="L120">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L121">          s.execute(</span>
+<span class="nc" id="L122">              &quot;create table banned_ips&quot; + &quot;(&quot; + &quot;ip varchar(40) NOT NULL PRIMARY KEY, &quot; + &quot;ban_till timestamp  &quot; + &quot;)&quot;);</span>
+<span class="nc" id="L123">          s.close();</span>
+        }
+<span class="pc bpc" id="L125" title="1 of 2 branches missed.">        if (!existing.contains(&quot;BANNED_MACS&quot;)) {</span>
+<span class="nc" id="L126">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L127">          s.execute(&quot;create table banned_macs&quot; + &quot;(&quot; + &quot;mac varchar(40) NOT NULL PRIMARY KEY, &quot; + &quot;ban_till timestamp  &quot;</span>
+              + &quot;)&quot;);
+<span class="nc" id="L129">          s.close();</span>
+        }
+<span class="pc bpc" id="L131" title="1 of 2 branches missed.">        if (!existing.contains(&quot;MUTED_USERNAMES&quot;)) {</span>
+<span class="nc" id="L132">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L133">          s.execute(&quot;create table muted_usernames&quot; + &quot;(&quot; + &quot;username varchar(40) NOT NULL PRIMARY KEY, &quot;</span>
+              + &quot;mute_till timestamp  &quot; + &quot;)&quot;);
+<span class="nc" id="L135">          s.close();</span>
+        }
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        if (!existing.contains(&quot;MUTED_IPS&quot;)) {</span>
+<span class="nc" id="L138">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L139">          s.execute(</span>
+<span class="nc" id="L140">              &quot;create table muted_ips&quot; + &quot;(&quot; + &quot;ip varchar(40) NOT NULL PRIMARY KEY, &quot; + &quot;mute_till timestamp  &quot; + &quot;)&quot;);</span>
+<span class="nc" id="L141">          s.close();</span>
+        }
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">        if (!existing.contains(&quot;MUTED_MACS&quot;)) {</span>
+<span class="nc" id="L144">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L145">          s.execute(&quot;create table muted_macs&quot; + &quot;(&quot; + &quot;mac varchar(40) NOT NULL PRIMARY KEY, &quot; + &quot;mute_till timestamp  &quot;</span>
+              + &quot;)&quot;);
+<span class="nc" id="L147">          s.close();</span>
+        }
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">        if (!existing.contains(&quot;BAD_WORDS&quot;)) {</span>
+<span class="nc" id="L150">          final Statement s = conn.createStatement();</span>
+<span class="nc" id="L151">          s.execute(&quot;create table bad_words&quot; + &quot;(&quot; + &quot;word varchar(40) NOT NULL PRIMARY KEY &quot; + &quot;)&quot;);</span>
+<span class="nc" id="L152">          s.close();</span>
+        }
+<span class="fc" id="L154">        s_areDBTablesCreated = true;</span>
+<span class="pc" id="L155">      } catch (final SQLException sqle) {</span>
+        // only close if an error occurs
+        try {
+<span class="nc" id="L158">          conn.close();</span>
+<span class="nc" id="L159">        } catch (final SQLException e) {</span>
+        }
+<span class="nc" id="L161">        s_logger.log(Level.SEVERE, sqle.getMessage(), sqle);</span>
+<span class="nc" id="L162">        throw new IllegalStateException(&quot;Could not create tables&quot;);</span>
+      }
+    }
+<span class="fc" id="L165">  }</span>
+
+  /**
+   * Set up folders and environment variables for database
+   */
+  private static void ensureDbIsSetup() {
+<span class="pc" id="L171">    synchronized (s_dbSetupLock) {</span>
+<span class="fc bfc" id="L172" title="All 2 branches covered.">      if (s_isDbSetup) {</span>
+<span class="fc" id="L173">        return;</span>
+      }
+      // setup the derby location
+<span class="fc" id="L176">      System.getProperties().setProperty(&quot;derby.system.home&quot;, getCurrentDataBaseDir().getAbsolutePath());</span>
+      // shut the database down on finish
+<span class="pc" id="L178">      Runtime.getRuntime().addShutdownHook(new Thread(() -&gt; shutDownDB()));</span>
+<span class="fc" id="L179">      s_isDbSetup = true;</span>
+    }
+    // we want to backup the database on occassion
+<span class="fc" id="L182">    final Thread backupThread = new Thread(() -&gt; {</span>
+<span class="nc" id="L183">      while (true) {</span>
+        // wait 7 days
+<span class="nc" id="L185">        ThreadUtil.sleep(7 * 24 * 60 * 60 * 1000);</span>
+<span class="nc" id="L186">        backup();</span>
+      }
+<span class="fc" id="L188">    }, &quot;TripleA Database Backup Thread&quot;);</span>
+<span class="fc" id="L189">    backupThread.setDaemon(true);</span>
+<span class="fc" id="L190">    backupThread.start();</span>
+<span class="fc" id="L191">  }</span>
+
+  /**
+   * This must be the first db call made.
+   * Run Database as a main method to run the backup.
+   *
+   * @param backupDir
+   * @throws SQLException
+   */
+  private static void restoreFromBackup(final File backupDir) throws SQLException {
+    // http://www-128.ibm.com/developerworks/db2/library/techarticle/dm-0502thalamati/
+<span class="nc" id="L202">    final String url = &quot;jdbc:derby:ta_users;restoreFrom=&quot; + backupDir.getAbsolutePath();</span>
+<span class="nc" id="L203">    final Properties props = getDbProps();</span>
+<span class="nc" id="L204">    final Connection con = DriverManager.getConnection(url, props);</span>
+<span class="nc" id="L205">    con.close();</span>
+<span class="nc" id="L206">  }</span>
+
+  private static Properties getDbProps() {
+<span class="fc" id="L209">    final Properties props = new Properties();</span>
+<span class="fc" id="L210">    props.put(&quot;user&quot;, &quot;user1&quot;);</span>
+<span class="fc" id="L211">    props.put(&quot;password&quot;, &quot;user1&quot;);</span>
+<span class="fc" id="L212">    return props;</span>
+  }
+
+  public static void backup() {
+<span class="nc" id="L216">    final String backupDirName =</span>
+<span class="nc" id="L217">        &quot;backup_at_&quot; + new SimpleDateFormat(&quot;yyyy_MM_dd__kk_mm_ss&quot;).format(new java.util.Date());</span>
+<span class="nc" id="L218">    final File backupRootDir = getBackupDir();</span>
+<span class="nc" id="L219">    final File backupDir = new File(backupRootDir, backupDirName);</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">    if (!backupDir.mkdirs()) {</span>
+<span class="nc" id="L221">      s_logger.severe(&quot;Could not create backup dir&quot; + backupDirName);</span>
+<span class="nc" id="L222">      return;</span>
+    }
+<span class="nc" id="L224">    s_logger.log(Level.INFO, &quot;Backing up database to &quot; + backupDir.getAbsolutePath());</span>
+<span class="nc" id="L225">    try (final Connection con = getConnection()) {</span>
+      // http://www-128.ibm.com/developerworks/db2/library/techarticle/dm-0502thalamati/
+<span class="nc" id="L227">      final String sqlstmt = &quot;CALL SYSCS_UTIL.SYSCS_BACKUP_DATABASE(?)&quot;;</span>
+<span class="nc" id="L228">      final CallableStatement cs = con.prepareCall(sqlstmt);</span>
+<span class="nc" id="L229">      cs.setString(1, backupDir.getAbsolutePath());</span>
+<span class="nc" id="L230">      cs.execute();</span>
+<span class="nc" id="L231">      cs.close();</span>
+<span class="nc bnc" id="L232" title="All 8 branches missed.">    } catch (final Exception e) {</span>
+<span class="nc" id="L233">      s_logger.log(Level.SEVERE, &quot;Could not back up database&quot;, e);</span>
+    }
+<span class="nc" id="L235">    s_logger.log(Level.INFO, &quot;Done backing up database&quot;);</span>
+<span class="nc" id="L236">  }</span>
+
+  private static File getBackupDir() {
+<span class="nc" id="L239">    return new File(getDBRoot(), &quot;backups&quot;);</span>
+  }
+
+  private static void shutDownDB() {
+    try {
+<span class="nc" id="L244">      DriverManager.getConnection(&quot;jdbc:derby:ta_users;shutdown=true&quot;);</span>
+<span class="nc" id="L245">    } catch (final SQLException se) {</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">      if (se.getErrorCode() != 45000) {</span>
+<span class="nc" id="L247">        s_logger.log(Level.WARNING, se.getMessage(), se);</span>
+      }
+    }
+<span class="nc" id="L250">    s_logger.info(&quot;Databse shut down&quot;);</span>
+<span class="nc" id="L251">  }</span>
+
+  /**
+   * Restore the database.
+   */
+  public static void main(final String[] args) {
+<span class="nc" id="L257">    ensureDbIsSetup();</span>
+<span class="nc" id="L258">    final JFileChooser chooser = new JFileChooser(Database.getBackupDir());</span>
+<span class="nc" id="L259">    chooser.setMultiSelectionEnabled(false);</span>
+<span class="nc" id="L260">    chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);</span>
+<span class="nc" id="L261">    final int rVal = chooser.showOpenDialog(null);</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">    if (rVal == JFileChooser.APPROVE_OPTION) {</span>
+<span class="nc" id="L263">      final File f = chooser.getSelectedFile();</span>
+<span class="nc bnc" id="L264" title="All 4 branches missed.">      if (!f.exists() &amp;&amp; f.isDirectory()) {</span>
+<span class="nc" id="L265">        throw new IllegalStateException(&quot;Does not exist, or not a directory&quot;);</span>
+      }
+      try {
+<span class="nc" id="L268">        Database.restoreFromBackup(chooser.getSelectedFile());</span>
+<span class="nc" id="L269">      } catch (final SQLException e) {</span>
+<span class="nc" id="L270">        ClientLogger.logQuietly(e);</span>
+      }
+    }
+<span class="nc" id="L273">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

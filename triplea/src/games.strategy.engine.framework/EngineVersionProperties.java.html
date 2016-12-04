@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>EngineVersionProperties.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework</a> &gt; <span class="el_source">EngineVersionProperties.java</span></div><h1>EngineVersionProperties.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework;
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.swing.BorderFactory;
+import javax.swing.JEditorPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.event.HyperlinkEvent;
+import javax.swing.event.HyperlinkListener;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientContext;
+import games.strategy.net.OpenFileUtility;
+import games.strategy.util.Version;
+
+public class EngineVersionProperties {
+  private final Version latestVersionOut;
+  private final String link;
+  private final String linkAlt;
+  private final String changelogLink;
+  private static final String TRIPLEA_VERSION_LINK =
+      &quot;https://raw.githubusercontent.com/triplea-game/triplea/master/latest_version.properties&quot;;
+
+  private EngineVersionProperties(final URL url) {
+<span class="nc" id="L35">    this(getProperties(url));</span>
+<span class="nc" id="L36">  }</span>
+
+<span class="nc" id="L38">  private EngineVersionProperties(final Properties props) {</span>
+<span class="nc" id="L39">    latestVersionOut =</span>
+<span class="nc" id="L40">        new Version(props.getProperty(&quot;LATEST&quot;, ClientContext.engineVersion().getVersion().toStringFull(&quot;.&quot;)));</span>
+<span class="nc" id="L41">    link = props.getProperty(&quot;LINK&quot;, &quot;http://triplea-game.github.io/&quot;);</span>
+<span class="nc" id="L42">    linkAlt = props.getProperty(&quot;LINK_ALT&quot;, &quot;http://triplea-game.github.io/download/&quot;);</span>
+<span class="nc" id="L43">    changelogLink = props.getProperty(&quot;CHANGELOG&quot;, &quot;http://triplea-game.github.io/release_notes/&quot;);</span>
+<span class="nc" id="L44">  }</span>
+
+  public static EngineVersionProperties contactServerForEngineVersionProperties() {
+    final URL engineversionPropsURL;
+    try {
+<span class="nc" id="L49">      engineversionPropsURL = new URL(TRIPLEA_VERSION_LINK);</span>
+<span class="nc" id="L50">    } catch (final MalformedURLException e) {</span>
+<span class="nc" id="L51">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L52">      return new EngineVersionProperties(new Properties());</span>
+    }
+<span class="nc" id="L54">    return contactServerForEngineVersionProperties(engineversionPropsURL);</span>
+  }
+
+  private static EngineVersionProperties contactServerForEngineVersionProperties(final URL engineversionPropsURL) {
+    // sourceforge sometimes takes a long while to return results
+    // so run a couple requests in parallel, starting with delays to try and get a response quickly
+<span class="nc" id="L60">    final AtomicReference&lt;EngineVersionProperties&gt; ref = new AtomicReference&lt;&gt;();</span>
+<span class="nc" id="L61">    final CountDownLatch latch = new CountDownLatch(1);</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">    for (int i = 0; i &lt; 5; i++) {</span>
+<span class="nc" id="L63">      new Thread(() -&gt; {</span>
+<span class="nc" id="L64">        ref.set(new EngineVersionProperties(engineversionPropsURL));</span>
+<span class="nc" id="L65">        latch.countDown();</span>
+<span class="nc" id="L66">      }).start();</span>
+      try {
+<span class="nc" id="L68">        latch.await(2, TimeUnit.SECONDS);</span>
+<span class="nc" id="L69">      } catch (final InterruptedException e) {</span>
+      }
+<span class="nc bnc" id="L71" title="All 2 branches missed.">      if (ref.get() != null) {</span>
+<span class="nc" id="L72">        break;</span>
+      }
+    }
+    // we have spawned a bunch of requests
+    try {
+<span class="nc" id="L77">      latch.await(15, TimeUnit.SECONDS);</span>
+<span class="nc" id="L78">    } catch (final InterruptedException e) {</span>
+    }
+<span class="nc" id="L80">    return ref.get();</span>
+  }
+
+  private static Properties getProperties(final URL url) {
+<span class="nc" id="L84">    final Properties props = new Properties();</span>
+    try {
+<span class="nc" id="L86">      props.load(new URL(TRIPLEA_VERSION_LINK).openStream());</span>
+<span class="nc" id="L87">    } catch (final IOException e) {</span>
+<span class="nc" id="L88">      ClientLogger.logQuietly(&quot;Failed while attempting to check for a new Version&quot;, e);</span>
+    }
+<span class="nc" id="L90">    return props;</span>
+  }
+
+  public Version getLatestVersionOut() {
+<span class="nc" id="L94">    return latestVersionOut;</span>
+  }
+
+  public String getLinkToDownloadLatestVersion() {
+<span class="nc" id="L98">    return link;</span>
+  }
+
+  public String getLinkAltToDownloadLatestVersion() {
+<span class="nc" id="L102">    return linkAlt;</span>
+  }
+
+  public String getChangeLogLink() {
+<span class="nc" id="L106">    return changelogLink;</span>
+  }
+
+  private String getOutOfDateMessage() {
+<span class="nc" id="L110">    final StringBuilder text = new StringBuilder(&quot;&lt;html&gt;&quot;);</span>
+<span class="nc" id="L111">    text.append(&quot;&lt;h2&gt;A new version of TripleA is out.  Please Update TripleA!&lt;/h2&gt;&quot;);</span>
+<span class="nc" id="L112">    text.append(&quot;&lt;br /&gt;Your current version: &quot;).append(ClientContext.engineVersion().getFullVersion());</span>
+<span class="nc" id="L113">    text.append(&quot;&lt;br /&gt;Latest version available for download: &quot;).append(getLatestVersionOut());</span>
+<span class="nc" id="L114">    text.append(&quot;&lt;br /&gt;&lt;br /&gt;Click to download: &lt;a class=\&quot;external\&quot; href=\&quot;&quot;).append(getLinkToDownloadLatestVersion())</span>
+<span class="nc" id="L115">        .append(&quot;\&quot;&gt;&quot;).append(getLinkToDownloadLatestVersion()).append(&quot;&lt;/a&gt;&quot;);</span>
+<span class="nc" id="L116">    text.append(&quot;&lt;br /&gt;Backup Mirror: &lt;a class=\&quot;external\&quot; href=\&quot;&quot;).append(getLinkAltToDownloadLatestVersion())</span>
+<span class="nc" id="L117">        .append(&quot;\&quot;&gt;&quot;).append(getLinkAltToDownloadLatestVersion()).append(&quot;&lt;/a&gt;&quot;);</span>
+<span class="nc" id="L118">    text.append(</span>
+<span class="nc" id="L119">        &quot;&lt;br /&gt;&lt;br /&gt;Please note that installing a new version of TripleA will not remove any old copies of TripleA.&quot;</span>
+            + &quot;&lt;br /&gt;So be sure to either manually uninstall all older versions of TripleA, or change your shortcuts to the new TripleA.&quot;);
+<span class="nc" id="L121">    text.append(&quot;&lt;br /&gt;&lt;br /&gt;What is new:&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L122">    text.append(&quot;&lt;/html&gt;&quot;);</span>
+<span class="nc" id="L123">    return text.toString();</span>
+  }
+
+  private String getOutOfDateReleaseUpdates() {
+<span class="nc" id="L127">    final StringBuilder text = new StringBuilder(&quot;&lt;html&gt;&lt;body&gt;&quot;);</span>
+<span class="nc" id="L128">    text.append(&quot;Link to full Change Log:&lt;br /&gt;&lt;a class=\&quot;external\&quot; href=\&quot;&quot;).append(getChangeLogLink()).append(&quot;\&quot;&gt;&quot;)</span>
+<span class="nc" id="L129">        .append(getChangeLogLink()).append(&quot;&lt;/a&gt;&lt;br /&gt;&quot;);</span>
+<span class="nc" id="L130">    text.append(&quot;&lt;/body&gt;&lt;/html&gt;&quot;);</span>
+<span class="nc" id="L131">    return text.toString();</span>
+  }
+
+  public Component getOutOfDateComponent() {
+<span class="nc" id="L135">    final JPanel panel = new JPanel(new BorderLayout());</span>
+<span class="nc" id="L136">    final JEditorPane intro = new JEditorPane(&quot;text/html&quot;, getOutOfDateMessage());</span>
+<span class="nc" id="L137">    intro.setEditable(false);</span>
+<span class="nc" id="L138">    intro.setOpaque(false);</span>
+<span class="nc" id="L139">    intro.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc" id="L140">    final HyperlinkListener hyperlinkListener = e -&gt; {</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">      if (HyperlinkEvent.EventType.ACTIVATED.equals(e.getEventType())) {</span>
+<span class="nc" id="L142">        OpenFileUtility.openURL(e.getDescription());</span>
+      }
+<span class="nc" id="L144">    };</span>
+<span class="nc" id="L145">    intro.addHyperlinkListener(hyperlinkListener);</span>
+<span class="nc" id="L146">    panel.add(intro, BorderLayout.NORTH);</span>
+<span class="nc" id="L147">    final JEditorPane updates = new JEditorPane(&quot;text/html&quot;, getOutOfDateReleaseUpdates());</span>
+<span class="nc" id="L148">    updates.setEditable(false);</span>
+<span class="nc" id="L149">    updates.setOpaque(false);</span>
+<span class="nc" id="L150">    updates.setBorder(BorderFactory.createEmptyBorder());</span>
+<span class="nc" id="L151">    updates.addHyperlinkListener(hyperlinkListener);</span>
+<span class="nc" id="L152">    updates.setCaretPosition(0);</span>
+<span class="nc" id="L153">    final JScrollPane scroll = new JScrollPane(updates);</span>
+    // scroll.setBorder(BorderFactory.createEmptyBorder());
+<span class="nc" id="L155">    panel.add(scroll, BorderLayout.CENTER);</span>
+<span class="nc" id="L156">    final Dimension maxDimension = panel.getPreferredSize();</span>
+<span class="nc" id="L157">    maxDimension.width = Math.min(maxDimension.width, 700);</span>
+<span class="nc" id="L158">    maxDimension.height = Math.min(maxDimension.height, 480);</span>
+<span class="nc" id="L159">    panel.setMaximumSize(maxDimension);</span>
+<span class="nc" id="L160">    panel.setPreferredSize(maxDimension);</span>
+<span class="nc" id="L161">    return panel;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ChatController.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.chat</a> &gt; <span class="el_source">ChatController.java</span></div><h1>ChatController.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.engine.chat;</span>
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.lobby.server.IModeratorController;
+import games.strategy.engine.lobby.server.ModeratorController;
+import games.strategy.engine.message.IChannelMessenger;
+import games.strategy.engine.message.IRemoteMessenger;
+import games.strategy.engine.message.MessageContext;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.net.IConnectionChangeListener;
+import games.strategy.net.IMessenger;
+import games.strategy.net.INode;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.Messengers;
+import games.strategy.util.Tuple;
+
+public class ChatController implements IChatController {
+<span class="fc" id="L25">  private final static Logger logger = Logger.getLogger(ChatController.class.getName());</span>
+  private static final String CHAT_REMOTE = &quot;_ChatRmt&quot;;
+<span class="fc" id="L27">  private static final String CHAT_CHANNEL = &quot;_ChatCtrl&quot;;</span>
+  private final IMessenger messenger;
+  private final IRemoteMessenger remoteMessenger;
+  private final IModeratorController moderatorController;
+  private final IChannelMessenger channelMessenger;
+  private final String chatName;
+<span class="fc" id="L33">  private final Map&lt;INode, Tag&gt; chatters = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L34">  protected final Object mutex = new Object();</span>
+  private final String chatChannel;
+  private long version;
+<span class="fc" id="L37">  private final ScheduledExecutorService pingThread = Executors.newScheduledThreadPool(1);</span>
+<span class="fc" id="L38">  private final IConnectionChangeListener connectionChangeListener = new IConnectionChangeListener() {</span>
+    @Override
+<span class="nc" id="L40">    public void connectionAdded(final INode to) {}</span>
+
+    @Override
+    public void connectionRemoved(final INode to) {
+<span class="nc" id="L44">      synchronized (mutex) {</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">        if (chatters.keySet().contains(to)) {</span>
+<span class="nc" id="L46">          leaveChatInternal(to);</span>
+        }
+      }
+<span class="nc" id="L49">    }</span>
+  };
+
+  public static RemoteName getChatControlerRemoteName(final String chatName) {
+<span class="fc" id="L53">    return new RemoteName(CHAT_REMOTE + chatName, IChatController.class);</span>
+  }
+
+  public static String getChatChannelName(final String chatName) {
+<span class="fc" id="L57">    return CHAT_CHANNEL + chatName;</span>
+  }
+
+<span class="fc" id="L60">  public ChatController(final String name, final IMessenger messenger, final IRemoteMessenger remoteMessenger,</span>
+      final IChannelMessenger channelMessenger, final IModeratorController moderatorController) {
+<span class="fc" id="L62">    chatName = name;</span>
+<span class="fc" id="L63">    this.messenger = messenger;</span>
+<span class="fc" id="L64">    this.remoteMessenger = remoteMessenger;</span>
+<span class="fc" id="L65">    this.moderatorController = moderatorController;</span>
+<span class="fc" id="L66">    this.channelMessenger = channelMessenger;</span>
+<span class="fc" id="L67">    chatChannel = getChatChannelName(name);</span>
+<span class="fc" id="L68">    this.remoteMessenger.registerRemote(this, getChatControlerRemoteName(name));</span>
+<span class="fc" id="L69">    ((IServerMessenger) this.messenger).addConnectionChangeListener(connectionChangeListener);</span>
+<span class="fc" id="L70">    pingThread.scheduleAtFixedRate(() -&gt; {</span>
+      try {
+        // System.out.println(&quot;Pinging&quot;);
+<span class="nc" id="L73">        getChatBroadcaster().ping();</span>
+<span class="nc" id="L74">      } catch (final Exception e) {</span>
+<span class="nc" id="L75">        logger.log(Level.SEVERE, &quot;Error pinging&quot;, e);</span>
+      }
+<span class="pc" id="L77">    }, 180, 60, TimeUnit.SECONDS);</span>
+<span class="fc" id="L78">  }</span>
+
+  public ChatController(final String name, final Messengers messenger, final ModeratorController moderatorController) {
+<span class="nc" id="L81">    this(name, messenger.getMessenger(), messenger.getRemoteMessenger(), messenger.getChannelMessenger(),</span>
+<span class="nc" id="L82">        moderatorController);</span>
+<span class="nc" id="L83">  }</span>
+
+  // clean up
+  public void deactivate() {
+<span class="fc" id="L87">    pingThread.shutdown();</span>
+<span class="pc" id="L88">    synchronized (mutex) {</span>
+<span class="fc" id="L89">      final IChatChannel chatter = getChatBroadcaster();</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">      for (final INode node : chatters.keySet()) {</span>
+<span class="fc" id="L91">        version++;</span>
+<span class="fc" id="L92">        chatter.speakerRemoved(node, version);</span>
+      }
+<span class="fc" id="L94">      remoteMessenger.unregisterRemote(getChatControlerRemoteName(chatName));</span>
+    }
+<span class="fc" id="L96">    ((IServerMessenger) messenger).removeConnectionChangeListener(connectionChangeListener);</span>
+<span class="fc" id="L97">  }</span>
+
+  private IChatChannel getChatBroadcaster() {
+<span class="fc" id="L100">    final IChatChannel chatter =</span>
+<span class="fc" id="L101">        (IChatChannel) channelMessenger.getChannelBroadcastor(new RemoteName(chatChannel, IChatChannel.class));</span>
+<span class="fc" id="L102">    return chatter;</span>
+  }
+
+  // a player has joined
+  @Override
+  public Tuple&lt;Map&lt;INode, Tag&gt;, Long&gt; joinChat() {
+<span class="fc" id="L108">    final INode node = MessageContext.getSender();</span>
+<span class="fc" id="L109">    logger.info(&quot;Chatter:&quot; + node + &quot; is joining chat:&quot; + chatName);</span>
+    final Tag tag;
+<span class="pc bpc" id="L111" title="1 of 2 branches missed.">    if (moderatorController.isPlayerAdmin(node)) {</span>
+<span class="nc" id="L112">      tag = Tag.MODERATOR;</span>
+<span class="nc" id="L113">    } else {</span>
+<span class="fc" id="L114">      tag = Tag.NONE;</span>
+    }
+<span class="pc" id="L116">    synchronized (mutex) {</span>
+<span class="fc" id="L117">      chatters.put(node, tag);</span>
+<span class="fc" id="L118">      version++;</span>
+<span class="fc" id="L119">      getChatBroadcaster().speakerAdded(node, tag, version);</span>
+<span class="fc" id="L120">      final Map&lt;INode, Tag&gt; copy = new HashMap&lt;&gt;(chatters);</span>
+<span class="fc" id="L121">      return Tuple.of(copy, version);</span>
+    }
+  }
+
+  // a player has left
+  @Override
+  public void leaveChat() {
+<span class="fc" id="L128">    leaveChatInternal(MessageContext.getSender());</span>
+<span class="fc" id="L129">  }</span>
+
+  protected void leaveChatInternal(final INode node) {
+    long version;
+<span class="pc" id="L133">    synchronized (mutex) {</span>
+<span class="fc" id="L134">      chatters.remove(node);</span>
+<span class="fc" id="L135">      this.version++;</span>
+<span class="fc" id="L136">      version = this.version;</span>
+    }
+<span class="fc" id="L138">    getChatBroadcaster().speakerRemoved(node, version);</span>
+<span class="fc" id="L139">    logger.info(&quot;Chatter:&quot; + node + &quot; has left chat:&quot; + chatName);</span>
+<span class="fc" id="L140">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

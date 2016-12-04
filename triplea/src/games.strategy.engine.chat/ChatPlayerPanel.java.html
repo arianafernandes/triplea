@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ChatPlayerPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.chat</a> &gt; <span class="el_source">ChatPlayerPanel.java</span></div><h1>ChatPlayerPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.chat;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.FontMetrics;
+import java.awt.Image;
+import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.IOException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import javax.imageio.ImageIO;
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
+import javax.swing.Icon;
+import javax.swing.ImageIcon;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
+import javax.swing.ListCellRenderer;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+
+import games.strategy.net.INode;
+import games.strategy.ui.SwingAction;
+
+public class ChatPlayerPanel extends JPanel implements IChatListener {
+  private static final long serialVersionUID = -3153022965393962945L;
+  private static final Icon ignoreIcon;
+
+  static {
+<span class="nc" id="L44">    final URL ignore = ChatPlayerPanel.class.getResource(&quot;ignore.png&quot;);</span>
+<span class="nc bnc" id="L45" title="All 2 branches missed.">    if (ignore == null) {</span>
+<span class="nc" id="L46">      throw new IllegalStateException(&quot;Could not find ignore icon&quot;);</span>
+    }
+    Image img;
+    try {
+<span class="nc" id="L50">      img = ImageIO.read(ignore);</span>
+<span class="nc" id="L51">    } catch (final IOException e) {</span>
+<span class="nc" id="L52">      throw new IllegalStateException(e);</span>
+    }
+<span class="nc" id="L54">    ignoreIcon = new ImageIcon(img);</span>
+<span class="nc" id="L55">  }</span>
+
+  private JList&lt;INode&gt; players;
+  private DefaultListModel&lt;INode&gt; listModel;
+  private Chat chat;
+<span class="nc" id="L60">  private final Set&lt;String&gt; hiddenPlayers = new HashSet&lt;&gt;();</span>
+  private final IStatusListener statusListener;
+  // if our renderer is overridden
+  // we do not set this directly on the JList,
+  // instead we feed it the node name and staus as a string
+<span class="nc" id="L65">  private ListCellRenderer&lt;Object&gt; setCellRenderer = new DefaultListCellRenderer();</span>
+<span class="nc" id="L66">  private final List&lt;IPlayerActionFactory&gt; actionFactories = new ArrayList&lt;&gt;();</span>
+
+<span class="nc" id="L68">  public ChatPlayerPanel(final Chat chat) {</span>
+<span class="nc" id="L69">    createComponents();</span>
+<span class="nc" id="L70">    layoutComponents();</span>
+<span class="nc" id="L71">    setupListeners();</span>
+<span class="nc" id="L72">    setWidgetActivation();</span>
+<span class="nc" id="L73">    statusListener = (node, newStatus) -&gt; repaint();</span>
+<span class="nc" id="L74">    setChat(chat);</span>
+<span class="nc" id="L75">  }</span>
+
+  public void addHiddenPlayerName(final String name) {
+<span class="nc" id="L78">    hiddenPlayers.add(name);</span>
+<span class="nc" id="L79">  }</span>
+
+  public void shutDown() {
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    if (chat != null) {</span>
+<span class="nc" id="L83">      chat.removeChatListener(this);</span>
+<span class="nc" id="L84">      chat.getStatusManager().removeStatusListener(statusListener);</span>
+    }
+<span class="nc" id="L86">    chat = null;</span>
+<span class="nc" id="L87">    this.setVisible(false);</span>
+<span class="nc" id="L88">    this.removeAll();</span>
+<span class="nc" id="L89">  }</span>
+
+  public void setChat(final Chat chat) {
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    if (this.chat != null) {</span>
+<span class="nc" id="L93">      this.chat.removeChatListener(this);</span>
+<span class="nc" id="L94">      this.chat.getStatusManager().removeStatusListener(statusListener);</span>
+    }
+<span class="nc" id="L96">    this.chat = chat;</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">    if (chat != null) {</span>
+<span class="nc" id="L98">      chat.addChatListener(this);</span>
+<span class="nc" id="L99">      this.chat.getStatusManager().addStatusListener(statusListener);</span>
+<span class="nc" id="L100">    } else {</span>
+      // empty our player list
+<span class="nc" id="L102">      updatePlayerList(Collections.emptyList());</span>
+    }
+<span class="nc" id="L104">    repaint();</span>
+<span class="nc" id="L105">  }</span>
+
+  /**
+   * set minimum size based on players (number and max name length) and distribution to playerIDs
+   */
+  private void setDynamicPreferredSize() {
+<span class="nc" id="L111">    final List&lt;INode&gt; onlinePlayers = chat.getOnlinePlayers();</span>
+<span class="nc" id="L112">    int maxNameLength = 0;</span>
+<span class="nc" id="L113">    final FontMetrics fontMetrics = this.getFontMetrics(UIManager.getFont(&quot;TextField.font&quot;));</span>
+<span class="nc bnc" id="L114" title="All 2 branches missed.">    for (final INode iNode : onlinePlayers) {</span>
+<span class="nc" id="L115">      maxNameLength = Math.max(maxNameLength, fontMetrics.stringWidth(iNode.getName()));</span>
+    }
+<span class="nc" id="L117">    int iconCounter = 0;</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">    if (setCellRenderer instanceof PlayerChatRenderer) {</span>
+<span class="nc" id="L119">      iconCounter = ((PlayerChatRenderer) setCellRenderer).getMaxIconCounter();</span>
+    }
+<span class="nc" id="L121">    setPreferredSize(new Dimension(maxNameLength + 40 + iconCounter * 14, 80));</span>
+<span class="nc" id="L122">  }</span>
+
+  private void createComponents() {
+<span class="nc" id="L125">    listModel = new DefaultListModel&lt;&gt;();</span>
+<span class="nc" id="L126">    players = new JList&lt;&gt;(listModel);</span>
+<span class="nc" id="L127">    players.setFocusable(false);</span>
+<span class="nc" id="L128">    players.setCellRenderer((list, node, index, isSelected, cellHasFocus) -&gt; {</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">      if (setCellRenderer == null) {</span>
+<span class="nc" id="L130">        return new JLabel();</span>
+      }
+      final DefaultListCellRenderer renderer;
+<span class="nc bnc" id="L133" title="All 2 branches missed.">      if (setCellRenderer instanceof PlayerChatRenderer) {</span>
+<span class="nc" id="L134">        renderer = (DefaultListCellRenderer) setCellRenderer.getListCellRendererComponent(list, node, index,</span>
+<span class="nc" id="L135">            isSelected, cellHasFocus);</span>
+<span class="nc" id="L136">      } else {</span>
+<span class="nc" id="L137">        renderer = (DefaultListCellRenderer) setCellRenderer.getListCellRendererComponent(list,</span>
+<span class="nc" id="L138">            getDisplayString(node), index, isSelected, cellHasFocus);</span>
+      }
+<span class="nc bnc" id="L140" title="All 2 branches missed.">      if (chat.isIgnored(node)) {</span>
+<span class="nc" id="L141">        renderer.setIcon(ignoreIcon);</span>
+      }
+<span class="nc" id="L143">      return renderer;</span>
+    });
+<span class="nc" id="L145">  }</span>
+
+  private void layoutComponents() {
+<span class="nc" id="L148">    setLayout(new BorderLayout());</span>
+<span class="nc" id="L149">    add(new JScrollPane(players), BorderLayout.CENTER);</span>
+<span class="nc" id="L150">  }</span>
+
+  private void setupListeners() {
+<span class="nc" id="L153">    players.addMouseListener(new MouseAdapter() {</span>
+      @Override
+      public void mouseClicked(final MouseEvent e) {
+<span class="nc" id="L156">        mouseOnPlayersList(e);</span>
+<span class="nc" id="L157">      }</span>
+
+      @Override
+      public void mousePressed(final MouseEvent e) {
+<span class="nc" id="L161">        mouseOnPlayersList(e);</span>
+<span class="nc" id="L162">      }</span>
+
+      @Override
+      public void mouseReleased(final MouseEvent e) {
+<span class="nc" id="L166">        mouseOnPlayersList(e);</span>
+<span class="nc" id="L167">      }</span>
+    });
+<span class="nc" id="L169">    actionFactories.add(clickedOn -&gt; {</span>
+      // you can't slap or ignore yourself
+<span class="nc bnc" id="L171" title="All 2 branches missed.">      if (clickedOn.equals(chat.getLocalNode())) {</span>
+<span class="nc" id="L172">        return Collections.emptyList();</span>
+      }
+<span class="nc" id="L174">      final boolean isIgnored = chat.isIgnored(clickedOn);</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">      final Action ignore = SwingAction.of(isIgnored ? &quot;Stop Ignoring&quot; : &quot;Ignore&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">        chat.setIgnored(clickedOn, !isIgnored);</span>
+<span class="nc" id="L177">        repaint();</span>
+<span class="nc" id="L178">      });</span>
+<span class="nc" id="L179">      final Action slap = new AbstractAction(&quot;Slap &quot; + clickedOn.getName()) {</span>
+        private static final long serialVersionUID = -5514772068903406263L;
+
+        @Override
+        public void actionPerformed(final ActionEvent event) {
+<span class="nc" id="L184">          chat.sendSlap(clickedOn.getName());</span>
+<span class="nc" id="L185">        }</span>
+      };
+<span class="nc" id="L187">      return Arrays.asList(slap, ignore);</span>
+    });
+<span class="nc" id="L189">  }</span>
+
+<span class="nc" id="L191">  private void setWidgetActivation() {}</span>
+
+  /**
+   * The renderer will be passed in a string
+   */
+  public void setPlayerRenderer(final ListCellRenderer&lt;Object&gt; renderer) {
+<span class="nc" id="L197">    setCellRenderer = renderer;</span>
+<span class="nc" id="L198">    setDynamicPreferredSize();</span>
+<span class="nc" id="L199">  }</span>
+
+  private void mouseOnPlayersList(final MouseEvent e) {
+<span class="nc bnc" id="L202" title="All 2 branches missed.">    if (!e.isPopupTrigger()) {</span>
+<span class="nc" id="L203">      return;</span>
+    }
+<span class="nc" id="L205">    final int index = players.locationToIndex(e.getPoint());</span>
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    if (index == -1) {</span>
+<span class="nc" id="L207">      return;</span>
+    }
+<span class="nc" id="L209">    final INode player = listModel.get(index);</span>
+<span class="nc" id="L210">    final JPopupMenu menu = new JPopupMenu();</span>
+<span class="nc" id="L211">    boolean hasActions = false;</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">    for (final IPlayerActionFactory factory : actionFactories) {</span>
+<span class="nc" id="L213">      final List&lt;Action&gt; actions = factory.mouseOnPlayer(player);</span>
+<span class="nc bnc" id="L214" title="All 4 branches missed.">      if (actions != null &amp;&amp; !actions.isEmpty()) {</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        if (hasActions) {</span>
+<span class="nc" id="L216">          menu.addSeparator();</span>
+        }
+<span class="nc" id="L218">        hasActions = true;</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        for (final Action a : actions) {</span>
+<span class="nc" id="L220">          menu.add(a);</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L224" title="All 2 branches missed.">    if (hasActions) {</span>
+<span class="nc" id="L225">      menu.show(players, e.getX(), e.getY());</span>
+    }
+<span class="nc" id="L227">  }</span>
+
+  /**
+   * @param players
+   *        - a collection of Strings representing player names.
+   */
+  @Override
+  public synchronized void updatePlayerList(final Collection&lt;INode&gt; players) {
+<span class="nc" id="L235">    final Runnable runner = () -&gt; {</span>
+<span class="nc" id="L236">      listModel.clear();</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">      for (final INode name : players) {</span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">        if (!hiddenPlayers.contains(name.getName())) {</span>
+<span class="nc" id="L239">          listModel.addElement(name);</span>
+        }
+      }
+<span class="nc" id="L242">    };</span>
+    // invoke in the swing event thread
+<span class="nc bnc" id="L244" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L245">      runner.run();</span>
+<span class="nc" id="L246">    } else {</span>
+<span class="nc" id="L247">      SwingUtilities.invokeLater(runner);</span>
+    }
+<span class="nc" id="L249">  }</span>
+
+  @Override
+  public void addMessageWithSound(final String message, final String from, final boolean thirdperson,
+<span class="nc" id="L253">      final String sound) {}</span>
+
+  @Override
+<span class="nc" id="L256">  public void addMessage(final String message, final String from, final boolean thirdperson) {}</span>
+
+  private String getDisplayString(final INode node) {
+<span class="nc bnc" id="L259" title="All 2 branches missed.">    if (chat == null) {</span>
+<span class="nc" id="L260">      return &quot;&quot;;</span>
+    }
+<span class="nc" id="L262">    String extra = &quot;&quot;;</span>
+<span class="nc" id="L263">    final String notes = chat.getNotesForNode(node);</span>
+<span class="nc bnc" id="L264" title="All 4 branches missed.">    if (notes != null &amp;&amp; notes.length() &gt; 0) {</span>
+<span class="nc" id="L265">      extra = extra + notes;</span>
+    }
+<span class="nc" id="L267">    String status = chat.getStatusManager().getStatus(node);</span>
+<span class="nc" id="L268">    final StringBuilder statusSB = new StringBuilder(&quot;&quot;);</span>
+<span class="nc bnc" id="L269" title="All 4 branches missed.">    if (status != null &amp;&amp; status.length() &gt; 0) {</span>
+<span class="nc bnc" id="L270" title="All 2 branches missed.">      if (status.length() &gt; 25) {</span>
+<span class="nc" id="L271">        status = status.substring(0, 25);</span>
+      }
+<span class="nc bnc" id="L273" title="All 2 branches missed.">      for (int i = 0; i &lt; status.length(); i++) {</span>
+<span class="nc" id="L274">        final char c = status.charAt(i);</span>
+        // skip combining characters
+<span class="nc bnc" id="L276" title="All 4 branches missed.">        if (c &gt;= '\u0300' &amp;&amp; c &lt;= '\u036F') {</span>
+<span class="nc" id="L277">          continue;</span>
+        }
+<span class="nc" id="L279">        statusSB.append(c);</span>
+      }
+<span class="nc" id="L281">      extra = extra + &quot; (&quot; + statusSB.toString() + &quot;)&quot;;</span>
+    }
+<span class="nc bnc" id="L283" title="All 2 branches missed.">    if (extra.length() == 0) {</span>
+<span class="nc" id="L284">      return node.getName();</span>
+    }
+<span class="nc" id="L286">    return node.getName() + extra;</span>
+  }
+
+  @Override
+<span class="nc" id="L290">  public void addStatusMessage(final String message) {}</span>
+
+  /**
+   * Add an action factory that will be used to populate the pop up meny when
+   * right clicking on a player in the chat panel.
+   */
+  public void addActionFactory(final IPlayerActionFactory actionFactory) {
+<span class="nc" id="L297">    actionFactories.add(actionFactory);</span>
+<span class="nc" id="L298">  }</span>
+
+  public void remove(final IPlayerActionFactory actionFactory) {
+<span class="nc" id="L301">    actionFactories.remove(actionFactory);</span>
+<span class="nc" id="L302">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

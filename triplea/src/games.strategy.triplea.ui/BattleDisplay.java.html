@@ -1,0 +1,989 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BattleDisplay.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">BattleDisplay.java</span></div><h1>BattleDisplay.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Image;
+import java.awt.Insets;
+import java.awt.Toolkit;
+import java.awt.Window;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.Vector;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.prefs.Preferences;
+
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
+import javax.swing.KeyStroke;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.EtchedBorder;
+import javax.swing.border.LineBorder;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.framework.system.SystemProperties;
+import games.strategy.net.GUID;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.DiceRoll;
+import games.strategy.triplea.delegate.Die;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.TerritoryEffectHelper;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.triplea.delegate.dataObjects.CasualtyList;
+import games.strategy.triplea.image.UnitImageFactory;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitOwner;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.ui.SwingAction;
+import games.strategy.ui.Util;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+/**
+ * Displays a running battle
+ */
+public class BattleDisplay extends JPanel {
+  private static final long serialVersionUID = -7939993104972562765L;
+  private static final String DICE_KEY = &quot;D&quot;;
+  private static final String CASUALTIES_KEY = &quot;C&quot;;
+  private static final String MESSAGE_KEY = &quot;M&quot;;
+  // private static Map&lt;Unit, Territory&gt; m_ScrambledUnits = new HashMap&lt;Unit, Territory&gt;();
+  private final GUID m_battleID;
+  private final PlayerID m_defender;
+  private final PlayerID m_attacker;
+  private final Territory m_location;
+  private final GameData m_data;
+<span class="nc" id="L98">  private final JButton m_actionButton = new JButton(&quot;&quot;);</span>
+  private final BattleModel m_defenderModel;
+  private final BattleModel m_attackerModel;
+  private BattleStepsPanel m_steps;
+  private DicePanel m_dicePanel;
+  private final CasualtyNotificationPanel m_casualties;
+  private JPanel m_actionPanel;
+<span class="nc" id="L105">  private final CardLayout m_actionLayout = new CardLayout();</span>
+<span class="nc" id="L106">  private final JPanel m_messagePanel = new JPanel();</span>
+  private final MapPanel m_mapPanel;
+<span class="nc" id="L108">  private final JPanel m_casualtiesInstantPanelDefender = new JPanel();</span>
+<span class="nc" id="L109">  private final JPanel m_casualtiesInstantPanelAttacker = new JPanel();</span>
+<span class="nc" id="L110">  private final JLabel LABEL_NONE_ATTACKER = new JLabel(&quot;None&quot;);</span>
+<span class="nc" id="L111">  private final JLabel LABEL_NONE_DEFENDER = new JLabel(&quot;None&quot;);</span>
+  // private MovePerformer m_tempMovePerformer;
+  private final IUIContext m_uiContext;
+<span class="nc" id="L114">  private final JLabel m_messageLabel = new JLabel();</span>
+<span class="nc" id="L115">  private final Action m_nullAction = SwingAction.of(&quot; &quot;, e -&gt; {</span>
+<span class="nc" id="L116">  });</span>
+
+<span class="nc" id="L118">  public BattleDisplay(final GameData data, final Territory territory, final PlayerID attacker, final PlayerID defender,</span>
+      final Collection&lt;Unit&gt; attackingUnits, final Collection&lt;Unit&gt; defendingUnits, final Collection&lt;Unit&gt; killedUnits,
+      final Collection&lt;Unit&gt; attackingWaitingToDie, final Collection&lt;Unit&gt; defendingWaitingToDie, final GUID battleID,
+      final MapPanel mapPanel, final boolean isAmphibious, final BattleType battleType,
+      final Collection&lt;Unit&gt; amphibiousLandAttackers) {
+<span class="nc" id="L123">    m_battleID = battleID;</span>
+<span class="nc" id="L124">    m_defender = defender;</span>
+<span class="nc" id="L125">    m_attacker = attacker;</span>
+<span class="nc" id="L126">    m_location = territory;</span>
+<span class="nc" id="L127">    m_mapPanel = mapPanel;</span>
+<span class="nc" id="L128">    m_data = data;</span>
+<span class="nc" id="L129">    final Collection&lt;TerritoryEffect&gt; territoryEffects = TerritoryEffectHelper.getEffects(territory);</span>
+<span class="nc" id="L130">    m_defenderModel = new BattleModel(defendingUnits, false, battleType, defender, m_data, m_location, territoryEffects,</span>
+<span class="nc" id="L131">        isAmphibious, Collections.emptySet(), m_mapPanel.getUIContext());</span>
+<span class="nc" id="L132">    m_attackerModel = new BattleModel(attackingUnits, true, battleType, attacker, m_data, m_location, territoryEffects,</span>
+<span class="nc" id="L133">        isAmphibious, amphibiousLandAttackers, m_mapPanel.getUIContext());</span>
+<span class="nc" id="L134">    m_defenderModel.setEnemyBattleModel(m_attackerModel);</span>
+<span class="nc" id="L135">    m_attackerModel.setEnemyBattleModel(m_defenderModel);</span>
+<span class="nc" id="L136">    m_defenderModel.refresh();</span>
+<span class="nc" id="L137">    m_attackerModel.refresh();</span>
+<span class="nc" id="L138">    m_uiContext = mapPanel.getUIContext();</span>
+<span class="nc" id="L139">    m_casualties = new CasualtyNotificationPanel(data, m_mapPanel.getUIContext());</span>
+<span class="nc bnc" id="L140" title="All 6 branches missed.">    if (killedUnits != null &amp;&amp; attackingWaitingToDie != null &amp;&amp; defendingWaitingToDie != null) {</span>
+<span class="nc" id="L141">      final Collection&lt;Unit&gt; attackerUnitsKilled = Match.getMatches(killedUnits, Matches.unitIsOwnedBy(attacker));</span>
+<span class="nc" id="L142">      attackerUnitsKilled.addAll(attackingWaitingToDie);</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">      if (!attackerUnitsKilled.isEmpty()) {</span>
+<span class="nc" id="L144">        updateKilledUnits(attackerUnitsKilled, attacker);</span>
+      }
+<span class="nc" id="L146">      final Collection&lt;Unit&gt; defenderUnitsKilled = Match.getMatches(killedUnits, Matches.unitIsOwnedBy(defender));</span>
+<span class="nc" id="L147">      defenderUnitsKilled.addAll(defendingWaitingToDie);</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (!defenderUnitsKilled.isEmpty()) {</span>
+<span class="nc" id="L149">        updateKilledUnits(defenderUnitsKilled, defender);</span>
+      }
+    }
+<span class="nc" id="L152">    initLayout();</span>
+<span class="nc" id="L153">  }</span>
+
+  public void cleanUp() {
+<span class="nc" id="L156">    m_actionButton.setAction(m_nullAction);</span>
+<span class="nc" id="L157">    m_steps.deactivate();</span>
+<span class="nc" id="L158">    m_mapPanel.getUIContext().removeActive(m_steps);</span>
+<span class="nc" id="L159">    m_steps = null;</span>
+<span class="nc" id="L160">  }</span>
+
+  void takeFocus() {
+    // we want a component on this frame to take focus
+    // so that pressing space will work (since it requires in focused
+    // window). Only seems to be an issue on windows
+<span class="nc" id="L166">    m_actionButton.requestFocus();</span>
+<span class="nc" id="L167">  }</span>
+
+  public Territory getBattleLocation() {
+<span class="nc" id="L170">    return m_location;</span>
+  }
+
+  public GUID getBattleID() {
+<span class="nc" id="L174">    return m_battleID;</span>
+  }
+
+  public void bombingResults(final List&lt;Die&gt; dice, final int cost) {
+<span class="nc" id="L178">    m_dicePanel.setDiceRollForBombing(dice, cost);</span>
+<span class="nc" id="L179">    m_actionLayout.show(m_actionPanel, DICE_KEY);</span>
+<span class="nc" id="L180">  }</span>
+
+  public static boolean getShowEnemyCasualtyNotification() {
+<span class="nc" id="L183">    final Preferences prefs = Preferences.userNodeForPackage(BattleDisplay.class);</span>
+<span class="nc" id="L184">    return prefs.getBoolean(Constants.SHOW_ENEMY_CASUALTIES_USER_PREF, true);</span>
+  }
+
+  public static void setShowEnemyCasualtyNotification(final boolean aVal) {
+<span class="nc" id="L188">    final Preferences prefs = Preferences.userNodeForPackage(BattleDisplay.class);</span>
+<span class="nc" id="L189">    prefs.putBoolean(Constants.SHOW_ENEMY_CASUALTIES_USER_PREF, aVal);</span>
+<span class="nc" id="L190">  }</span>
+
+  public static boolean getFocusOnOwnCasualtiesNotification() {
+<span class="nc" id="L193">    final Preferences prefs = Preferences.userNodeForPackage(BattleDisplay.class);</span>
+<span class="nc" id="L194">    return prefs.getBoolean(Constants.FOCUS_ON_OWN_CASUALTIES_USER_PREF, false);</span>
+  }
+
+  public static void setFocusOnOwnCasualtiesNotification(final boolean aVal) {
+<span class="nc" id="L198">    final Preferences prefs = Preferences.userNodeForPackage(BattleDisplay.class);</span>
+<span class="nc" id="L199">    prefs.putBoolean(Constants.FOCUS_ON_OWN_CASUALTIES_USER_PREF, aVal);</span>
+<span class="nc" id="L200">  }</span>
+
+  public static void setConfirmDefensiveRolls(final boolean aVal) {
+<span class="nc" id="L203">    final Preferences prefs = Preferences.userNodeForPackage(BattleDisplay.class);</span>
+<span class="nc" id="L204">    prefs.putBoolean(Constants.CONFIRM_DEFENSIVE_ROLLS, aVal);</span>
+<span class="nc" id="L205">  }</span>
+
+  public static boolean getConfirmDefensiveRolls() {
+<span class="nc" id="L208">    final Preferences prefs = Preferences.userNodeForPackage(BattleDisplay.class);</span>
+<span class="nc" id="L209">    return prefs.getBoolean(Constants.CONFIRM_DEFENSIVE_ROLLS, false);</span>
+  }
+
+
+  /**
+   * updates the panel content according to killed units for the player
+   *
+   * @param aKilledUnits
+   *        list of units killed
+   * @param aPlayerID
+   *        player kills belongs to
+   */
+  private Collection&lt;Unit&gt; updateKilledUnits(final Collection&lt;Unit&gt; aKilledUnits, final PlayerID aPlayerID) {
+    final JPanel lCausalityPanel;
+<span class="nc bnc" id="L223" title="All 2 branches missed.">    if (aPlayerID.equals(m_defender)) {</span>
+<span class="nc" id="L224">      lCausalityPanel = m_casualtiesInstantPanelDefender;</span>
+<span class="nc" id="L225">    } else {</span>
+<span class="nc" id="L226">      lCausalityPanel = m_casualtiesInstantPanelAttacker;</span>
+    }
+    Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependentsMap;
+<span class="nc" id="L229">    m_data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L231">      dependentsMap = BattleCalculator.getDependents(aKilledUnits);</span>
+<span class="nc" id="L232">    } finally {</span>
+<span class="nc" id="L233">      m_data.releaseReadLock();</span>
+<span class="nc" id="L234">    }</span>
+<span class="nc" id="L235">    final Collection&lt;Unit&gt; dependentUnitsReturned = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L236">    final Iterator&lt;Collection&lt;Unit&gt;&gt; dependentUnitsCollections = dependentsMap.values().iterator();</span>
+<span class="nc bnc" id="L237" title="All 2 branches missed.">    while (dependentUnitsCollections.hasNext()) {</span>
+<span class="nc" id="L238">      final Collection&lt;Unit&gt; dependentCollection = dependentUnitsCollections.next();</span>
+<span class="nc" id="L239">      dependentUnitsReturned.addAll(dependentCollection);</span>
+    }
+<span class="nc bnc" id="L241" title="All 2 branches missed.">    for (final UnitCategory category : UnitSeperator.categorize(aKilledUnits, dependentsMap, false, false)) {</span>
+<span class="nc" id="L242">      final JPanel panel = new JPanel();</span>
+<span class="nc" id="L243">      JLabel unit = m_uiContext.createUnitImageJLabel(category.getType(), category.getOwner(), m_data);</span>
+<span class="nc" id="L244">      panel.add(unit);</span>
+<span class="nc" id="L245">      panel.add(new JLabel(&quot;x &quot; + category.getUnits().size()));</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">      for (final UnitOwner owner : category.getDependents()) {</span>
+<span class="nc" id="L247">        unit = m_uiContext.createUnitImageJLabel(owner.getType(), owner.getOwner(), m_data);</span>
+<span class="nc" id="L248">        panel.add(unit);</span>
+        // TODO this size is of the transport collection size, not the transportED collection size.
+<span class="nc" id="L250">        panel.add(new JLabel(&quot;x &quot; + category.getUnits().size()));</span>
+      }
+<span class="nc" id="L252">      lCausalityPanel.add(panel);</span>
+    }
+<span class="nc" id="L254">    return dependentUnitsReturned;</span>
+  }
+
+  public void casualtyNotification(final String step, final DiceRoll dice, final PlayerID player,
+      final Collection&lt;Unit&gt; killed, final Collection&lt;Unit&gt; damaged, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents) {
+<span class="nc" id="L259">    setStep(step);</span>
+<span class="nc" id="L260">    m_casualties.setNotification(dice, killed, damaged, dependents);</span>
+<span class="nc" id="L261">    m_actionLayout.show(m_actionPanel, CASUALTIES_KEY);</span>
+<span class="nc" id="L262">    killed.addAll(updateKilledUnits(killed, player));</span>
+<span class="nc bnc" id="L263" title="All 2 branches missed.">    if (player.equals(m_defender)) {</span>
+<span class="nc" id="L264">      m_defenderModel.removeCasualties(killed);</span>
+<span class="nc" id="L265">    } else {</span>
+<span class="nc" id="L266">      m_attackerModel.removeCasualties(killed);</span>
+    }
+<span class="nc" id="L268">  }</span>
+
+  public void deadUnitNotification(final PlayerID player, final Collection&lt;Unit&gt; killed,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents) {
+<span class="nc" id="L272">    m_casualties.setNotificationShort(killed, dependents);</span>
+<span class="nc" id="L273">    m_actionLayout.show(m_actionPanel, CASUALTIES_KEY);</span>
+<span class="nc" id="L274">    killed.addAll(updateKilledUnits(killed, player));</span>
+<span class="nc bnc" id="L275" title="All 2 branches missed.">    if (player.equals(m_defender)) {</span>
+<span class="nc" id="L276">      m_defenderModel.removeCasualties(killed);</span>
+<span class="nc" id="L277">    } else {</span>
+<span class="nc" id="L278">      m_attackerModel.removeCasualties(killed);</span>
+    }
+<span class="nc" id="L280">  }</span>
+
+  public void changedUnitsNotification(final PlayerID player, final Collection&lt;Unit&gt; removedUnits,
+      final Collection&lt;Unit&gt; addedUnits, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents) {
+<span class="nc bnc" id="L284" title="All 2 branches missed.">    if (player.equals(m_defender)) {</span>
+<span class="nc bnc" id="L285" title="All 2 branches missed.">      if (removedUnits != null) {</span>
+<span class="nc" id="L286">        m_defenderModel.removeCasualties(removedUnits);</span>
+      }
+<span class="nc bnc" id="L288" title="All 2 branches missed.">      if (addedUnits != null) {</span>
+<span class="nc" id="L289">        m_defenderModel.addUnits(addedUnits);</span>
+      }
+<span class="nc" id="L291">    } else {</span>
+<span class="nc bnc" id="L292" title="All 2 branches missed.">      if (removedUnits != null) {</span>
+<span class="nc" id="L293">        m_attackerModel.removeCasualties(removedUnits);</span>
+      }
+<span class="nc bnc" id="L295" title="All 2 branches missed.">      if (addedUnits != null) {</span>
+<span class="nc" id="L296">        m_attackerModel.addUnits(addedUnits);</span>
+      }
+    }
+<span class="nc" id="L299">  }</span>
+
+  protected void waitForConfirmation(final String message) {
+<span class="nc bnc" id="L302" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L303">      throw new IllegalStateException(&quot;This cannot be in dispatch thread&quot;);</span>
+    }
+
+<span class="nc" id="L306">    final CountDownLatch continueLatch = new CountDownLatch(1);</span>
+<span class="nc" id="L307">    final AbstractAction buttonAction = SwingAction.of(message, e -&gt; continueLatch.countDown());</span>
+<span class="nc" id="L308">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(buttonAction));</span>
+<span class="nc" id="L309">    m_mapPanel.getUIContext().addShutdownLatch(continueLatch);</span>
+
+    // Set a auto-wait expiration if the option is set.
+<span class="nc bnc" id="L312" title="All 2 branches missed.">    if (!getConfirmDefensiveRolls()) {</span>
+<span class="nc" id="L313">      final int maxWaitTime = 1500;</span>
+<span class="nc" id="L314">      final Timer t = new Timer();</span>
+<span class="nc" id="L315">      t.schedule(new TimerTask() {</span>
+        @Override
+        public void run() {
+<span class="nc" id="L318">          continueLatch.countDown();</span>
+<span class="nc bnc" id="L319" title="All 2 branches missed.">          if (continueLatch.getCount() &gt; 0) {</span>
+<span class="nc" id="L320">            SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(m_nullAction));</span>
+          }
+<span class="nc" id="L322">        }</span>
+<span class="nc" id="L323">      }, maxWaitTime);</span>
+    }
+
+    try {
+      // wait for the button to be pressed.
+<span class="nc" id="L328">      continueLatch.await();</span>
+<span class="nc" id="L329">    } catch (final InterruptedException ie) {</span>
+<span class="nc" id="L330">    } finally {</span>
+<span class="nc" id="L331">      m_mapPanel.getUIContext().removeShutdownLatch(continueLatch);</span>
+<span class="nc" id="L332">    }</span>
+<span class="nc" id="L333">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(m_nullAction));</span>
+<span class="nc" id="L334">  }</span>
+
+
+  public void endBattle(final String message, final Window enclosingFrame) {
+<span class="nc" id="L338">    m_steps.walkToLastStep();</span>
+<span class="nc" id="L339">    final Action close = SwingAction.of(message + &quot; : (Press Space to Close)&quot;, e -&gt; enclosingFrame.setVisible(false));</span>
+<span class="nc" id="L340">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(close));</span>
+<span class="nc" id="L341">  }</span>
+
+  public void notifyRetreat(final Collection&lt;Unit&gt; retreating) {
+<span class="nc" id="L344">    m_defenderModel.notifyRetreat(retreating);</span>
+<span class="nc" id="L345">    m_attackerModel.notifyRetreat(retreating);</span>
+<span class="nc" id="L346">  }</span>
+
+  public Territory getRetreat(final String message, final Collection&lt;Territory&gt; possible, final boolean submerge) {
+<span class="nc bnc" id="L349" title="All 4 branches missed.">    if (!submerge || possible.size() &gt; 1) {</span>
+<span class="nc" id="L350">      return getRetreatInternal(message, possible);</span>
+    } else {
+<span class="nc" id="L352">      return getSubmerge(message);</span>
+    }
+  }
+
+  private Territory getSubmerge(final String message) {
+<span class="nc bnc" id="L357" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L358">      throw new IllegalStateException(&quot;Should not be called from dispatch thread&quot;);</span>
+    }
+<span class="nc" id="L360">    final Territory[] retreatTo = new Territory[1];</span>
+<span class="nc" id="L361">    final CountDownLatch latch = new CountDownLatch(1);</span>
+<span class="nc" id="L362">    final Action action = SwingAction.of(&quot;Submerge Subs?&quot;, e -&gt; {</span>
+<span class="nc" id="L363">      final String ok = &quot;Submerge&quot;;</span>
+<span class="nc" id="L364">      final String cancel = &quot;Remain&quot;;</span>
+<span class="nc" id="L365">      final String wait = &quot;Ask Me Later&quot;;</span>
+<span class="nc" id="L366">      final String[] options = {ok, cancel, wait};</span>
+<span class="nc" id="L367">      final int choice = JOptionPane.showOptionDialog(BattleDisplay.this, message, &quot;Submerge Subs?&quot;,</span>
+<span class="nc" id="L368">          JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, cancel);</span>
+      // dialog dismissed
+<span class="nc bnc" id="L370" title="All 2 branches missed.">      if (choice == -1) {</span>
+<span class="nc" id="L371">        return;</span>
+      }
+      // wait
+<span class="nc bnc" id="L374" title="All 2 branches missed.">      if (choice == 2) {</span>
+<span class="nc" id="L375">        return;</span>
+      }
+      // remain
+<span class="nc bnc" id="L378" title="All 2 branches missed.">      if (choice == 1) {</span>
+<span class="nc" id="L379">        latch.countDown();</span>
+<span class="nc" id="L380">        return;</span>
+      }
+      // submerge
+<span class="nc" id="L383">      retreatTo[0] = m_location;</span>
+<span class="nc" id="L384">      latch.countDown();</span>
+<span class="nc" id="L385">    });</span>
+<span class="nc" id="L386">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(action));</span>
+<span class="nc" id="L387">    SwingUtilities.invokeLater(() -&gt; action.actionPerformed(null));</span>
+<span class="nc" id="L388">    m_mapPanel.getUIContext().addShutdownLatch(latch);</span>
+    try {
+<span class="nc" id="L390">      latch.await();</span>
+<span class="nc" id="L391">    } catch (final InterruptedException e1) {</span>
+<span class="nc" id="L392">    } finally {</span>
+<span class="nc" id="L393">      m_mapPanel.getUIContext().removeShutdownLatch(latch);</span>
+<span class="nc" id="L394">    }</span>
+<span class="nc" id="L395">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(m_nullAction));</span>
+<span class="nc" id="L396">    return retreatTo[0];</span>
+  }
+
+  private Territory getRetreatInternal(final String message, final Collection&lt;Territory&gt; possible) {
+<span class="nc bnc" id="L400" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L401">      throw new IllegalStateException(&quot;Should not be called from dispatch thread&quot;);</span>
+    }
+<span class="nc" id="L403">    final Territory[] retreatTo = new Territory[1];</span>
+<span class="nc" id="L404">    final CountDownLatch latch = new CountDownLatch(1);</span>
+<span class="nc" id="L405">    final Action action = SwingAction.of(&quot;Retreat?&quot;, e -&gt; {</span>
+<span class="nc" id="L406">      final String yes = &quot;Retreat&quot;;</span>
+<span class="nc" id="L407">      final String no = &quot;Remain&quot;;</span>
+<span class="nc" id="L408">      final String cancel = &quot;Ask Me Later&quot;;</span>
+<span class="nc" id="L409">      final String[] options = {yes, no, cancel};</span>
+<span class="nc" id="L410">      final int choice = JOptionPane.showOptionDialog(BattleDisplay.this, message, &quot;Retreat?&quot;,</span>
+<span class="nc" id="L411">          JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, no);</span>
+      // dialog dismissed
+<span class="nc bnc" id="L413" title="All 2 branches missed.">      if (choice == -1) {</span>
+<span class="nc" id="L414">        return;</span>
+      }
+      // wait
+<span class="nc bnc" id="L417" title="All 2 branches missed.">      if (choice == JOptionPane.CANCEL_OPTION) {</span>
+<span class="nc" id="L418">        return;</span>
+      }
+      // remain
+<span class="nc bnc" id="L421" title="All 2 branches missed.">      if (choice == JOptionPane.NO_OPTION) {</span>
+<span class="nc" id="L422">        latch.countDown();</span>
+<span class="nc" id="L423">        return;</span>
+      }
+      // if you have eliminated the impossible, whatever remains, no matter
+      // how improbable, must be the truth
+      // retreat
+<span class="nc" id="L428">      final RetreatComponent comp = new RetreatComponent(possible);</span>
+<span class="nc" id="L429">      final int option = JOptionPane.showConfirmDialog(BattleDisplay.this, comp, message,</span>
+<span class="nc" id="L430">          JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE, null);</span>
+<span class="nc bnc" id="L431" title="All 2 branches missed.">      if (option == JOptionPane.OK_OPTION) {</span>
+<span class="nc bnc" id="L432" title="All 2 branches missed.">        if (comp.getSelection() != null) {</span>
+<span class="nc" id="L433">          retreatTo[0] = comp.getSelection();</span>
+<span class="nc" id="L434">          latch.countDown();</span>
+        }
+      }
+<span class="nc" id="L437">    });</span>
+<span class="nc" id="L438">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(action));</span>
+<span class="nc" id="L439">    SwingUtilities.invokeLater(() -&gt; action.actionPerformed(null));</span>
+<span class="nc" id="L440">    m_mapPanel.getUIContext().addShutdownLatch(latch);</span>
+    try {
+<span class="nc" id="L442">      latch.await();</span>
+<span class="nc" id="L443">    } catch (final InterruptedException e1) {</span>
+<span class="nc" id="L444">      e1.printStackTrace();</span>
+<span class="nc" id="L445">    } finally {</span>
+<span class="nc" id="L446">      m_mapPanel.getUIContext().removeShutdownLatch(latch);</span>
+<span class="nc" id="L447">    }</span>
+<span class="nc" id="L448">    SwingUtilities.invokeLater(() -&gt; m_actionButton.setAction(m_nullAction));</span>
+<span class="nc" id="L449">    return retreatTo[0];</span>
+  }
+
+  private class RetreatComponent extends JPanel {
+    private static final long serialVersionUID = 3855054934860687832L;
+    private final JList&lt;Territory&gt; m_list;
+<span class="nc" id="L455">    private final JLabel m_retreatTerritory = new JLabel(&quot;&quot;);</span>
+
+<span class="nc" id="L457">    RetreatComponent(final Collection&lt;Territory&gt; possible) {</span>
+<span class="nc" id="L458">      this.setLayout(new BorderLayout());</span>
+<span class="nc" id="L459">      final JLabel label = new JLabel(&quot;Retreat to...&quot;);</span>
+<span class="nc" id="L460">      label.setBorder(new EmptyBorder(0, 0, 10, 0));</span>
+<span class="nc" id="L461">      this.add(label, BorderLayout.NORTH);</span>
+<span class="nc" id="L462">      final JPanel imagePanel = new JPanel();</span>
+<span class="nc" id="L463">      imagePanel.setLayout(new FlowLayout(FlowLayout.CENTER));</span>
+<span class="nc" id="L464">      imagePanel.add(m_retreatTerritory);</span>
+<span class="nc" id="L465">      imagePanel.setBorder(new EmptyBorder(10, 10, 10, 0));</span>
+<span class="nc" id="L466">      this.add(imagePanel, BorderLayout.EAST);</span>
+<span class="nc" id="L467">      final Vector&lt;Territory&gt; listElements = new Vector&lt;&gt;(possible);</span>
+<span class="nc" id="L468">      m_list = new JList&lt;&gt;(listElements);</span>
+<span class="nc" id="L469">      m_list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);</span>
+<span class="nc bnc" id="L470" title="All 2 branches missed.">      if (listElements.size() &gt;= 1) {</span>
+<span class="nc" id="L471">        m_list.setSelectedIndex(0);</span>
+      }
+<span class="nc" id="L473">      final JScrollPane scroll = new JScrollPane(m_list);</span>
+<span class="nc" id="L474">      this.add(scroll, BorderLayout.CENTER);</span>
+<span class="nc" id="L475">      scroll.setBorder(new EmptyBorder(10, 0, 10, 0));</span>
+<span class="nc" id="L476">      updateImage();</span>
+<span class="nc" id="L477">      m_list.addListSelectionListener(e -&gt; updateImage());</span>
+<span class="nc" id="L478">    }</span>
+
+    private void updateImage() {
+<span class="nc" id="L481">      final int width = 250;</span>
+<span class="nc" id="L482">      final int height = 250;</span>
+<span class="nc" id="L483">      final Image img = m_mapPanel.getTerritoryImage(m_list.getSelectedValue(), m_location);</span>
+<span class="nc" id="L484">      final Image finalImage = Util.createImage(width, height, true);</span>
+<span class="nc" id="L485">      final Graphics g = finalImage.getGraphics();</span>
+<span class="nc" id="L486">      g.drawImage(img, 0, 0, width, height, this);</span>
+<span class="nc" id="L487">      g.dispose();</span>
+<span class="nc" id="L488">      m_retreatTerritory.setIcon(new ImageIcon(finalImage));</span>
+<span class="nc" id="L489">    }</span>
+
+    public Territory getSelection() {
+<span class="nc" id="L492">      return m_list.getSelectedValue();</span>
+    }
+  }
+
+  public CasualtyDetails getCasualties(final Collection&lt;Unit&gt; selectFrom, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents,
+      final int count, final String message, final DiceRoll dice, final PlayerID hit,
+      final CasualtyList defaultCasualties, final boolean allowMultipleHitsPerUnit) {
+<span class="nc bnc" id="L499" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L500">      throw new IllegalStateException(&quot;This method should not be run in the event dispatch thread&quot;);</span>
+    }
+<span class="nc" id="L502">    final AtomicReference&lt;CasualtyDetails&gt; casualtyDetails = new AtomicReference&lt;&gt;();</span>
+<span class="nc" id="L503">    final CountDownLatch continueLatch = new CountDownLatch(1);</span>
+<span class="nc" id="L504">    SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc bnc" id="L505" title="All 2 branches missed.">      final boolean isEditMode = (dice == null);</span>
+<span class="nc bnc" id="L506" title="All 2 branches missed.">      if (!isEditMode) {</span>
+<span class="nc" id="L507">        m_actionLayout.show(m_actionPanel, DICE_KEY);</span>
+<span class="nc" id="L508">        m_dicePanel.setDiceRoll(dice);</span>
+      }
+<span class="nc bnc" id="L510" title="All 4 branches missed.">      final boolean plural = isEditMode || (count &gt; 1);</span>
+<span class="nc bnc" id="L511" title="All 2 branches missed.">      final String countStr = isEditMode ? &quot;&quot; : &quot;&quot; + count;</span>
+<span class="nc" id="L512">      final String btnText =</span>
+<span class="nc bnc" id="L513" title="All 2 branches missed.">          hit.getName() + &quot;, press space to select &quot; + countStr + (plural ? &quot; casualties&quot; : &quot; casualty&quot;);</span>
+<span class="nc" id="L514">      m_actionButton.setAction(new AbstractAction(btnText) {</span>
+        private static final long serialVersionUID = -2156028313292233568L;
+        private UnitChooser chooser;
+        private JScrollPane chooserScrollPane;
+
+        @Override
+        public void actionPerformed(final ActionEvent e) {
+<span class="nc" id="L521">          final String messageText = message + &quot; &quot; + btnText + &quot;.&quot;;</span>
+<span class="nc bnc" id="L522" title="All 4 branches missed.">          if (chooser == null || chooserScrollPane == null) {</span>
+<span class="nc" id="L523">            chooser = new UnitChooser(selectFrom, defaultCasualties, dependents, m_data, allowMultipleHitsPerUnit,</span>
+<span class="nc" id="L524">                m_mapPanel.getUIContext());</span>
+<span class="nc" id="L525">            chooser.setTitle(messageText);</span>
+<span class="nc bnc" id="L526" title="All 2 branches missed.">            if (isEditMode) {</span>
+<span class="nc" id="L527">              chooser.setMax(selectFrom.size());</span>
+<span class="nc" id="L528">            } else {</span>
+<span class="nc" id="L529">              chooser.setMax(count);</span>
+            }
+<span class="nc" id="L531">            chooserScrollPane = new JScrollPane(chooser);</span>
+<span class="nc" id="L532">            final Dimension screenResolution = Toolkit.getDefaultToolkit().getScreenSize();</span>
+<span class="nc" id="L533">            int availHeight = screenResolution.height - 80;</span>
+<span class="nc" id="L534">            final int availWidth = screenResolution.width - 30;</span>
+<span class="nc" id="L535">            availHeight -= 50;</span>
+<span class="nc" id="L536">            chooserScrollPane.setPreferredSize(new Dimension(</span>
+<span class="nc bnc" id="L537" title="All 2 branches missed.">                (chooserScrollPane.getPreferredSize().width &gt; availWidth ? availWidth</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">                    : (chooserScrollPane.getPreferredSize().height &gt; availHeight</span>
+<span class="nc" id="L539">                        ? chooserScrollPane.getPreferredSize().width + 22</span>
+<span class="nc" id="L540">                        : chooserScrollPane.getPreferredSize().width)),</span>
+<span class="nc bnc" id="L541" title="All 2 branches missed.">                (chooserScrollPane.getPreferredSize().height &gt; availHeight ? availHeight</span>
+<span class="nc" id="L542">                    : chooserScrollPane.getPreferredSize().height)));</span>
+<span class="nc" id="L543">            chooserScrollPane.setBorder(new LineBorder(chooserScrollPane.getBackground()));</span>
+          }
+<span class="nc" id="L545">          final String[] options = {&quot;Ok&quot;, &quot;Cancel&quot;};</span>
+<span class="nc bnc" id="L546" title="All 2 branches missed.">          final String focus = BattleDisplay.getFocusOnOwnCasualtiesNotification() ? options[0] : null;</span>
+<span class="nc" id="L547">          final int option = JOptionPane.showOptionDialog(BattleDisplay.this, chooserScrollPane,</span>
+<span class="nc" id="L548">              hit.getName() + &quot; select casualties&quot;, JOptionPane.OK_OPTION, JOptionPane.PLAIN_MESSAGE, null, options,</span>
+<span class="nc" id="L549">              focus);</span>
+<span class="nc bnc" id="L550" title="All 2 branches missed.">          if (option != 0) {</span>
+<span class="nc" id="L551">            return;</span>
+          }
+<span class="nc" id="L553">          final List&lt;Unit&gt; killed = chooser.getSelected(false);</span>
+<span class="nc" id="L554">          final List&lt;Unit&gt; damaged = chooser.getSelectedDamagedMultipleHitPointUnits();</span>
+<span class="nc bnc" id="L555" title="All 4 branches missed.">          if (!isEditMode &amp;&amp; (killed.size() + damaged.size() != count)) {</span>
+<span class="nc" id="L556">            JOptionPane.showMessageDialog(BattleDisplay.this, &quot;Wrong number of casualties selected&quot;,</span>
+<span class="nc" id="L557">                hit.getName() + &quot; select casualties&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L558">          } else {</span>
+<span class="nc" id="L559">            final CasualtyDetails response = new CasualtyDetails(killed, damaged, false);</span>
+<span class="nc" id="L560">            casualtyDetails.set(response);</span>
+<span class="nc" id="L561">            m_dicePanel.clear();</span>
+<span class="nc" id="L562">            m_actionButton.setEnabled(false);</span>
+<span class="nc" id="L563">            m_actionButton.setAction(m_nullAction);</span>
+<span class="nc" id="L564">            continueLatch.countDown();</span>
+          }
+<span class="nc" id="L566">        }</span>
+      });
+<span class="nc" id="L568">    });</span>
+<span class="nc" id="L569">    m_mapPanel.getUIContext().addShutdownLatch(continueLatch);</span>
+    try {
+<span class="nc" id="L571">      continueLatch.await();</span>
+<span class="nc" id="L572">    } catch (final InterruptedException ex) {</span>
+<span class="nc" id="L573">      ClientLogger.logQuietly(ex);</span>
+<span class="nc" id="L574">    } finally {</span>
+<span class="nc" id="L575">      m_mapPanel.getUIContext().removeShutdownLatch(continueLatch);</span>
+<span class="nc" id="L576">    }</span>
+<span class="nc" id="L577">    return casualtyDetails.get();</span>
+  }
+
+  private void initLayout() {
+<span class="nc" id="L581">    final JPanel attackerUnits = new JPanel();</span>
+<span class="nc" id="L582">    attackerUnits.setLayout(new BoxLayout(attackerUnits, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L583">    attackerUnits.add(getPlayerComponent(m_attacker));</span>
+<span class="nc" id="L584">    attackerUnits.add(Box.createGlue());</span>
+<span class="nc" id="L585">    final JTable attackerTable = new BattleTable(m_attackerModel);</span>
+<span class="nc" id="L586">    attackerUnits.add(attackerTable);</span>
+<span class="nc" id="L587">    attackerUnits.add(attackerTable.getTableHeader());</span>
+<span class="nc" id="L588">    final JPanel defenderUnits = new JPanel();</span>
+<span class="nc" id="L589">    defenderUnits.setLayout(new BoxLayout(defenderUnits, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L590">    defenderUnits.add(getPlayerComponent(m_defender));</span>
+<span class="nc" id="L591">    defenderUnits.add(Box.createGlue());</span>
+<span class="nc" id="L592">    final JTable defenderTable = new BattleTable(m_defenderModel);</span>
+<span class="nc" id="L593">    defenderUnits.add(defenderTable);</span>
+<span class="nc" id="L594">    defenderUnits.add(defenderTable.getTableHeader());</span>
+<span class="nc" id="L595">    final JPanel north = new JPanel();</span>
+<span class="nc" id="L596">    north.setLayout(new BoxLayout(north, BoxLayout.X_AXIS));</span>
+<span class="nc" id="L597">    north.add(attackerUnits);</span>
+<span class="nc" id="L598">    north.add(getTerritoryComponent());</span>
+<span class="nc" id="L599">    north.add(defenderUnits);</span>
+<span class="nc" id="L600">    m_messagePanel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L601">    m_messagePanel.add(m_messageLabel, BorderLayout.CENTER);</span>
+<span class="nc" id="L602">    m_steps = new BattleStepsPanel();</span>
+<span class="nc" id="L603">    m_mapPanel.getUIContext().addActive(m_steps);</span>
+<span class="nc" id="L604">    m_steps.setBorder(new EtchedBorder(EtchedBorder.LOWERED));</span>
+<span class="nc" id="L605">    m_dicePanel = new DicePanel(m_mapPanel.getUIContext(), m_data);</span>
+<span class="nc" id="L606">    m_actionPanel = new JPanel();</span>
+<span class="nc" id="L607">    m_actionPanel.setLayout(m_actionLayout);</span>
+<span class="nc" id="L608">    m_actionPanel.add(m_dicePanel, DICE_KEY);</span>
+<span class="nc" id="L609">    m_actionPanel.add(m_casualties, CASUALTIES_KEY);</span>
+<span class="nc" id="L610">    m_actionPanel.add(m_messagePanel, MESSAGE_KEY);</span>
+<span class="nc" id="L611">    final JPanel diceAndSteps = new JPanel();</span>
+<span class="nc" id="L612">    diceAndSteps.setLayout(new BorderLayout());</span>
+<span class="nc" id="L613">    diceAndSteps.add(m_steps, BorderLayout.WEST);</span>
+<span class="nc" id="L614">    diceAndSteps.add(m_actionPanel, BorderLayout.CENTER);</span>
+<span class="nc" id="L615">    m_casualtiesInstantPanelAttacker.setLayout(new FlowLayout(FlowLayout.LEFT, 2, 2));</span>
+<span class="nc" id="L616">    m_casualtiesInstantPanelAttacker.setBorder(new EtchedBorder(EtchedBorder.LOWERED));</span>
+<span class="nc" id="L617">    m_casualtiesInstantPanelAttacker.add(LABEL_NONE_ATTACKER);</span>
+<span class="nc" id="L618">    m_casualtiesInstantPanelDefender.setLayout(new FlowLayout(FlowLayout.LEFT, 2, 2));</span>
+<span class="nc" id="L619">    m_casualtiesInstantPanelDefender.setBorder(new EtchedBorder(EtchedBorder.LOWERED));</span>
+<span class="nc" id="L620">    m_casualtiesInstantPanelDefender.add(LABEL_NONE_DEFENDER);</span>
+<span class="nc" id="L621">    final JPanel lInstantCasualtiesPanel = new JPanel();</span>
+<span class="nc" id="L622">    lInstantCasualtiesPanel.setBorder(new EtchedBorder(EtchedBorder.LOWERED));</span>
+<span class="nc" id="L623">    lInstantCasualtiesPanel.setLayout(new GridBagLayout());</span>
+<span class="nc" id="L624">    final JLabel lCausalities = new JLabel(&quot;Casualties&quot;, SwingConstants.CENTER);</span>
+<span class="nc" id="L625">    lCausalities.setFont(getPlayerComponent(m_attacker).getFont().deriveFont(Font.BOLD, 14));</span>
+<span class="nc" id="L626">    lInstantCasualtiesPanel.add(lCausalities, new GridBagConstraints(0, 0, 2, 1, 1.0d, 1.0d, GridBagConstraints.CENTER,</span>
+<span class="nc" id="L627">        GridBagConstraints.BOTH, new Insets(0, 0, 0, 0), 0, 0));</span>
+<span class="nc" id="L628">    lInstantCasualtiesPanel.add(m_casualtiesInstantPanelAttacker, new GridBagConstraints(0, 2, 1, 1, 1.0d, 1.0d,</span>
+<span class="nc" id="L629">        GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0, 0, 0, 0), 0, 0));</span>
+<span class="nc" id="L630">    lInstantCasualtiesPanel.add(m_casualtiesInstantPanelDefender, new GridBagConstraints(1, 2, 1, 1, 1.0d, 1.0d,</span>
+<span class="nc" id="L631">        GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(0, 0, 0, 0), 0, 0));</span>
+<span class="nc" id="L632">    diceAndSteps.add(lInstantCasualtiesPanel, BorderLayout.SOUTH);</span>
+<span class="nc" id="L633">    setLayout(new BorderLayout());</span>
+<span class="nc" id="L634">    add(north, BorderLayout.NORTH);</span>
+<span class="nc" id="L635">    add(diceAndSteps, BorderLayout.CENTER);</span>
+<span class="nc" id="L636">    add(m_actionButton, BorderLayout.SOUTH);</span>
+<span class="nc" id="L637">    m_actionButton.setEnabled(false);</span>
+<span class="nc bnc" id="L638" title="All 2 branches missed.">    if (!SystemProperties.isMac()) {</span>
+<span class="nc" id="L639">      m_actionButton.setBackground(Color.lightGray.darker());</span>
+<span class="nc" id="L640">      m_actionButton.setForeground(Color.white);</span>
+    }
+<span class="nc" id="L642">    setDefaultWidths(defenderTable);</span>
+<span class="nc" id="L643">    setDefaultWidths(attackerTable);</span>
+<span class="nc" id="L644">    final Action continueAction = SwingAction.of(e -&gt; {</span>
+<span class="nc" id="L645">      final Action a = m_actionButton.getAction();</span>
+<span class="nc bnc" id="L646" title="All 2 branches missed.">      if (a != null) {</span>
+<span class="nc" id="L647">        a.actionPerformed(null);</span>
+      }
+<span class="nc" id="L649">    });</span>
+    // press space to continue
+<span class="nc" id="L651">    final String key = &quot;battle.display.press.space.to.continue&quot;;</span>
+<span class="nc" id="L652">    getActionMap().put(key, continueAction);</span>
+<span class="nc" id="L653">    getInputMap(WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), key);</span>
+<span class="nc" id="L654">  }</span>
+
+  /**
+   * Shorten columns with no units.
+   */
+  private static void setDefaultWidths(final JTable table) {
+<span class="nc bnc" id="L660" title="All 2 branches missed.">    for (int column = 0; column &lt; table.getColumnCount(); column++) {</span>
+<span class="nc" id="L661">      boolean hasData = false;</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">      for (int row = 0; row &lt; table.getRowCount(); row++) {</span>
+<span class="nc bnc" id="L663" title="All 2 branches missed.">        hasData |= (table.getValueAt(row, column) != TableData.NULL);</span>
+      }
+<span class="nc bnc" id="L665" title="All 2 branches missed.">      if (!hasData) {</span>
+<span class="nc" id="L666">        table.getColumnModel().getColumn(column).setPreferredWidth(8);</span>
+      }
+    }
+<span class="nc" id="L669">  }</span>
+
+  public void setStep(final String step) {
+<span class="nc" id="L672">    m_steps.setStep(step);</span>
+<span class="nc" id="L673">  }</span>
+
+  public void battleInfo(final DiceRoll message, final String step) {
+<span class="nc" id="L676">    setStep(step);</span>
+<span class="nc" id="L677">    m_dicePanel.setDiceRoll(message);</span>
+<span class="nc" id="L678">    m_actionLayout.show(m_actionPanel, DICE_KEY);</span>
+<span class="nc" id="L679">  }</span>
+
+  public void battleInfo(final String message, final String step) {
+<span class="nc" id="L682">    m_messageLabel.setText(message);</span>
+<span class="nc" id="L683">    setStep(step);</span>
+<span class="nc" id="L684">    m_actionLayout.show(m_actionPanel, MESSAGE_KEY);</span>
+<span class="nc" id="L685">  }</span>
+
+  public void listBattle(final List&lt;String&gt; steps) {
+<span class="nc" id="L688">    m_steps.listBattle(steps);</span>
+<span class="nc" id="L689">  }</span>
+
+  private static JComponent getPlayerComponent(final PlayerID id) {
+<span class="nc" id="L692">    final JLabel player = new JLabel(id.getName());</span>
+<span class="nc" id="L693">    player.setBorder(new javax.swing.border.EmptyBorder(5, 5, 5, 5));</span>
+<span class="nc" id="L694">    player.setFont(player.getFont().deriveFont((float) 14));</span>
+<span class="nc" id="L695">    return player;</span>
+  }
+
+  private static final int MY_WIDTH = 100;
+  private static final int MY_HEIGHT = 100;
+
+  private JComponent getTerritoryComponent() {
+<span class="nc" id="L702">    final Image finalImage = Util.createImage(MY_WIDTH, MY_HEIGHT, true);</span>
+<span class="nc" id="L703">    final Image territory = m_mapPanel.getTerritoryImage(m_location);</span>
+<span class="nc" id="L704">    final Graphics g = finalImage.getGraphics();</span>
+<span class="nc" id="L705">    g.drawImage(territory, 0, 0, MY_WIDTH, MY_HEIGHT, this);</span>
+<span class="nc" id="L706">    g.dispose();</span>
+<span class="nc" id="L707">    return new JLabel(new ImageIcon(finalImage));</span>
+  }
+}
+
+
+class BattleTable extends JTable {
+  private static final long serialVersionUID = 6737857639382012817L;
+
+  BattleTable(final BattleModel model) {
+<span class="nc" id="L716">    super(model);</span>
+<span class="nc" id="L717">    setDefaultRenderer(Object.class, new Renderer());</span>
+<span class="nc" id="L718">    setRowHeight(UnitImageFactory.DEFAULT_UNIT_ICON_SIZE + 5);</span>
+<span class="nc" id="L719">    setBackground(new JButton().getBackground());</span>
+<span class="nc" id="L720">    setShowHorizontalLines(false);</span>
+<span class="nc" id="L721">    getTableHeader().setReorderingAllowed(false);</span>
+    // getTableHeader().setResizingAllowed(false);
+<span class="nc" id="L723">  }</span>
+}
+
+
+class BattleModel extends DefaultTableModel {
+  private static final long serialVersionUID = 6913324191512043963L;
+  private final IUIContext m_uiContext;
+  private final GameData m_data;
+  // is the player the aggressor?
+  private final boolean m_attack;
+  private final Collection&lt;Unit&gt; m_units;
+  private final Territory m_location;
+  private final BattleType m_battleType;
+  private final Collection&lt;TerritoryEffect&gt; m_territoryEffects;
+  private final boolean m_isAmphibious;
+  private final Collection&lt;Unit&gt; m_amphibiousLandAttackers;
+<span class="nc" id="L739">  private BattleModel m_enemyBattleModel = null;</span>
+
+  private static String[] varDiceArray(final GameData data) {
+    // TODO Soft set the maximum bonus to-hit plus 1 for 0 based count(+2 total currently)
+<span class="nc" id="L743">    final String[] diceColumns = new String[data.getDiceSides() + 1];</span>
+    {
+<span class="nc bnc" id="L745" title="All 2 branches missed.">      for (int i = 0; i &lt; diceColumns.length; i++) {</span>
+<span class="nc bnc" id="L746" title="All 2 branches missed.">        if (i == 0) {</span>
+<span class="nc" id="L747">          diceColumns[i] = &quot; &quot;;</span>
+<span class="nc" id="L748">        } else {</span>
+<span class="nc" id="L749">          diceColumns[i] = Integer.toString(i);</span>
+        }
+      }
+    }
+<span class="nc" id="L753">    return diceColumns;</span>
+  }
+
+  BattleModel(final Collection&lt;Unit&gt; units, final boolean attack, final BattleType battleType, final PlayerID player,
+      final GameData data, final Territory battleLocation, final Collection&lt;TerritoryEffect&gt; territoryEffects,
+      final boolean isAmphibious, final Collection&lt;Unit&gt; amphibiousLandAttackers, final IUIContext uiContext) {
+<span class="nc" id="L759">    super(new Object[0][0], varDiceArray(data));</span>
+<span class="nc" id="L760">    m_uiContext = uiContext;</span>
+<span class="nc" id="L761">    m_data = data;</span>
+<span class="nc" id="L762">    m_attack = attack;</span>
+    // were going to modify the units
+<span class="nc" id="L764">    m_units = new ArrayList&lt;&gt;(units);</span>
+<span class="nc" id="L765">    m_location = battleLocation;</span>
+<span class="nc" id="L766">    m_battleType = battleType;</span>
+<span class="nc" id="L767">    m_territoryEffects = territoryEffects;</span>
+<span class="nc" id="L768">    m_isAmphibious = isAmphibious;</span>
+<span class="nc" id="L769">    m_amphibiousLandAttackers = amphibiousLandAttackers;</span>
+<span class="nc" id="L770">  }</span>
+
+  public void setEnemyBattleModel(final BattleModel enemyBattleModel) {
+<span class="nc" id="L773">    m_enemyBattleModel = enemyBattleModel;</span>
+<span class="nc" id="L774">  }</span>
+
+  public void notifyRetreat(final Collection&lt;Unit&gt; retreating) {
+<span class="nc" id="L777">    m_units.removeAll(retreating);</span>
+<span class="nc" id="L778">    refresh();</span>
+<span class="nc" id="L779">  }</span>
+
+  public void removeCasualties(final Collection&lt;Unit&gt; killed) {
+<span class="nc" id="L782">    m_units.removeAll(killed);</span>
+<span class="nc" id="L783">    refresh();</span>
+<span class="nc" id="L784">  }</span>
+
+  public void addUnits(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L787">    m_units.addAll(units);</span>
+<span class="nc" id="L788">    refresh();</span>
+<span class="nc" id="L789">  }</span>
+
+  Collection&lt;Unit&gt; getUnits() {
+<span class="nc" id="L792">    return m_units;</span>
+  }
+
+  /**
+   * refresh the model from m_units
+   */
+  public void refresh() {
+    // TODO Soft set the maximum bonus to-hit plus 1 for 0 based count(+2 total currently)
+    // Soft code the # of columns
+
+<span class="nc" id="L802">    final List&lt;List&lt;TableData&gt;&gt; columns = new ArrayList&lt;&gt;(m_data.getDiceSides() + 1);</span>
+<span class="nc bnc" id="L803" title="All 2 branches missed.">    for (int i = 0; i &lt;= m_data.getDiceSides(); i++) {</span>
+<span class="nc" id="L804">      columns.add(i, new ArrayList&lt;&gt;());</span>
+    }
+<span class="nc" id="L806">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(m_units);</span>
+<span class="nc bnc" id="L807" title="All 2 branches missed.">    DiceRoll.sortByStrength(units, !m_attack);</span>
+    final Map&lt;Unit, Tuple&lt;Integer, Integer&gt;&gt; unitPowerAndRollsMap;
+<span class="nc" id="L809">    m_data.acquireReadLock();</span>
+    try {
+<span class="nc bnc" id="L811" title="All 2 branches missed.">      if (m_battleType.isAirPreBattleOrPreRaid()) {</span>
+<span class="nc" id="L812">        unitPowerAndRollsMap = null;</span>
+<span class="nc" id="L813">      } else {</span>
+<span class="nc" id="L814">        unitPowerAndRollsMap = DiceRoll.getUnitPowerAndRollsForNormalBattles(units,</span>
+<span class="nc bnc" id="L815" title="All 2 branches missed.">            new ArrayList&lt;&gt;(m_enemyBattleModel.getUnits()), !m_attack, false, m_data, m_location,</span>
+<span class="nc" id="L816">            m_territoryEffects, m_isAmphibious, m_amphibiousLandAttackers);</span>
+      }
+<span class="nc" id="L818">    } finally {</span>
+<span class="nc" id="L819">      m_data.releaseReadLock();</span>
+<span class="nc" id="L820">    }</span>
+<span class="nc" id="L821">    final int diceSides = m_data.getDiceSides();</span>
+<span class="nc" id="L822">    final Collection&lt;UnitCategory&gt; unitCategories = UnitSeperator.categorize(units, null, false, false, false);</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">    for (final UnitCategory category : unitCategories) {</span>
+      int strength;
+<span class="nc" id="L825">      final UnitAttachment attachment = UnitAttachment.get(category.getType());</span>
+<span class="nc" id="L826">      final int[] shift = new int[m_data.getDiceSides() + 1];</span>
+<span class="nc bnc" id="L827" title="All 2 branches missed.">      for (final Unit current : category.getUnits()) {</span>
+<span class="nc bnc" id="L828" title="All 2 branches missed.">        if (m_battleType.isAirPreBattleOrPreRaid()) {</span>
+<span class="nc bnc" id="L829" title="All 2 branches missed.">          if (m_attack) {</span>
+<span class="nc" id="L830">            strength = attachment.getAirAttack(category.getOwner());</span>
+<span class="nc" id="L831">          } else {</span>
+<span class="nc" id="L832">            strength = attachment.getAirDefense(category.getOwner());</span>
+          }
+<span class="nc" id="L834">        } else {</span>
+          // normal battle
+<span class="nc" id="L836">          strength = unitPowerAndRollsMap.get(current).getFirst();</span>
+        }
+<span class="nc" id="L838">        strength = Math.min(Math.max(strength, 0), diceSides);</span>
+<span class="nc" id="L839">        shift[strength]++;</span>
+      }
+<span class="nc bnc" id="L841" title="All 2 branches missed.">      for (int i = 0; i &lt;= m_data.getDiceSides(); i++) {</span>
+<span class="nc bnc" id="L842" title="All 2 branches missed.">        if (shift[i] &gt; 0) {</span>
+<span class="nc" id="L843">          columns.get(i).add(new TableData(category.getOwner(), shift[i], category.getType(), m_data,</span>
+<span class="nc" id="L844">              category.hasDamageOrBombingUnitDamage(), category.getDisabled(), m_uiContext));</span>
+        }
+      }
+      // TODO Kev determine if we need to identify if the unit is hit/disabled
+    }
+    // find the number of rows
+    // this will be the size of the largest column
+<span class="nc" id="L851">    int rowCount = 1;</span>
+<span class="nc bnc" id="L852" title="All 2 branches missed.">    for (final List&lt;TableData&gt; column : columns) {</span>
+<span class="nc" id="L853">      rowCount = Math.max(rowCount, column.size());</span>
+    }
+<span class="nc" id="L855">    setNumRows(rowCount);</span>
+<span class="nc bnc" id="L856" title="All 2 branches missed.">    for (int row = 0; row &lt; rowCount; row++) {</span>
+<span class="nc bnc" id="L857" title="All 2 branches missed.">      for (int column = 0; column &lt; columns.size(); column++) {</span>
+        // if the column has that many items, add to the table, else add null
+<span class="nc bnc" id="L859" title="All 2 branches missed.">        if (columns.get(column).size() &gt; row) {</span>
+<span class="nc" id="L860">          setValueAt(columns.get(column).get(row), row, column);</span>
+<span class="nc" id="L861">        } else {</span>
+<span class="nc" id="L862">          setValueAt(TableData.NULL, row, column);</span>
+        }
+      }
+    }
+<span class="nc" id="L866">  }</span>
+
+  @Override
+  public boolean isCellEditable(final int row, final int column) {
+<span class="nc" id="L870">    return false;</span>
+  }
+}
+
+
+<span class="nc" id="L875">class Renderer implements TableCellRenderer {</span>
+<span class="nc" id="L876">  JLabel m_stamp = new JLabel();</span>
+
+  @Override
+  public Component getTableCellRendererComponent(final JTable table, final Object value, final boolean isSelected,
+      final boolean hasFocus, final int row, final int column) {
+<span class="nc" id="L881">    ((TableData) value).updateStamp(m_stamp);</span>
+<span class="nc" id="L882">    return m_stamp;</span>
+  }
+}
+
+
+class TableData {
+<span class="nc" id="L888">  static final TableData NULL = new TableData();</span>
+  private int m_count;
+  private Optional&lt;ImageIcon&gt; m_icon;
+
+<span class="nc" id="L892">  private TableData() {}</span>
+
+<span class="nc" id="L894">  TableData(final PlayerID player, final int count, final UnitType type, final GameData data, final boolean damaged,</span>
+      final boolean disabled, final IUIContext uiContext) {
+<span class="nc" id="L896">    m_count = count;</span>
+<span class="nc" id="L897">    m_icon = uiContext.getUnitImageFactory().getIcon(type, player, data, damaged, disabled);</span>
+<span class="nc" id="L898">  }</span>
+
+  public void updateStamp(final JLabel stamp) {
+<span class="nc bnc" id="L901" title="All 2 branches missed.">    if (m_count == 0) {</span>
+<span class="nc" id="L902">      stamp.setText(&quot;&quot;);</span>
+<span class="nc" id="L903">      stamp.setIcon(null);</span>
+<span class="nc" id="L904">    } else {</span>
+<span class="nc" id="L905">      stamp.setText(&quot;x&quot; + m_count);</span>
+<span class="nc bnc" id="L906" title="All 2 branches missed.">      if (m_icon.isPresent()) {</span>
+<span class="nc" id="L907">        stamp.setIcon(m_icon.get());</span>
+      }
+    }
+<span class="nc" id="L910">  }</span>
+}
+
+
+class CasualtyNotificationPanel extends JPanel {
+  private static final long serialVersionUID = -8254027929090027450L;
+  private final DicePanel m_dice;
+<span class="nc" id="L917">  private final JPanel m_killed = new JPanel();</span>
+<span class="nc" id="L918">  private final JPanel m_damaged = new JPanel();</span>
+  private final GameData m_data;
+  private final IUIContext m_uiContext;
+
+<span class="nc" id="L922">  public CasualtyNotificationPanel(final GameData data, final IUIContext uiContext) {</span>
+<span class="nc" id="L923">    m_data = data;</span>
+<span class="nc" id="L924">    m_uiContext = uiContext;</span>
+<span class="nc" id="L925">    m_dice = new DicePanel(uiContext, data);</span>
+<span class="nc" id="L926">    setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));</span>
+<span class="nc" id="L927">    add(m_dice);</span>
+<span class="nc" id="L928">    add(m_killed);</span>
+<span class="nc" id="L929">    add(m_damaged);</span>
+<span class="nc" id="L930">  }</span>
+
+  protected void setNotification(final DiceRoll dice, final Collection&lt;Unit&gt; killed,
+      final Collection&lt;Unit&gt; damaged, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents) {
+<span class="nc bnc" id="L934" title="All 2 branches missed.">    final boolean isEditMode = (dice == null);</span>
+<span class="nc bnc" id="L935" title="All 2 branches missed.">    if (!isEditMode) {</span>
+<span class="nc" id="L936">      m_dice.setDiceRoll(dice);</span>
+    }
+<span class="nc" id="L938">    m_killed.removeAll();</span>
+<span class="nc" id="L939">    m_damaged.removeAll();</span>
+<span class="nc bnc" id="L940" title="All 2 branches missed.">    if (!killed.isEmpty()) {</span>
+<span class="nc" id="L941">      m_killed.add(new JLabel(&quot;Killed&quot;));</span>
+    }
+<span class="nc" id="L943">    final Iterator&lt;UnitCategory&gt; killedIter = UnitSeperator.categorize(killed, dependents, false, false).iterator();</span>
+<span class="nc" id="L944">    categorizeUnits(killedIter, false, false);</span>
+<span class="nc" id="L945">    damaged.removeAll(killed);</span>
+<span class="nc bnc" id="L946" title="All 2 branches missed.">    if (!damaged.isEmpty()) {</span>
+<span class="nc" id="L947">      m_damaged.add(new JLabel(&quot;Damaged&quot;));</span>
+    }
+<span class="nc" id="L949">    final Iterator&lt;UnitCategory&gt; damagedIter = UnitSeperator.categorize(damaged, dependents, false, false).iterator();</span>
+<span class="nc" id="L950">    categorizeUnits(damagedIter, true, true);</span>
+<span class="nc" id="L951">    invalidate();</span>
+<span class="nc" id="L952">    validate();</span>
+<span class="nc" id="L953">  }</span>
+
+  protected void setNotificationShort(final Collection&lt;Unit&gt; killed, final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependents) {
+<span class="nc" id="L956">    m_killed.removeAll();</span>
+<span class="nc bnc" id="L957" title="All 2 branches missed.">    if (!killed.isEmpty()) {</span>
+<span class="nc" id="L958">      m_killed.add(new JLabel(&quot;Killed&quot;));</span>
+    }
+<span class="nc" id="L960">    final Iterator&lt;UnitCategory&gt; killedIter = UnitSeperator.categorize(killed, dependents, false, false).iterator();</span>
+<span class="nc" id="L961">    categorizeUnits(killedIter, false, false);</span>
+<span class="nc" id="L962">    invalidate();</span>
+<span class="nc" id="L963">    validate();</span>
+<span class="nc" id="L964">  }</span>
+
+  private void categorizeUnits(final Iterator&lt;UnitCategory&gt; categoryIter, final boolean damaged,
+      final boolean disabled) {
+<span class="nc bnc" id="L968" title="All 2 branches missed.">    while (categoryIter.hasNext()) {</span>
+<span class="nc" id="L969">      final UnitCategory category = categoryIter.next();</span>
+<span class="nc" id="L970">      final JPanel panel = new JPanel();</span>
+      // TODO Kev determine if we need to identify if the unit is hit/disabled
+<span class="nc" id="L972">      final Optional&lt;ImageIcon&gt; unitImage =</span>
+<span class="nc" id="L973">          m_uiContext.getUnitImageFactory().getIcon(category.getType(), category.getOwner(), m_data,</span>
+<span class="nc bnc" id="L974" title="All 8 branches missed.">              damaged &amp;&amp; category.hasDamageOrBombingUnitDamage(), disabled &amp;&amp; category.getDisabled());</span>
+<span class="nc bnc" id="L975" title="All 2 branches missed.">      final JLabel unit = unitImage.isPresent() ? new JLabel(unitImage.get()) : new JLabel();</span>
+<span class="nc" id="L976">      panel.add(unit);</span>
+<span class="nc bnc" id="L977" title="All 2 branches missed.">      for (final UnitOwner owner : category.getDependents()) {</span>
+<span class="nc" id="L978">        unit.add(m_uiContext.createUnitImageJLabel(owner.getType(), owner.getOwner(), m_data));</span>
+      }
+<span class="nc" id="L980">      panel.add(new JLabel(&quot;x &quot; + category.getUnits().size()));</span>
+<span class="nc bnc" id="L981" title="All 2 branches missed.">      if (damaged) {</span>
+<span class="nc" id="L982">        m_damaged.add(panel);</span>
+<span class="nc" id="L983">      } else {</span>
+<span class="nc" id="L984">        m_killed.add(panel);</span>
+      }
+    }
+<span class="nc" id="L987">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

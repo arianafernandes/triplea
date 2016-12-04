@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>UnifiedMessenger.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.message.unifiedmessenger</a> &gt; <span class="el_source">UnifiedMessenger.java</span></div><h1>UnifiedMessenger.java</h1><pre class="source lang-java linenums">package games.strategy.engine.message.unifiedmessenger;
+
+import java.io.PrintStream;
+import java.io.Serializable;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.message.ConnectionLostException;
+import games.strategy.engine.message.HubInvocationResults;
+import games.strategy.engine.message.HubInvoke;
+import games.strategy.engine.message.RemoteMethodCall;
+import games.strategy.engine.message.RemoteMethodCallResults;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.message.RemoteNotFoundException;
+import games.strategy.engine.message.SpokeInvocationResults;
+import games.strategy.engine.message.SpokeInvoke;
+import games.strategy.engine.message.UnifiedMessengerHub;
+import games.strategy.net.GUID;
+import games.strategy.net.IMessageListener;
+import games.strategy.net.IMessenger;
+import games.strategy.net.IMessengerErrorListener;
+import games.strategy.net.INode;
+import games.strategy.util.ThreadUtil;
+
+/**
+ * A messenger general enough that both Channel and Remote messenger can be
+ * based on it.
+ */
+public class UnifiedMessenger {
+<span class="fc" id="L36">  private final static Logger s_logger = Logger.getLogger(UnifiedMessenger.class.getName());</span>
+
+<span class="fc" id="L38">  private static final ExecutorService threadPool = Executors.newFixedThreadPool(15);</span>
+  // the messenger we are based on
+  private final IMessenger m_messenger;
+  // lock on this for modifications to create or remove local end points
+<span class="fc" id="L42">  private final Object m_endPointMutex = new Object();</span>
+  // maps String -&gt; EndPoint
+  // these are the end points that
+  // have local implementors
+<span class="fc" id="L46">  private final Map&lt;String, EndPoint&gt; m_localEndPoints = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L47">  private final Object m_pendingLock = new Object();</span>
+  // threads wait on these latches for the hub to return invocations
+  // the latch should be removed from the map when you countdown the last result
+  // access should be synchronized on m_pendingLock
+  // TODO: how do these get shutdown when we exit a game or close triplea?
+<span class="fc" id="L52">  private final Map&lt;GUID, CountDownLatch&gt; m_pendingInvocations = new HashMap&lt;&gt;();</span>
+  // after the remote has invoked, the results are placed here
+  // access should be synchronized on m_pendingLock
+<span class="fc" id="L55">  private final Map&lt;GUID, RemoteMethodCallResults&gt; m_results = new HashMap&lt;&gt;();</span>
+  // only non null for the server
+  private UnifiedMessengerHub m_hub;
+
+  /**
+   * @param messenger
+   */
+<span class="fc" id="L62">  public UnifiedMessenger(final IMessenger messenger) {</span>
+<span class="fc" id="L63">    m_messenger = messenger;</span>
+<span class="fc" id="L64">    final IMessageListener m_messageListener = (msg, from) -&gt; UnifiedMessenger.this.messageReceived(msg, from);</span>
+<span class="fc" id="L65">    m_messenger.addMessageListener(m_messageListener);</span>
+<span class="fc" id="L66">    final IMessengerErrorListener m_messengerErrorListener =</span>
+<span class="pc" id="L67">        (messenger1, reason) -&gt; UnifiedMessenger.this.messengerInvalid();</span>
+<span class="fc" id="L68">    m_messenger.addErrorListener(m_messengerErrorListener);</span>
+<span class="fc bfc" id="L69" title="All 2 branches covered.">    if (m_messenger.isServer()) {</span>
+<span class="fc" id="L70">      m_hub = new UnifiedMessengerHub(m_messenger, this);</span>
+    }
+<span class="fc" id="L72">  }</span>
+
+  UnifiedMessengerHub getHub() {
+<span class="fc" id="L75">    return m_hub;</span>
+  }
+
+  private void messengerInvalid() {
+<span class="nc" id="L79">    synchronized (m_pendingLock) {</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">      for (final GUID id : m_pendingInvocations.keySet()) {</span>
+<span class="nc" id="L81">        final CountDownLatch latch = m_pendingInvocations.remove(id);</span>
+<span class="nc" id="L82">        latch.countDown();</span>
+<span class="nc" id="L83">        m_results.put(id, new RemoteMethodCallResults(new ConnectionLostException(&quot;Connection Lost&quot;)));</span>
+      }
+    }
+<span class="nc" id="L86">  }</span>
+
+  /**
+   * Invoke and wait for all implementors on all vms to finish executing.
+   */
+  public RemoteMethodCallResults invokeAndWait(final String endPointName, final RemoteMethodCall remoteCall) {
+    EndPoint local;
+<span class="pc" id="L93">    synchronized (m_endPointMutex) {</span>
+<span class="fc" id="L94">      local = m_localEndPoints.get(endPointName);</span>
+    }
+<span class="fc bfc" id="L96" title="All 2 branches covered.">    if (local == null) {</span>
+<span class="fc" id="L97">      return invokeAndWaitRemote(remoteCall);</span>
+      // we have the implementor here, just invoke it
+    } else {
+<span class="fc" id="L100">      final long number = local.takeANumber();</span>
+<span class="fc" id="L101">      final List&lt;RemoteMethodCallResults&gt; results = local.invokeLocal(remoteCall, number, getLocalNode());</span>
+<span class="pc bpc" id="L102" title="1 of 2 branches missed.">      if (results.size() == 0) {</span>
+<span class="nc" id="L103">        throw new RemoteNotFoundException(&quot;Not found:&quot; + endPointName);</span>
+      }
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">      if (results.size() &gt; 1) {</span>
+<span class="nc" id="L106">        throw new IllegalStateException(&quot;Too many implementors, got back:&quot; + results);</span>
+      }
+<span class="fc" id="L108">      return results.get(0);</span>
+    }
+  }
+
+  private RemoteMethodCallResults invokeAndWaitRemote(final RemoteMethodCall remoteCall) {
+<span class="fc" id="L113">    final GUID methodCallID = new GUID();</span>
+<span class="fc" id="L114">    final CountDownLatch latch = new CountDownLatch(1);</span>
+<span class="pc" id="L115">    synchronized (m_pendingLock) {</span>
+<span class="fc" id="L116">      m_pendingInvocations.put(methodCallID, latch);</span>
+    }
+    // invoke remotely
+<span class="fc" id="L119">    final Invoke invoke = new HubInvoke(methodCallID, true, remoteCall);</span>
+<span class="fc" id="L120">    send(invoke, m_messenger.getServerNode());</span>
+
+    try {
+<span class="fc" id="L123">      latch.await();</span>
+<span class="pc" id="L124">    } catch (final InterruptedException e) {</span>
+<span class="nc" id="L125">      s_logger.log(Level.WARNING, e.getMessage());</span>
+    }
+
+<span class="pc" id="L128">    synchronized (m_pendingLock) {</span>
+<span class="fc" id="L129">      final RemoteMethodCallResults results = m_results.remove(methodCallID);</span>
+<span class="pc bpc" id="L130" title="1 of 2 branches missed.">      if (results == null) {</span>
+<span class="nc" id="L131">        throw new IllegalStateException(</span>
+<span class="nc" id="L132">            &quot;No results from remote call. Method returned:&quot; + remoteCall.getMethodName() + &quot; for remote name:&quot;</span>
+<span class="nc" id="L133">                + remoteCall.getRemoteName() + &quot; with id:&quot; + methodCallID);</span>
+      }
+<span class="fc" id="L135">      return results;</span>
+    }
+  }
+
+  /**
+   * invoke without waiting for remote nodes to respond
+   */
+  public void invoke(final String endPointName, final RemoteMethodCall call) {
+    // send the remote invocation
+<span class="fc" id="L144">    final Invoke invoke = new HubInvoke(null, false, call);</span>
+<span class="fc" id="L145">    send(invoke, m_messenger.getServerNode());</span>
+    // invoke locally
+    EndPoint endPoint;
+<span class="pc" id="L148">    synchronized (m_endPointMutex) {</span>
+<span class="fc" id="L149">      endPoint = m_localEndPoints.get(endPointName);</span>
+    }
+<span class="fc bfc" id="L151" title="All 2 branches covered.">    if (endPoint != null) {</span>
+<span class="fc" id="L152">      final long number = endPoint.takeANumber();</span>
+<span class="fc" id="L153">      final List&lt;RemoteMethodCallResults&gt; results = endPoint.invokeLocal(call, number, getLocalNode());</span>
+<span class="fc bfc" id="L154" title="All 2 branches covered.">      for (final RemoteMethodCallResults r : results) {</span>
+<span class="pc bpc" id="L155" title="1 of 2 branches missed.">        if (r.getException() != null) {</span>
+          // don't swallow errors
+<span class="nc" id="L157">          s_logger.log(Level.WARNING, r.getException().getMessage(), r.getException());</span>
+        }
+      }
+    }
+<span class="fc" id="L161">  }</span>
+
+  public void addImplementor(final RemoteName endPointDescriptor, final Object implementor,
+      final boolean singleThreaded) {
+<span class="pc bpc" id="L165" title="1 of 2 branches missed.">    if (!endPointDescriptor.getClazz().isAssignableFrom(implementor.getClass())) {</span>
+<span class="nc" id="L166">      throw new IllegalArgumentException(implementor + &quot; does not implement &quot; + endPointDescriptor.getClazz());</span>
+    }
+<span class="fc" id="L168">    final EndPoint endPoint = getLocalEndPointOrCreate(endPointDescriptor, singleThreaded);</span>
+<span class="fc" id="L169">    endPoint.addImplementor(implementor);</span>
+<span class="fc" id="L170">  }</span>
+
+  public INode getLocalNode() {
+<span class="fc" id="L173">    return m_messenger.getLocalNode();</span>
+  }
+
+  /**
+   * Get the 1 and only implementor for the endpoint. throws an exception if there are not exctly 1 implementors
+   */
+  public Object getImplementor(final String name) {
+<span class="pc" id="L180">    synchronized (m_endPointMutex) {</span>
+<span class="fc" id="L181">      final EndPoint endPoint = m_localEndPoints.get(name);</span>
+<span class="fc" id="L182">      return endPoint.getFirstImplementor();</span>
+    }
+  }
+
+  public void removeImplementor(final String name, final Object implementor) {
+    EndPoint endPoint;
+<span class="pc" id="L188">    synchronized (m_endPointMutex) {</span>
+<span class="fc" id="L189">      endPoint = m_localEndPoints.get(name);</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">      if (endPoint == null) {</span>
+<span class="nc" id="L191">        throw new IllegalStateException(&quot;No end point for:&quot; + name);</span>
+      }
+<span class="pc bpc" id="L193" title="1 of 2 branches missed.">      if (implementor == null) {</span>
+<span class="nc" id="L194">        throw new IllegalArgumentException(&quot;null implementor&quot;);</span>
+      }
+<span class="fc" id="L196">      final boolean noneLeft = endPoint.removeImplementor(implementor);</span>
+<span class="pc bpc" id="L197" title="1 of 2 branches missed.">      if (noneLeft) {</span>
+<span class="fc" id="L198">        m_localEndPoints.remove(name);</span>
+<span class="fc" id="L199">        send(new NoLongerHasEndPointImplementor(name), m_messenger.getServerNode());</span>
+      }
+    }
+<span class="fc" id="L202">  }</span>
+
+  private EndPoint getLocalEndPointOrCreate(final RemoteName endPointDescriptor, final boolean singleThreaded) {
+    EndPoint endPoint;
+<span class="pc" id="L206">    synchronized (m_endPointMutex) {</span>
+<span class="fc bfc" id="L207" title="All 2 branches covered.">      if (m_localEndPoints.containsKey(endPointDescriptor.getName())) {</span>
+<span class="fc" id="L208">        return m_localEndPoints.get(endPointDescriptor.getName());</span>
+      }
+<span class="fc" id="L210">      endPoint = new EndPoint(endPointDescriptor.getName(), endPointDescriptor.getClazz(), singleThreaded);</span>
+<span class="fc" id="L211">      m_localEndPoints.put(endPointDescriptor.getName(), endPoint);</span>
+    }
+<span class="fc" id="L213">    final HasEndPointImplementor msg = new HasEndPointImplementor(endPointDescriptor.getName());</span>
+<span class="fc" id="L214">    send(msg, m_messenger.getServerNode());</span>
+<span class="fc" id="L215">    return endPoint;</span>
+  }
+
+  private void send(final Serializable msg, final INode to) {
+<span class="fc bfc" id="L219" title="All 2 branches covered.">    if (m_messenger.getLocalNode().equals(to)) {</span>
+<span class="fc" id="L220">      m_hub.messageReceived(msg, getLocalNode());</span>
+<span class="fc" id="L221">    } else {</span>
+<span class="fc" id="L222">      m_messenger.send(msg, to);</span>
+    }
+<span class="fc" id="L224">  }</span>
+
+  public boolean isServer() {
+<span class="nc" id="L227">    return m_messenger.isServer();</span>
+  }
+
+  /**
+   * Wait for the messenger to know about the given endpoint.
+   *
+   * @param endPointName
+   * @param timeout
+   */
+  public void waitForLocalImplement(final String endPointName, long timeoutMS) {
+    // dont use Long.MAX_VALUE since that will overflow
+<span class="nc bnc" id="L238" title="All 2 branches missed.">    if (timeoutMS &lt;= 0) {</span>
+<span class="nc" id="L239">      timeoutMS = Integer.MAX_VALUE;</span>
+    }
+<span class="nc" id="L241">    final long endTime = timeoutMS + System.currentTimeMillis();</span>
+<span class="nc bnc" id="L242" title="All 4 branches missed.">    while (System.currentTimeMillis() &lt; endTime &amp;&amp; !hasLocalEndPoint(endPointName)) {</span>
+<span class="nc" id="L243">      ThreadUtil.sleep(50);</span>
+    }
+<span class="nc" id="L245">  }</span>
+
+  private boolean hasLocalEndPoint(final String endPointName) {
+<span class="nc" id="L248">    synchronized (m_endPointMutex) {</span>
+<span class="nc" id="L249">      return m_localEndPoints.containsKey(endPointName);</span>
+    }
+  }
+
+  public int getLocalEndPointCount(final RemoteName descriptor) {
+<span class="pc" id="L254">    synchronized (m_endPointMutex) {</span>
+<span class="fc bfc" id="L255" title="All 2 branches covered.">      if (!m_localEndPoints.containsKey(descriptor.getName())) {</span>
+<span class="fc" id="L256">        return 0;</span>
+      }
+<span class="fc" id="L258">      return m_localEndPoints.get(descriptor.getName()).getLocalImplementorCount();</span>
+    }
+  }
+
+  private void assertIsServer(final INode from) {
+<span class="pc bpc" id="L263" title="1 of 2 branches missed.">    if (!from.equals(m_messenger.getServerNode())) {</span>
+<span class="nc" id="L264">      throw new IllegalStateException(&quot;Not from server!  Instead from:&quot; + from);</span>
+    }
+<span class="fc" id="L266">  }</span>
+
+  public void messageReceived(final Serializable msg, final INode from) {
+<span class="fc bfc" id="L269" title="All 2 branches covered.">    if (msg instanceof SpokeInvoke) {</span>
+      // if this isn't the server, something is wrong
+      // maybe an attempt to spoof a message
+<span class="fc" id="L272">      assertIsServer(from);</span>
+<span class="fc" id="L273">      final SpokeInvoke invoke = (SpokeInvoke) msg;</span>
+      EndPoint local;
+<span class="pc" id="L275">      synchronized (m_endPointMutex) {</span>
+<span class="fc" id="L276">        local = m_localEndPoints.get(invoke.call.getRemoteName());</span>
+      }
+      // something a bit strange here, it may be the case
+      // that the endpoint was deleted locally
+      // regardless, the other side is expecting our reply
+<span class="pc bpc" id="L281" title="1 of 2 branches missed.">      if (local == null) {</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">        if (invoke.needReturnValues) {</span>
+<span class="nc" id="L283">          send(new HubInvocationResults(</span>
+<span class="nc" id="L284">              new RemoteMethodCallResults(new RemoteNotFoundException(&quot;No implementors for &quot; + invoke.call)),</span>
+<span class="nc" id="L285">              invoke.methodCallID), from);</span>
+        }
+<span class="nc" id="L287">        return;</span>
+      }
+      // very important
+      // we are guaranteed that here messages will be
+      // read in the same order that they are sent from the client
+      // however, once we delegate to the thread pool, there is no
+      // guarantee that the thread pool task will run before
+      // we get the next message notification
+      // get the number for the invocation here
+<span class="fc" id="L296">      final long methodRunNumber = local.takeANumber();</span>
+      // we dont want to block the message thread, only one thread is
+      // reading messages
+      // per connection, so run with out thread pool
+<span class="fc" id="L300">      final EndPoint localFinal = local;</span>
+<span class="fc" id="L301">      final Runnable task = () -&gt; {</span>
+<span class="fc" id="L302">        final List&lt;RemoteMethodCallResults&gt; results =</span>
+<span class="fc" id="L303">            localFinal.invokeLocal(invoke.call, methodRunNumber, invoke.getInvoker());</span>
+<span class="fc bfc" id="L304" title="All 2 branches covered.">        if (invoke.needReturnValues) {</span>
+<span class="fc" id="L305">          RemoteMethodCallResults result = null;</span>
+<span class="pc bpc" id="L306" title="1 of 2 branches missed.">          if (results.size() == 1) {</span>
+<span class="fc" id="L307">            result = results.get(0);</span>
+<span class="fc" id="L308">          } else {</span>
+<span class="nc" id="L309">            result = new RemoteMethodCallResults(</span>
+<span class="nc" id="L310">                new IllegalStateException(&quot;Invalid result count&quot; + results.size()) + &quot; for end point:&quot; + localFinal);</span>
+          }
+<span class="fc" id="L312">          send(new HubInvocationResults(result, invoke.methodCallID), from);</span>
+        }
+<span class="fc" id="L314">      };</span>
+<span class="fc" id="L315">      threadPool.execute(task);</span>
+<span class="fc" id="L316">    }</span>
+    // a remote machine is returning results
+<span class="fc bfc" id="L318" title="All 2 branches covered.">    else if (msg instanceof SpokeInvocationResults) {</span>
+      // if this isn't the server, something is wrong
+      // maybe an attempt to spoof a message
+<span class="fc" id="L321">      assertIsServer(from);</span>
+<span class="fc" id="L322">      final SpokeInvocationResults results = (SpokeInvocationResults) msg;</span>
+<span class="fc" id="L323">      final GUID methodID = results.methodCallID;</span>
+      // both of these should already be populated
+      // this list should be a synchronized list so we can do the add
+      // all
+<span class="pc" id="L327">      synchronized (m_pendingLock) {</span>
+<span class="fc" id="L328">        m_results.put(methodID, results.results);</span>
+<span class="fc" id="L329">        m_pendingInvocations.remove(methodID).countDown();</span>
+      }
+    }
+<span class="fc" id="L332">  }</span>
+
+  public void dumpState(final PrintStream stream) {
+<span class="nc" id="L335">    synchronized (m_endPointMutex) {</span>
+<span class="nc" id="L336">      stream.println(&quot;Local Endpoints:&quot; + m_localEndPoints);</span>
+    }
+<span class="nc" id="L338">    synchronized (m_endPointMutex) {</span>
+<span class="nc" id="L339">      stream.println(&quot;Remote nodes with implementors:&quot; + m_results);</span>
+<span class="nc" id="L340">      stream.println(&quot;Remote nodes with implementors:&quot; + m_pendingInvocations);</span>
+    }
+<span class="nc" id="L342">  }</span>
+
+  @Override
+  public String toString() {
+<span class="nc" id="L346">    return &quot;Server:&quot; + m_messenger.isServer() + &quot; EndPoints:&quot; + m_localEndPoints;</span>
+  }
+}
+
+
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

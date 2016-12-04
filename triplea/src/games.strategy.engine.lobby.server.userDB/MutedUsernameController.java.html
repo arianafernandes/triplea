@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MutedUsernameController.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.userDB</a> &gt; <span class="el_source">MutedUsernameController.java</span></div><h1>MutedUsernameController.java</h1><pre class="source lang-java linenums">package games.strategy.engine.lobby.server.userDB;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Utilitiy class to create/read/delete muted usernames (there is no update).
+ */
+<span class="nc" id="L17">public class MutedUsernameController {</span>
+<span class="nc" id="L18">  private static final Logger s_logger = Logger.getLogger(MutedUsernameController.class.getName());</span>
+
+  /**
+   * Mute the username permanently
+   */
+  public void addMutedUsername(final String username) {
+<span class="nc" id="L24">    addMutedUsername(username, null);</span>
+<span class="nc" id="L25">  }</span>
+
+  /**
+   * Mute the given username. If muteTill is not null, the mute will expire when muteTill is reached.
+   * &lt;p&gt;
+   * If this username is already muted, this call will update the mute_end.
+   */
+  public void addMutedUsername(final String username, final Date muteTill) {
+<span class="nc bnc" id="L33" title="All 2 branches missed.">    if (isUsernameMuted(username)) {</span>
+<span class="nc" id="L34">      removeMutedUsername(username);</span>
+    }
+<span class="nc" id="L36">    Timestamp muteTillTs = null;</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    if (muteTill != null) {</span>
+<span class="nc" id="L38">      muteTillTs = new Timestamp(muteTill.getTime());</span>
+    }
+<span class="nc" id="L40">    s_logger.fine(&quot;Muting username:&quot; + username);</span>
+<span class="nc" id="L41">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L43">      final PreparedStatement ps =</span>
+<span class="nc" id="L44">          con.prepareStatement(&quot;insert into muted_usernames (username, mute_till) values (?, ?)&quot;);</span>
+<span class="nc" id="L45">      ps.setString(1, username);</span>
+<span class="nc" id="L46">      ps.setTimestamp(2, muteTillTs);</span>
+<span class="nc" id="L47">      ps.execute();</span>
+<span class="nc" id="L48">      ps.close();</span>
+<span class="nc" id="L49">      con.commit();</span>
+<span class="nc" id="L50">    } catch (final SQLException sqle) {</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">      if (sqle.getErrorCode() == 30000) {</span>
+        // this is ok
+        // the username is muted as expected
+<span class="nc" id="L54">        s_logger.info(&quot;Tried to create duplicate muted username:&quot; + username + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L55">        return;</span>
+      }
+<span class="nc" id="L57">      s_logger.log(Level.SEVERE, &quot;Error inserting muted username:&quot; + username, sqle);</span>
+<span class="nc" id="L58">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L59">    } finally {</span>
+<span class="nc" id="L60">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L61">    }</span>
+<span class="nc" id="L62">  }</span>
+
+  public void removeMutedUsername(final String username) {
+<span class="nc" id="L65">    s_logger.fine(&quot;Removing muted username:&quot; + username);</span>
+<span class="nc" id="L66">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L68">      final PreparedStatement ps = con.prepareStatement(&quot;delete from muted_usernames where username = ?&quot;);</span>
+<span class="nc" id="L69">      ps.setString(1, username);</span>
+<span class="nc" id="L70">      ps.execute();</span>
+<span class="nc" id="L71">      ps.close();</span>
+<span class="nc" id="L72">      con.commit();</span>
+<span class="nc" id="L73">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L74">      s_logger.log(Level.SEVERE, &quot;Error deleting muted username:&quot; + username, sqle);</span>
+<span class="nc" id="L75">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L76">    } finally {</span>
+<span class="nc" id="L77">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L78">    }</span>
+<span class="nc" id="L79">  }</span>
+
+  /**
+   * Is the given username muted? This may have the side effect of removing from the
+   * database any username's whose mute has expired
+   */
+  public boolean isUsernameMuted(final String username) {
+<span class="nc" id="L86">    final long muteTill = getUsernameUnmuteTime(username);</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">    return muteTill &gt; System.currentTimeMillis();</span>
+  }
+
+  public long getUsernameUnmuteTime(final String username) {
+<span class="nc" id="L91">    long result = -1;</span>
+<span class="nc" id="L92">    boolean expired = false;</span>
+<span class="nc" id="L93">    final String sql = &quot;select username, mute_till from muted_usernames where username = ?&quot;;</span>
+<span class="nc" id="L94">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc" id="L96">      final PreparedStatement ps = con.prepareStatement(sql);</span>
+<span class="nc" id="L97">      ps.setString(1, username);</span>
+<span class="nc" id="L98">      final ResultSet rs = ps.executeQuery();</span>
+<span class="nc" id="L99">      final boolean found = rs.next();</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">      if (found) {</span>
+<span class="nc" id="L101">        final Timestamp muteTill = rs.getTimestamp(2);</span>
+<span class="nc" id="L102">        result = muteTill.getTime();</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">        if (result &lt; System.currentTimeMillis()) {</span>
+<span class="nc" id="L104">          s_logger.fine(&quot;Mute expired for:&quot; + username);</span>
+<span class="nc" id="L105">          expired = true;</span>
+        }
+<span class="nc" id="L107">      } else {</span>
+<span class="nc" id="L108">        result = -1;</span>
+      }
+<span class="nc" id="L110">      rs.close();</span>
+<span class="nc" id="L111">      ps.close();</span>
+<span class="nc" id="L112">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L113">      s_logger.info(&quot;Error for testing muted username existence:&quot; + username + &quot; error:&quot; + sqle.getMessage());</span>
+<span class="nc" id="L114">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L115">    } finally {</span>
+<span class="nc" id="L116">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L117">    }</span>
+    // If the mute has expired, allow the username
+<span class="nc bnc" id="L119" title="All 2 branches missed.">    if (expired) {</span>
+<span class="nc" id="L120">      removeMutedUsername(username);</span>
+      // Signal as not-muted
+<span class="nc" id="L122">      result = -1;</span>
+    }
+<span class="nc" id="L124">    return result;</span>
+  }
+
+  public List&lt;String&gt; getUsernamesThatAreStillMuted(final List&lt;String&gt; usernames) {
+<span class="nc" id="L128">    final List&lt;String&gt; results = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L129">    final String sql = &quot;select username, mute_till from muted_usernames where username = ?&quot;;</span>
+<span class="nc" id="L130">    final Connection con = Database.getConnection();</span>
+    try {
+<span class="nc bnc" id="L132" title="All 2 branches missed.">      for (final String username : usernames) {</span>
+<span class="nc" id="L133">        boolean found = false;</span>
+<span class="nc" id="L134">        boolean expired = false;</span>
+<span class="nc" id="L135">        final PreparedStatement ps = con.prepareStatement(sql);</span>
+<span class="nc" id="L136">        ps.setString(1, username);</span>
+<span class="nc" id="L137">        final ResultSet rs = ps.executeQuery();</span>
+<span class="nc" id="L138">        found = rs.next();</span>
+        // If the mute has expired, allow the username
+<span class="nc bnc" id="L140" title="All 2 branches missed.">        if (found) {</span>
+<span class="nc" id="L141">          final Timestamp muteTill = rs.getTimestamp(2);</span>
+<span class="nc bnc" id="L142" title="All 4 branches missed.">          if (muteTill != null &amp;&amp; muteTill.getTime() &lt; System.currentTimeMillis()) {</span>
+<span class="nc" id="L143">            s_logger.fine(&quot;Mute expired for: &quot; + username);</span>
+<span class="nc" id="L144">            expired = true;</span>
+          }
+        }
+<span class="nc" id="L147">        rs.close();</span>
+<span class="nc" id="L148">        ps.close();</span>
+<span class="nc bnc" id="L149" title="All 4 branches missed.">        if (found &amp;&amp; !expired) {</span>
+<span class="nc" id="L150">          results.add(username);</span>
+        }
+      }
+<span class="nc" id="L153">    } catch (final SQLException sqle) {</span>
+<span class="nc" id="L154">      s_logger.info(&quot;Error testing whether usernames were muted: &quot; + usernames);</span>
+<span class="nc" id="L155">      throw new IllegalStateException(sqle.getMessage());</span>
+<span class="nc" id="L156">    } finally {</span>
+<span class="nc" id="L157">      DbUtil.closeConnection(con);</span>
+<span class="nc" id="L158">    }</span>
+<span class="nc" id="L159">    return results;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

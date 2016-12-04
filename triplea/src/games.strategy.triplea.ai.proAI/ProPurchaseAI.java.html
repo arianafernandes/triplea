@@ -1,0 +1,1876 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProPurchaseAI.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI</a> &gt; <span class="el_source">ProPurchaseAI.java</span></div><h1>ProPurchaseAI.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.ProductionRule;
+import games.strategy.engine.data.RepairRule;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.ai.proAI.data.ProBattleResult;
+import games.strategy.triplea.ai.proAI.data.ProOtherMoveOptions;
+import games.strategy.triplea.ai.proAI.data.ProPlaceTerritory;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseOption;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseOptionMap;
+import games.strategy.triplea.ai.proAI.data.ProPurchaseTerritory;
+import games.strategy.triplea.ai.proAI.data.ProResourceTracker;
+import games.strategy.triplea.ai.proAI.data.ProTerritoryManager;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.logging.ProMetricUtils;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.ai.proAI.util.ProPurchaseUtils;
+import games.strategy.triplea.ai.proAI.util.ProTerritoryValueUtils;
+import games.strategy.triplea.ai.proAI.util.ProTransportUtils;
+import games.strategy.triplea.ai.proAI.util.ProUtils;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.BattleCalculator;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.dataObjects.PlaceableUnits;
+import games.strategy.triplea.delegate.remote.IAbstractPlaceDelegate;
+import games.strategy.triplea.delegate.remote.IPurchaseDelegate;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+
+/**
+ * Pro purchase AI.
+ */
+public class ProPurchaseAI {
+
+  private final ProOddsCalculator calc;
+  private GameData data;
+  private GameData startOfTurnData; // Used to count current units on map for maxBuiltPerPlayer
+  private PlayerID player;
+  private ProResourceTracker resourceTracker;
+  private ProTerritoryManager territoryManager;
+
+<span class="nc" id="L64">  public ProPurchaseAI(final ProAI ai) {</span>
+<span class="nc" id="L65">    calc = ai.getCalc();</span>
+<span class="nc" id="L66">  }</span>
+
+  public int repair(int PUsRemaining, final IPurchaseDelegate purchaseDelegate, final GameData data,
+      final PlayerID player) {
+
+<span class="nc" id="L71">    ProLogger.info(&quot;Repairing factories with PUsRemaining=&quot; + PUsRemaining);</span>
+
+    // Current data at the start of combat move
+<span class="nc" id="L74">    this.data = data;</span>
+<span class="nc" id="L75">    this.player = player;</span>
+<span class="nc" id="L76">    final CompositeMatch&lt;Unit&gt; ourFactories = new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player),</span>
+<span class="nc" id="L77">        Matches.UnitCanProduceUnits, Matches.UnitIsInfrastructure);</span>
+<span class="nc" id="L78">    final List&lt;Territory&gt; rfactories = Match.getMatches(data.getMap().getTerritories(),</span>
+<span class="nc" id="L79">        ProMatches.territoryHasInfraFactoryAndIsNotConqueredOwnedLand(player, data));</span>
+<span class="nc bnc" id="L80" title="All 2 branches missed.">    if (player.getRepairFrontier() != null</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        &amp;&amp; games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(data)) {</span>
+<span class="nc" id="L82">      ProLogger.debug(&quot;Factories can be damaged&quot;);</span>
+<span class="nc" id="L83">      final Map&lt;Unit, Territory&gt; unitsThatCanProduceNeedingRepair = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">      for (final Territory fixTerr : rfactories) {</span>
+<span class="nc" id="L85">        if (!Matches.territoryIsOwnedAndHasOwnedUnitMatching(data, player, Matches.UnitCanProduceUnitsAndCanBeDamaged)</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">            .match(fixTerr)) {</span>
+<span class="nc" id="L87">          continue;</span>
+        }
+<span class="nc" id="L89">        final Unit possibleFactoryNeedingRepair = TripleAUnit.getBiggestProducer(</span>
+<span class="nc" id="L90">            Match.getMatches(fixTerr.getUnits().getUnits(), ourFactories), fixTerr, player, data, false);</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        if (Matches.UnitHasTakenSomeBombingUnitDamage.match(possibleFactoryNeedingRepair)) {</span>
+<span class="nc" id="L92">          unitsThatCanProduceNeedingRepair.put(possibleFactoryNeedingRepair, fixTerr);</span>
+        }
+      }
+<span class="nc" id="L95">      ProLogger.debug(&quot;Factories that need repaired: &quot; + unitsThatCanProduceNeedingRepair);</span>
+<span class="nc" id="L96">      final List&lt;RepairRule&gt; rrules = player.getRepairFrontier().getRules();</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">      for (final RepairRule rrule : rrules) {</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">        for (final Unit fixUnit : unitsThatCanProduceNeedingRepair.keySet()) {</span>
+<span class="nc bnc" id="L99" title="All 4 branches missed.">          if (fixUnit == null || !fixUnit.getType().equals(rrule.getResults().keySet().iterator().next())) {</span>
+<span class="nc" id="L100">            continue;</span>
+          }
+<span class="nc" id="L102">          if (!Matches.territoryIsOwnedAndHasOwnedUnitMatching(data, player, Matches.UnitCanProduceUnitsAndCanBeDamaged)</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">              .match(unitsThatCanProduceNeedingRepair.get(fixUnit))) {</span>
+<span class="nc" id="L104">            continue;</span>
+          }
+<span class="nc" id="L106">          final TripleAUnit taUnit = (TripleAUnit) fixUnit;</span>
+<span class="nc" id="L107">          final int diff = taUnit.getUnitDamage();</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">          if (diff &gt; 0) {</span>
+<span class="nc" id="L109">            final IntegerMap&lt;RepairRule&gt; repairMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L110">            repairMap.add(rrule, diff);</span>
+<span class="nc" id="L111">            final HashMap&lt;Unit, IntegerMap&lt;RepairRule&gt;&gt; repair = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L112">            repair.put(fixUnit, repairMap);</span>
+<span class="nc" id="L113">            PUsRemaining -= diff;</span>
+<span class="nc" id="L114">            ProLogger.debug(&quot;Repairing factory=&quot; + fixUnit + &quot;, damage=&quot; + diff + &quot;, repairRule=&quot; + rrule);</span>
+<span class="nc" id="L115">            purchaseDelegate.purchaseRepair(repair);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L120">    return PUsRemaining;</span>
+  }
+
+  public Map&lt;Territory, ProPurchaseTerritory&gt; purchase(final IPurchaseDelegate purchaseDelegate,
+      final GameData startOfTurnData) {
+
+    // Current data fields
+<span class="nc" id="L127">    data = ProData.getData();</span>
+<span class="nc" id="L128">    this.startOfTurnData = startOfTurnData;</span>
+<span class="nc" id="L129">    player = ProData.getPlayer();</span>
+<span class="nc" id="L130">    resourceTracker = new ProResourceTracker(player);</span>
+<span class="nc" id="L131">    territoryManager = new ProTerritoryManager(calc);</span>
+<span class="nc" id="L132">    final ProPurchaseOptionMap purchaseOptions = ProData.purchaseOptions;</span>
+
+<span class="nc" id="L134">    ProLogger.info(&quot;Starting purchase phase with resources: &quot; + resourceTracker);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">    if (!player.getUnits().getUnits().isEmpty()) {</span>
+<span class="nc" id="L136">      ProLogger.info(&quot;Starting purchase phase with unplaced units=&quot; + player.getUnits().getUnits());</span>
+    }
+
+    // Find all purchase/place territories
+<span class="nc" id="L140">    final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories = ProPurchaseUtils.findPurchaseTerritories(player);</span>
+<span class="nc" id="L141">    final Set&lt;Territory&gt; placeTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L142">    placeTerritories.addAll(Match.getMatches(data.getMap().getTerritoriesOwnedBy(player), Matches.TerritoryIsLand));</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">    for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">      for (final ProPlaceTerritory ppt : purchaseTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc" id="L145">        placeTerritories.add(ppt.getTerritory());</span>
+      }
+    }
+
+    // Determine max enemy attack units and current allied defenders
+<span class="nc" id="L150">    territoryManager.populateEnemyAttackOptions(new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(placeTerritories));</span>
+<span class="nc" id="L151">    findDefendersInPlaceTerritories(purchaseTerritories);</span>
+
+    // Prioritize land territories that need defended and purchase additional defenders
+<span class="nc" id="L154">    final List&lt;ProPlaceTerritory&gt; needToDefendLandTerritories =</span>
+<span class="nc" id="L155">        prioritizeTerritoriesToDefend(purchaseTerritories, true);</span>
+<span class="nc" id="L156">    purchaseDefenders(purchaseTerritories, needToDefendLandTerritories, purchaseOptions.getLandFodderOptions(),</span>
+<span class="nc" id="L157">        purchaseOptions.getAirOptions(), true);</span>
+
+    // Find strategic value for each territory
+<span class="nc" id="L160">    ProLogger.info(&quot;Find strategic value for place territories&quot;);</span>
+<span class="nc" id="L161">    final Map&lt;Territory, Double&gt; territoryValueMap =</span>
+<span class="nc" id="L162">        ProTerritoryValueUtils.findTerritoryValues(player, new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;());</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">      for (final ProPlaceTerritory ppt : purchaseTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc" id="L165">        ppt.setStrategicValue(territoryValueMap.get(ppt.getTerritory()));</span>
+<span class="nc" id="L166">        ProLogger.debug(ppt.getTerritory() + &quot;, strategicValue=&quot; + territoryValueMap.get(ppt.getTerritory()));</span>
+      }
+    }
+
+    // Prioritize land place options purchase AA then land units
+<span class="nc" id="L171">    final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories = prioritizeLandTerritories(purchaseTerritories);</span>
+<span class="nc" id="L172">    purchaseAAUnits(purchaseTerritories, prioritizedLandTerritories, purchaseOptions.getAAOptions());</span>
+<span class="nc" id="L173">    purchaseLandUnits(purchaseTerritories, prioritizedLandTerritories, purchaseOptions, territoryValueMap);</span>
+
+    // Prioritize sea territories that need defended and purchase additional defenders
+<span class="nc" id="L176">    final List&lt;ProPlaceTerritory&gt; needToDefendSeaTerritories =</span>
+<span class="nc" id="L177">        prioritizeTerritoriesToDefend(purchaseTerritories, false);</span>
+<span class="nc" id="L178">    purchaseDefenders(purchaseTerritories, needToDefendSeaTerritories, purchaseOptions.getSeaDefenseOptions(),</span>
+<span class="nc" id="L179">        purchaseOptions.getAirOptions(), false);</span>
+
+    // Determine whether to purchase new land factory
+<span class="nc" id="L182">    final Map&lt;Territory, ProPurchaseTerritory&gt; factoryPurchaseTerritories = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L183">    purchaseFactory(factoryPurchaseTerritories, purchaseTerritories, prioritizedLandTerritories, purchaseOptions,</span>
+<span class="nc" id="L184">        false);</span>
+
+    // Prioritize sea place options and purchase units
+<span class="nc" id="L187">    final List&lt;ProPlaceTerritory&gt; prioritizedSeaTerritories = prioritizeSeaTerritories(purchaseTerritories);</span>
+<span class="nc" id="L188">    purchaseSeaAndAmphibUnits(purchaseTerritories, prioritizedSeaTerritories, territoryValueMap, purchaseOptions);</span>
+
+    // Try to use any remaining PUs on high value units
+<span class="nc" id="L191">    purchaseUnitsWithRemainingProduction(purchaseTerritories, purchaseOptions.getLandOptions(),</span>
+<span class="nc" id="L192">        purchaseOptions.getAirOptions());</span>
+<span class="nc" id="L193">    upgradeUnitsWithRemainingPUs(purchaseTerritories, purchaseOptions);</span>
+
+    // Try to purchase land/sea factory with extra PUs
+<span class="nc" id="L196">    purchaseFactory(factoryPurchaseTerritories, purchaseTerritories, prioritizedLandTerritories, purchaseOptions, true);</span>
+
+    // Add factory purchase territory to list if not empty
+<span class="nc bnc" id="L199" title="All 2 branches missed.">    if (!factoryPurchaseTerritories.isEmpty()) {</span>
+<span class="nc" id="L200">      purchaseTerritories.putAll(factoryPurchaseTerritories);</span>
+    }
+
+    // Determine final count of each production rule
+<span class="nc" id="L204">    final IntegerMap&lt;ProductionRule&gt; purchaseMap = populateProductionRuleMap(purchaseTerritories, purchaseOptions);</span>
+
+    // Purchase units
+<span class="nc" id="L207">    ProMetricUtils.collectPurchaseStats(purchaseMap);</span>
+<span class="nc" id="L208">    final String error = purchaseDelegate.purchase(purchaseMap);</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">    if (error != null) {</span>
+<span class="nc" id="L210">      ProLogger.warn(&quot;Purchase error: &quot; + error);</span>
+    }
+<span class="nc" id="L212">    return purchaseTerritories;</span>
+  }
+
+  public void place(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final IAbstractPlaceDelegate placeDelegate) {
+<span class="nc" id="L217">    ProLogger.info(&quot;Starting place phase&quot;);</span>
+
+<span class="nc" id="L219">    data = ProData.getData();</span>
+<span class="nc" id="L220">    player = ProData.getPlayer();</span>
+<span class="nc" id="L221">    territoryManager = new ProTerritoryManager(calc);</span>
+
+<span class="nc bnc" id="L223" title="All 2 branches missed.">    if (purchaseTerritories != null) {</span>
+
+      // Place all units calculated during purchase phase (land then sea to reduce failed placements)
+<span class="nc bnc" id="L226" title="All 2 branches missed.">      for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        for (final ProPlaceTerritory ppt : purchaseTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">          if (!ppt.getTerritory().isWater()) {</span>
+<span class="nc" id="L229">            final Collection&lt;Unit&gt; myUnits = player.getUnits().getUnits();</span>
+<span class="nc" id="L230">            final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">            for (final Unit placeUnit : ppt.getPlaceUnits()) {</span>
+<span class="nc bnc" id="L232" title="All 2 branches missed.">              for (final Unit myUnit : myUnits) {</span>
+<span class="nc bnc" id="L233" title="All 4 branches missed.">                if (myUnit.getUnitType().equals(placeUnit.getUnitType()) &amp;&amp; !unitsToPlace.contains(myUnit)) {</span>
+<span class="nc" id="L234">                  unitsToPlace.add(myUnit);</span>
+<span class="nc" id="L235">                  break;</span>
+                }
+              }
+            }
+<span class="nc" id="L239">            doPlace(data.getMap().getTerritory(ppt.getTerritory().getName()), unitsToPlace, placeDelegate);</span>
+<span class="nc" id="L240">            ProLogger.debug(ppt.getTerritory() + &quot; placed units: &quot; + unitsToPlace);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L244" title="All 2 branches missed.">      for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">        for (final ProPlaceTerritory ppt : purchaseTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">          if (ppt.getTerritory().isWater()) {</span>
+<span class="nc" id="L247">            final Collection&lt;Unit&gt; myUnits = player.getUnits().getUnits();</span>
+<span class="nc" id="L248">            final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">            for (final Unit placeUnit : ppt.getPlaceUnits()) {</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">              for (final Unit myUnit : myUnits) {</span>
+<span class="nc bnc" id="L251" title="All 4 branches missed.">                if (myUnit.getUnitType().equals(placeUnit.getUnitType()) &amp;&amp; !unitsToPlace.contains(myUnit)) {</span>
+<span class="nc" id="L252">                  unitsToPlace.add(myUnit);</span>
+<span class="nc" id="L253">                  break;</span>
+                }
+              }
+            }
+<span class="nc" id="L257">            doPlace(data.getMap().getTerritory(ppt.getTerritory().getName()), unitsToPlace, placeDelegate);</span>
+<span class="nc" id="L258">            ProLogger.debug(ppt.getTerritory() + &quot; placed units: &quot; + unitsToPlace);</span>
+          }
+        }
+      }
+    }
+
+    // Place remaining units (currently only implemented to handle land units, ex. WW2v3 China)
+<span class="nc bnc" id="L265" title="All 2 branches missed.">    if (player.getUnits().getUnits().isEmpty()) {</span>
+<span class="nc" id="L266">      return;</span>
+    }
+
+    // Current data at the start of place
+<span class="nc" id="L270">    ProLogger.debug(&quot;Remaining units to place: &quot; + player.getUnits().getUnits());</span>
+
+    // Find all place territories
+<span class="nc" id="L273">    final Map&lt;Territory, ProPurchaseTerritory&gt; placeNonConstructionTerritories =</span>
+<span class="nc" id="L274">        ProPurchaseUtils.findPurchaseTerritories(player);</span>
+
+    // Determine max enemy attack units and current allied defenders
+<span class="nc" id="L277">    findDefendersInPlaceTerritories(placeNonConstructionTerritories);</span>
+
+    // Prioritize land territories that need defended and place additional defenders
+<span class="nc" id="L280">    final List&lt;ProPlaceTerritory&gt; needToDefendLandTerritories =</span>
+<span class="nc" id="L281">        prioritizeTerritoriesToDefend(placeNonConstructionTerritories, true);</span>
+<span class="nc" id="L282">    placeDefenders(placeNonConstructionTerritories, needToDefendLandTerritories, placeDelegate);</span>
+
+    // Find strategic value for each territory
+<span class="nc" id="L285">    ProLogger.info(&quot;Find strategic value for place territories&quot;);</span>
+<span class="nc" id="L286">    final Map&lt;Territory, Double&gt; territoryValueMap =</span>
+<span class="nc" id="L287">        ProTerritoryValueUtils.findTerritoryValues(player, new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;());</span>
+<span class="nc bnc" id="L288" title="All 2 branches missed.">    for (final Territory t : placeNonConstructionTerritories.keySet()) {</span>
+<span class="nc bnc" id="L289" title="All 2 branches missed.">      for (final ProPlaceTerritory ppt : placeNonConstructionTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc" id="L290">        ppt.setStrategicValue(territoryValueMap.get(ppt.getTerritory()));</span>
+<span class="nc" id="L291">        ProLogger.debug(ppt.getTerritory() + &quot;, strategicValue=&quot; + territoryValueMap.get(ppt.getTerritory()));</span>
+      }
+    }
+
+    // Prioritize land place territories, add all territories, and then place units
+<span class="nc" id="L296">    final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories =</span>
+<span class="nc" id="L297">        prioritizeLandTerritories(placeNonConstructionTerritories);</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : placeNonConstructionTerritories.values()) {</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L300">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L301" title="All 4 branches missed.">        if (!t.isWater() &amp;&amp; !prioritizedLandTerritories.contains(placeTerritory)) {</span>
+<span class="nc" id="L302">          prioritizedLandTerritories.add(placeTerritory);</span>
+        }
+      }
+    }
+    // Place regular land units
+<span class="nc" id="L307">    placeLandUnits(placeNonConstructionTerritories, prioritizedLandTerritories, placeDelegate, false);</span>
+
+    // Place isConstruction land units (needs separated since placeDelegate.getPlaceableUnits doesn't handle combined)
+<span class="nc" id="L310">    placeLandUnits(placeNonConstructionTerritories, prioritizedLandTerritories, placeDelegate, true);</span>
+<span class="nc" id="L311">  }</span>
+
+  private void findDefendersInPlaceTerritories(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+<span class="nc" id="L314">    ProLogger.info(&quot;Find defenders in possible place territories&quot;);</span>
+<span class="nc bnc" id="L315" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+<span class="nc bnc" id="L316" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L317">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L318">        final List&lt;Unit&gt; units = t.getUnits().getMatches(Matches.isUnitAllied(player, data));</span>
+<span class="nc" id="L319">        placeTerritory.setDefendingUnits(units);</span>
+<span class="nc" id="L320">        ProLogger.debug(t + &quot; has numDefenders=&quot; + units.size());</span>
+      }
+    }
+<span class="nc" id="L323">  }</span>
+
+  private List&lt;ProPlaceTerritory&gt; prioritizeTerritoriesToDefend(
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories, final boolean isLand) {
+
+<span class="nc" id="L328">    ProLogger.info(&quot;Prioritize territories to defend with isLand=&quot; + isLand);</span>
+
+<span class="nc" id="L330">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Determine which territories need defended
+<span class="nc" id="L333">    final Set&lt;ProPlaceTerritory&gt; needToDefendTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L334" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+
+      // Check if any of the place territories can't be held with current defenders
+<span class="nc bnc" id="L337" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L338">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L339" title="All 6 branches missed.">        if (enemyAttackOptions.getMax(t) == null || (t.isWater() &amp;&amp; placeTerritory.getDefendingUnits().isEmpty())</span>
+<span class="nc bnc" id="L340" title="All 8 branches missed.">            || (isLand &amp;&amp; t.isWater()) || (!isLand &amp;&amp; !t.isWater())) {</span>
+<span class="nc" id="L341">          continue;</span>
+        }
+
+        // Find current battle result
+<span class="nc" id="L345">        final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L346">        enemyAttackingUnits.addAll(enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L347">        final ProBattleResult result = calc.calculateBattleResults(player, t, new ArrayList&lt;&gt;(enemyAttackingUnits),</span>
+<span class="nc" id="L348">            placeTerritory.getDefendingUnits(), enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+<span class="nc" id="L349">        placeTerritory.setMinBattleResult(result);</span>
+<span class="nc" id="L350">        double holdValue = 0;</span>
+<span class="nc bnc" id="L351" title="All 2 branches missed.">        if (t.isWater()) {</span>
+<span class="nc" id="L352">          final double unitValue = BattleCalculator.getTUV(</span>
+<span class="nc" id="L353">              Match.getMatches(placeTerritory.getDefendingUnits(), Matches.unitIsOwnedBy(player)),</span>
+<span class="nc" id="L354">              ProData.unitValueMap);</span>
+<span class="nc" id="L355">          holdValue = unitValue / 8;</span>
+        }
+<span class="nc" id="L357">        ProLogger.trace(t.getName() + &quot; TUVSwing=&quot; + result.getTUVSwing() + &quot;, win%=&quot; + result.getWinPercentage()</span>
+<span class="nc" id="L358">            + &quot;, hasLandUnitRemaining=&quot; + result.isHasLandUnitRemaining() + &quot;, holdValue=&quot; + holdValue</span>
+<span class="nc" id="L359">            + &quot;, enemyAttackers=&quot; + enemyAttackingUnits + &quot;, defenders=&quot; + placeTerritory.getDefendingUnits());</span>
+
+        // If it can't currently be held then add to list
+<span class="nc" id="L362">        final boolean isLandAndCanOnlyBeAttackedByAir =</span>
+<span class="nc bnc" id="L363" title="All 4 branches missed.">            !t.isWater() &amp;&amp; Match.allMatch(enemyAttackingUnits, Matches.UnitIsAir);</span>
+<span class="nc bnc" id="L364" title="All 6 branches missed.">        if ((!t.isWater() &amp;&amp; result.isHasLandUnitRemaining()) || result.getTUVSwing() &gt; holdValue</span>
+<span class="nc bnc" id="L365" title="All 4 branches missed.">            || (t.equals(ProData.myCapital) &amp;&amp; !isLandAndCanOnlyBeAttackedByAir</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">                &amp;&amp; result.getWinPercentage() &gt; (100 - ProData.winPercentage))) {</span>
+<span class="nc" id="L367">          needToDefendTerritories.add(placeTerritory);</span>
+        }
+      }
+    }
+
+    // Calculate value of defending territory
+<span class="nc bnc" id="L373" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : needToDefendTerritories) {</span>
+<span class="nc" id="L374">      final Territory t = placeTerritory.getTerritory();</span>
+
+      // Determine if it is my capital or adjacent to my capital
+<span class="nc" id="L377">      int isMyCapital = 0;</span>
+<span class="nc bnc" id="L378" title="All 2 branches missed.">      if (t.equals(ProData.myCapital)) {</span>
+<span class="nc" id="L379">        isMyCapital = 1;</span>
+      }
+
+      // Determine if it has a factory
+<span class="nc" id="L383">      int isFactory = 0;</span>
+<span class="nc bnc" id="L384" title="All 2 branches missed.">      if (ProMatches.territoryHasInfraFactoryAndIsOwnedLand(player).match(t)) {</span>
+<span class="nc" id="L385">        isFactory = 1;</span>
+      }
+
+      // Determine production value and if it is an enemy capital
+<span class="nc" id="L389">      int production = 0;</span>
+<span class="nc" id="L390">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L391" title="All 2 branches missed.">      if (ta != null) {</span>
+<span class="nc" id="L392">        production = ta.getProduction();</span>
+      }
+
+      // Determine defending unit value
+<span class="nc" id="L396">      double defendingUnitValue = BattleCalculator.getTUV(placeTerritory.getDefendingUnits(), ProData.unitValueMap);</span>
+<span class="nc bnc" id="L397" title="All 4 branches missed.">      if (t.isWater() &amp;&amp; Match.noneMatch(placeTerritory.getDefendingUnits(), Matches.unitIsOwnedBy(player))) {</span>
+<span class="nc" id="L398">        defendingUnitValue = 0;</span>
+      }
+
+      // Calculate defense value for prioritization
+<span class="nc" id="L402">      final double territoryValue =</span>
+<span class="nc" id="L403">          (2 * production + 4 * isFactory + 0.5 * defendingUnitValue) * (1 + isFactory) * (1 + 10 * isMyCapital);</span>
+<span class="nc" id="L404">      placeTerritory.setDefenseValue(territoryValue);</span>
+    }
+
+    // Remove any territories with negative defense value
+<span class="nc bnc" id="L408" title="All 2 branches missed.">    for (final Iterator&lt;ProPlaceTerritory&gt; it = needToDefendTerritories.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L409">      final ProPlaceTerritory ppt = it.next();</span>
+<span class="nc bnc" id="L410" title="All 2 branches missed.">      if (ppt.getDefenseValue() &lt;= 0) {</span>
+<span class="nc" id="L411">        it.remove();</span>
+      }
+    }
+
+    // Sort territories by value
+<span class="nc" id="L416">    final List&lt;ProPlaceTerritory&gt; sortedTerritories = new ArrayList&lt;&gt;(needToDefendTerritories);</span>
+<span class="nc" id="L417">    Collections.sort(sortedTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L418">      final double value1 = t1.getDefenseValue();</span>
+<span class="nc" id="L419">      final double value2 = t2.getDefenseValue();</span>
+<span class="nc" id="L420">      return Double.compare(value2, value1);</span>
+    });
+<span class="nc bnc" id="L422" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : sortedTerritories) {</span>
+<span class="nc" id="L423">      ProLogger.debug(placeTerritory.toString() + &quot; defenseValue=&quot; + placeTerritory.getDefenseValue());</span>
+    }
+<span class="nc" id="L425">    return sortedTerritories;</span>
+  }
+
+  private void purchaseDefenders(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPlaceTerritory&gt; needToDefendTerritories, final List&lt;ProPurchaseOption&gt; defensePurchaseOptions,
+      final List&lt;ProPurchaseOption&gt; airPurchaseOptions, final boolean isLand) {
+
+<span class="nc bnc" id="L432" title="All 2 branches missed.">    if (resourceTracker.isEmpty()) {</span>
+<span class="nc" id="L433">      return;</span>
+    }
+<span class="nc" id="L435">    ProLogger.info(&quot;Purchase defenders with resources: &quot; + resourceTracker + &quot;, isLand=&quot; + isLand);</span>
+
+<span class="nc" id="L437">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Loop through prioritized territories and purchase defenders
+<span class="nc bnc" id="L440" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : needToDefendTerritories) {</span>
+<span class="nc" id="L441">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L442">      ProLogger.debug(&quot;Purchasing defenders for &quot; + t.getName() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L443">          + enemyAttackOptions.getMax(t).getMaxUnits() + &quot;, amphibEnemyAttackers=&quot;</span>
+<span class="nc" id="L444">          + enemyAttackOptions.getMax(t).getMaxAmphibUnits() + &quot;, defenders=&quot; + placeTerritory.getDefendingUnits());</span>
+
+      // Find local owned units
+<span class="nc" id="L447">      final List&lt;Unit&gt; ownedLocalUnits = t.getUnits().getMatches(Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L448">      int unusedCarrierCapacity = Math.min(0, ProTransportUtils.getUnusedCarrierCapacity(player, t, new ArrayList&lt;&gt;()));</span>
+<span class="nc" id="L449">      int unusedLocalCarrierCapacity = ProTransportUtils.getUnusedLocalCarrierCapacity(player, t, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L450">      ProLogger.trace(t + &quot;, unusedCarrierCapacity=&quot; + unusedCarrierCapacity + &quot;, unusedLocalCarrierCapacity=&quot;</span>
+<span class="nc" id="L451">          + unusedLocalCarrierCapacity);</span>
+
+      // Determine if need destroyer
+<span class="nc" id="L454">      boolean needDestroyer = false;</span>
+<span class="nc bnc" id="L455" title="All 2 branches missed.">      if (Match.someMatch(enemyAttackOptions.getMax(t).getMaxUnits(), Matches.UnitIsSub)</span>
+<span class="nc bnc" id="L456" title="All 2 branches missed.">          &amp;&amp; Match.noneMatch(ownedLocalUnits, Matches.UnitIsDestroyer)) {</span>
+<span class="nc" id="L457">        needDestroyer = true;</span>
+      }
+
+      // Find all purchase territories for place territory
+<span class="nc" id="L461">      final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L462">      ProBattleResult finalResult = new ProBattleResult();</span>
+<span class="nc" id="L463">      final List&lt;ProPurchaseTerritory&gt; selectedPurchaseTerritories =</span>
+<span class="nc" id="L464">          getPurchaseTerritories(placeTerritory, purchaseTerritories);</span>
+<span class="nc bnc" id="L465" title="All 2 branches missed.">      for (final ProPurchaseTerritory purchaseTerritory : selectedPurchaseTerritories) {</span>
+
+        // Check remaining production
+<span class="nc" id="L468">        int remainingUnitProduction = purchaseTerritory.getRemainingUnitProduction();</span>
+<span class="nc" id="L469">        ProLogger.debug(purchaseTerritory.getTerritory() + &quot;, remainingUnitProduction=&quot; + remainingUnitProduction);</span>
+<span class="nc bnc" id="L470" title="All 2 branches missed.">        if (remainingUnitProduction &lt;= 0) {</span>
+<span class="nc" id="L471">          continue;</span>
+        }
+
+        // Find defenders that can be produced in this territory
+<span class="nc" id="L475">        final List&lt;ProPurchaseOption&gt; purchaseOptionsForTerritory =</span>
+<span class="nc" id="L476">            ProPurchaseUtils.findPurchaseOptionsForTerritory(player, defensePurchaseOptions, t);</span>
+<span class="nc" id="L477">        purchaseOptionsForTerritory.addAll(airPurchaseOptions);</span>
+
+        // Purchase necessary defenders
+        while (true) {
+
+          // Remove options that cost too many resources or production
+<span class="nc" id="L483">          ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, purchaseOptionsForTerritory,</span>
+<span class="nc" id="L484">              resourceTracker, remainingUnitProduction, unitsToPlace, purchaseTerritories);</span>
+<span class="nc bnc" id="L485" title="All 2 branches missed.">          if (purchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L486">            break;</span>
+          }
+
+          // Select purchase option
+<span class="nc" id="L490">          final Map&lt;ProPurchaseOption, Double&gt; defenseEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L491" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : purchaseOptionsForTerritory) {</span>
+<span class="nc bnc" id="L492" title="All 2 branches missed.">            if (isLand) {</span>
+<span class="nc" id="L493">              defenseEfficiencies.put(ppo, ppo.getDefenseEfficiency2(1, data, ownedLocalUnits, unitsToPlace));</span>
+<span class="nc" id="L494">            } else {</span>
+<span class="nc" id="L495">              defenseEfficiencies.put(ppo, ppo.getSeaDefenseEfficiency(data, ownedLocalUnits, unitsToPlace,</span>
+<span class="nc" id="L496">                  needDestroyer, unusedCarrierCapacity, unusedLocalCarrierCapacity));</span>
+            }
+          }
+<span class="nc" id="L499">          final ProPurchaseOption selectedOption =</span>
+<span class="nc" id="L500">              ProPurchaseUtils.randomizePurchaseOption(defenseEfficiencies, &quot;Defense&quot;);</span>
+<span class="nc bnc" id="L501" title="All 2 branches missed.">          if (selectedOption.isDestroyer()) {</span>
+<span class="nc" id="L502">            needDestroyer = false;</span>
+          }
+
+          // Create new temp units
+<span class="nc" id="L506">          resourceTracker.tempPurchase(selectedOption);</span>
+<span class="nc" id="L507">          remainingUnitProduction -= selectedOption.getQuantity();</span>
+<span class="nc" id="L508">          unitsToPlace.addAll(selectedOption.getUnitType().create(selectedOption.getQuantity(), player, true));</span>
+<span class="nc bnc" id="L509" title="All 4 branches missed.">          if (selectedOption.isCarrier() || selectedOption.isAir()) {</span>
+<span class="nc" id="L510">            unusedCarrierCapacity = ProTransportUtils.getUnusedCarrierCapacity(player, t, unitsToPlace);</span>
+<span class="nc" id="L511">            unusedLocalCarrierCapacity = ProTransportUtils.getUnusedLocalCarrierCapacity(player, t, unitsToPlace);</span>
+          }
+<span class="nc" id="L513">          ProLogger.trace(&quot;Selected unit=&quot; + selectedOption.getUnitType().getName() + &quot;, unusedCarrierCapacity=&quot;</span>
+<span class="nc" id="L514">              + unusedCarrierCapacity + &quot;, unusedLocalCarrierCapacity=&quot; + unusedLocalCarrierCapacity);</span>
+
+          // Find current battle result
+<span class="nc" id="L517">          final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L518">          enemyAttackingUnits.addAll(enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L519">          final List&lt;Unit&gt; defenders = new ArrayList&lt;&gt;(placeTerritory.getDefendingUnits());</span>
+<span class="nc" id="L520">          defenders.addAll(unitsToPlace);</span>
+<span class="nc" id="L521">          finalResult = calc.calculateBattleResults(player, t, new ArrayList&lt;&gt;(enemyAttackingUnits), defenders,</span>
+<span class="nc" id="L522">              enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+
+          // Break if it can be held
+<span class="nc bnc" id="L525" title="All 6 branches missed.">          if ((!t.equals(ProData.myCapital) &amp;&amp; !finalResult.isHasLandUnitRemaining() &amp;&amp; finalResult.getTUVSwing() &lt;= 0)</span>
+<span class="nc bnc" id="L526" title="All 4 branches missed.">              || (t.equals(ProData.myCapital) &amp;&amp; finalResult.getWinPercentage() &lt; (100 - ProData.winPercentage)</span>
+<span class="nc bnc" id="L527" title="All 2 branches missed.">                  &amp;&amp; finalResult.getTUVSwing() &lt;= 0)) {</span>
+            break;
+          }
+        }
+      }
+
+      // Check to see if its worth trying to defend the territory
+<span class="nc" id="L534">      final boolean hasLocalSuperiority =</span>
+<span class="nc" id="L535">          ProBattleUtils.territoryHasLocalLandSuperiority(t, ProBattleUtils.SHORT_RANGE, player, purchaseTerritories);</span>
+<span class="nc bnc" id="L536" title="All 2 branches missed.">      if (!finalResult.isHasLandUnitRemaining()</span>
+<span class="nc" id="L537">          || (finalResult.getTUVSwing() - resourceTracker.getTempPUs(data) / 2) &lt; placeTerritory.getMinBattleResult()</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">              .getTUVSwing()</span>
+<span class="nc bnc" id="L539" title="All 6 branches missed.">          || t.equals(ProData.myCapital) || (!t.isWater() &amp;&amp; hasLocalSuperiority)) {</span>
+<span class="nc" id="L540">        resourceTracker.confirmTempPurchases();</span>
+<span class="nc" id="L541">        ProLogger.trace(</span>
+<span class="nc" id="L542">            t + &quot;, placedUnits=&quot; + unitsToPlace + &quot;, TUVSwing=&quot; + finalResult.getTUVSwing() + &quot;, hasLandUnitRemaining=&quot;</span>
+<span class="nc" id="L543">                + finalResult.isHasLandUnitRemaining() + &quot;, hasLocalSuperiority=&quot; + hasLocalSuperiority);</span>
+<span class="nc" id="L544">        addUnitsToPlaceTerritory(placeTerritory, unitsToPlace, purchaseTerritories);</span>
+<span class="nc" id="L545">      } else {</span>
+<span class="nc" id="L546">        resourceTracker.clearTempPurchases();</span>
+<span class="nc" id="L547">        setCantHoldPlaceTerritory(placeTerritory, purchaseTerritories);</span>
+<span class="nc" id="L548">        ProLogger.trace(t + &quot;, unable to defend with placedUnits=&quot; + unitsToPlace + &quot;, TUVSwing=&quot;</span>
+<span class="nc" id="L549">            + finalResult.getTUVSwing() + &quot;, minTUVSwing=&quot; + placeTerritory.getMinBattleResult().getTUVSwing());</span>
+      }
+    }
+<span class="nc" id="L552">  }</span>
+
+  private List&lt;ProPlaceTerritory&gt; prioritizeLandTerritories(
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+
+<span class="nc" id="L557">    ProLogger.info(&quot;Prioritize land territories to place&quot;);</span>
+
+    // Get all land place territories
+<span class="nc" id="L560">    final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L561" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+<span class="nc bnc" id="L562" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L563">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L564" title="All 6 branches missed.">        if (!t.isWater() &amp;&amp; placeTerritory.getStrategicValue() &gt;= 1 &amp;&amp; placeTerritory.isCanHold()) {</span>
+<span class="nc" id="L565">          final boolean hasEnemyNeighbors =</span>
+<span class="nc bnc" id="L566" title="All 2 branches missed.">              !data.getMap().getNeighbors(t, ProMatches.territoryIsEnemyLand(player, data)).isEmpty();</span>
+<span class="nc" id="L567">          final Set&lt;Territory&gt; nearbyLandTerritories =</span>
+<span class="nc" id="L568">              data.getMap().getNeighbors(t, 9, ProMatches.territoryCanPotentiallyMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L569">          final int numNearbyEnemyTerritories = Match.countMatches(nearbyLandTerritories,</span>
+<span class="nc" id="L570">              Matches.isTerritoryOwnedBy(ProUtils.getPotentialEnemyPlayers(player)));</span>
+<span class="nc" id="L571">          final boolean hasLocalLandSuperiority =</span>
+<span class="nc" id="L572">              ProBattleUtils.territoryHasLocalLandSuperiority(t, ProBattleUtils.SHORT_RANGE, player);</span>
+<span class="nc bnc" id="L573" title="All 6 branches missed.">          if (hasEnemyNeighbors || numNearbyEnemyTerritories &gt;= 3 || !hasLocalLandSuperiority) {</span>
+<span class="nc" id="L574">            prioritizedLandTerritories.add(placeTerritory);</span>
+          }
+        }
+      }
+    }
+
+    // Sort territories by value
+<span class="nc" id="L581">    Collections.sort(prioritizedLandTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L582">      final double value1 = t1.getStrategicValue();</span>
+<span class="nc" id="L583">      final double value2 = t2.getStrategicValue();</span>
+<span class="nc" id="L584">      return Double.compare(value2, value1);</span>
+    });
+<span class="nc bnc" id="L586" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc" id="L587">      ProLogger.debug(placeTerritory.toString() + &quot; strategicValue=&quot; + placeTerritory.getStrategicValue());</span>
+    }
+<span class="nc" id="L589">    return prioritizedLandTerritories;</span>
+  }
+
+  private void purchaseAAUnits(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories, final List&lt;ProPurchaseOption&gt; specialPurchaseOptions) {
+
+<span class="nc bnc" id="L595" title="All 2 branches missed.">    if (resourceTracker.isEmpty()) {</span>
+<span class="nc" id="L596">      return;</span>
+    }
+<span class="nc" id="L598">    ProLogger.info(&quot;Purchase AA units with resources: &quot; + resourceTracker);</span>
+
+<span class="nc" id="L600">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Loop through prioritized territories and purchase AA units
+<span class="nc bnc" id="L603" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc" id="L604">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L605">      ProLogger.debug(&quot;Checking AA place for &quot; + t);</span>
+
+      // Check if any enemy attackers
+<span class="nc bnc" id="L608" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) == null) {</span>
+<span class="nc" id="L609">        continue;</span>
+      }
+
+      // Check remaining production
+<span class="nc" id="L613">      int remainingUnitProduction = purchaseTerritories.get(t).getRemainingUnitProduction();</span>
+<span class="nc" id="L614">      ProLogger.debug(t + &quot;, remainingUnitProduction=&quot; + remainingUnitProduction);</span>
+<span class="nc bnc" id="L615" title="All 2 branches missed.">      if (remainingUnitProduction &lt;= 0) {</span>
+<span class="nc" id="L616">        continue;</span>
+      }
+
+      // Check if territory needs AA
+<span class="nc" id="L620">      final boolean enemyCanBomb =</span>
+<span class="nc" id="L621">          Match.someMatch(enemyAttackOptions.getMax(t).getMaxUnits(), Matches.UnitIsStrategicBomber);</span>
+<span class="nc" id="L622">      final boolean territoryCanBeBombed = t.getUnits().someMatch(Matches.UnitCanProduceUnitsAndCanBeDamaged);</span>
+<span class="nc" id="L623">      final boolean hasAABombingDefense = t.getUnits().someMatch(Matches.UnitIsAAforBombingThisUnitOnly);</span>
+<span class="nc" id="L624">      ProLogger.debug(t + &quot;, enemyCanBomb=&quot; + enemyCanBomb + &quot;, territoryCanBeBombed=&quot; + territoryCanBeBombed</span>
+<span class="nc" id="L625">          + &quot;, hasAABombingDefense=&quot; + hasAABombingDefense);</span>
+<span class="nc bnc" id="L626" title="All 6 branches missed.">      if (!enemyCanBomb || !territoryCanBeBombed || hasAABombingDefense) {</span>
+<span class="nc" id="L627">        continue;</span>
+      }
+
+      // Remove options that cost too much PUs or production
+<span class="nc" id="L631">      final List&lt;ProPurchaseOption&gt; purchaseOptionsForTerritory =</span>
+<span class="nc" id="L632">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, specialPurchaseOptions, t);</span>
+<span class="nc" id="L633">      ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, purchaseOptionsForTerritory,</span>
+<span class="nc" id="L634">          resourceTracker, remainingUnitProduction, new ArrayList&lt;&gt;(), purchaseTerritories);</span>
+<span class="nc bnc" id="L635" title="All 2 branches missed.">      if (purchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L636">        continue;</span>
+      }
+
+      // Determine most cost efficient units that can be produced in this territory
+<span class="nc" id="L640">      ProPurchaseOption bestAAOption = null;</span>
+<span class="nc" id="L641">      int minCost = Integer.MAX_VALUE;</span>
+<span class="nc bnc" id="L642" title="All 2 branches missed.">      for (final ProPurchaseOption ppo : purchaseOptionsForTerritory) {</span>
+<span class="nc" id="L643">        final boolean isAAForBombing = Matches.UnitTypeIsAAforBombingThisUnitOnly.match(ppo.getUnitType());</span>
+<span class="nc bnc" id="L644" title="All 4 branches missed.">        if (isAAForBombing &amp;&amp; ppo.getCost() &lt; minCost</span>
+<span class="nc bnc" id="L645" title="All 2 branches missed.">            &amp;&amp; !Matches.UnitTypeConsumesUnitsOnCreation.match(ppo.getUnitType())) {</span>
+<span class="nc" id="L646">          bestAAOption = ppo;</span>
+<span class="nc" id="L647">          minCost = ppo.getCost();</span>
+        }
+      }
+
+      // Check if there aren't any available units
+<span class="nc bnc" id="L652" title="All 2 branches missed.">      if (bestAAOption == null) {</span>
+<span class="nc" id="L653">        continue;</span>
+      }
+<span class="nc" id="L655">      ProLogger.trace(&quot;Best AA unit: &quot; + bestAAOption.getUnitType().getName());</span>
+
+      // Create new temp units
+<span class="nc" id="L658">      resourceTracker.purchase(bestAAOption);</span>
+<span class="nc" id="L659">      remainingUnitProduction -= bestAAOption.getQuantity();</span>
+<span class="nc" id="L660">      final List&lt;Unit&gt; unitsToPlace = bestAAOption.getUnitType().create(bestAAOption.getQuantity(), player, true);</span>
+<span class="nc" id="L661">      placeTerritory.getPlaceUnits().addAll(unitsToPlace);</span>
+<span class="nc" id="L662">      ProLogger.trace(t + &quot;, placedUnits=&quot; + unitsToPlace);</span>
+    }
+<span class="nc" id="L664">  }</span>
+
+  private void purchaseLandUnits(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories, final ProPurchaseOptionMap purchaseOptions,
+      final Map&lt;Territory, Double&gt; territoryValueMap) {
+
+<span class="nc" id="L670">    final List&lt;Unit&gt; unplacedUnits = player.getUnits().getMatches(Matches.UnitIsNotSea);</span>
+<span class="nc bnc" id="L671" title="All 4 branches missed.">    if (resourceTracker.isEmpty() &amp;&amp; unplacedUnits.isEmpty()) {</span>
+<span class="nc" id="L672">      return;</span>
+    }
+<span class="nc" id="L674">    ProLogger.info(&quot;Purchase land units with resources: &quot; + resourceTracker);</span>
+<span class="nc bnc" id="L675" title="All 2 branches missed.">    if (!unplacedUnits.isEmpty()) {</span>
+<span class="nc" id="L676">      ProLogger.info(&quot;Purchase land units with unplaced units=&quot; + unplacedUnits);</span>
+    }
+
+    // Loop through prioritized territories and purchase land units
+<span class="nc bnc" id="L680" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc" id="L681">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L682">      ProLogger.debug(&quot;Checking land place for &quot; + t.getName());</span>
+
+      // Check remaining production
+<span class="nc" id="L685">      int remainingUnitProduction = purchaseTerritories.get(t).getRemainingUnitProduction();</span>
+<span class="nc" id="L686">      ProLogger.debug(t + &quot;, remainingUnitProduction=&quot; + remainingUnitProduction);</span>
+<span class="nc bnc" id="L687" title="All 2 branches missed.">      if (remainingUnitProduction &lt;= 0) {</span>
+<span class="nc" id="L688">        continue;</span>
+      }
+
+      // Determine most cost efficient units that can be produced in this territory
+<span class="nc" id="L692">      final List&lt;ProPurchaseOption&gt; landFodderOptions =</span>
+<span class="nc" id="L693">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getLandFodderOptions(), t);</span>
+<span class="nc" id="L694">      final List&lt;ProPurchaseOption&gt; landAttackOptions =</span>
+<span class="nc" id="L695">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getLandAttackOptions(), t);</span>
+<span class="nc" id="L696">      final List&lt;ProPurchaseOption&gt; landDefenseOptions =</span>
+<span class="nc" id="L697">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getLandDefenseOptions(), t);</span>
+
+      // Determine enemy distance and locally owned units
+<span class="nc" id="L700">      int enemyDistance = ProUtils.getClosestEnemyOrNeutralLandTerritoryDistance(data, player, t, territoryValueMap);</span>
+<span class="nc bnc" id="L701" title="All 2 branches missed.">      if (enemyDistance &lt;= 0) {</span>
+<span class="nc" id="L702">        enemyDistance = 10;</span>
+      }
+<span class="nc" id="L704">      final int fodderPercent = 80 - enemyDistance * 5;</span>
+<span class="nc" id="L705">      ProLogger.debug(t + &quot;, enemyDistance=&quot; + enemyDistance + &quot;, fodderPercent=&quot; + fodderPercent);</span>
+<span class="nc" id="L706">      final Set&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L707">          data.getMap().getNeighbors(t, 2, ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L708">      neighbors.add(t);</span>
+<span class="nc" id="L709">      final List&lt;Unit&gt; ownedLocalUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">      for (final Territory neighbor : neighbors) {</span>
+<span class="nc" id="L711">        ownedLocalUnits.addAll(neighbor.getUnits().getMatches(Matches.unitIsOwnedBy(player)));</span>
+      }
+
+      // Check for unplaced units
+<span class="nc" id="L715">      final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L716" title="All 2 branches missed.">      for (final Iterator&lt;Unit&gt; it = unplacedUnits.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L717">        final Unit u = it.next();</span>
+<span class="nc bnc" id="L718" title="All 4 branches missed.">        if (remainingUnitProduction &gt; 0 &amp;&amp; ProPurchaseUtils.canUnitsBePlaced(Collections.singletonList(u), player, t)) {</span>
+<span class="nc" id="L719">          remainingUnitProduction--;</span>
+<span class="nc" id="L720">          unitsToPlace.add(u);</span>
+<span class="nc" id="L721">          it.remove();</span>
+<span class="nc" id="L722">          ProLogger.trace(&quot;Selected unplaced unit=&quot; + u);</span>
+        }
+      }
+
+      // Purchase as many units as possible
+<span class="nc" id="L727">      int addedFodderUnits = 0;</span>
+<span class="nc" id="L728">      double attackAndDefenseDifference = 0;</span>
+<span class="nc" id="L729">      boolean selectFodderUnit = true;</span>
+<span class="nc" id="L730">      while (true) {</span>
+
+        // Remove options that cost too much PUs or production
+<span class="nc" id="L733">        ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, landFodderOptions, resourceTracker,</span>
+<span class="nc" id="L734">            remainingUnitProduction, unitsToPlace, purchaseTerritories);</span>
+<span class="nc" id="L735">        ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, landAttackOptions, resourceTracker,</span>
+<span class="nc" id="L736">            remainingUnitProduction, unitsToPlace, purchaseTerritories);</span>
+<span class="nc" id="L737">        ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, landDefenseOptions, resourceTracker,</span>
+<span class="nc" id="L738">            remainingUnitProduction, unitsToPlace, purchaseTerritories);</span>
+
+        // Select purchase option
+<span class="nc" id="L741">        ProPurchaseOption selectedOption = null;</span>
+<span class="nc bnc" id="L742" title="All 6 branches missed.">        if (!selectFodderUnit &amp;&amp; attackAndDefenseDifference &gt; 0 &amp;&amp; !landDefenseOptions.isEmpty()) {</span>
+<span class="nc" id="L743">          final Map&lt;ProPurchaseOption, Double&gt; defenseEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : landDefenseOptions) {</span>
+<span class="nc" id="L745">            defenseEfficiencies.put(ppo, ppo.getDefenseEfficiency2(enemyDistance, data, ownedLocalUnits, unitsToPlace));</span>
+          }
+<span class="nc" id="L747">          selectedOption = ProPurchaseUtils.randomizePurchaseOption(defenseEfficiencies, &quot;Land Defense&quot;);</span>
+<span class="nc bnc" id="L748" title="All 4 branches missed.">        } else if (!selectFodderUnit &amp;&amp; !landAttackOptions.isEmpty()) {</span>
+<span class="nc" id="L749">          final Map&lt;ProPurchaseOption, Double&gt; attackEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L750" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : landAttackOptions) {</span>
+<span class="nc" id="L751">            attackEfficiencies.put(ppo, ppo.getAttackEfficiency2(enemyDistance, data, ownedLocalUnits, unitsToPlace));</span>
+          }
+<span class="nc" id="L753">          selectedOption = ProPurchaseUtils.randomizePurchaseOption(attackEfficiencies, &quot;Land Attack&quot;);</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">        } else if (!landFodderOptions.isEmpty()) {</span>
+<span class="nc" id="L755">          final Map&lt;ProPurchaseOption, Double&gt; fodderEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L756" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : landFodderOptions) {</span>
+<span class="nc" id="L757">            fodderEfficiencies.put(ppo, ppo.getFodderEfficiency(enemyDistance, data, ownedLocalUnits, unitsToPlace));</span>
+          }
+<span class="nc" id="L759">          selectedOption = ProPurchaseUtils.randomizePurchaseOption(fodderEfficiencies, &quot;Land Fodder&quot;);</span>
+<span class="nc" id="L760">          addedFodderUnits += selectedOption.getQuantity();</span>
+        } else {
+          break;
+        }
+
+        // Create new temp units
+<span class="nc" id="L766">        resourceTracker.purchase(selectedOption);</span>
+<span class="nc" id="L767">        remainingUnitProduction -= selectedOption.getQuantity();</span>
+<span class="nc" id="L768">        unitsToPlace.addAll(selectedOption.getUnitType().create(selectedOption.getQuantity(), player, true));</span>
+<span class="nc" id="L769">        attackAndDefenseDifference += (selectedOption.getAttack() - selectedOption.getDefense());</span>
+<span class="nc bnc" id="L770" title="All 2 branches missed.">        selectFodderUnit = ((double) addedFodderUnits / unitsToPlace.size() * 100) &lt;= fodderPercent;</span>
+<span class="nc" id="L771">        ProLogger.trace(&quot;Selected unit=&quot; + selectedOption.getUnitType().getName());</span>
+      }
+
+      // Add units to place territory
+<span class="nc" id="L775">      placeTerritory.getPlaceUnits().addAll(unitsToPlace);</span>
+<span class="nc" id="L776">      ProLogger.debug(t + &quot;, placedUnits=&quot; + unitsToPlace);</span>
+    }
+<span class="nc" id="L778">  }</span>
+
+  private void purchaseFactory(final Map&lt;Territory, ProPurchaseTerritory&gt; factoryPurchaseTerritories,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories, final ProPurchaseOptionMap purchaseOptions,
+      final boolean hasExtraPUs) {
+
+<span class="nc bnc" id="L785" title="All 2 branches missed.">    if (resourceTracker.isEmpty()) {</span>
+<span class="nc" id="L786">      return;</span>
+    }
+<span class="nc" id="L788">    ProLogger.info(&quot;Purchase factory with resources: &quot; + resourceTracker + &quot;, hasExtraPUs=&quot; + hasExtraPUs);</span>
+
+<span class="nc" id="L790">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Only try to purchase a factory if all production was used in prioritized land territories
+<span class="nc bnc" id="L793" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc bnc" id="L794" title="All 2 branches missed.">      for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L795" title="All 4 branches missed.">        if (placeTerritory.getTerritory().equals(t) &amp;&amp; purchaseTerritories.get(t).getRemainingUnitProduction() &gt; 0) {</span>
+<span class="nc" id="L796">          ProLogger.debug(&quot;Not purchasing a factory since remaining land production in &quot; + t);</span>
+<span class="nc" id="L797">          return;</span>
+        }
+      }
+    }
+
+    // Find all owned land territories that weren't conquered and don't already have a factory
+<span class="nc" id="L803">    final List&lt;Territory&gt; possibleFactoryTerritories = Match.getMatches(data.getMap().getTerritories(),</span>
+<span class="nc" id="L804">        ProMatches.territoryHasNoInfraFactoryAndIsNotConqueredOwnedLand(player, data));</span>
+<span class="nc" id="L805">    possibleFactoryTerritories.removeAll(factoryPurchaseTerritories.keySet());</span>
+<span class="nc" id="L806">    final Set&lt;Territory&gt; purchaseFactoryTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L807">    final List&lt;Territory&gt; territoriesThatCantBeHeld = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L808" title="All 2 branches missed.">    for (final Territory t : possibleFactoryTerritories) {</span>
+
+      // Only consider territories with production of at least 3 unless there are still remaining PUs
+<span class="nc" id="L811">      final int production = TerritoryAttachment.get(t).getProduction();</span>
+<span class="nc bnc" id="L812" title="All 6 branches missed.">      if ((production &lt; 3 &amp;&amp; !hasExtraPUs) || production &lt; 2) {</span>
+<span class="nc" id="L813">        continue;</span>
+      }
+
+      // Check if no enemy attackers and that it wasn't conquered this turn
+<span class="nc bnc" id="L817" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) == null) {</span>
+<span class="nc" id="L818">        purchaseFactoryTerritories.add(t);</span>
+<span class="nc" id="L819">        ProLogger.trace(&quot;Possible factory since no enemy attackers: &quot; + t.getName());</span>
+<span class="nc" id="L820">      } else {</span>
+
+        // Find current battle result
+<span class="nc" id="L823">        final List&lt;Unit&gt; defenders = t.getUnits().getMatches(Matches.isUnitAllied(player, data));</span>
+<span class="nc" id="L824">        final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L825">        enemyAttackingUnits.addAll(enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L826">        final ProBattleResult result = calc.estimateDefendBattleResults(player, t, new ArrayList&lt;&gt;(enemyAttackingUnits),</span>
+<span class="nc" id="L827">            defenders, enemyAttackOptions.getMax(t).getMaxBombardUnits());</span>
+
+        // Check if it can't be held or if it can then that it wasn't conquered this turn
+<span class="nc bnc" id="L830" title="All 4 branches missed.">        if (result.isHasLandUnitRemaining() || result.getTUVSwing() &gt; 0) {</span>
+<span class="nc" id="L831">          territoriesThatCantBeHeld.add(t);</span>
+<span class="nc" id="L832">          ProLogger.trace(&quot;Can't hold territory: &quot; + t.getName() + &quot;, hasLandUnitRemaining=&quot;</span>
+<span class="nc" id="L833">              + result.isHasLandUnitRemaining() + &quot;, TUVSwing=&quot; + result.getTUVSwing() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L834">              + enemyAttackingUnits.size() + &quot;, myDefenders=&quot; + defenders.size());</span>
+<span class="nc" id="L835">        } else {</span>
+<span class="nc" id="L836">          purchaseFactoryTerritories.add(t);</span>
+<span class="nc" id="L837">          ProLogger.trace(&quot;Possible factory: &quot; + t.getName() + &quot;, hasLandUnitRemaining=&quot;</span>
+<span class="nc" id="L838">              + result.isHasLandUnitRemaining() + &quot;, TUVSwing=&quot; + result.getTUVSwing() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L839">              + enemyAttackingUnits.size() + &quot;, myDefenders=&quot; + defenders.size());</span>
+        }
+      }
+    }
+<span class="nc" id="L843">    ProLogger.debug(&quot;Possible factory territories: &quot; + purchaseFactoryTerritories);</span>
+
+    // Remove any territories that don't have local land superiority
+<span class="nc bnc" id="L846" title="All 2 branches missed.">    if (!hasExtraPUs) {</span>
+<span class="nc bnc" id="L847" title="All 2 branches missed.">      for (final Iterator&lt;Territory&gt; it = purchaseFactoryTerritories.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L848">        final Territory t = it.next();</span>
+<span class="nc" id="L849">        if (!ProBattleUtils.territoryHasLocalLandSuperiority(t, ProBattleUtils.MEDIUM_RANGE, player,</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">            purchaseTerritories)) {</span>
+<span class="nc" id="L851">          it.remove();</span>
+        }
+      }
+<span class="nc" id="L854">      ProLogger.debug(&quot;Possible factory territories that have land superiority: &quot; + purchaseFactoryTerritories);</span>
+    }
+
+    // Find strategic value for each territory
+<span class="nc" id="L858">    final Map&lt;Territory, Double&gt; territoryValueMap =</span>
+<span class="nc" id="L859">        ProTerritoryValueUtils.findTerritoryValues(player, territoriesThatCantBeHeld, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L860">    double maxValue = 0.0;</span>
+<span class="nc" id="L861">    Territory maxTerritory = null;</span>
+<span class="nc bnc" id="L862" title="All 2 branches missed.">    for (final Territory t : purchaseFactoryTerritories) {</span>
+<span class="nc" id="L863">      final int production = TerritoryAttachment.get(t).getProduction();</span>
+<span class="nc" id="L864">      final double value = territoryValueMap.get(t) * production + 0.1 * production;</span>
+<span class="nc" id="L865">      final boolean isAdjacentToSea = Matches.territoryHasNeighborMatching(data, Matches.TerritoryIsWater).match(t);</span>
+<span class="nc" id="L866">      final Set&lt;Territory&gt; nearbyLandTerritories =</span>
+<span class="nc" id="L867">          data.getMap().getNeighbors(t, 9, ProMatches.territoryCanMoveLandUnits(player, data, false));</span>
+<span class="nc" id="L868">      final int numNearbyEnemyTerritories =</span>
+<span class="nc" id="L869">          Match.countMatches(nearbyLandTerritories, Matches.isTerritoryEnemy(player, data));</span>
+<span class="nc" id="L870">      ProLogger.trace(t + &quot;, strategic value=&quot; + territoryValueMap.get(t) + &quot;, value=&quot; + value</span>
+<span class="nc" id="L871">          + &quot;, numNearbyEnemyTerritories=&quot; + numNearbyEnemyTerritories);</span>
+<span class="nc bnc" id="L872" title="All 2 branches missed.">      if (value &gt; maxValue</span>
+<span class="nc bnc" id="L873" title="All 8 branches missed.">          &amp;&amp; ((numNearbyEnemyTerritories &gt;= 4 &amp;&amp; territoryValueMap.get(t) &gt;= 1) || (isAdjacentToSea &amp;&amp; hasExtraPUs))) {</span>
+<span class="nc" id="L874">        maxValue = value;</span>
+<span class="nc" id="L875">        maxTerritory = t;</span>
+      }
+    }
+<span class="nc" id="L878">    ProLogger.debug(&quot;Try to purchase factory for territory: &quot; + maxTerritory);</span>
+
+    // Determine whether to purchase factory
+<span class="nc bnc" id="L881" title="All 2 branches missed.">    if (maxTerritory != null) {</span>
+
+      // Find most expensive placed land unit to consider removing for a factory
+<span class="nc" id="L884">      ProPurchaseOption maxPlacedOption = null;</span>
+<span class="nc" id="L885">      ProPlaceTerritory maxPlacedTerritory = null;</span>
+<span class="nc" id="L886">      Unit maxPlacedUnit = null;</span>
+<span class="nc bnc" id="L887" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc bnc" id="L888" title="All 2 branches missed.">        for (final Unit u : placeTerritory.getPlaceUnits()) {</span>
+<span class="nc bnc" id="L889" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : purchaseOptions.getLandOptions()) {</span>
+<span class="nc bnc" id="L890" title="All 4 branches missed.">            if (u.getType().equals(ppo.getUnitType()) &amp;&amp; ppo.getQuantity() == 1</span>
+<span class="nc bnc" id="L891" title="All 4 branches missed.">                &amp;&amp; (maxPlacedOption == null || ppo.getCost() &gt;= maxPlacedOption.getCost())) {</span>
+<span class="nc" id="L892">              maxPlacedOption = ppo;</span>
+<span class="nc" id="L893">              maxPlacedTerritory = placeTerritory;</span>
+<span class="nc" id="L894">              maxPlacedUnit = u;</span>
+            }
+          }
+        }
+      }
+
+      // Determine units that can be produced in this territory
+<span class="nc" id="L901">      final List&lt;ProPurchaseOption&gt; purchaseOptionsForTerritory =</span>
+<span class="nc" id="L902">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getFactoryOptions(), maxTerritory);</span>
+<span class="nc" id="L903">      resourceTracker.removeTempPurchase(maxPlacedOption);</span>
+<span class="nc" id="L904">      ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, purchaseOptionsForTerritory,</span>
+<span class="nc" id="L905">          resourceTracker, 1, new ArrayList&lt;&gt;(), purchaseTerritories);</span>
+<span class="nc" id="L906">      resourceTracker.clearTempPurchases();</span>
+
+      // Determine most expensive factory option (currently doesn't buy mobile factories)
+<span class="nc" id="L909">      ProPurchaseOption bestFactoryOption = null;</span>
+<span class="nc" id="L910">      double maxFactoryEfficiency = 0;</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">      for (final ProPurchaseOption ppo : purchaseOptionsForTerritory) {</span>
+<span class="nc bnc" id="L912" title="All 4 branches missed.">        if (ppo.getMovement() == 0 &amp;&amp; ppo.getCost() &gt; maxFactoryEfficiency) {</span>
+<span class="nc" id="L913">          bestFactoryOption = ppo;</span>
+<span class="nc" id="L914">          maxFactoryEfficiency = ppo.getCost();</span>
+        }
+      }
+
+      // Check if there are enough PUs to buy a factory
+<span class="nc bnc" id="L919" title="All 2 branches missed.">      if (bestFactoryOption != null) {</span>
+<span class="nc" id="L920">        ProLogger.debug(&quot;Best factory unit: &quot; + bestFactoryOption.getUnitType().getName());</span>
+<span class="nc" id="L921">        final ProPurchaseTerritory factoryPurchaseTerritory = new ProPurchaseTerritory(maxTerritory, data, player, 0);</span>
+<span class="nc" id="L922">        factoryPurchaseTerritories.put(maxTerritory, factoryPurchaseTerritory);</span>
+<span class="nc bnc" id="L923" title="All 2 branches missed.">        for (final ProPlaceTerritory ppt : factoryPurchaseTerritory.getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L924" title="All 2 branches missed.">          if (ppt.getTerritory().equals(maxTerritory)) {</span>
+<span class="nc" id="L925">            final List&lt;Unit&gt; factory =</span>
+<span class="nc" id="L926">                bestFactoryOption.getUnitType().create(bestFactoryOption.getQuantity(), player, true);</span>
+<span class="nc" id="L927">            ppt.getPlaceUnits().addAll(factory);</span>
+<span class="nc bnc" id="L928" title="All 2 branches missed.">            if (resourceTracker.hasEnough(bestFactoryOption)) {</span>
+<span class="nc" id="L929">              resourceTracker.purchase(bestFactoryOption);</span>
+<span class="nc" id="L930">              ProLogger.debug(maxTerritory + &quot;, placedFactory=&quot; + factory);</span>
+<span class="nc" id="L931">            } else {</span>
+<span class="nc" id="L932">              resourceTracker.purchase(bestFactoryOption);</span>
+<span class="nc" id="L933">              resourceTracker.removePurchase(maxPlacedOption);</span>
+<span class="nc" id="L934">              maxPlacedTerritory.getPlaceUnits().remove(maxPlacedUnit);</span>
+<span class="nc" id="L935">              ProLogger.debug(maxTerritory + &quot;, placedFactory=&quot; + factory + &quot;, removedUnit=&quot; + maxPlacedUnit);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L941">  }</span>
+
+  private List&lt;ProPlaceTerritory&gt; prioritizeSeaTerritories(
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+
+<span class="nc" id="L946">    ProLogger.info(&quot;Prioritize sea territories&quot;);</span>
+
+<span class="nc" id="L948">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Determine which sea territories can be placed in
+<span class="nc" id="L951">    final Set&lt;ProPlaceTerritory&gt; seaPlaceTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L952" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+<span class="nc bnc" id="L953" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L954">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L955" title="All 6 branches missed.">        if (t.isWater() &amp;&amp; placeTerritory.getStrategicValue() &gt; 0 &amp;&amp; placeTerritory.isCanHold()) {</span>
+<span class="nc" id="L956">          seaPlaceTerritories.add(placeTerritory);</span>
+        }
+      }
+    }
+
+    // Calculate value of territory
+<span class="nc" id="L962">    ProLogger.debug(&quot;Determine sea place value:&quot;);</span>
+<span class="nc bnc" id="L963" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : seaPlaceTerritories) {</span>
+<span class="nc" id="L964">      final Territory t = placeTerritory.getTerritory();</span>
+
+      // Find number of local naval units
+<span class="nc" id="L967">      final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(placeTerritory.getDefendingUnits());</span>
+<span class="nc" id="L968">      units.addAll(ProPurchaseUtils.getPlaceUnits(t, purchaseTerritories));</span>
+<span class="nc" id="L969">      final List&lt;Unit&gt; myUnits = Match.getMatches(units, Matches.unitIsOwnedBy(player));</span>
+<span class="nc" id="L970">      final int numMyTransports = Match.countMatches(myUnits, Matches.UnitIsTransport);</span>
+<span class="nc" id="L971">      final int numSeaDefenders = Match.countMatches(units, Matches.UnitIsNotTransport);</span>
+
+      // Determine needed defense strength
+<span class="nc" id="L974">      int needDefenders = 0;</span>
+<span class="nc bnc" id="L975" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) != null) {</span>
+<span class="nc" id="L976">        final double strengthDifference =</span>
+<span class="nc" id="L977">            ProBattleUtils.estimateStrengthDifference(t, enemyAttackOptions.getMax(t).getMaxUnits(), units);</span>
+<span class="nc bnc" id="L978" title="All 2 branches missed.">        if (strengthDifference &gt; 50) {</span>
+<span class="nc" id="L979">          needDefenders = 1;</span>
+        }
+      }
+<span class="nc" id="L982">      final boolean hasLocalNavalSuperiority =</span>
+<span class="nc" id="L983">          ProBattleUtils.territoryHasLocalNavalSuperiority(t, player, null, new ArrayList&lt;&gt;());</span>
+<span class="nc bnc" id="L984" title="All 2 branches missed.">      if (!hasLocalNavalSuperiority) {</span>
+<span class="nc" id="L985">        needDefenders = 1;</span>
+      }
+
+      // Calculate sea value for prioritization
+<span class="nc" id="L989">      final double territoryValue =</span>
+<span class="nc" id="L990">          placeTerritory.getStrategicValue() * (1 + numMyTransports + 0.1 * numSeaDefenders) / (1 + 3 * needDefenders);</span>
+<span class="nc" id="L991">      ProLogger.debug(t + &quot;, value=&quot; + territoryValue + &quot;, strategicValue=&quot; + placeTerritory.getStrategicValue()</span>
+<span class="nc" id="L992">          + &quot;, numMyTransports=&quot; + numMyTransports + &quot;, numSeaDefenders=&quot; + numSeaDefenders + &quot;, needDefenders=&quot;</span>
+<span class="nc" id="L993">          + needDefenders);</span>
+<span class="nc" id="L994">      placeTerritory.setStrategicValue(territoryValue);</span>
+    }
+
+    // Sort territories by value
+<span class="nc" id="L998">    final List&lt;ProPlaceTerritory&gt; sortedTerritories = new ArrayList&lt;&gt;(seaPlaceTerritories);</span>
+<span class="nc" id="L999">    Collections.sort(sortedTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L1000">      final double value1 = t1.getStrategicValue();</span>
+<span class="nc" id="L1001">      final double value2 = t2.getStrategicValue();</span>
+<span class="nc" id="L1002">      return Double.compare(value2, value1);</span>
+    });
+<span class="nc" id="L1004">    ProLogger.debug(&quot;Sorted sea territories:&quot;);</span>
+<span class="nc bnc" id="L1005" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : sortedTerritories) {</span>
+<span class="nc" id="L1006">      ProLogger.debug(placeTerritory.toString() + &quot; value=&quot; + placeTerritory.getStrategicValue());</span>
+    }
+<span class="nc" id="L1008">    return sortedTerritories;</span>
+  }
+
+  private void purchaseSeaAndAmphibUnits(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPlaceTerritory&gt; prioritizedSeaTerritories, final Map&lt;Territory, Double&gt; territoryValueMap,
+      final ProPurchaseOptionMap purchaseOptions) {
+
+<span class="nc bnc" id="L1015" title="All 2 branches missed.">    if (resourceTracker.isEmpty()) {</span>
+<span class="nc" id="L1016">      return;</span>
+    }
+<span class="nc" id="L1018">    ProLogger.info(&quot;Purchase sea and amphib units with resources: &quot; + resourceTracker);</span>
+
+<span class="nc" id="L1020">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Loop through prioritized territories and purchase sea units
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedSeaTerritories) {</span>
+<span class="nc" id="L1024">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L1025">      ProLogger.debug(&quot;Checking sea place for &quot; + t.getName());</span>
+
+      // Find all purchase territories for place territory
+<span class="nc" id="L1028">      final List&lt;ProPurchaseTerritory&gt; selectedPurchaseTerritories =</span>
+<span class="nc" id="L1029">          getPurchaseTerritories(placeTerritory, purchaseTerritories);</span>
+
+      // Find local owned units
+<span class="nc" id="L1032">      final Set&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L1033">          data.getMap().getNeighbors(t, 2, ProMatches.territoryCanMoveSeaUnits(player, data, false));</span>
+<span class="nc" id="L1034">      neighbors.add(t);</span>
+<span class="nc" id="L1035">      final List&lt;Unit&gt; ownedLocalUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1036" title="All 2 branches missed.">      for (final Territory neighbor : neighbors) {</span>
+<span class="nc" id="L1037">        ownedLocalUnits.addAll(neighbor.getUnits().getMatches(Matches.unitIsOwnedBy(player)));</span>
+      }
+<span class="nc" id="L1039">      int unusedCarrierCapacity = Math.min(0, ProTransportUtils.getUnusedCarrierCapacity(player, t, new ArrayList&lt;&gt;()));</span>
+<span class="nc" id="L1040">      int unusedLocalCarrierCapacity = ProTransportUtils.getUnusedLocalCarrierCapacity(player, t, new ArrayList&lt;&gt;());</span>
+<span class="nc" id="L1041">      boolean needDestroyer = false;</span>
+<span class="nc" id="L1042">      ProLogger.trace(t + &quot;, unusedCarrierCapacity=&quot; + unusedCarrierCapacity + &quot;, unusedLocalCarrierCapacity=&quot;</span>
+<span class="nc" id="L1043">          + unusedLocalCarrierCapacity);</span>
+
+      // If any enemy attackers then purchase sea defenders until it can be held
+<span class="nc bnc" id="L1046" title="All 2 branches missed.">      if (enemyAttackOptions.getMax(t) != null) {</span>
+
+        // Determine if need destroyer
+<span class="nc bnc" id="L1049" title="All 2 branches missed.">        if (Match.someMatch(enemyAttackOptions.getMax(t).getMaxUnits(), Matches.UnitIsSub)</span>
+<span class="nc bnc" id="L1050" title="All 2 branches missed.">            &amp;&amp; Match.noneMatch(t.getUnits().getMatches(Matches.unitIsOwnedBy(player)), Matches.UnitIsDestroyer)) {</span>
+<span class="nc" id="L1051">          needDestroyer = true;</span>
+        }
+<span class="nc" id="L1053">        ProLogger.trace(t + &quot;, needDestroyer=&quot; + needDestroyer + &quot;, checking defense since has enemy attackers: &quot;</span>
+<span class="nc" id="L1054">            + enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L1055">        final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1056">        final List&lt;Unit&gt; initialDefendingUnits = new ArrayList&lt;&gt;(placeTerritory.getDefendingUnits());</span>
+<span class="nc" id="L1057">        initialDefendingUnits.addAll(ProPurchaseUtils.getPlaceUnits(t, purchaseTerritories));</span>
+<span class="nc" id="L1058">        ProBattleResult result = calc.calculateBattleResults(player, t, enemyAttackOptions.getMax(t).getMaxUnits(),</span>
+<span class="nc" id="L1059">            initialDefendingUnits, enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+<span class="nc" id="L1060">        boolean hasOnlyRetreatingSubs =</span>
+<span class="nc bnc" id="L1061" title="All 4 branches missed.">            Properties.getSubRetreatBeforeBattle(data) &amp;&amp; Match.allMatch(initialDefendingUnits, Matches.UnitIsSub)</span>
+<span class="nc bnc" id="L1062" title="All 2 branches missed.">                &amp;&amp; Match.noneMatch(enemyAttackOptions.getMax(t).getMaxUnits(), Matches.UnitIsDestroyer);</span>
+<span class="nc bnc" id="L1063" title="All 2 branches missed.">        for (final ProPurchaseTerritory purchaseTerritory : selectedPurchaseTerritories) {</span>
+
+          // Check remaining production
+<span class="nc" id="L1066">          int remainingUnitProduction = purchaseTerritory.getRemainingUnitProduction();</span>
+<span class="nc" id="L1067">          ProLogger.trace(t + &quot;, purchaseTerritory=&quot; + purchaseTerritory.getTerritory() + &quot;, remainingUnitProduction=&quot;</span>
+<span class="nc" id="L1068">              + remainingUnitProduction);</span>
+<span class="nc bnc" id="L1069" title="All 2 branches missed.">          if (remainingUnitProduction &lt;= 0) {</span>
+<span class="nc" id="L1070">            continue;</span>
+          }
+
+          // Determine sea and transport units that can be produced in this territory
+<span class="nc" id="L1074">          final List&lt;ProPurchaseOption&gt; seaPurchaseOptionsForTerritory =</span>
+<span class="nc" id="L1075">              ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getSeaDefenseOptions(), t);</span>
+<span class="nc" id="L1076">          seaPurchaseOptionsForTerritory.addAll(purchaseOptions.getAirOptions());</span>
+
+          // Purchase enough sea defenders to hold territory
+<span class="nc" id="L1079">          while (true) {</span>
+
+            // Remove options that cost too much PUs or production
+<span class="nc" id="L1082">            ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, seaPurchaseOptionsForTerritory,</span>
+<span class="nc" id="L1083">                resourceTracker, remainingUnitProduction, unitsToPlace, purchaseTerritories);</span>
+<span class="nc bnc" id="L1084" title="All 2 branches missed.">            if (seaPurchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1085">              break;</span>
+            }
+
+            // If it can be held then break
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">            if (!hasOnlyRetreatingSubs</span>
+<span class="nc bnc" id="L1090" title="All 4 branches missed.">                &amp;&amp; (result.getTUVSwing() &lt; -1 || result.getWinPercentage() &lt; ProData.winPercentage)) {</span>
+<span class="nc" id="L1091">              break;</span>
+            }
+
+            // Select purchase option
+<span class="nc" id="L1095">            final Map&lt;ProPurchaseOption, Double&gt; defenseEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1096" title="All 2 branches missed.">            for (final ProPurchaseOption ppo : seaPurchaseOptionsForTerritory) {</span>
+<span class="nc" id="L1097">              defenseEfficiencies.put(ppo, ppo.getSeaDefenseEfficiency(data, ownedLocalUnits, unitsToPlace,</span>
+<span class="nc" id="L1098">                  needDestroyer, unusedCarrierCapacity, unusedLocalCarrierCapacity));</span>
+            }
+<span class="nc" id="L1100">            final ProPurchaseOption selectedOption =</span>
+<span class="nc" id="L1101">                ProPurchaseUtils.randomizePurchaseOption(defenseEfficiencies, &quot;Sea Defense&quot;);</span>
+<span class="nc bnc" id="L1102" title="All 2 branches missed.">            if (selectedOption.isDestroyer()) {</span>
+<span class="nc" id="L1103">              needDestroyer = false;</span>
+            }
+
+            // Create new temp defenders
+<span class="nc" id="L1107">            resourceTracker.tempPurchase(selectedOption);</span>
+<span class="nc" id="L1108">            remainingUnitProduction -= selectedOption.getQuantity();</span>
+<span class="nc" id="L1109">            unitsToPlace.addAll(selectedOption.getUnitType().create(selectedOption.getQuantity(), player, true));</span>
+<span class="nc bnc" id="L1110" title="All 4 branches missed.">            if (selectedOption.isCarrier() || selectedOption.isAir()) {</span>
+<span class="nc" id="L1111">              unusedCarrierCapacity = ProTransportUtils.getUnusedCarrierCapacity(player, t, unitsToPlace);</span>
+<span class="nc" id="L1112">              unusedLocalCarrierCapacity = ProTransportUtils.getUnusedLocalCarrierCapacity(player, t, unitsToPlace);</span>
+            }
+            ProLogger
+<span class="nc" id="L1115">                .trace(t + &quot;, added sea defender for defense: &quot; + selectedOption.getUnitType().getName() + &quot;, TUVSwing=&quot;</span>
+<span class="nc" id="L1116">                    + result.getTUVSwing() + &quot;, win%=&quot; + result.getWinPercentage() + &quot;, unusedCarrierCapacity=&quot;</span>
+<span class="nc" id="L1117">                    + unusedCarrierCapacity + &quot;, unusedLocalCarrierCapacity=&quot; + unusedLocalCarrierCapacity);</span>
+
+            // Find current battle result
+<span class="nc" id="L1120">            final List&lt;Unit&gt; defendingUnits = new ArrayList&lt;&gt;(placeTerritory.getDefendingUnits());</span>
+<span class="nc" id="L1121">            defendingUnits.addAll(ProPurchaseUtils.getPlaceUnits(t, purchaseTerritories));</span>
+<span class="nc" id="L1122">            defendingUnits.addAll(unitsToPlace);</span>
+<span class="nc" id="L1123">            result = calc.estimateDefendBattleResults(player, t, enemyAttackOptions.getMax(t).getMaxUnits(),</span>
+<span class="nc" id="L1124">                defendingUnits, enemyAttackOptions.getMax(t).getMaxBombardUnits());</span>
+<span class="nc" id="L1125">            hasOnlyRetreatingSubs =</span>
+<span class="nc bnc" id="L1126" title="All 4 branches missed.">                Properties.getSubRetreatBeforeBattle(data) &amp;&amp; Match.allMatch(defendingUnits, Matches.UnitIsSub)</span>
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">                    &amp;&amp; Match.noneMatch(enemyAttackOptions.getMax(t).getMaxUnits(), Matches.UnitIsDestroyer);</span>
+          }
+        }
+
+        // Check to see if its worth trying to defend the territory
+<span class="nc bnc" id="L1132" title="All 4 branches missed.">        if (result.getTUVSwing() &lt; 0 || result.getWinPercentage() &lt; ProData.winPercentage) {</span>
+<span class="nc" id="L1133">          resourceTracker.confirmTempPurchases();</span>
+<span class="nc" id="L1134">          ProLogger.trace(t + &quot;, placedUnits=&quot; + unitsToPlace + &quot;, TUVSwing=&quot; + result.getTUVSwing()</span>
+<span class="nc" id="L1135">              + &quot;, hasLandUnitRemaining=&quot; + result.isHasLandUnitRemaining());</span>
+<span class="nc" id="L1136">          addUnitsToPlaceTerritory(placeTerritory, unitsToPlace, purchaseTerritories);</span>
+<span class="nc" id="L1137">        } else {</span>
+<span class="nc" id="L1138">          resourceTracker.clearTempPurchases();</span>
+<span class="nc" id="L1139">          setCantHoldPlaceTerritory(placeTerritory, purchaseTerritories);</span>
+<span class="nc" id="L1140">          ProLogger.trace(t + &quot;, can't defend TUVSwing=&quot; + result.getTUVSwing() + &quot;, win%=&quot; + result.getWinPercentage()</span>
+<span class="nc" id="L1141">              + &quot;, tried to placeDefenders=&quot; + unitsToPlace + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L1142">              + enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L1143">          continue;</span>
+        }
+      }
+
+      // TODO: update to use ProBattleUtils method
+      // Check to see if local naval superiority
+<span class="nc" id="L1149">      int landDistance = ProUtils.getClosestEnemyLandTerritoryDistanceOverWater(data, player, t);</span>
+<span class="nc bnc" id="L1150" title="All 2 branches missed.">      if (landDistance &lt;= 0) {</span>
+<span class="nc" id="L1151">        landDistance = 10;</span>
+      }
+<span class="nc" id="L1153">      final int enemyDistance = Math.max(3, (landDistance + 1));</span>
+<span class="nc" id="L1154">      final int alliedDistance = (enemyDistance + 1) / 2;</span>
+<span class="nc" id="L1155">      final Set&lt;Territory&gt; nearbyTerritories =</span>
+<span class="nc" id="L1156">          data.getMap().getNeighbors(t, enemyDistance, ProMatches.territoryCanMoveAirUnits(player, data, false));</span>
+<span class="nc" id="L1157">      final List&lt;Territory&gt; nearbyLandTerritories = Match.getMatches(nearbyTerritories, Matches.TerritoryIsLand);</span>
+<span class="nc" id="L1158">      final Set&lt;Territory&gt; nearbyEnemySeaTerritories =</span>
+<span class="nc" id="L1159">          data.getMap().getNeighbors(t, enemyDistance, Matches.TerritoryIsWater);</span>
+<span class="nc" id="L1160">      nearbyEnemySeaTerritories.add(t);</span>
+<span class="nc" id="L1161">      final Set&lt;Territory&gt; nearbyAlliedSeaTerritories =</span>
+<span class="nc" id="L1162">          data.getMap().getNeighbors(t, alliedDistance, Matches.TerritoryIsWater);</span>
+<span class="nc" id="L1163">      nearbyAlliedSeaTerritories.add(t);</span>
+<span class="nc" id="L1164">      final List&lt;Unit&gt; enemyUnitsInSeaTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1165">      final List&lt;Unit&gt; enemyUnitsInLandTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1166">      final List&lt;Unit&gt; myUnitsInSeaTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1167" title="All 2 branches missed.">      for (final Territory nearbyLandTerritory : nearbyLandTerritories) {</span>
+<span class="nc" id="L1168">        enemyUnitsInLandTerritories</span>
+<span class="nc" id="L1169">            .addAll(nearbyLandTerritory.getUnits().getMatches(ProMatches.unitIsEnemyAir(player, data)));</span>
+      }
+<span class="nc bnc" id="L1171" title="All 2 branches missed.">      for (final Territory nearbySeaTerritory : nearbyEnemySeaTerritories) {</span>
+<span class="nc" id="L1172">        final List&lt;Unit&gt; enemySeaUnits =</span>
+<span class="nc" id="L1173">            nearbySeaTerritory.getUnits().getMatches(ProMatches.unitIsEnemyNotLand(player, data));</span>
+<span class="nc bnc" id="L1174" title="All 2 branches missed.">        if (enemySeaUnits.isEmpty()) {</span>
+<span class="nc" id="L1175">          continue;</span>
+        }
+<span class="nc" id="L1177">        final Route route = data.getMap().getRoute_IgnoreEnd(t, nearbySeaTerritory, Matches.TerritoryIsWater);</span>
+<span class="nc bnc" id="L1178" title="All 2 branches missed.">        if (route == null) {</span>
+<span class="nc" id="L1179">          continue;</span>
+        }
+<span class="nc bnc" id="L1181" title="All 2 branches missed.">        if (MoveValidator.validateCanal(route, enemySeaUnits, enemySeaUnits.get(0).getOwner(), data) != null) {</span>
+<span class="nc" id="L1182">          continue;</span>
+        }
+<span class="nc" id="L1184">        final int routeLength = route.numberOfSteps();</span>
+<span class="nc bnc" id="L1185" title="All 2 branches missed.">        if (routeLength &lt;= enemyDistance) {</span>
+<span class="nc" id="L1186">          enemyUnitsInSeaTerritories.addAll(enemySeaUnits);</span>
+        }
+      }
+<span class="nc bnc" id="L1189" title="All 2 branches missed.">      for (final Territory nearbySeaTerritory : nearbyAlliedSeaTerritories) {</span>
+<span class="nc" id="L1190">        myUnitsInSeaTerritories</span>
+<span class="nc" id="L1191">            .addAll(nearbySeaTerritory.getUnits().getMatches(ProMatches.unitIsOwnedNotLand(player, data)));</span>
+<span class="nc" id="L1192">        myUnitsInSeaTerritories.addAll(ProPurchaseUtils.getPlaceUnits(nearbySeaTerritory, purchaseTerritories));</span>
+      }
+
+      // Check if destroyer is needed
+<span class="nc" id="L1196">      final int numEnemySubs = Match.countMatches(enemyUnitsInSeaTerritories, Matches.UnitIsSub);</span>
+<span class="nc" id="L1197">      final int numMyDestroyers = Match.countMatches(myUnitsInSeaTerritories, Matches.UnitIsDestroyer);</span>
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">      if (numEnemySubs &gt; 2 * numMyDestroyers) {</span>
+<span class="nc" id="L1199">        needDestroyer = true;</span>
+      }
+<span class="nc" id="L1201">      ProLogger.trace(t + &quot;, enemyDistance=&quot; + enemyDistance + &quot;, alliedDistance=&quot; + alliedDistance + &quot;, enemyAirUnits=&quot;</span>
+<span class="nc" id="L1202">          + enemyUnitsInLandTerritories + &quot;, enemySeaUnits=&quot; + enemyUnitsInSeaTerritories + &quot;, mySeaUnits=&quot;</span>
+<span class="nc" id="L1203">          + myUnitsInSeaTerritories + &quot;, needDestroyer=&quot; + needDestroyer);</span>
+
+      // Purchase naval defenders until I have local naval superiority
+<span class="nc" id="L1206">      final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1207" title="All 2 branches missed.">      for (final ProPurchaseTerritory purchaseTerritory : selectedPurchaseTerritories) {</span>
+
+        // Check remaining production
+<span class="nc" id="L1210">        int remainingUnitProduction = purchaseTerritory.getRemainingUnitProduction();</span>
+<span class="nc" id="L1211">        ProLogger.trace(t + &quot;, purchaseTerritory=&quot; + purchaseTerritory.getTerritory() + &quot;, remainingUnitProduction=&quot;</span>
+<span class="nc" id="L1212">            + remainingUnitProduction);</span>
+<span class="nc bnc" id="L1213" title="All 2 branches missed.">        if (remainingUnitProduction &lt;= 0) {</span>
+<span class="nc" id="L1214">          continue;</span>
+        }
+
+        // Determine sea and transport units that can be produced in this territory
+<span class="nc" id="L1218">        final List&lt;ProPurchaseOption&gt; seaPurchaseOptionsForTerritory =</span>
+<span class="nc" id="L1219">            ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getSeaDefenseOptions(), t);</span>
+<span class="nc" id="L1220">        seaPurchaseOptionsForTerritory.addAll(purchaseOptions.getAirOptions());</span>
+<span class="nc" id="L1221">        while (true) {</span>
+
+          // Remove options that cost too much PUs or production
+<span class="nc" id="L1224">          ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, seaPurchaseOptionsForTerritory,</span>
+<span class="nc" id="L1225">              resourceTracker, remainingUnitProduction, unitsToPlace, purchaseTerritories);</span>
+<span class="nc bnc" id="L1226" title="All 2 branches missed.">          if (seaPurchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1227">            break;</span>
+          }
+
+          // If I have naval attack/defense superiority then break
+<span class="nc bnc" id="L1231" title="All 2 branches missed.">          if (ProBattleUtils.territoryHasLocalNavalSuperiority(t, player, purchaseTerritories, unitsToPlace)) {</span>
+<span class="nc" id="L1232">            break;</span>
+          }
+
+          // Select purchase option
+<span class="nc" id="L1236">          final Map&lt;ProPurchaseOption, Double&gt; defenseEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1237" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : seaPurchaseOptionsForTerritory) {</span>
+<span class="nc" id="L1238">            defenseEfficiencies.put(ppo, ppo.getSeaDefenseEfficiency(data, ownedLocalUnits, unitsToPlace, needDestroyer,</span>
+<span class="nc" id="L1239">                unusedCarrierCapacity, unusedLocalCarrierCapacity));</span>
+          }
+<span class="nc" id="L1241">          final ProPurchaseOption selectedOption =</span>
+<span class="nc" id="L1242">              ProPurchaseUtils.randomizePurchaseOption(defenseEfficiencies, &quot;Sea Defense&quot;);</span>
+<span class="nc bnc" id="L1243" title="All 2 branches missed.">          if (selectedOption.isDestroyer()) {</span>
+<span class="nc" id="L1244">            needDestroyer = false;</span>
+          }
+
+          // Create new temp units
+<span class="nc" id="L1248">          resourceTracker.purchase(selectedOption);</span>
+<span class="nc" id="L1249">          remainingUnitProduction -= selectedOption.getQuantity();</span>
+<span class="nc" id="L1250">          unitsToPlace.addAll(selectedOption.getUnitType().create(selectedOption.getQuantity(), player, true));</span>
+<span class="nc bnc" id="L1251" title="All 4 branches missed.">          if (selectedOption.isCarrier() || selectedOption.isAir()) {</span>
+<span class="nc" id="L1252">            unusedCarrierCapacity = ProTransportUtils.getUnusedCarrierCapacity(player, t, unitsToPlace);</span>
+<span class="nc" id="L1253">            unusedLocalCarrierCapacity = ProTransportUtils.getUnusedLocalCarrierCapacity(player, t, unitsToPlace);</span>
+          }
+<span class="nc" id="L1255">          ProLogger.trace(t + &quot;, added sea defender for naval superiority: &quot; + selectedOption.getUnitType().getName()</span>
+<span class="nc" id="L1256">              + &quot;, unusedCarrierCapacity=&quot; + unusedCarrierCapacity + &quot;, unusedLocalCarrierCapacity=&quot;</span>
+<span class="nc" id="L1257">              + unusedLocalCarrierCapacity);</span>
+        }
+      }
+
+      // Add sea defender units to place territory
+<span class="nc" id="L1262">      addUnitsToPlaceTerritory(placeTerritory, unitsToPlace, purchaseTerritories);</span>
+
+      // Loop through adjacent purchase territories and purchase transport/amphib units
+<span class="nc" id="L1265">      final int distance = ProTransportUtils.findMaxMovementForTransports(purchaseOptions.getSeaTransportOptions());</span>
+<span class="nc" id="L1266">      ProLogger.trace(t + &quot;, transportMovement=&quot; + distance);</span>
+<span class="nc bnc" id="L1267" title="All 2 branches missed.">      for (final ProPurchaseTerritory purchaseTerritory : selectedPurchaseTerritories) {</span>
+<span class="nc" id="L1268">        final Territory landTerritory = purchaseTerritory.getTerritory();</span>
+
+        // Check if territory can produce units and has remaining production
+<span class="nc" id="L1271">        int remainingUnitProduction = purchaseTerritory.getRemainingUnitProduction();</span>
+        ProLogger
+<span class="nc" id="L1273">            .trace(t + &quot;, purchaseTerritory=&quot; + landTerritory + &quot;, remainingUnitProduction=&quot; + remainingUnitProduction);</span>
+<span class="nc bnc" id="L1274" title="All 2 branches missed.">        if (remainingUnitProduction &lt;= 0) {</span>
+<span class="nc" id="L1275">          continue;</span>
+        }
+
+        // Find local owned units
+<span class="nc" id="L1279">        final List&lt;Unit&gt; ownedLocalAmphibUnits = landTerritory.getUnits().getMatches(Matches.unitIsOwnedBy(player));</span>
+
+        // Determine sea and transport units that can be produced in this territory
+<span class="nc" id="L1282">        final List&lt;ProPurchaseOption&gt; seaTransportPurchaseOptionsForTerritory =</span>
+<span class="nc" id="L1283">            ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getSeaTransportOptions(), t);</span>
+<span class="nc" id="L1284">        final List&lt;ProPurchaseOption&gt; amphibPurchaseOptionsForTerritory =</span>
+<span class="nc" id="L1285">            ProPurchaseUtils.findPurchaseOptionsForTerritory(player, purchaseOptions.getLandOptions(), landTerritory);</span>
+
+        // Find transports that need loaded and units to ignore that are already paired up
+<span class="nc" id="L1288">        final List&lt;Unit&gt; transportsThatNeedUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1289">        final Set&lt;Unit&gt; potentialUnitsToLoad = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1290">        final Set&lt;Territory&gt; seaTerritories = data.getMap().getNeighbors(landTerritory, distance,</span>
+<span class="nc" id="L1291">            ProMatches.territoryCanMoveSeaUnits(player, data, false));</span>
+<span class="nc bnc" id="L1292" title="All 2 branches missed.">        for (final Territory seaTerritory : seaTerritories) {</span>
+<span class="nc" id="L1293">          final List&lt;Unit&gt; unitsInTerritory = ProPurchaseUtils.getPlaceUnits(seaTerritory, purchaseTerritories);</span>
+<span class="nc" id="L1294">          unitsInTerritory.addAll(seaTerritory.getUnits().getUnits());</span>
+<span class="nc" id="L1295">          final List&lt;Unit&gt; transports = Match.getMatches(unitsInTerritory, ProMatches.unitIsOwnedTransport(player));</span>
+<span class="nc bnc" id="L1296" title="All 2 branches missed.">          for (final Unit transport : transports) {</span>
+<span class="nc" id="L1297">            transportsThatNeedUnits.add(transport);</span>
+<span class="nc" id="L1298">            final Set&lt;Territory&gt; territoriesToLoadFrom =</span>
+<span class="nc" id="L1299">                new HashSet&lt;&gt;(data.getMap().getNeighbors(seaTerritory, distance));</span>
+<span class="nc bnc" id="L1300" title="All 2 branches missed.">            for (final Iterator&lt;Territory&gt; it = territoriesToLoadFrom.iterator(); it.hasNext();) {</span>
+<span class="nc" id="L1301">              final Territory potentialTerritory = it.next();</span>
+<span class="nc bnc" id="L1302" title="All 4 branches missed.">              if (potentialTerritory.isWater() || territoryValueMap.get(potentialTerritory) &gt; 0.25) {</span>
+<span class="nc" id="L1303">                it.remove();</span>
+              }
+            }
+<span class="nc" id="L1306">            final List&lt;Unit&gt; units =</span>
+<span class="nc" id="L1307">                ProTransportUtils.getUnitsToTransportFromTerritories(player, transport, territoriesToLoadFrom,</span>
+<span class="nc" id="L1308">                    new ArrayList&lt;&gt;(potentialUnitsToLoad), ProMatches.unitIsOwnedCombatTransportableUnit(player));</span>
+<span class="nc" id="L1309">            potentialUnitsToLoad.addAll(units);</span>
+          }
+        }
+
+        // Determine whether transports, amphib units, or both are needed
+<span class="nc" id="L1314">        final Set&lt;Territory&gt; landNeighbors = data.getMap().getNeighbors(t, Matches.TerritoryIsLand);</span>
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">        for (final Territory neighbor : landNeighbors) {</span>
+<span class="nc bnc" id="L1316" title="All 2 branches missed.">          if (territoryValueMap.get(neighbor) &lt;= 0.25) {</span>
+<span class="nc" id="L1317">            final List&lt;Unit&gt; unitsInTerritory = new ArrayList&lt;&gt;(neighbor.getUnits().getUnits());</span>
+<span class="nc" id="L1318">            unitsInTerritory.addAll(ProPurchaseUtils.getPlaceUnits(neighbor, purchaseTerritories));</span>
+<span class="nc" id="L1319">            potentialUnitsToLoad</span>
+<span class="nc" id="L1320">                .addAll(Match.getMatches(unitsInTerritory, ProMatches.unitIsOwnedCombatTransportableUnit(player)));</span>
+          }
+        }
+<span class="nc" id="L1323">        ProLogger.trace(t + &quot;, potentialUnitsToLoad=&quot; + potentialUnitsToLoad + &quot;, transportsThatNeedUnits=&quot;</span>
+<span class="nc" id="L1324">            + transportsThatNeedUnits);</span>
+
+        // Purchase transports and amphib units
+<span class="nc" id="L1327">        final List&lt;Unit&gt; amphibUnitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1328">        final List&lt;Unit&gt; transportUnitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1329">        while (true) {</span>
+<span class="nc bnc" id="L1330" title="All 2 branches missed.">          if (!transportsThatNeedUnits.isEmpty()) {</span>
+
+            // Get next empty transport and find its capacity
+<span class="nc" id="L1333">            final Unit transport = transportsThatNeedUnits.get(0);</span>
+<span class="nc" id="L1334">            int transportCapacity = UnitAttachment.get(transport.getType()).getTransportCapacity();</span>
+
+            // Find any existing units that can be transported
+<span class="nc" id="L1337">            final List&lt;Unit&gt; selectedUnits =</span>
+<span class="nc" id="L1338">                ProTransportUtils.selectUnitsToTransportFromList(transport, new ArrayList&lt;&gt;(potentialUnitsToLoad));</span>
+<span class="nc bnc" id="L1339" title="All 2 branches missed.">            if (!selectedUnits.isEmpty()) {</span>
+<span class="nc" id="L1340">              potentialUnitsToLoad.removeAll(selectedUnits);</span>
+<span class="nc" id="L1341">              transportCapacity -= ProTransportUtils.findUnitsTransportCost(selectedUnits);</span>
+            }
+
+            // Purchase units until transport is full
+<span class="nc bnc" id="L1345" title="All 2 branches missed.">            while (transportCapacity &gt; 0) {</span>
+
+              // Remove options that cost too much PUs or production
+<span class="nc" id="L1348">              ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, amphibPurchaseOptionsForTerritory,</span>
+<span class="nc" id="L1349">                  resourceTracker, remainingUnitProduction, amphibUnitsToPlace, purchaseTerritories);</span>
+<span class="nc bnc" id="L1350" title="All 2 branches missed.">              if (amphibPurchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1351">                break;</span>
+              }
+
+              // Find amphib purchase option
+<span class="nc" id="L1355">              final Map&lt;ProPurchaseOption, Double&gt; amphibEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1356" title="All 2 branches missed.">              for (final ProPurchaseOption ppo : amphibPurchaseOptionsForTerritory) {</span>
+<span class="nc bnc" id="L1357" title="All 2 branches missed.">                if (ppo.getTransportCost() &lt;= transportCapacity) {</span>
+<span class="nc" id="L1358">                  amphibEfficiencies.put(ppo, ppo.getAmphibEfficiency(data, ownedLocalAmphibUnits, amphibUnitsToPlace));</span>
+                }
+              }
+<span class="nc bnc" id="L1361" title="All 2 branches missed.">              if (amphibEfficiencies.isEmpty()) {</span>
+<span class="nc" id="L1362">                break;</span>
+              }
+
+              // Select amphib purchase option and add units
+<span class="nc" id="L1366">              final ProPurchaseOption ppo = ProPurchaseUtils.randomizePurchaseOption(amphibEfficiencies, &quot;Amphib&quot;);</span>
+<span class="nc" id="L1367">              final List&lt;Unit&gt; amphibUnits = ppo.getUnitType().create(ppo.getQuantity(), player, true);</span>
+<span class="nc" id="L1368">              amphibUnitsToPlace.addAll(amphibUnits);</span>
+<span class="nc" id="L1369">              resourceTracker.purchase(ppo);</span>
+<span class="nc" id="L1370">              remainingUnitProduction -= ppo.getQuantity();</span>
+<span class="nc" id="L1371">              transportCapacity -= ppo.getTransportCost();</span>
+<span class="nc" id="L1372">              ProLogger.trace(&quot;Selected unit=&quot; + ppo.getUnitType().getName());</span>
+            }
+<span class="nc" id="L1374">            transportsThatNeedUnits.remove(transport);</span>
+<span class="nc" id="L1375">          } else {</span>
+
+            // Remove options that cost too much PUs or production
+<span class="nc" id="L1378">            ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData,</span>
+<span class="nc" id="L1379">                seaTransportPurchaseOptionsForTerritory, resourceTracker, remainingUnitProduction,</span>
+<span class="nc" id="L1380">                transportUnitsToPlace, purchaseTerritories);</span>
+<span class="nc bnc" id="L1381" title="All 2 branches missed.">            if (seaTransportPurchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1382">              break;</span>
+            }
+
+            // Select purchase option
+<span class="nc" id="L1386">            final Map&lt;ProPurchaseOption, Double&gt; transportEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1387" title="All 2 branches missed.">            for (final ProPurchaseOption ppo : seaTransportPurchaseOptionsForTerritory) {</span>
+<span class="nc" id="L1388">              transportEfficiencies.put(ppo, ppo.getTransportEfficiency(data));</span>
+            }
+<span class="nc" id="L1390">            final ProPurchaseOption ppo =</span>
+<span class="nc" id="L1391">                ProPurchaseUtils.randomizePurchaseOption(transportEfficiencies, &quot;Sea Transport&quot;);</span>
+
+            // Add transports
+<span class="nc" id="L1394">            final List&lt;Unit&gt; transports = ppo.getUnitType().create(ppo.getQuantity(), player, true);</span>
+<span class="nc" id="L1395">            transportUnitsToPlace.addAll(transports);</span>
+<span class="nc" id="L1396">            resourceTracker.purchase(ppo);</span>
+<span class="nc" id="L1397">            remainingUnitProduction -= ppo.getQuantity();</span>
+<span class="nc" id="L1398">            transportsThatNeedUnits.addAll(transports);</span>
+<span class="nc" id="L1399">            ProLogger.trace(&quot;Selected unit=&quot; + ppo.getUnitType().getName() + &quot;, potentialUnitsToLoad=&quot;</span>
+<span class="nc" id="L1400">                + potentialUnitsToLoad + &quot;, transportsThatNeedUnits=&quot; + transportsThatNeedUnits);</span>
+          }
+        }
+
+        // Add transport units to sea place territory and amphib units to land place territory
+<span class="nc bnc" id="L1405" title="All 2 branches missed.">        for (final ProPlaceTerritory ppt : purchaseTerritory.getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L1406" title="All 2 branches missed.">          if (landTerritory.equals(ppt.getTerritory())) {</span>
+<span class="nc" id="L1407">            ppt.getPlaceUnits().addAll(amphibUnitsToPlace);</span>
+<span class="nc bnc" id="L1408" title="All 2 branches missed.">          } else if (placeTerritory.equals(ppt)) {</span>
+<span class="nc" id="L1409">            ppt.getPlaceUnits().addAll(transportUnitsToPlace);</span>
+          }
+        }
+<span class="nc" id="L1412">        ProLogger.trace(t + &quot;, purchaseTerritory=&quot; + landTerritory + &quot;, transportUnitsToPlace=&quot; + transportUnitsToPlace</span>
+<span class="nc" id="L1413">            + &quot;, amphibUnitsToPlace=&quot; + amphibUnitsToPlace);</span>
+      }
+    }
+<span class="nc" id="L1416">  }</span>
+
+  private void purchaseUnitsWithRemainingProduction(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final List&lt;ProPurchaseOption&gt; landPurchaseOptions, final List&lt;ProPurchaseOption&gt; airPurchaseOptions) {
+
+<span class="nc bnc" id="L1421" title="All 2 branches missed.">    if (resourceTracker.isEmpty()) {</span>
+<span class="nc" id="L1422">      return;</span>
+    }
+<span class="nc" id="L1424">    ProLogger.info(&quot;Purchase units in territories with remaining production with resources: &quot; + resourceTracker);</span>
+
+    // Get all safe/unsafe land place territories with remaining production
+<span class="nc" id="L1427">    final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1428">    final List&lt;ProPlaceTerritory&gt; prioritizedCantHoldLandTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1429" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+<span class="nc bnc" id="L1430" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L1431">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L1432" title="All 6 branches missed.">        if (!t.isWater() &amp;&amp; placeTerritory.isCanHold() &amp;&amp; purchaseTerritories.get(t).getRemainingUnitProduction() &gt; 0) {</span>
+<span class="nc" id="L1433">          prioritizedLandTerritories.add(placeTerritory);</span>
+<span class="nc bnc" id="L1434" title="All 4 branches missed.">        } else if (!t.isWater() &amp;&amp; purchaseTerritories.get(t).getRemainingUnitProduction() &gt; 0) {</span>
+<span class="nc" id="L1435">          prioritizedCantHoldLandTerritories.add(placeTerritory);</span>
+        }
+      }
+    }
+
+    // Sort territories by value
+<span class="nc" id="L1441">    Collections.sort(prioritizedLandTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L1442">      final double value1 = t1.getStrategicValue();</span>
+<span class="nc" id="L1443">      final double value2 = t2.getStrategicValue();</span>
+<span class="nc" id="L1444">      return Double.compare(value2, value1);</span>
+    });
+<span class="nc" id="L1446">    ProLogger.debug(&quot;Sorted land territories with remaining production: &quot; + prioritizedLandTerritories);</span>
+
+    // Loop through territories and purchase long range attack units
+<span class="nc bnc" id="L1449" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc" id="L1450">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L1451">      ProLogger.debug(&quot;Checking territory: &quot; + t);</span>
+
+      // Determine units that can be produced in this territory
+<span class="nc" id="L1454">      final List&lt;ProPurchaseOption&gt; airAndLandPurchaseOptions = new ArrayList&lt;&gt;(airPurchaseOptions);</span>
+<span class="nc" id="L1455">      airAndLandPurchaseOptions.addAll(landPurchaseOptions);</span>
+<span class="nc" id="L1456">      final List&lt;ProPurchaseOption&gt; purchaseOptionsForTerritory =</span>
+<span class="nc" id="L1457">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, airAndLandPurchaseOptions, t);</span>
+
+      // Purchase long range attack units for any remaining production
+<span class="nc" id="L1460">      int remainingUnitProduction = purchaseTerritories.get(t).getRemainingUnitProduction();</span>
+<span class="nc" id="L1461">      while (true) {</span>
+
+        // Remove options that cost too much PUs or production
+<span class="nc" id="L1464">        ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, purchaseOptionsForTerritory,</span>
+<span class="nc" id="L1465">            resourceTracker, remainingUnitProduction, new ArrayList&lt;&gt;(), purchaseTerritories);</span>
+<span class="nc bnc" id="L1466" title="All 2 branches missed.">        if (purchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1467">          break;</span>
+        }
+
+        // Determine best long range attack option (prefer air units)
+<span class="nc" id="L1471">        ProPurchaseOption bestAttackOption = null;</span>
+<span class="nc" id="L1472">        double maxAttackEfficiency = 0;</span>
+<span class="nc bnc" id="L1473" title="All 2 branches missed.">        for (final ProPurchaseOption ppo : purchaseOptionsForTerritory) {</span>
+<span class="nc" id="L1474">          double attackEfficiency = ppo.getAttackEfficiency() * ppo.getMovement() / ppo.getQuantity();</span>
+<span class="nc bnc" id="L1475" title="All 2 branches missed.">          if (ppo.isAir()) {</span>
+<span class="nc" id="L1476">            attackEfficiency *= 10;</span>
+          }
+<span class="nc bnc" id="L1478" title="All 2 branches missed.">          if (attackEfficiency &gt; maxAttackEfficiency) {</span>
+<span class="nc" id="L1479">            bestAttackOption = ppo;</span>
+<span class="nc" id="L1480">            maxAttackEfficiency = attackEfficiency;</span>
+          }
+        }
+<span class="nc bnc" id="L1483" title="All 2 branches missed.">        if (bestAttackOption == null) {</span>
+<span class="nc" id="L1484">          break;</span>
+        }
+
+        // Purchase unit
+<span class="nc" id="L1488">        resourceTracker.purchase(bestAttackOption);</span>
+<span class="nc" id="L1489">        remainingUnitProduction -= bestAttackOption.getQuantity();</span>
+<span class="nc" id="L1490">        final List&lt;Unit&gt; newUnit = bestAttackOption.getUnitType().create(bestAttackOption.getQuantity(), player, true);</span>
+<span class="nc" id="L1491">        placeTerritory.getPlaceUnits().addAll(newUnit);</span>
+<span class="nc" id="L1492">        ProLogger.trace(t + &quot;, addedUnit=&quot; + newUnit);</span>
+      }
+    }
+
+    // Sort territories by value
+<span class="nc" id="L1497">    Collections.sort(prioritizedCantHoldLandTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L1498">      final double value1 = t1.getDefenseValue();</span>
+<span class="nc" id="L1499">      final double value2 = t2.getDefenseValue();</span>
+<span class="nc" id="L1500">      return Double.compare(value2, value1);</span>
+    });
+    ProLogger
+<span class="nc" id="L1503">        .debug(&quot;Sorted can't hold land territories with remaining production: &quot; + prioritizedCantHoldLandTerritories);</span>
+
+    // Loop through territories and purchase defense units
+<span class="nc bnc" id="L1506" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedCantHoldLandTerritories) {</span>
+<span class="nc" id="L1507">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L1508">      ProLogger.debug(&quot;Checking territory: &quot; + t);</span>
+
+      // Find local owned units
+<span class="nc" id="L1511">      final List&lt;Unit&gt; ownedLocalUnits = t.getUnits().getMatches(Matches.unitIsOwnedBy(player));</span>
+
+      // Determine units that can be produced in this territory
+<span class="nc" id="L1514">      final List&lt;ProPurchaseOption&gt; airAndLandPurchaseOptions = new ArrayList&lt;&gt;(airPurchaseOptions);</span>
+<span class="nc" id="L1515">      airAndLandPurchaseOptions.addAll(landPurchaseOptions);</span>
+<span class="nc" id="L1516">      final List&lt;ProPurchaseOption&gt; purchaseOptionsForTerritory =</span>
+<span class="nc" id="L1517">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, airAndLandPurchaseOptions, t);</span>
+
+      // Purchase defense units for any remaining production
+<span class="nc" id="L1520">      int remainingUnitProduction = purchaseTerritories.get(t).getRemainingUnitProduction();</span>
+<span class="nc" id="L1521">      while (true) {</span>
+
+        // Remove options that cost too much PUs or production
+<span class="nc" id="L1524">        ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, purchaseOptionsForTerritory,</span>
+<span class="nc" id="L1525">            resourceTracker, remainingUnitProduction, new ArrayList&lt;&gt;(), purchaseTerritories);</span>
+<span class="nc bnc" id="L1526" title="All 2 branches missed.">        if (purchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1527">          break;</span>
+        }
+
+        // Select purchase option
+<span class="nc" id="L1531">        final Map&lt;ProPurchaseOption, Double&gt; defenseEfficiencies = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1532" title="All 2 branches missed.">        for (final ProPurchaseOption ppo : purchaseOptionsForTerritory) {</span>
+<span class="nc" id="L1533">          defenseEfficiencies.put(ppo, Math.pow(ppo.getCost(), 2)</span>
+<span class="nc" id="L1534">              * ppo.getDefenseEfficiency2(1, data, ownedLocalUnits, placeTerritory.getPlaceUnits()));</span>
+        }
+<span class="nc" id="L1536">        final ProPurchaseOption selectedOption =</span>
+<span class="nc" id="L1537">            ProPurchaseUtils.randomizePurchaseOption(defenseEfficiencies, &quot;Defense&quot;);</span>
+
+        // Purchase unit
+<span class="nc" id="L1540">        resourceTracker.purchase(selectedOption);</span>
+<span class="nc" id="L1541">        remainingUnitProduction -= selectedOption.getQuantity();</span>
+<span class="nc" id="L1542">        final List&lt;Unit&gt; newUnit = selectedOption.getUnitType().create(selectedOption.getQuantity(), player, true);</span>
+<span class="nc" id="L1543">        placeTerritory.getPlaceUnits().addAll(newUnit);</span>
+<span class="nc" id="L1544">        ProLogger.trace(t + &quot;, addedUnit=&quot; + newUnit);</span>
+      }
+    }
+<span class="nc" id="L1547">  }</span>
+
+  private void upgradeUnitsWithRemainingPUs(final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories,
+      final ProPurchaseOptionMap purchaseOptions) {
+
+<span class="nc bnc" id="L1552" title="All 2 branches missed.">    if (resourceTracker.isEmpty()) {</span>
+<span class="nc" id="L1553">      return;</span>
+    }
+<span class="nc" id="L1555">    ProLogger.info(&quot;Upgrade units with resources: &quot; + resourceTracker);</span>
+
+    // Get all safe land place territories
+<span class="nc" id="L1558">    final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1559" title="All 2 branches missed.">    for (final ProPurchaseTerritory ppt : purchaseTerritories.values()) {</span>
+<span class="nc bnc" id="L1560" title="All 2 branches missed.">      for (final ProPlaceTerritory placeTerritory : ppt.getCanPlaceTerritories()) {</span>
+<span class="nc" id="L1561">        final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc bnc" id="L1562" title="All 4 branches missed.">        if (!t.isWater() &amp;&amp; placeTerritory.isCanHold()) {</span>
+<span class="nc" id="L1563">          prioritizedLandTerritories.add(placeTerritory);</span>
+        }
+      }
+    }
+
+    // Sort territories by ascending value (try upgrading units in far away territories first)
+<span class="nc" id="L1569">    Collections.sort(prioritizedLandTerritories, (t1, t2) -&gt; {</span>
+<span class="nc" id="L1570">      final double value1 = t1.getStrategicValue();</span>
+<span class="nc" id="L1571">      final double value2 = t2.getStrategicValue();</span>
+<span class="nc" id="L1572">      return Double.compare(value1, value2);</span>
+    });
+<span class="nc" id="L1574">    ProLogger.debug(&quot;Sorted land territories: &quot; + prioritizedLandTerritories);</span>
+
+    // Loop through territories and upgrade units to long range attack units
+<span class="nc bnc" id="L1577" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc" id="L1578">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L1579">      ProLogger.debug(&quot;Checking territory: &quot; + t);</span>
+
+      // Determine units that can be produced in this territory
+<span class="nc" id="L1582">      final List&lt;ProPurchaseOption&gt; airAndLandPurchaseOptions = new ArrayList&lt;&gt;(purchaseOptions.getAirOptions());</span>
+<span class="nc" id="L1583">      airAndLandPurchaseOptions.addAll(purchaseOptions.getLandOptions());</span>
+<span class="nc" id="L1584">      final List&lt;ProPurchaseOption&gt; purchaseOptionsForTerritory =</span>
+<span class="nc" id="L1585">          ProPurchaseUtils.findPurchaseOptionsForTerritory(player, airAndLandPurchaseOptions, t);</span>
+
+      // Purchase long range attack units for any remaining production
+<span class="nc" id="L1588">      int remainingUpgradeUnits = purchaseTerritories.get(t).getUnitProduction() / 3;</span>
+<span class="nc" id="L1589">      while (true) {</span>
+<span class="nc bnc" id="L1590" title="All 2 branches missed.">        if (remainingUpgradeUnits &lt;= 0) {</span>
+<span class="nc" id="L1591">          break;</span>
+        }
+
+        // Find cheapest placed purchase option
+<span class="nc" id="L1595">        ProPurchaseOption minPurchaseOption = null;</span>
+<span class="nc bnc" id="L1596" title="All 2 branches missed.">        for (final Unit u : placeTerritory.getPlaceUnits()) {</span>
+<span class="nc bnc" id="L1597" title="All 2 branches missed.">          for (final ProPurchaseOption ppo : airAndLandPurchaseOptions) {</span>
+<span class="nc bnc" id="L1598" title="All 2 branches missed.">            if (u.getType().equals(ppo.getUnitType())</span>
+<span class="nc bnc" id="L1599" title="All 4 branches missed.">                &amp;&amp; (minPurchaseOption == null || ppo.getCost() &lt; minPurchaseOption.getCost())) {</span>
+<span class="nc" id="L1600">              minPurchaseOption = ppo;</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L1604" title="All 2 branches missed.">        if (minPurchaseOption == null) {</span>
+<span class="nc" id="L1605">          break;</span>
+        }
+
+        // Remove options that cost too much PUs or production
+<span class="nc" id="L1609">        resourceTracker.removeTempPurchase(minPurchaseOption);</span>
+<span class="nc" id="L1610">        ProPurchaseUtils.removeInvalidPurchaseOptions(player, startOfTurnData, purchaseOptionsForTerritory,</span>
+<span class="nc" id="L1611">            resourceTracker, 1, new ArrayList&lt;&gt;(), purchaseTerritories);</span>
+<span class="nc" id="L1612">        resourceTracker.clearTempPurchases();</span>
+<span class="nc bnc" id="L1613" title="All 2 branches missed.">        if (purchaseOptionsForTerritory.isEmpty()) {</span>
+<span class="nc" id="L1614">          break;</span>
+        }
+
+        // Determine best long range attack option (prefer air units)
+<span class="nc" id="L1618">        ProPurchaseOption bestAttackOption = null;</span>
+<span class="nc" id="L1619">        double maxAttackEfficiency = minPurchaseOption.getAttackEfficiency() * minPurchaseOption.getMovement()</span>
+<span class="nc" id="L1620">            * minPurchaseOption.getCost() / minPurchaseOption.getQuantity();</span>
+<span class="nc bnc" id="L1621" title="All 2 branches missed.">        for (final ProPurchaseOption ppo : purchaseOptionsForTerritory) {</span>
+<span class="nc bnc" id="L1622" title="All 6 branches missed.">          if (ppo.getCost() &gt; minPurchaseOption.getCost() &amp;&amp; (ppo.isAir() || placeTerritory.getStrategicValue() &gt;= 0.25</span>
+<span class="nc bnc" id="L1623" title="All 2 branches missed.">              || ppo.getTransportCost() &lt;= minPurchaseOption.getTransportCost())) {</span>
+<span class="nc" id="L1624">            double attackEfficiency = ppo.getAttackEfficiency() * ppo.getMovement() * ppo.getCost() / ppo.getQuantity();</span>
+<span class="nc bnc" id="L1625" title="All 2 branches missed.">            if (ppo.isAir()) {</span>
+<span class="nc" id="L1626">              attackEfficiency *= 10;</span>
+            }
+<span class="nc bnc" id="L1628" title="All 2 branches missed.">            if (ppo.getCarrierCost() &gt; 0) {</span>
+<span class="nc" id="L1629">              final int unusedLocalCarrierCapacity =</span>
+<span class="nc" id="L1630">                  ProTransportUtils.getUnusedLocalCarrierCapacity(player, t, placeTerritory.getPlaceUnits());</span>
+<span class="nc" id="L1631">              final int neededFighters = unusedLocalCarrierCapacity / ppo.getCarrierCost();</span>
+<span class="nc" id="L1632">              attackEfficiency *= (1 + neededFighters);</span>
+            }
+<span class="nc bnc" id="L1634" title="All 2 branches missed.">            if (attackEfficiency &gt; maxAttackEfficiency) {</span>
+<span class="nc" id="L1635">              bestAttackOption = ppo;</span>
+<span class="nc" id="L1636">              maxAttackEfficiency = attackEfficiency;</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L1640" title="All 2 branches missed.">        if (bestAttackOption == null) {</span>
+<span class="nc" id="L1641">          airAndLandPurchaseOptions.remove(minPurchaseOption);</span>
+<span class="nc" id="L1642">          continue;</span>
+        }
+
+        // Find units to remove
+<span class="nc" id="L1646">        final List&lt;Unit&gt; unitsToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1647">        int numUnitsToRemove = minPurchaseOption.getQuantity();</span>
+<span class="nc bnc" id="L1648" title="All 2 branches missed.">        for (final Unit u : placeTerritory.getPlaceUnits()) {</span>
+<span class="nc bnc" id="L1649" title="All 2 branches missed.">          if (numUnitsToRemove &lt;= 0) {</span>
+<span class="nc" id="L1650">            break;</span>
+          }
+<span class="nc bnc" id="L1652" title="All 2 branches missed.">          if (u.getType().equals(minPurchaseOption.getUnitType())) {</span>
+<span class="nc" id="L1653">            unitsToRemove.add(u);</span>
+<span class="nc" id="L1654">            numUnitsToRemove--;</span>
+          }
+        }
+<span class="nc bnc" id="L1657" title="All 2 branches missed.">        if (numUnitsToRemove &gt; 0) {</span>
+<span class="nc" id="L1658">          airAndLandPurchaseOptions.remove(minPurchaseOption);</span>
+<span class="nc" id="L1659">          continue;</span>
+        }
+
+        // Replace units
+<span class="nc" id="L1663">        resourceTracker.removePurchase(minPurchaseOption);</span>
+<span class="nc" id="L1664">        remainingUpgradeUnits -= minPurchaseOption.getQuantity();</span>
+<span class="nc" id="L1665">        placeTerritory.getPlaceUnits().removeAll(unitsToRemove);</span>
+<span class="nc" id="L1666">        ProLogger.trace(t + &quot;, removedUnits=&quot; + unitsToRemove);</span>
+<span class="nc bnc" id="L1667" title="All 2 branches missed.">        for (int i = 0; i &lt; unitsToRemove.size(); i++) {</span>
+<span class="nc bnc" id="L1668" title="All 2 branches missed.">          if (resourceTracker.hasEnough(bestAttackOption)) {</span>
+<span class="nc" id="L1669">            resourceTracker.purchase(bestAttackOption);</span>
+<span class="nc" id="L1670">            final List&lt;Unit&gt; newUnit =</span>
+<span class="nc" id="L1671">                bestAttackOption.getUnitType().create(bestAttackOption.getQuantity(), player, true);</span>
+<span class="nc" id="L1672">            placeTerritory.getPlaceUnits().addAll(newUnit);</span>
+<span class="nc" id="L1673">            ProLogger.trace(t + &quot;, addedUnit=&quot; + newUnit);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L1678">  }</span>
+
+  private IntegerMap&lt;ProductionRule&gt; populateProductionRuleMap(
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories, final ProPurchaseOptionMap purchaseOptions) {
+
+<span class="nc" id="L1683">    ProLogger.info(&quot;Populate production rule map&quot;);</span>
+<span class="nc" id="L1684">    final List&lt;Unit&gt; unplacedUnits = player.getUnits().getMatches(Matches.UnitIsNotSea);</span>
+<span class="nc" id="L1685">    final IntegerMap&lt;ProductionRule&gt; purchaseMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1686" title="All 2 branches missed.">    for (final ProPurchaseOption ppo : purchaseOptions.getAllOptions()) {</span>
+<span class="nc" id="L1687">      int numUnits = 0;</span>
+<span class="nc bnc" id="L1688" title="All 2 branches missed.">      for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L1689" title="All 2 branches missed.">        for (final ProPlaceTerritory ppt : purchaseTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L1690" title="All 2 branches missed.">          for (final Unit u : ppt.getPlaceUnits()) {</span>
+<span class="nc bnc" id="L1691" title="All 4 branches missed.">            if (u.getUnitType().equals(ppo.getUnitType()) &amp;&amp; !unplacedUnits.contains(u)) {</span>
+<span class="nc" id="L1692">              numUnits++;</span>
+            }
+          }
+        }
+      }
+<span class="nc bnc" id="L1697" title="All 2 branches missed.">      if (numUnits &gt; 0) {</span>
+<span class="nc" id="L1698">        final int numProductionRule = numUnits / ppo.getQuantity();</span>
+<span class="nc" id="L1699">        purchaseMap.put(ppo.getProductionRule(), numProductionRule);</span>
+<span class="nc" id="L1700">        ProLogger.info(numProductionRule + &quot; &quot; + ppo.getProductionRule());</span>
+      }
+    }
+<span class="nc" id="L1703">    return purchaseMap;</span>
+  }
+
+  private void placeDefenders(final Map&lt;Territory, ProPurchaseTerritory&gt; placeNonConstructionTerritories,
+      final List&lt;ProPlaceTerritory&gt; needToDefendTerritories, final IAbstractPlaceDelegate placeDelegate) {
+
+<span class="nc" id="L1709">    ProLogger.info(&quot;Place defenders with units=&quot; + player.getUnits().getUnits());</span>
+
+<span class="nc" id="L1711">    final ProOtherMoveOptions enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+
+    // Loop through prioritized territories and purchase defenders
+<span class="nc bnc" id="L1714" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : needToDefendTerritories) {</span>
+<span class="nc" id="L1715">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L1716">      ProLogger.debug(&quot;Placing defenders for &quot; + t.getName() + &quot;, enemyAttackers=&quot;</span>
+<span class="nc" id="L1717">          + enemyAttackOptions.getMax(t).getMaxUnits() + &quot;, amphibEnemyAttackers=&quot;</span>
+<span class="nc" id="L1718">          + enemyAttackOptions.getMax(t).getMaxAmphibUnits() + &quot;, defenders=&quot; + placeTerritory.getDefendingUnits());</span>
+
+      // Check if any units can be placed
+<span class="nc" id="L1721">      final PlaceableUnits placeableUnits =</span>
+<span class="nc" id="L1722">          placeDelegate.getPlaceableUnits(player.getUnits().getMatches(Matches.UnitIsNotConstruction), t);</span>
+<span class="nc bnc" id="L1723" title="All 2 branches missed.">      if (placeableUnits.isError()) {</span>
+<span class="nc" id="L1724">        ProLogger.trace(t + &quot; can't place units with error: &quot; + placeableUnits.getErrorMessage());</span>
+<span class="nc" id="L1725">        continue;</span>
+      }
+
+      // Find remaining unit production
+<span class="nc" id="L1729">      int remainingUnitProduction = placeableUnits.getMaxUnits();</span>
+<span class="nc bnc" id="L1730" title="All 2 branches missed.">      if (remainingUnitProduction == -1) {</span>
+<span class="nc" id="L1731">        remainingUnitProduction = Integer.MAX_VALUE;</span>
+      }
+<span class="nc" id="L1733">      ProLogger.trace(t + &quot;, remainingUnitProduction=&quot; + remainingUnitProduction);</span>
+
+      // Place defenders and check battle results
+<span class="nc" id="L1736">      final List&lt;Unit&gt; unitsThatCanBePlaced = new ArrayList&lt;&gt;(placeableUnits.getUnits());</span>
+<span class="nc" id="L1737">      final int landPlaceCount = Math.min(remainingUnitProduction, unitsThatCanBePlaced.size());</span>
+<span class="nc" id="L1738">      final List&lt;Unit&gt; unitsToPlace = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1739">      ProBattleResult finalResult = new ProBattleResult();</span>
+<span class="nc bnc" id="L1740" title="All 2 branches missed.">      for (int i = 0; i &lt; landPlaceCount; i++) {</span>
+
+        // Add defender
+<span class="nc" id="L1743">        unitsToPlace.add(unitsThatCanBePlaced.get(i));</span>
+
+        // Find current battle result
+<span class="nc" id="L1746">        final Set&lt;Unit&gt; enemyAttackingUnits = new HashSet&lt;&gt;(enemyAttackOptions.getMax(t).getMaxUnits());</span>
+<span class="nc" id="L1747">        enemyAttackingUnits.addAll(enemyAttackOptions.getMax(t).getMaxAmphibUnits());</span>
+<span class="nc" id="L1748">        final List&lt;Unit&gt; defenders = new ArrayList&lt;&gt;(placeTerritory.getDefendingUnits());</span>
+<span class="nc" id="L1749">        defenders.addAll(unitsToPlace);</span>
+<span class="nc" id="L1750">        finalResult = calc.calculateBattleResults(player, t, new ArrayList&lt;&gt;(enemyAttackingUnits), defenders,</span>
+<span class="nc" id="L1751">            enemyAttackOptions.getMax(t).getMaxBombardUnits(), false);</span>
+
+        // Break if it can be held
+<span class="nc bnc" id="L1754" title="All 6 branches missed.">        if ((!t.equals(ProData.myCapital) &amp;&amp; !finalResult.isHasLandUnitRemaining() &amp;&amp; finalResult.getTUVSwing() &lt;= 0)</span>
+<span class="nc bnc" id="L1755" title="All 4 branches missed.">            || (t.equals(ProData.myCapital) &amp;&amp; finalResult.getWinPercentage() &lt; (100 - ProData.winPercentage)</span>
+<span class="nc bnc" id="L1756" title="All 2 branches missed.">                &amp;&amp; finalResult.getTUVSwing() &lt;= 0)) {</span>
+<span class="nc" id="L1757">          break;</span>
+        }
+      }
+
+      // Check to see if its worth trying to defend the territory
+<span class="nc bnc" id="L1762" title="All 2 branches missed.">      if (!finalResult.isHasLandUnitRemaining()</span>
+<span class="nc bnc" id="L1763" title="All 2 branches missed.">          || finalResult.getTUVSwing() &lt; placeTerritory.getMinBattleResult().getTUVSwing()</span>
+<span class="nc bnc" id="L1764" title="All 2 branches missed.">          || t.equals(ProData.myCapital)) {</span>
+<span class="nc" id="L1765">        ProLogger.trace(t + &quot;, placedUnits=&quot; + unitsToPlace + &quot;, TUVSwing=&quot; + finalResult.getTUVSwing());</span>
+<span class="nc" id="L1766">        doPlace(t, unitsToPlace, placeDelegate);</span>
+<span class="nc" id="L1767">      } else {</span>
+<span class="nc" id="L1768">        setCantHoldPlaceTerritory(placeTerritory, placeNonConstructionTerritories);</span>
+<span class="nc" id="L1769">        ProLogger.trace(t + &quot;, unable to defend with placedUnits=&quot; + unitsToPlace + &quot;, TUVSwing=&quot;</span>
+<span class="nc" id="L1770">            + finalResult.getTUVSwing() + &quot;, minTUVSwing=&quot; + placeTerritory.getMinBattleResult().getTUVSwing());</span>
+      }
+    }
+<span class="nc" id="L1773">  }</span>
+
+  private void placeLandUnits(final Map&lt;Territory, ProPurchaseTerritory&gt; placeNonConstructionTerritories,
+      final List&lt;ProPlaceTerritory&gt; prioritizedLandTerritories, final IAbstractPlaceDelegate placeDelegate,
+      final boolean isConstruction) {
+
+<span class="nc" id="L1779">    ProLogger.info(&quot;Place land with isConstruction=&quot; + isConstruction + &quot;, units=&quot; + player.getUnits().getUnits());</span>
+
+<span class="nc" id="L1781">    Match&lt;Unit&gt; unitMatch = Matches.UnitIsNotConstruction;</span>
+<span class="nc bnc" id="L1782" title="All 2 branches missed.">    if (isConstruction) {</span>
+<span class="nc" id="L1783">      unitMatch = Matches.UnitIsConstruction;</span>
+    }
+
+    // Loop through prioritized territories and place land units
+<span class="nc bnc" id="L1787" title="All 2 branches missed.">    for (final ProPlaceTerritory placeTerritory : prioritizedLandTerritories) {</span>
+<span class="nc" id="L1788">      final Territory t = placeTerritory.getTerritory();</span>
+<span class="nc" id="L1789">      ProLogger.debug(&quot;Checking land place for &quot; + t.getName());</span>
+
+      // Check if any units can be placed
+<span class="nc" id="L1792">      final PlaceableUnits placeableUnits = placeDelegate.getPlaceableUnits(player.getUnits().getMatches(unitMatch), t);</span>
+<span class="nc bnc" id="L1793" title="All 2 branches missed.">      if (placeableUnits.isError()) {</span>
+<span class="nc" id="L1794">        ProLogger.trace(t + &quot; can't place units with error: &quot; + placeableUnits.getErrorMessage());</span>
+<span class="nc" id="L1795">        continue;</span>
+      }
+
+      // Find remaining unit production
+<span class="nc" id="L1799">      int remainingUnitProduction = placeableUnits.getMaxUnits();</span>
+<span class="nc bnc" id="L1800" title="All 2 branches missed.">      if (remainingUnitProduction == -1) {</span>
+<span class="nc" id="L1801">        remainingUnitProduction = Integer.MAX_VALUE;</span>
+      }
+<span class="nc" id="L1803">      ProLogger.trace(t + &quot;, remainingUnitProduction=&quot; + remainingUnitProduction);</span>
+
+      // Place as many units as possible
+<span class="nc" id="L1806">      final List&lt;Unit&gt; unitsThatCanBePlaced = new ArrayList&lt;&gt;(placeableUnits.getUnits());</span>
+<span class="nc" id="L1807">      final int landPlaceCount = Math.min(remainingUnitProduction, unitsThatCanBePlaced.size());</span>
+<span class="nc" id="L1808">      final List&lt;Unit&gt; unitsToPlace = unitsThatCanBePlaced.subList(0, landPlaceCount);</span>
+<span class="nc" id="L1809">      ProLogger.trace(t + &quot;, placedUnits=&quot; + unitsToPlace);</span>
+<span class="nc" id="L1810">      doPlace(t, unitsToPlace, placeDelegate);</span>
+    }
+<span class="nc" id="L1812">  }</span>
+
+  private void addUnitsToPlaceTerritory(final ProPlaceTerritory placeTerritory, final List&lt;Unit&gt; unitsToPlace,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+
+    // Add units to place territory
+<span class="nc bnc" id="L1818" title="All 2 branches missed.">    for (final Territory purchaseTerritory : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L1819" title="All 2 branches missed.">      for (final ProPlaceTerritory ppt : purchaseTerritories.get(purchaseTerritory).getCanPlaceTerritories()) {</span>
+
+        // If place territory is equal to the current place territory and has remaining production
+<span class="nc bnc" id="L1822" title="All 4 branches missed.">        if (placeTerritory.equals(ppt) &amp;&amp; purchaseTerritories.get(purchaseTerritory).getRemainingUnitProduction() &gt; 0) {</span>
+
+          // Place max number of units
+<span class="nc" id="L1825">          final int numUnits =</span>
+<span class="nc" id="L1826">              Math.min(purchaseTerritories.get(purchaseTerritory).getRemainingUnitProduction(), unitsToPlace.size());</span>
+<span class="nc" id="L1827">          final List&lt;Unit&gt; units = unitsToPlace.subList(0, numUnits);</span>
+<span class="nc" id="L1828">          ppt.getPlaceUnits().addAll(units);</span>
+<span class="nc" id="L1829">          units.clear();</span>
+        }
+      }
+    }
+<span class="nc" id="L1833">  }</span>
+
+  private void setCantHoldPlaceTerritory(final ProPlaceTerritory placeTerritory,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+
+    // Add units to place territory
+<span class="nc bnc" id="L1839" title="All 2 branches missed.">    for (final Territory purchaseTerritory : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L1840" title="All 2 branches missed.">      for (final ProPlaceTerritory ppt : purchaseTerritories.get(purchaseTerritory).getCanPlaceTerritories()) {</span>
+
+        // If place territory is equal to the current place territory
+<span class="nc bnc" id="L1843" title="All 2 branches missed.">        if (placeTerritory.equals(ppt)) {</span>
+<span class="nc" id="L1844">          ppt.setCanHold(false);</span>
+        }
+      }
+    }
+<span class="nc" id="L1848">  }</span>
+
+  private List&lt;ProPurchaseTerritory&gt; getPurchaseTerritories(final ProPlaceTerritory placeTerritory,
+      final Map&lt;Territory, ProPurchaseTerritory&gt; purchaseTerritories) {
+<span class="nc" id="L1852">    final List&lt;ProPurchaseTerritory&gt; territories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L1853" title="All 2 branches missed.">    for (final Territory t : purchaseTerritories.keySet()) {</span>
+<span class="nc bnc" id="L1854" title="All 2 branches missed.">      for (final ProPlaceTerritory ppt : purchaseTerritories.get(t).getCanPlaceTerritories()) {</span>
+<span class="nc bnc" id="L1855" title="All 2 branches missed.">        if (placeTerritory.equals(ppt)) {</span>
+<span class="nc" id="L1856">          territories.add(purchaseTerritories.get(t));</span>
+        }
+      }
+    }
+<span class="nc" id="L1860">    return territories;</span>
+  }
+
+  private void doPlace(final Territory t, final Collection&lt;Unit&gt; toPlace, final IAbstractPlaceDelegate del) {
+<span class="nc bnc" id="L1864" title="All 2 branches missed.">    for (final Unit unit : toPlace) {</span>
+<span class="nc" id="L1865">      final List&lt;Unit&gt; unitList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1866">      unitList.add(unit);</span>
+<span class="nc" id="L1867">      final String message = del.placeUnits(unitList, t);</span>
+<span class="nc bnc" id="L1868" title="All 2 branches missed.">      if (message != null) {</span>
+<span class="nc" id="L1869">        ProLogger.warn(message);</span>
+<span class="nc" id="L1870">        ProLogger.warn(&quot;Attempt was at: &quot; + t + &quot; with: &quot; + unit);</span>
+      }
+    }
+<span class="nc" id="L1873">    ProUtils.pause();</span>
+<span class="nc" id="L1874">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Fire.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">Fire.java</span></div><h1>Fire.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.TerritoryEffect;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.message.ConnectionLostException;
+import games.strategy.net.GUID;
+import games.strategy.triplea.delegate.dataObjects.CasualtyDetails;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+
+public class Fire implements IExecutable {
+  // compatible with 0.9.0.2 saved games
+  private static final long serialVersionUID = -3687054738070722403L;
+  private final String m_stepName;
+  private final Collection&lt;Unit&gt; m_firingUnits;
+  private final Collection&lt;Unit&gt; m_attackableUnits;
+  private final MustFightBattle.ReturnFire m_canReturnFire;
+  private final String m_text;
+  private final MustFightBattle m_battle;
+  private final PlayerID m_firingPlayer;
+  private final PlayerID m_hitPlayer;
+  private final boolean m_defending;
+  private final Map&lt;Unit, Collection&lt;Unit&gt;&gt; m_dependentUnits;
+  private final GUID m_battleID;
+  private DiceRoll m_dice;
+  private Collection&lt;Unit&gt; m_killed;
+  private Collection&lt;Unit&gt; m_damaged;
+<span class="fc" id="L41">  private boolean m_confirmOwnCasualties = true;</span>
+  private final boolean m_isHeadless;
+  private final Territory m_battleSite;
+  private final Collection&lt;TerritoryEffect&gt; m_territoryEffects;
+  private final List&lt;Unit&gt; m_allEnemyUnitsAliveOrWaitingToDie;
+  private final Collection&lt;Unit&gt; m_allFriendlyUnitsNotIncludingWaitingToDie;
+  private final Collection&lt;Unit&gt; m_allEnemyUnitsNotIncludingWaitingToDie;
+  private final boolean m_isAmphibious;
+  private final Collection&lt;Unit&gt; m_amphibiousLandAttackers;
+
+<span class="fc" id="L51">  public Fire(final Collection&lt;Unit&gt; attackableUnits, final MustFightBattle.ReturnFire canReturnFire,</span>
+      final PlayerID firingPlayer, final PlayerID hitPlayer, final Collection&lt;Unit&gt; firingUnits, final String stepName,
+      final String text, final MustFightBattle battle, final boolean defending,
+      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependentUnits, final ExecutionStack stack, final boolean headless,
+      final Territory battleSite, final Collection&lt;TerritoryEffect&gt; territoryEffects,
+      final List&lt;Unit&gt; allEnemyUnitsAliveOrWaitingToDie) {
+    /*
+     * This is to remove any Factories, AAguns, and Infrastructure from possible targets for the firing.
+     * If, in the future, Infrastructure or other things could be taken casualty, then this will need to be changed back
+     * to:
+     * m_attackableUnits = attackableUnits;
+     */
+<span class="fc" id="L63">    m_attackableUnits = Match.getMatches(attackableUnits, Matches.UnitIsNotInfrastructure);</span>
+<span class="fc" id="L64">    m_canReturnFire = canReturnFire;</span>
+<span class="fc" id="L65">    m_firingUnits = firingUnits;</span>
+<span class="fc" id="L66">    m_stepName = stepName;</span>
+<span class="fc" id="L67">    m_text = text;</span>
+<span class="fc" id="L68">    m_battle = battle;</span>
+<span class="fc" id="L69">    m_hitPlayer = hitPlayer;</span>
+<span class="fc" id="L70">    m_firingPlayer = firingPlayer;</span>
+<span class="fc" id="L71">    m_defending = defending;</span>
+<span class="fc" id="L72">    m_dependentUnits = dependentUnits;</span>
+<span class="fc" id="L73">    m_isHeadless = headless;</span>
+<span class="fc" id="L74">    m_battleID = battle.getBattleID();</span>
+<span class="fc" id="L75">    m_battleSite = battleSite;</span>
+<span class="fc" id="L76">    m_territoryEffects = territoryEffects;</span>
+<span class="fc" id="L77">    m_allEnemyUnitsAliveOrWaitingToDie = allEnemyUnitsAliveOrWaitingToDie;</span>
+<span class="fc" id="L78">    m_allFriendlyUnitsNotIncludingWaitingToDie =</span>
+<span class="fc bfc" id="L79" title="All 2 branches covered.">        m_defending ? m_battle.getDefendingUnits() : m_battle.getAttackingUnits();</span>
+<span class="fc" id="L80">    m_allEnemyUnitsNotIncludingWaitingToDie =</span>
+<span class="fc bfc" id="L81" title="All 2 branches covered.">        !m_defending ? m_battle.getDefendingUnits() : m_battle.getAttackingUnits();</span>
+<span class="fc" id="L82">    m_isAmphibious = m_battle.isAmphibious();</span>
+<span class="fc" id="L83">    m_amphibiousLandAttackers = m_battle.getAmphibiousLandAttackers();</span>
+<span class="fc" id="L84">  }</span>
+
+  private void rollDice(final IDelegateBridge bridge) {
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">    if (m_dice != null) {</span>
+<span class="nc" id="L88">      throw new IllegalStateException(&quot;Already rolled&quot;);</span>
+    }
+<span class="fc" id="L90">    final List&lt;Unit&gt; units = new ArrayList&lt;&gt;(m_firingUnits);</span>
+    String annotation;
+<span class="fc bfc" id="L92" title="All 2 branches covered.">    if (m_isHeadless) {</span>
+<span class="fc" id="L93">      annotation = &quot;&quot;;</span>
+<span class="fc" id="L94">    } else {</span>
+<span class="fc" id="L95">      annotation = DiceRoll.getAnnotation(units, m_firingPlayer, m_battle);</span>
+    }
+<span class="fc" id="L97">    m_dice = DiceRoll.rollDice(units, m_defending, m_firingPlayer, bridge, m_battle, annotation, m_territoryEffects,</span>
+<span class="fc" id="L98">        m_allEnemyUnitsAliveOrWaitingToDie);</span>
+<span class="fc" id="L99">  }</span>
+
+  private void selectCasualties(final IDelegateBridge bridge) {
+<span class="fc" id="L102">    final int hitCount = m_dice.getHits();</span>
+<span class="fc" id="L103">    AbstractBattle.getDisplay(bridge).notifyDice(m_dice, m_stepName);</span>
+<span class="fc" id="L104">    final int countTransports =</span>
+<span class="fc" id="L105">        Match.countMatches(m_attackableUnits, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransport, Matches.UnitIsSea));</span>
+<span class="fc bfc" id="L106" title="All 4 branches covered.">    if (countTransports &gt; 0 &amp;&amp; isTransportCasualtiesRestricted(bridge.getData())) {</span>
+      CasualtyDetails message;
+<span class="fc" id="L108">      final Collection&lt;Unit&gt; nonTransports = Match.getMatches(m_attackableUnits,</span>
+<span class="fc" id="L109">          new CompositeMatchOr&lt;&gt;(Matches.UnitIsNotTransportButCouldBeCombatTransport, Matches.UnitIsNotSea));</span>
+<span class="fc" id="L110">      final Collection&lt;Unit&gt; transportsOnly = Match.getMatches(m_attackableUnits,</span>
+<span class="fc" id="L111">          new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransportButNotCombatTransport, Matches.UnitIsSea));</span>
+<span class="fc" id="L112">      final int numPossibleHits = AbstractBattle.getMaxHits(nonTransports);</span>
+      // more hits than combat units
+<span class="fc bfc" id="L114" title="All 2 branches covered.">      if (hitCount &gt; numPossibleHits) {</span>
+<span class="fc" id="L115">        int extraHits = hitCount - numPossibleHits;</span>
+<span class="fc" id="L116">        final Collection&lt;PlayerID&gt; alliedHitPlayer = new ArrayList&lt;&gt;();</span>
+        // find the players who have transports in the attackable pile
+<span class="fc bfc" id="L118" title="All 2 branches covered.">        for (final Unit unit : transportsOnly) {</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">          if (!alliedHitPlayer.contains(unit.getOwner())) {</span>
+<span class="fc" id="L120">            alliedHitPlayer.add(unit.getOwner());</span>
+          }
+        }
+<span class="fc" id="L123">        final Iterator&lt;PlayerID&gt; playerIter = alliedHitPlayer.iterator();</span>
+        // Leave enough transports for each defender for overlfows so they can select who loses them.
+<span class="fc bfc" id="L125" title="All 2 branches covered.">        while (playerIter.hasNext()) {</span>
+<span class="fc" id="L126">          final PlayerID player = playerIter.next();</span>
+<span class="fc" id="L127">          final CompositeMatch&lt;Unit&gt; match = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="fc" id="L128">          match.add(Matches.UnitIsTransportButNotCombatTransport);</span>
+<span class="fc" id="L129">          match.add(Matches.unitIsOwnedBy(player));</span>
+<span class="fc" id="L130">          final Collection&lt;Unit&gt; playerTransports = Match.getMatches(transportsOnly, match);</span>
+<span class="fc" id="L131">          final int transportsToRemove = Math.max(0, playerTransports.size() - extraHits);</span>
+<span class="fc" id="L132">          transportsOnly.removeAll(</span>
+<span class="fc" id="L133">              Match.getNMatches(playerTransports, transportsToRemove, Matches.UnitIsTransportButNotCombatTransport));</span>
+        }
+<span class="fc" id="L135">        m_killed = nonTransports;</span>
+<span class="fc" id="L136">        m_damaged = Collections.emptyList();</span>
+        // m_confirmOwnCasualties = true;
+<span class="pc bpc" id="L138" title="1 of 2 branches missed.">        if (extraHits &gt; transportsOnly.size()) {</span>
+<span class="nc" id="L139">          extraHits = transportsOnly.size();</span>
+        }
+<span class="fc" id="L141">        message = BattleCalculator.selectCasualties(m_stepName, m_hitPlayer, transportsOnly,</span>
+<span class="fc" id="L142">            m_allEnemyUnitsNotIncludingWaitingToDie, m_firingPlayer, m_allFriendlyUnitsNotIncludingWaitingToDie,</span>
+<span class="fc" id="L143">            m_isAmphibious, m_amphibiousLandAttackers, m_battleSite, m_territoryEffects, bridge, m_text, m_dice,</span>
+<span class="pc bpc" id="L144" title="1 of 2 branches missed.">            !m_defending, m_battleID, m_isHeadless, extraHits, true);</span>
+<span class="fc" id="L145">        m_killed.addAll(message.getKilled());</span>
+<span class="fc" id="L146">        m_confirmOwnCasualties = true;</span>
+<span class="fc" id="L147">      }</span>
+      // exact number of combat units
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">      else if (hitCount == numPossibleHits) {</span>
+<span class="fc" id="L150">        m_killed = nonTransports;</span>
+<span class="fc" id="L151">        m_damaged = Collections.emptyList();</span>
+<span class="fc" id="L152">        m_confirmOwnCasualties = true;</span>
+<span class="fc" id="L153">      }</span>
+      // less than possible number
+      else {
+<span class="nc" id="L156">        message = BattleCalculator.selectCasualties(m_stepName, m_hitPlayer, nonTransports,</span>
+<span class="nc" id="L157">            m_allEnemyUnitsNotIncludingWaitingToDie, m_firingPlayer, m_allFriendlyUnitsNotIncludingWaitingToDie,</span>
+<span class="nc" id="L158">            m_isAmphibious, m_amphibiousLandAttackers, m_battleSite, m_territoryEffects, bridge, m_text, m_dice,</span>
+<span class="nc bnc" id="L159" title="All 2 branches missed.">            !m_defending, m_battleID, m_isHeadless, m_dice.getHits(), true);</span>
+<span class="nc" id="L160">        m_killed = message.getKilled();</span>
+<span class="nc" id="L161">        m_damaged = message.getDamaged();</span>
+<span class="nc" id="L162">        m_confirmOwnCasualties = message.getAutoCalculated();</span>
+      }
+<span class="nc" id="L164">    } else</span>
+    // not isTransportCasualtiesRestricted
+    {
+      // they all die
+<span class="fc bfc" id="L168" title="All 2 branches covered.">      if (hitCount &gt;= AbstractBattle.getMaxHits(m_attackableUnits)) {</span>
+<span class="fc" id="L169">        m_killed = m_attackableUnits;</span>
+<span class="fc" id="L170">        m_damaged = Collections.emptyList();</span>
+        // everything died, so we need to confirm
+<span class="fc" id="L172">        m_confirmOwnCasualties = true;</span>
+<span class="fc" id="L173">      }</span>
+      // Choose casualties
+      else {
+        CasualtyDetails message;
+<span class="fc" id="L177">        message = BattleCalculator.selectCasualties(m_stepName, m_hitPlayer, m_attackableUnits,</span>
+<span class="fc" id="L178">            m_allEnemyUnitsNotIncludingWaitingToDie, m_firingPlayer, m_allFriendlyUnitsNotIncludingWaitingToDie,</span>
+<span class="fc" id="L179">            m_isAmphibious, m_amphibiousLandAttackers, m_battleSite, m_territoryEffects, bridge, m_text, m_dice,</span>
+<span class="fc bfc" id="L180" title="All 2 branches covered.">            !m_defending, m_battleID, m_isHeadless, m_dice.getHits(), true);</span>
+<span class="fc" id="L181">        m_killed = message.getKilled();</span>
+<span class="fc" id="L182">        m_damaged = message.getDamaged();</span>
+<span class="fc" id="L183">        m_confirmOwnCasualties = message.getAutoCalculated();</span>
+      }
+    }
+<span class="fc" id="L186">  }</span>
+
+  private void notifyCasualties(final IDelegateBridge bridge) {
+<span class="fc bfc" id="L189" title="All 2 branches covered.">    if (m_isHeadless) {</span>
+<span class="fc" id="L190">      return;</span>
+    }
+<span class="fc" id="L192">    AbstractBattle.getDisplay(bridge).casualtyNotification(m_battleID, m_stepName, m_dice, m_hitPlayer,</span>
+<span class="fc" id="L193">        new ArrayList&lt;&gt;(m_killed), new ArrayList&lt;&gt;(m_damaged), m_dependentUnits);</span>
+<span class="fc" id="L194">    final Runnable r = () -&gt; {</span>
+      try {
+<span class="fc" id="L196">        AbstractBattle.getRemote(m_firingPlayer, bridge).confirmEnemyCasualties(m_battleID, &quot;Press space to continue&quot;,</span>
+<span class="fc" id="L197">            m_hitPlayer);</span>
+<span class="pc" id="L198">      } catch (final ConnectionLostException cle) {</span>
+        // somone else will deal with this
+        // System.out.println(cle.getMessage());
+        // cle.printStackTrace(System.out);
+<span class="nc" id="L202">      } catch (final Exception e) {</span>
+        // ignore
+      }
+<span class="fc" id="L205">    };</span>
+    // execute in a seperate thread to allow either player to click continue first.
+<span class="fc" id="L207">    final Thread t = new Thread(r, &quot;Click to continue waiter&quot;);</span>
+<span class="fc" id="L208">    t.start();</span>
+<span class="fc bfc" id="L209" title="All 2 branches covered.">    if (m_confirmOwnCasualties) {</span>
+<span class="fc" id="L210">      AbstractBattle.getRemote(m_hitPlayer, bridge).confirmOwnCasualties(m_battleID, &quot;Press space to continue&quot;);</span>
+    }
+    try {
+<span class="fc" id="L213">      bridge.leaveDelegateExecution();</span>
+<span class="fc" id="L214">      t.join();</span>
+<span class="pc" id="L215">    } catch (final InterruptedException e) {</span>
+      // ignore
+<span class="nc" id="L217">    } finally {</span>
+<span class="pc" id="L218">      bridge.enterDelegateExecution();</span>
+<span class="nc" id="L219">    }</span>
+<span class="fc" id="L220">  }</span>
+
+  /**
+   * We must execute in atomic steps, push these steps onto the stack, and let them execute
+   */
+  @Override
+  public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+    // add to the stack so we will execute,
+    // we want to roll dice, select casualties, then notify in that order, so
+    // push onto the stack in reverse order
+<span class="fc" id="L230">    final IExecutable rollDice = new IExecutable() {</span>
+      private static final long serialVersionUID = 7578210876028725797L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L235">        rollDice(bridge);</span>
+<span class="fc" id="L236">      }</span>
+    };
+<span class="fc" id="L238">    final IExecutable selectCasualties = new IExecutable() {</span>
+      private static final long serialVersionUID = -7687053541570519623L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L243">        selectCasualties(bridge);</span>
+<span class="fc" id="L244">      }</span>
+    };
+<span class="fc" id="L246">    final IExecutable notifyCasualties = new IExecutable() {</span>
+      // compatible with 0.9.0.2 saved games
+      private static final long serialVersionUID = -9173385989239225660L;
+
+      @Override
+      public void execute(final ExecutionStack stack, final IDelegateBridge bridge) {
+<span class="fc" id="L252">        notifyCasualties(bridge);</span>
+<span class="pc bpc" id="L253" title="1 of 2 branches missed.">        if (m_damaged != null) {</span>
+<span class="fc" id="L254">          m_battle.markDamaged(m_damaged, bridge, true);</span>
+        }
+<span class="fc bfc" id="L256" title="All 2 branches covered.">        m_battle.removeCasualties(m_killed, m_canReturnFire, !m_defending, bridge, false);</span>
+<span class="fc" id="L257">      }</span>
+    };
+<span class="fc" id="L259">    stack.push(notifyCasualties);</span>
+<span class="fc" id="L260">    stack.push(selectCasualties);</span>
+<span class="fc" id="L261">    stack.push(rollDice);</span>
+<span class="fc" id="L262">  }</span>
+
+  private boolean isTransportCasualtiesRestricted(final GameData data) {
+<span class="fc" id="L265">    return games.strategy.triplea.Properties.getTransportCasualtiesRestricted(data);</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

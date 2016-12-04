@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ClientMessenger.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net</a> &gt; <span class="el_source">ClientMessenger.java</span></div><h1>ClientMessenger.java</h1><pre class="source lang-java linenums">package games.strategy.net;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Serializable;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.framework.startup.mc.ServerModel;
+import games.strategy.engine.framework.ui.SaveGameFileChooser;
+import games.strategy.engine.message.HubInvoke;
+import games.strategy.engine.message.RemoteMethodCall;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.net.nio.ClientQuarantineConversation;
+import games.strategy.net.nio.NIOSocket;
+import games.strategy.net.nio.NIOSocketListener;
+import games.strategy.net.nio.QuarantineConversation;
+import games.strategy.util.ListenerList;
+import games.strategy.util.ThreadUtil;
+
+public class ClientMessenger implements IClientMessenger, NIOSocketListener {
+  private INode m_node;
+<span class="fc" id="L30">  private final ListenerList&lt;IMessageListener&gt; m_listeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L31">  private final ListenerList&lt;IMessengerErrorListener&gt; m_errorListeners = new ListenerList&lt;&gt;();</span>
+<span class="fc" id="L32">  private final CountDownLatch m_initLatch = new CountDownLatch(1);</span>
+  private Exception m_connectionRefusedError;
+  private final NIOSocket m_socket;
+  private final SocketChannel m_socketChannel;
+  private INode m_serverNode;
+<span class="fc" id="L37">  private volatile boolean m_shutDown = false;</span>
+
+  /**
+   * Note, the name paramater passed in here may not match the name of the
+   * ClientMessenger after it has been constructed.
+   */
+  public ClientMessenger(final String host, final int port, final String name, final String mac,
+      final IConnectionLogin login) throws IOException {
+<span class="nc" id="L45">    this(host, port, name, mac, new DefaultObjectStreamFactory(), login);</span>
+<span class="nc" id="L46">  }</span>
+
+  /**
+   * Note, the name paramater passed in here may not match the name of the
+   * ClientMessenger after it has been constructed.
+   */
+  public ClientMessenger(final String host, final int port, final String name, final String mac)
+      throws IOException {
+<span class="fc" id="L54">    this(host, port, name, mac, new DefaultObjectStreamFactory());</span>
+<span class="fc" id="L55">  }</span>
+
+  /**
+   * Note, the name paramater passed in here may not match the name of the
+   * ClientMessenger after it has been constructed.
+   */
+  public ClientMessenger(final String host, final int port, final String name, final String mac,
+      final IObjectStreamFactory streamFact) throws IOException {
+<span class="fc" id="L63">    this(host, port, name, mac, streamFact, null);</span>
+<span class="fc" id="L64">  }</span>
+
+  /**
+   * Note, the name paramater passed in here may not match the name of the
+   * ClientMessenger after it has been constructed.
+   */
+<span class="fc" id="L70">  public ClientMessenger(final String host, final int port, final String name, final String mac,</span>
+      final IObjectStreamFactory streamFact, final IConnectionLogin login)
+      throws IOException {
+<span class="fc" id="L73">    m_socketChannel = SocketChannel.open();</span>
+<span class="fc" id="L74">    m_socketChannel.configureBlocking(false);</span>
+<span class="fc" id="L75">    final InetSocketAddress remote = new InetSocketAddress(host, port);</span>
+<span class="pc bpc" id="L76" title="1 of 2 branches missed.">    if (!m_socketChannel.connect(remote)) {</span>
+      // give up after 10 seconds
+<span class="fc" id="L78">      int waitTimeMilliseconds = 0;</span>
+<span class="nc" id="L79">      while (true) {</span>
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (waitTimeMilliseconds &gt; 10000) {</span>
+<span class="nc" id="L81">          m_socketChannel.close();</span>
+<span class="nc" id="L82">          throw new IOException(&quot;Connection refused&quot;);</span>
+        }
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">        if (m_socketChannel.finishConnect()) {</span>
+<span class="fc" id="L85">          break;</span>
+        }
+<span class="nc" id="L87">        ThreadUtil.sleep(50);</span>
+<span class="nc" id="L88">        waitTimeMilliseconds += 50;</span>
+      }
+    }
+<span class="fc" id="L91">    final Socket socket = m_socketChannel.socket();</span>
+<span class="fc" id="L92">    socket.setKeepAlive(true);</span>
+<span class="fc" id="L93">    m_socket = new NIOSocket(streamFact, this, name);</span>
+<span class="fc" id="L94">    final ClientQuarantineConversation conversation =</span>
+<span class="fc" id="L95">        new ClientQuarantineConversation(login, m_socketChannel, m_socket, name, mac);</span>
+<span class="fc" id="L96">    m_socket.add(m_socketChannel, conversation);</span>
+    // allow the credentials to be shown in this thread
+<span class="fc" id="L98">    conversation.showCredentials();</span>
+    // wait for the quarantine to end
+    try {
+<span class="fc" id="L101">      m_initLatch.await();</span>
+<span class="pc" id="L102">    } catch (final InterruptedException e) {</span>
+<span class="nc" id="L103">      m_connectionRefusedError = e;</span>
+      try {
+<span class="nc" id="L105">        m_socketChannel.close();</span>
+<span class="nc" id="L106">      } catch (final IOException e2) {</span>
+        // ignore
+      }
+    }
+<span class="pc bpc" id="L110" title="1 of 4 branches missed.">    if (conversation.getErrorMessage() != null || m_connectionRefusedError != null) {</span>
+      // our socket channel should already be closed
+<span class="fc" id="L112">      m_socket.shutDown();</span>
+<span class="pc bpc" id="L113" title="1 of 2 branches missed.">      if (conversation.getErrorMessage() != null) {</span>
+<span class="fc" id="L114">        String msg = conversation.getErrorMessage();</span>
+<span class="pc bpc" id="L115" title="1 of 2 branches missed.">        if (m_connectionRefusedError != null) {</span>
+<span class="fc" id="L116">          msg += &quot;, &quot; + m_connectionRefusedError;</span>
+        }
+<span class="fc" id="L118">        login.notifyFailedLogin(msg);</span>
+<span class="fc" id="L119">        throw new CouldNotLogInException();</span>
+<span class="nc bnc" id="L120" title="All 2 branches missed.">      } else if (m_connectionRefusedError instanceof CouldNotLogInException) {</span>
+<span class="nc" id="L121">        throw (CouldNotLogInException) m_connectionRefusedError;</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">      } else if (m_connectionRefusedError != null) {</span>
+<span class="nc" id="L123">        throw new IOException(m_connectionRefusedError.getMessage());</span>
+      }
+    }
+<span class="fc" id="L126">  }</span>
+
+  @Override
+  public synchronized void send(final Serializable msg, final INode to) {
+    // use our nodes address, this is our network visible address
+<span class="fc" id="L131">    final MessageHeader header = new MessageHeader(to, m_node, msg);</span>
+<span class="fc" id="L132">    m_socket.send(m_socketChannel, header);</span>
+<span class="fc" id="L133">  }</span>
+
+  @Override
+  public synchronized void broadcast(final Serializable msg) {
+<span class="fc" id="L137">    final MessageHeader header = new MessageHeader(m_node, msg);</span>
+<span class="fc" id="L138">    m_socket.send(m_socketChannel, header);</span>
+<span class="fc" id="L139">  }</span>
+
+  @Override
+  public void addMessageListener(final IMessageListener listener) {
+<span class="fc" id="L143">    m_listeners.add(listener);</span>
+<span class="fc" id="L144">  }</span>
+
+  @Override
+  public void removeMessageListener(final IMessageListener listener) {
+<span class="nc" id="L148">    m_listeners.remove(listener);</span>
+<span class="nc" id="L149">  }</span>
+
+  @Override
+  public void addErrorListener(final IMessengerErrorListener listener) {
+<span class="fc" id="L153">    m_errorListeners.add(listener);</span>
+<span class="fc" id="L154">  }</span>
+
+  @Override
+  public void removeErrorListener(final IMessengerErrorListener listener) {
+<span class="nc" id="L158">    m_errorListeners.remove(listener);</span>
+<span class="nc" id="L159">  }</span>
+
+  @Override
+  public boolean isConnected() {
+<span class="fc" id="L163">    return m_socketChannel.isConnected();</span>
+  }
+
+  @Override
+  public void shutDown() {
+<span class="fc" id="L168">    m_shutDown = true;</span>
+<span class="fc" id="L169">    m_socket.shutDown();</span>
+    try {
+<span class="fc" id="L171">      m_socketChannel.close();</span>
+<span class="pc" id="L172">    } catch (final IOException e) {</span>
+      // ignore
+    }
+<span class="fc" id="L175">  }</span>
+
+  public boolean isShutDown() {
+<span class="nc" id="L178">    return m_shutDown;</span>
+  }
+
+  @Override
+  public void messageReceived(final MessageHeader msg, final SocketChannel channel) {
+<span class="pc bpc" id="L183" title="1 of 4 branches missed.">    if (msg.getFor() != null &amp;&amp; !msg.getFor().equals(m_node)) {</span>
+<span class="nc" id="L184">      throw new IllegalStateException(&quot;msg not for me:&quot; + msg);</span>
+    }
+<span class="fc bfc" id="L186" title="All 2 branches covered.">    for (final IMessageListener listener : m_listeners) {</span>
+<span class="fc" id="L187">      listener.messageReceived(msg.getMessage(), msg.getFrom());</span>
+    }
+<span class="fc" id="L189">  }</span>
+
+  /**
+   * Get the local node
+   */
+  @Override
+  public INode getLocalNode() {
+<span class="fc" id="L196">    return m_node;</span>
+  }
+
+  @Override
+  public INode getServerNode() {
+<span class="fc" id="L201">    return m_serverNode;</span>
+  }
+
+  @Override
+  public boolean isServer() {
+<span class="fc" id="L206">    return false;</span>
+  }
+
+  @Override
+  public void socketUnqaurantined(final SocketChannel channel, final QuarantineConversation converstaion2) {
+<span class="fc" id="L211">    final ClientQuarantineConversation conversation = (ClientQuarantineConversation) converstaion2;</span>
+    // all ids are based on the socket adress of nodes in the network
+    // but the adress of a node changes depending on who is looking at it
+    // ie, sometimes it is the loopback adress if connecting locally,
+    // sometimes the client or server will be behind a NAT
+    // so all node ids are defined as what the server sees the adress as
+    // we are still in the decode thread at this point, set our nodes now
+    // before the socket is unquarantined
+<span class="fc" id="L219">    m_node = new Node(conversation.getLocalName(), conversation.getNetworkVisibleSocketAdress());</span>
+<span class="fc" id="L220">    m_serverNode = new Node(conversation.getServerName(), conversation.getServerLocalAddress());</span>
+<span class="fc" id="L221">    m_initLatch.countDown();</span>
+<span class="fc" id="L222">  }</span>
+
+  @Override
+  public void socketError(final SocketChannel channel, final Exception error) {
+<span class="pc bpc" id="L226" title="1 of 2 branches missed.">    if (m_shutDown) {</span>
+<span class="nc" id="L227">      return;</span>
+    }
+    // if an error occurs during set up
+    // we need to return in the constructor
+    // otherwise this is harmless
+<span class="fc" id="L232">    m_connectionRefusedError = error;</span>
+<span class="fc bfc" id="L233" title="All 2 branches covered.">    for (final IMessengerErrorListener errorListener : m_errorListeners) {</span>
+<span class="fc" id="L234">      errorListener.messengerInvalid(ClientMessenger.this, error);</span>
+    }
+<span class="fc" id="L236">    shutDown();</span>
+<span class="fc" id="L237">    m_initLatch.countDown();</span>
+<span class="fc" id="L238">  }</span>
+
+  @Override
+  public INode getRemoteNode(final SocketChannel channel) {
+    // we only have one channel
+<span class="fc" id="L243">    return m_serverNode;</span>
+  }
+
+  @Override
+  public InetSocketAddress getRemoteServerSocketAddress() {
+<span class="nc" id="L248">    return (InetSocketAddress) m_socketChannel.socket().getRemoteSocketAddress();</span>
+  }
+
+  private void bareBonesSendMessageToServer(final String methodName, final Object... messages) {
+<span class="nc" id="L252">    final List&lt;Object&gt; args = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L253">    final Class&lt;? extends Object&gt;[] argTypes = new Class&lt;?&gt;[messages.length];</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">    for (int i = 0; i &lt; messages.length; i++) {</span>
+<span class="nc" id="L255">      final Object message = messages[i];</span>
+<span class="nc" id="L256">      args.add(message);</span>
+<span class="nc" id="L257">      argTypes[i] = args.get(i).getClass();</span>
+    }
+<span class="nc" id="L259">    final RemoteName rn = ServerModel.SERVER_REMOTE_NAME;</span>
+<span class="nc" id="L260">    final RemoteMethodCall call =</span>
+<span class="nc" id="L261">        new RemoteMethodCall(rn.getName(), methodName, args.toArray(), argTypes, rn.getClazz());</span>
+<span class="nc" id="L262">    final HubInvoke hubInvoke = new HubInvoke(null, false, call);</span>
+<span class="nc" id="L263">    send(hubInvoke, getServerNode());</span>
+<span class="nc" id="L264">  }</span>
+
+  @Override
+  public void changeServerGameTo(final String gameName) {
+<span class="nc" id="L268">    bareBonesSendMessageToServer(&quot;changeServerGameTo&quot;, gameName);</span>
+<span class="nc" id="L269">  }</span>
+
+  @Override
+  public void changeToLatestAutosave(final SaveGameFileChooser.AUTOSAVE_TYPE typeOfAutosave) {
+<span class="nc" id="L273">    bareBonesSendMessageToServer(&quot;changeToLatestAutosave&quot;, typeOfAutosave);</span>
+<span class="nc" id="L274">  }</span>
+
+  @Override
+  public void changeToGameSave(final byte[] bytes, final String fileName) {
+<span class="nc" id="L278">    bareBonesSendMessageToServer(&quot;changeToGameSave&quot;, bytes, fileName);</span>
+<span class="nc" id="L279">  }</span>
+
+  @Override
+  public void changeToGameSave(final File saveGame, final String fileName) {
+<span class="nc" id="L283">    final byte[] bytes = getBytesFromFile(saveGame);</span>
+<span class="nc bnc" id="L284" title="All 4 branches missed.">    if (bytes == null || bytes.length == 0) {</span>
+<span class="nc" id="L285">      return;</span>
+    }
+<span class="nc" id="L287">    changeToGameSave(bytes, fileName);</span>
+<span class="nc" id="L288">  }</span>
+
+  private static byte[] getBytesFromFile(final File file) {
+<span class="nc bnc" id="L291" title="All 4 branches missed.">    if (file == null || !file.exists()) {</span>
+<span class="nc" id="L292">      return null;</span>
+    }
+    // Get the size of the file
+<span class="nc" id="L295">    final long length = file.length();</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">    if (length &gt; Integer.MAX_VALUE) {</span>
+<span class="nc" id="L297">      return null;</span>
+    }
+    // Create the byte array to hold the data
+<span class="nc" id="L300">    final byte[] bytes = new byte[(int) length];</span>
+<span class="nc" id="L301">    try (InputStream is = new FileInputStream(file)) {</span>
+<span class="nc" id="L302">      is.read(bytes);</span>
+<span class="nc bnc" id="L303" title="All 8 branches missed.">    } catch (final IOException e) {</span>
+<span class="nc" id="L304">      ClientLogger.logQuietly(&quot;Failed to read file: &quot; + file);</span>
+<span class="nc" id="L305">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L307">    return bytes;</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L312">    return &quot;ClientMessenger LocalNode:&quot; + m_node + &quot; ServerNodes:&quot; + m_serverNode;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

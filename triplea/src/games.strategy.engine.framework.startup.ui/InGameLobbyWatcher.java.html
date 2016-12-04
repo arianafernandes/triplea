@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>InGameLobbyWatcher.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.startup.ui</a> &gt; <span class="el_source">InGameLobbyWatcher.java</span></div><h1>InGameLobbyWatcher.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.framework.startup.ui;</span>
+
+import java.awt.Frame;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Observer;
+
+import javax.swing.JComponent;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.debug.HeartBeat;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.data.events.GameStepListener;
+import games.strategy.engine.framework.GameRunner;
+import games.strategy.engine.framework.IGame;
+import games.strategy.engine.framework.headlessGameServer.HeadlessGameServer;
+import games.strategy.engine.framework.startup.mc.GameSelectorModel;
+import games.strategy.engine.lobby.server.GameDescription;
+import games.strategy.engine.lobby.server.GameDescription.GameStatus;
+import games.strategy.engine.lobby.server.ILobbyGameController;
+import games.strategy.engine.lobby.server.LobbyServer;
+import games.strategy.engine.lobby.server.RemoteHostUtils;
+import games.strategy.engine.lobby.server.login.LobbyLoginValidator;
+import games.strategy.engine.message.IRemoteMessenger;
+import games.strategy.engine.message.RemoteMessenger;
+import games.strategy.engine.message.unifiedmessenger.UnifiedMessenger;
+import games.strategy.net.ClientMessenger;
+import games.strategy.net.OpenFileUtility;
+import games.strategy.net.GUID;
+import games.strategy.net.IConnectionChangeListener;
+import games.strategy.net.IConnectionLogin;
+import games.strategy.net.IMessenger;
+import games.strategy.net.IMessengerErrorListener;
+import games.strategy.net.INode;
+import games.strategy.net.IServerMessenger;
+import games.strategy.net.MacFinder;
+import games.strategy.net.UniversalPlugAndPlayHelper;
+
+/**
+ * Watches a game in progress, and updates the Lobby with the state of the game.
+ * &lt;p&gt;
+ * This class opens its own connection to the lobby, and its own messenger.
+ * &lt;p&gt;
+ */
+public class InGameLobbyWatcher {
+  public static final String LOBBY_WATCHER_NAME = &quot;lobby_watcher&quot;;
+  // this is the messenger used by the game
+  // it is different than the messenger we use to connect to
+  // the game lobby
+  private final IServerMessenger m_gameMessenger;
+<span class="nc" id="L54">  private boolean m_shutdown = false;</span>
+<span class="nc" id="L55">  private final GUID m_gameID = new GUID();</span>
+  private GameSelectorModel m_gameSelectorModel;
+<span class="nc" id="L57">  private final Observer m_gameSelectorModelObserver = (o, arg) -&gt; gameSelectorModelUpdated();</span>
+  private IGame m_game;
+<span class="nc" id="L59">  private final GameStepListener m_gameStepListener =</span>
+<span class="nc" id="L60">      (stepName, delegateName, player, round, displayName) -&gt; InGameLobbyWatcher.this.gameStepChanged(stepName, round);</span>
+  // we create this messenger, and use it to connect to the
+  // game lobby
+  private final IMessenger m_messenger;
+  private final IRemoteMessenger m_remoteMessenger;
+  private final GameDescription m_gameDescription;
+<span class="nc" id="L66">  private final Object m_mutex = new Object();</span>
+  private final IConnectionChangeListener m_connectionChangeListener;
+  private final IMessengerErrorListener m_messengerErrorListener;
+
+  /**
+   * Reads SystemProperties to see if we should connect to a lobby server
+   * &lt;p&gt;
+   * After creation, those properties are cleared, since we should watch the first start game.
+   * &lt;p&gt;
+   *
+   * @return null if no watcher should be created
+   */
+  public static InGameLobbyWatcher newInGameLobbyWatcher(final IServerMessenger gameMessenger, final JComponent parent,
+      final InGameLobbyWatcher oldWatcher) {
+<span class="nc" id="L80">    final String host = System.getProperties().getProperty(GameRunner.LOBBY_HOST);</span>
+<span class="nc" id="L81">    final String port = System.getProperties().getProperty(LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY);</span>
+<span class="nc" id="L82">    final String hostedBy = System.getProperties().getProperty(GameRunner.LOBBY_GAME_HOSTED_BY);</span>
+<span class="nc bnc" id="L83" title="All 4 branches missed.">    if (host == null || port == null) {</span>
+<span class="nc" id="L84">      return null;</span>
+    }
+    // clear the properties
+<span class="nc" id="L87">    System.getProperties().remove(GameRunner.LOBBY_HOST);</span>
+<span class="nc" id="L88">    System.getProperties().remove(LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY);</span>
+<span class="nc" id="L89">    System.getProperties().remove(GameRunner.LOBBY_GAME_HOSTED_BY);</span>
+    // add them as temporary properties (in case we load an old savegame and need them again)
+<span class="nc" id="L91">    System.getProperties().setProperty(GameRunner.LOBBY_HOST + GameRunner.OLD_EXTENSION, host);</span>
+<span class="nc" id="L92">    System.getProperties().setProperty(LobbyServer.TRIPLEA_LOBBY_PORT_PROPERTY + GameRunner.OLD_EXTENSION, port);</span>
+<span class="nc" id="L93">    System.getProperties().setProperty(GameRunner.LOBBY_GAME_HOSTED_BY + GameRunner.OLD_EXTENSION, hostedBy);</span>
+<span class="nc" id="L94">    final IConnectionLogin login = new IConnectionLogin() {</span>
+      @Override
+<span class="nc" id="L96">      public void notifyFailedLogin(final String message) {}</span>
+
+      @Override
+      public Map&lt;String, String&gt; getProperties(final Map&lt;String, String&gt; challengProperties) {
+<span class="nc" id="L100">        final Map&lt;String, String&gt; rVal = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L101">        rVal.put(LobbyLoginValidator.ANONYMOUS_LOGIN, Boolean.TRUE.toString());</span>
+<span class="nc" id="L102">        rVal.put(LobbyLoginValidator.LOBBY_VERSION, LobbyServer.LOBBY_VERSION.toString());</span>
+<span class="nc" id="L103">        rVal.put(LobbyLoginValidator.LOBBY_WATCHER_LOGIN, Boolean.TRUE.toString());</span>
+<span class="nc" id="L104">        return rVal;</span>
+      }
+    };
+    try {
+<span class="nc" id="L108">      System.out.println(&quot;host:&quot; + host + &quot; port:&quot; + port);</span>
+<span class="nc" id="L109">      final String mac = MacFinder.getHashedMacAddress();</span>
+<span class="nc" id="L110">      final ClientMessenger messenger = new ClientMessenger(host, Integer.parseInt(port),</span>
+<span class="nc" id="L111">          getRealName(hostedBy) + &quot;_&quot; + LOBBY_WATCHER_NAME, mac, login);</span>
+<span class="nc" id="L112">      final UnifiedMessenger um = new UnifiedMessenger(messenger);</span>
+<span class="nc" id="L113">      final RemoteMessenger rm = new RemoteMessenger(um);</span>
+<span class="nc" id="L114">      final HeartBeat h = new HeartBeat(messenger.getServerNode());</span>
+<span class="nc" id="L115">      rm.registerRemote(h, HeartBeat.getHeartBeatName(um.getLocalNode()));</span>
+<span class="nc" id="L116">      final RemoteHostUtils rhu = new RemoteHostUtils(messenger.getServerNode(), gameMessenger);</span>
+<span class="nc" id="L117">      rm.registerRemote(rhu, RemoteHostUtils.getRemoteHostUtilsName(um.getLocalNode()));</span>
+<span class="nc" id="L118">      return new InGameLobbyWatcher(messenger, rm, gameMessenger, parent, oldWatcher);</span>
+<span class="nc" id="L119">    } catch (final Exception e) {</span>
+<span class="nc" id="L120">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L121">      return null;</span>
+    }
+  }
+
+  private static String getRealName(final String uniqueName) {
+    // Remove any (n) that is added to distinguish duplicate names
+<span class="nc" id="L127">    final String name = uniqueName.split(&quot; &quot;)[0];</span>
+<span class="nc" id="L128">    return name;</span>
+  }
+
+  public void setGame(final IGame game) {
+<span class="nc bnc" id="L132" title="All 2 branches missed.">    if (m_game != null) {</span>
+<span class="nc" id="L133">      m_game.removeGameStepListener(m_gameStepListener);</span>
+    }
+<span class="nc" id="L135">    m_game = game;</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">    if (game != null) {</span>
+<span class="nc" id="L137">      game.addGameStepListener(m_gameStepListener);</span>
+<span class="nc" id="L138">      gameStepChanged(game.getData().getSequence().getStep().getName(), game.getData().getSequence().getRound());</span>
+    }
+<span class="nc" id="L140">  }</span>
+
+  private void gameStepChanged(final String stepName, final int round) {
+<span class="nc" id="L143">    synchronized (m_mutex) {</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">      if (!m_gameDescription.getRound().equals(Integer.toString(round))) {</span>
+<span class="nc" id="L145">        m_gameDescription.setRound(round + &quot;&quot;);</span>
+      }
+<span class="nc" id="L147">      postUpdate();</span>
+    }
+<span class="nc" id="L149">  }</span>
+
+  private void gameSelectorModelUpdated() {
+<span class="nc" id="L152">    synchronized (m_mutex) {</span>
+<span class="nc" id="L153">      m_gameDescription.setGameName(m_gameSelectorModel.getGameName());</span>
+<span class="nc" id="L154">      m_gameDescription.setGameVersion(m_gameSelectorModel.getGameVersion());</span>
+<span class="nc" id="L155">      postUpdate();</span>
+    }
+<span class="nc" id="L157">  }</span>
+
+<span class="nc" id="L159">  public InGameLobbyWatcher(final IMessenger messenger, final IRemoteMessenger remoteMessenger,</span>
+      final IServerMessenger serverMessenger, final JComponent parent, final InGameLobbyWatcher oldWatcher) {
+<span class="nc" id="L161">    m_messenger = messenger;</span>
+<span class="nc" id="L162">    m_remoteMessenger = remoteMessenger;</span>
+<span class="nc" id="L163">    m_gameMessenger = serverMessenger;</span>
+<span class="nc" id="L164">    final String password = System.getProperty(GameRunner.TRIPLEA_SERVER_PASSWORD_PROPERTY);</span>
+<span class="nc bnc" id="L165" title="All 4 branches missed.">    final boolean passworded = password != null &amp;&amp; password.length() &gt; 0;</span>
+<span class="nc bnc" id="L166" title="All 4 branches missed.">    final Date startDateTime = (oldWatcher == null || oldWatcher.m_gameDescription == null</span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">        || oldWatcher.m_gameDescription.getStartDateTime() == null) ? new Date()</span>
+<span class="nc" id="L168">            : oldWatcher.m_gameDescription.getStartDateTime();</span>
+<span class="nc bnc" id="L169" title="All 4 branches missed.">    final int playerCount = (oldWatcher == null || oldWatcher.m_gameDescription == null)</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        ? (HeadlessGameServer.headless() ? 0 : 1) : oldWatcher.m_gameDescription.getPlayerCount();</span>
+<span class="nc" id="L171">    final GameStatus gameStatus =</span>
+<span class="nc bnc" id="L172" title="All 6 branches missed.">        (oldWatcher == null || oldWatcher.m_gameDescription == null || oldWatcher.m_gameDescription.getStatus() == null)</span>
+<span class="nc" id="L173">            ? GameStatus.WAITING_FOR_PLAYERS : oldWatcher.m_gameDescription.getStatus();</span>
+<span class="nc" id="L174">    final String gameRound =</span>
+<span class="nc bnc" id="L175" title="All 6 branches missed.">        (oldWatcher == null || oldWatcher.m_gameDescription == null || oldWatcher.m_gameDescription.getRound() == null)</span>
+<span class="nc" id="L176">            ? &quot;-&quot; : oldWatcher.m_gameDescription.getRound();</span>
+<span class="nc" id="L177">    m_gameDescription = new GameDescription(m_messenger.getLocalNode(), m_gameMessenger.getLocalNode().getPort(),</span>
+<span class="nc" id="L178">        startDateTime, &quot;???&quot;, playerCount, gameStatus, gameRound, m_gameMessenger.getLocalNode().getName(),</span>
+<span class="nc" id="L179">        System.getProperty(GameRunner.LOBBY_GAME_COMMENTS), passworded, ClientContext.engineVersion().toString(), &quot;0&quot;);</span>
+<span class="nc" id="L180">    final ILobbyGameController controller =</span>
+<span class="nc" id="L181">        (ILobbyGameController) m_remoteMessenger.getRemote(ILobbyGameController.GAME_CONTROLLER_REMOTE);</span>
+<span class="nc" id="L182">    synchronized (m_mutex) {</span>
+<span class="nc" id="L183">      controller.postGame(m_gameID, (GameDescription) m_gameDescription.clone());</span>
+    }
+<span class="nc" id="L185">    m_messengerErrorListener = (messenger1, reason) -&gt; shutDown();</span>
+<span class="nc" id="L186">    m_messenger.addErrorListener(m_messengerErrorListener);</span>
+<span class="nc" id="L187">    m_connectionChangeListener = new IConnectionChangeListener() {</span>
+      @Override
+      public void connectionRemoved(final INode to) {
+<span class="nc" id="L190">        updatePlayerCount();</span>
+<span class="nc" id="L191">      }</span>
+
+      @Override
+      public void connectionAdded(final INode to) {
+<span class="nc" id="L195">        updatePlayerCount();</span>
+<span class="nc" id="L196">      }</span>
+    };
+    // when players join or leave the game
+    // update the connection count
+<span class="nc" id="L200">    m_gameMessenger.addConnectionChangeListener(m_connectionChangeListener);</span>
+<span class="nc bnc" id="L201" title="All 4 branches missed.">    if (oldWatcher != null &amp;&amp; oldWatcher.m_gameDescription != null) {</span>
+<span class="nc" id="L202">      this.setGameStatus(oldWatcher.m_gameDescription.getStatus(), oldWatcher.m_game);</span>
+    }
+    // if we loose our connection, then shutdown
+<span class="nc" id="L205">    final Runnable r = () -&gt; {</span>
+<span class="nc" id="L206">      final String addressUsed = controller.testGame(m_gameID);</span>
+      // if the server cannot connect to us, then quit
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      if (addressUsed != null) {</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        if (isActive()) {</span>
+<span class="nc" id="L210">          shutDown();</span>
+<span class="nc" id="L211">          SwingUtilities.invokeLater(() -&gt; {</span>
+<span class="nc" id="L212">            String portString = System.getProperty(GameRunner.TRIPLEA_PORT_PROPERTY);</span>
+<span class="nc bnc" id="L213" title="All 4 branches missed.">            if (portString == null || portString.trim().length() &lt;= 0) {</span>
+<span class="nc" id="L214">              portString = &quot;3300&quot;;</span>
+            }
+<span class="nc" id="L216">            final String message = &quot;Your computer is not reachable from the internet.\r\n&quot;</span>
+                + &quot;Please make sure your Firewall allows incoming connections (hosting) for TripleA.\r\n&quot;
+                + &quot;(The firewall exception must be updated every time a new version of TripleA comes out.)\r\n&quot;
+<span class="nc" id="L219">                + &quot;And that your Router is configured to send TCP traffic on port &quot; + portString</span>
+<span class="nc" id="L220">                + &quot; to your local ip address.\r\n&quot;</span>
+<span class="nc" id="L221">                + &quot;See 'How To Host...' in the help menu, at the top of the lobby screen.\r\n&quot;</span>
+<span class="nc" id="L222">                + &quot;The server tried to connect to your external ip: &quot; + addressUsed + &quot;\r\n&quot;;</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">            if (HeadlessGameServer.headless()) {</span>
+<span class="nc" id="L224">              System.out.println(message);</span>
+<span class="nc" id="L225">              System.exit(-1);</span>
+            }
+<span class="nc" id="L227">            final int port = Integer.parseInt(portString);</span>
+<span class="nc" id="L228">            final Frame parentComponent = JOptionPane.getFrameForComponent(parent);</span>
+<span class="nc" id="L229">            JOptionPane.showMessageDialog(parentComponent, message, &quot;Could Not Host&quot;, JOptionPane.ERROR_MESSAGE);</span>
+<span class="nc" id="L230">            final String question =</span>
+<span class="nc" id="L231">                &quot;TripleA has a new feature (in BETA) that will attempt to set your Port Forwarding for you.\r\n&quot;</span>
+                    + &quot;You must have Universal Plug and Play (UPnP) enabled on your router.\r\n&quot;
+                    + &quot;Only around half of all routers come with UPnP enabled by default.\r\n\r\n&quot;
+                    + &quot;If this does not work, try turning on UPnP in your router, then try this all again.\r\n&quot;
+                    + &quot;(To change your router's settings, click 'How To Host...' in the help menu, or use google search.)\r\n\r\n&quot;
+                    + &quot;If TripleA previously successfully set your port forwarding, but you still cannot host, \r\n&quot;
+                    + &quot;then the problem is most likely your firewall. Try creating an exception for TripleA in the firewall.\r\n&quot;
+                    + &quot;Or disable the firewall briefly just to test.\r\n&quot;
+                    + &quot;The firewall exception must be updated every time a new version of TripleA comes out.\r\n&quot;;
+<span class="nc" id="L240">            final int answer = JOptionPane.showConfirmDialog(parentComponent, question,</span>
+<span class="nc" id="L241">                &quot;Try Setting Port Forwarding with UPnP?&quot;, JOptionPane.YES_NO_OPTION);</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">            if (answer != JOptionPane.YES_OPTION) {</span>
+<span class="nc" id="L243">              System.exit(-1);</span>
+            }
+<span class="nc" id="L245">            UniversalPlugAndPlayHelper.attemptAddingPortForwarding(parentComponent, port);</span>
+<span class="nc bnc" id="L246" title="All 2 branches missed.">            if (JOptionPane.showConfirmDialog(parentComponent,</span>
+<span class="nc" id="L247">                &quot;Do you want to view the tutorial on how to host?  This will open in your internet browser.&quot;,</span>
+<span class="nc" id="L248">                &quot;View Help Website?&quot;, JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {</span>
+<span class="nc" id="L249">              OpenFileUtility.openURL(</span>
+<span class="nc" id="L250">                  &quot;http://tripleadev.1671093.n2.nabble.com/Download-Maps-Links-Hosting-Games-General-Information-tp4074312p4085700.html&quot;);</span>
+            }
+<span class="nc" id="L252">            System.exit(-1);</span>
+<span class="nc" id="L253">          });</span>
+        }
+      }
+<span class="nc" id="L256">    };</span>
+<span class="nc" id="L257">    new Thread(r).start();</span>
+<span class="nc" id="L258">  }</span>
+
+  public void setGameSelectorModel(final GameSelectorModel model) {
+<span class="nc" id="L261">    cleanUpGameModelListener();</span>
+<span class="nc bnc" id="L262" title="All 2 branches missed.">    if (model != null) {</span>
+<span class="nc" id="L263">      m_gameSelectorModel = model;</span>
+<span class="nc" id="L264">      m_gameSelectorModel.addObserver(m_gameSelectorModelObserver);</span>
+<span class="nc" id="L265">      gameSelectorModelUpdated();</span>
+    }
+<span class="nc" id="L267">  }</span>
+
+  private void cleanUpGameModelListener() {
+<span class="nc bnc" id="L270" title="All 2 branches missed.">    if (m_gameSelectorModel != null) {</span>
+<span class="nc" id="L271">      m_gameSelectorModel.deleteObserver(m_gameSelectorModelObserver);</span>
+    }
+<span class="nc" id="L273">  }</span>
+
+  protected void updatePlayerCount() {
+<span class="nc" id="L276">    synchronized (m_mutex) {</span>
+<span class="nc bnc" id="L277" title="All 2 branches missed.">      m_gameDescription.setPlayerCount(m_gameMessenger.getNodes().size() - (HeadlessGameServer.headless() ? 1 : 0));</span>
+<span class="nc" id="L278">      postUpdate();</span>
+    }
+<span class="nc" id="L280">  }</span>
+
+  private void postUpdate() {
+<span class="nc bnc" id="L283" title="All 2 branches missed.">    if (m_shutdown) {</span>
+<span class="nc" id="L284">      return;</span>
+    }
+<span class="nc" id="L286">    synchronized (m_mutex) {</span>
+<span class="nc" id="L287">      final ILobbyGameController controller =</span>
+<span class="nc" id="L288">          (ILobbyGameController) m_remoteMessenger.getRemote(ILobbyGameController.GAME_CONTROLLER_REMOTE);</span>
+<span class="nc" id="L289">      controller.updateGame(m_gameID, (GameDescription) m_gameDescription.clone());</span>
+    }
+<span class="nc" id="L291">  }</span>
+
+  public void shutDown() {
+<span class="nc" id="L294">    m_shutdown = true;</span>
+<span class="nc" id="L295">    m_messenger.removeErrorListener(m_messengerErrorListener);</span>
+<span class="nc" id="L296">    m_messenger.shutDown();</span>
+<span class="nc" id="L297">    m_gameMessenger.removeConnectionChangeListener(m_connectionChangeListener);</span>
+<span class="nc" id="L298">    cleanUpGameModelListener();</span>
+<span class="nc bnc" id="L299" title="All 2 branches missed.">    if (m_game != null) {</span>
+<span class="nc" id="L300">      m_game.removeGameStepListener(m_gameStepListener);</span>
+    }
+<span class="nc" id="L302">  }</span>
+
+  public boolean isActive() {
+<span class="nc bnc" id="L305" title="All 2 branches missed.">    return !m_shutdown;</span>
+  }
+
+  public void setGameStatus(final GameDescription.GameStatus status, final IGame game) {
+<span class="nc" id="L309">    synchronized (m_mutex) {</span>
+<span class="nc" id="L310">      m_gameDescription.setStatus(status);</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">      if (game == null) {</span>
+<span class="nc" id="L312">        m_gameDescription.setRound(&quot;-&quot;);</span>
+<span class="nc" id="L313">      } else {</span>
+<span class="nc" id="L314">        m_gameDescription.setRound(game.getData().getSequence().getRound() + &quot;&quot;);</span>
+      }
+<span class="nc" id="L316">      setGame(game);</span>
+<span class="nc" id="L317">      postUpdate();</span>
+    }
+<span class="nc" id="L319">  }</span>
+
+  public String getComments() {
+<span class="nc" id="L322">    return m_gameDescription.getComment();</span>
+  }
+
+  public GameDescription getGameDescription() {
+<span class="nc" id="L326">    return m_gameDescription;</span>
+  }
+
+  public void setGameComments(final String comments) {
+<span class="nc" id="L330">    synchronized (m_mutex) {</span>
+<span class="nc" id="L331">      m_gameDescription.setComment(comments);</span>
+<span class="nc" id="L332">      postUpdate();</span>
+    }
+<span class="nc" id="L334">  }</span>
+
+  public void setPassworded(final boolean passworded) {
+<span class="nc" id="L337">    synchronized (m_mutex) {</span>
+<span class="nc" id="L338">      m_gameDescription.setPassworded(passworded);</span>
+<span class="nc" id="L339">      postUpdate();</span>
+    }
+<span class="nc" id="L341">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

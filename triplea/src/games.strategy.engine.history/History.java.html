@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>History.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.history</a> &gt; <span class="el_source">History.java</span></div><h1>History.java</h1><pre class="source lang-java linenums">package games.strategy.engine.history;
+
+import java.io.ObjectStreamException;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
+
+import javax.swing.SwingUtilities;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
+
+/**
+ * A history of the game.
+ * Stored as a tree, the data is organized as
+ * Root
+ * - Round
+ * - Step
+ * - Event
+ * - Child
+ * Round - the current round in the game, eg 1, 2, 3
+ * Step - the current step, eg Britian Combat Move
+ * Event - an event that happened in the game, eg Russia buys 8 inf.
+ */
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.triplea.ui.history.HistoryPanel;
+
+public class History extends DefaultTreeModel {
+  private static final long serialVersionUID = -1769876896869L;
+
+<span class="fc" id="L33">  private final HistoryWriter m_writer = new HistoryWriter(this);</span>
+<span class="fc" id="L34">  private final List&lt;Change&gt; m_changes = new ArrayList&lt;&gt;();</span>
+  private final GameData m_data;
+  private HistoryNode m_currentNode;
+
+  private void assertCorrectThread() {
+<span class="nc bnc" id="L39" title="All 4 branches missed.">    if (m_data.areChangesOnlyInSwingEventThread() &amp;&amp; !SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L40">      throw new IllegalStateException(&quot;Wrong thread&quot;);</span>
+    }
+<span class="nc" id="L42">  }</span>
+
+  public History(final GameData data) {
+<span class="fc" id="L45">    super(new RootHistoryNode(&quot;Game History&quot;));</span>
+<span class="fc" id="L46">    m_data = data;</span>
+<span class="fc" id="L47">  }</span>
+
+  public HistoryWriter getHistoryWriter() {
+<span class="fc" id="L50">    return m_writer;</span>
+  }
+
+<span class="fc" id="L53">  HistoryPanel m_panel = null;</span>
+
+  public void setTreePanel(final HistoryPanel panel) {
+<span class="nc" id="L56">    m_panel = panel;</span>
+<span class="nc" id="L57">  }</span>
+
+  public void goToEnd() {
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">    if (m_panel != null) {</span>
+<span class="nc" id="L61">      m_panel.goToEnd();</span>
+    }
+<span class="fc" id="L63">  }</span>
+
+  public HistoryNode getLastNode() {
+<span class="nc" id="L66">    assertCorrectThread();</span>
+<span class="nc" id="L67">    return getLastChildInternal((HistoryNode) getRoot());</span>
+  }
+
+  private HistoryNode getLastChildInternal(final HistoryNode node) {
+<span class="nc bnc" id="L71" title="All 2 branches missed.">    if (node.getChildCount() == 0) {</span>
+<span class="nc" id="L72">      return node;</span>
+    }
+<span class="nc" id="L74">    return getLastChildInternal((HistoryNode) node.getLastChild());</span>
+  }
+
+  private int getLastChange(final HistoryNode node) {
+    int rVal;
+<span class="nc bnc" id="L79" title="All 2 branches missed.">    if (node == getRoot()) {</span>
+<span class="nc" id="L80">      rVal = 0;</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    } else if (node instanceof Event) {</span>
+<span class="nc" id="L82">      rVal = ((Event) node).getChangeEndIndex();</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">    } else if (node instanceof EventChild) {</span>
+<span class="nc" id="L84">      rVal = ((Event) node.getParent()).getChangeEndIndex();</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    } else if (node instanceof IndexedHistoryNode) {</span>
+<span class="nc" id="L86">      rVal = ((IndexedHistoryNode) node).getChangeStartIndex();</span>
+<span class="nc" id="L87">    } else {</span>
+<span class="nc" id="L88">      rVal = 0;</span>
+    }
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    if (rVal == -1) {</span>
+<span class="nc" id="L91">      return m_changes.size();</span>
+    }
+<span class="nc" id="L93">    return rVal;</span>
+  }
+
+  public Change getDelta(final HistoryNode start, final HistoryNode end) {
+<span class="nc" id="L97">    assertCorrectThread();</span>
+<span class="nc" id="L98">    final int firstChange = getLastChange(start);</span>
+<span class="nc" id="L99">    final int lastChange = getLastChange(end);</span>
+<span class="nc bnc" id="L100" title="All 2 branches missed.">    if (firstChange == lastChange) {</span>
+<span class="nc" id="L101">      return null;</span>
+    }
+<span class="nc" id="L103">    final List&lt;Change&gt; changes =</span>
+<span class="nc" id="L104">        m_changes.subList(Math.min(firstChange, lastChange), Math.max(firstChange, lastChange));</span>
+<span class="nc" id="L105">    final Change compositeChange = new CompositeChange(changes);</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">    if (lastChange &gt;= firstChange) {</span>
+<span class="nc" id="L107">      return compositeChange;</span>
+    } else {
+<span class="nc" id="L109">      return compositeChange.invert();</span>
+    }
+  }
+
+  public synchronized void gotoNode(final HistoryNode node) {
+<span class="nc" id="L114">    assertCorrectThread();</span>
+<span class="nc" id="L115">    getGameData().acquireWriteLock();</span>
+    try {
+<span class="nc bnc" id="L117" title="All 2 branches missed.">      if (m_currentNode == null) {</span>
+<span class="nc" id="L118">        m_currentNode = getLastNode();</span>
+      }
+<span class="nc" id="L120">      final Change dataChange = getDelta(m_currentNode, node);</span>
+<span class="nc" id="L121">      m_currentNode = node;</span>
+<span class="nc bnc" id="L122" title="All 2 branches missed.">      if (dataChange != null) {</span>
+<span class="nc" id="L123">        m_data.performChange(dataChange);</span>
+      }
+<span class="nc" id="L125">    } finally {</span>
+<span class="nc" id="L126">      getGameData().releaseWriteLock();</span>
+<span class="nc" id="L127">    }</span>
+<span class="nc" id="L128">  }</span>
+
+  public synchronized void removeAllHistoryAfterNode(final HistoryNode removeAfterNode) {
+<span class="nc" id="L131">    gotoNode(removeAfterNode);</span>
+<span class="nc" id="L132">    assertCorrectThread();</span>
+<span class="nc" id="L133">    getGameData().acquireWriteLock();</span>
+    try {
+<span class="nc" id="L135">      final int lastChange = getLastChange(removeAfterNode);</span>
+<span class="nc bnc" id="L136" title="All 2 branches missed.">      while (m_changes.size() &gt; lastChange) {</span>
+<span class="nc" id="L137">        m_changes.remove(lastChange);</span>
+      }
+<span class="nc" id="L139">      final List&lt;HistoryNode&gt; nodesToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L140">      final Enumeration&lt;?&gt; enumeration = ((DefaultMutableTreeNode) this.getRoot()).preorderEnumeration();</span>
+<span class="nc" id="L141">      enumeration.nextElement();</span>
+<span class="nc" id="L142">      boolean startRemoving = false;</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">      while (enumeration.hasMoreElements()) {</span>
+<span class="nc" id="L144">        final HistoryNode node = (HistoryNode) enumeration.nextElement();</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">        if (node instanceof IndexedHistoryNode) {</span>
+<span class="nc" id="L146">          final int index = ((IndexedHistoryNode) node).getChangeStartIndex();</span>
+<span class="nc bnc" id="L147" title="All 2 branches missed.">          if (index &gt;= lastChange) {</span>
+<span class="nc" id="L148">            startRemoving = true;</span>
+          }
+<span class="nc bnc" id="L150" title="All 2 branches missed.">          if (startRemoving) {</span>
+<span class="nc" id="L151">            nodesToRemove.add(node);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L155" title="All 2 branches missed.">      while (!nodesToRemove.isEmpty()) {</span>
+<span class="nc" id="L156">        this.removeNodeFromParent(nodesToRemove.remove(0));</span>
+      }
+<span class="nc" id="L158">    } finally {</span>
+<span class="nc" id="L159">      getGameData().releaseWriteLock();</span>
+<span class="nc" id="L160">    }</span>
+<span class="nc" id="L161">  }</span>
+
+  synchronized void changeAdded(final Change aChange) {
+<span class="nc" id="L164">    m_changes.add(aChange);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    if (m_currentNode == null) {</span>
+<span class="nc" id="L166">      return;</span>
+    }
+<span class="nc bnc" id="L168" title="All 2 branches missed.">    if (m_currentNode == getLastNode()) {</span>
+<span class="nc" id="L169">      m_data.performChange(aChange);</span>
+    }
+<span class="nc" id="L171">  }</span>
+
+  private Object writeReplace() throws ObjectStreamException {
+<span class="fc" id="L174">    return new SerializedHistory(this, m_data, m_changes);</span>
+  }
+
+  List&lt;Change&gt; getChanges() {
+<span class="fc" id="L178">    return m_changes;</span>
+  }
+
+  GameData getGameData() {
+<span class="fc" id="L182">    return m_data;</span>
+  }
+}
+
+
+/**
+ * DefaultTreeModel is not serializable across jdk versions
+ * Instead we use an instance of this class to store our data
+ */
+class SerializedHistory implements Serializable {
+  private static final long serialVersionUID = -5808427923253751651L;
+<span class="fc" id="L193">  private final List&lt;SerializationWriter&gt; m_Writers = new ArrayList&lt;&gt;();</span>
+  private final GameData m_data;
+
+<span class="fc" id="L196">  public SerializedHistory(final History history, final GameData data, final List&lt;Change&gt; changes) {</span>
+<span class="fc" id="L197">    m_data = data;</span>
+<span class="fc" id="L198">    int changeIndex = 0;</span>
+<span class="fc" id="L199">    final Enumeration&lt;?&gt; enumeration = ((DefaultMutableTreeNode) history.getRoot()).preorderEnumeration();</span>
+<span class="fc" id="L200">    enumeration.nextElement();</span>
+<span class="pc bpc" id="L201" title="1 of 2 branches missed.">    while (enumeration.hasMoreElements()) {</span>
+<span class="nc" id="L202">      final HistoryNode node = (HistoryNode) enumeration.nextElement();</span>
+      // write the changes to the start of the node
+<span class="nc bnc" id="L204" title="All 2 branches missed.">      if (node instanceof IndexedHistoryNode) {</span>
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        while (changeIndex &lt; ((IndexedHistoryNode) node).getChangeStartIndex()) {</span>
+<span class="nc" id="L206">          m_Writers.add(new ChangeSerializationWriter(changes.get(changeIndex)));</span>
+<span class="nc" id="L207">          changeIndex++;</span>
+        }
+      }
+      // write the node itself
+<span class="nc" id="L211">      m_Writers.add(node.getWriter());</span>
+    }
+    // write out remaining changes
+<span class="pc bpc" id="L214" title="1 of 2 branches missed.">    while (changeIndex &lt; changes.size()) {</span>
+<span class="nc" id="L215">      m_Writers.add(new ChangeSerializationWriter(changes.get(changeIndex)));</span>
+<span class="nc" id="L216">      changeIndex++;</span>
+    }
+<span class="fc" id="L218">  }</span>
+
+  public Object readResolve() throws ObjectStreamException {
+<span class="fc" id="L221">    final History rVal = new History(m_data);</span>
+<span class="fc" id="L222">    final HistoryWriter historyWriter = rVal.getHistoryWriter();</span>
+<span class="pc bpc" id="L223" title="1 of 2 branches missed.">    for (final SerializationWriter element : m_Writers) {</span>
+<span class="nc" id="L224">      element.write(historyWriter);</span>
+    }
+<span class="fc" id="L226">    return rVal;</span>
+  }
+}
+
+
+class RootHistoryNode extends HistoryNode {
+  private static final long serialVersionUID = 625147613043836829L;
+
+  public RootHistoryNode(final String title) {
+<span class="fc" id="L235">    super(title);</span>
+<span class="fc" id="L236">  }</span>
+
+  @Override
+  public SerializationWriter getWriter() {
+<span class="nc" id="L240">    throw new IllegalStateException(&quot;Not implemented&quot;);</span>
+  }
+}
+
+
+class ChangeSerializationWriter implements SerializationWriter {
+  private static final long serialVersionUID = -3802807345707883606L;
+  private final Change aChange;
+
+<span class="nc" id="L249">  public ChangeSerializationWriter(final Change change) {</span>
+<span class="nc" id="L250">    aChange = change;</span>
+<span class="nc" id="L251">  }</span>
+
+  @Override
+  public void write(final HistoryWriter writer) {
+<span class="nc" id="L255">    writer.addChange(aChange);</span>
+<span class="nc" id="L256">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

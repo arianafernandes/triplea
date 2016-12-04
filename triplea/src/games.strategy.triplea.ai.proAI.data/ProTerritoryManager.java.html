@@ -1,0 +1,1114 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ProTerritoryManager.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ai.proAI.data</a> &gt; <span class="el_source">ProTerritoryManager.java</span></div><h1>ProTerritoryManager.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ai.proAI.data;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.ai.proAI.ProData;
+import games.strategy.triplea.ai.proAI.logging.ProLogger;
+import games.strategy.triplea.ai.proAI.util.ProBattleUtils;
+import games.strategy.triplea.ai.proAI.util.ProMatches;
+import games.strategy.triplea.ai.proAI.util.ProOddsCalculator;
+import games.strategy.triplea.ai.proAI.util.ProTransportUtils;
+import games.strategy.triplea.ai.proAI.util.ProUtils;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.triplea.delegate.TerritoryEffectHelper;
+import games.strategy.triplea.delegate.TransportTracker;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+
+/**
+ * Manages info about territories.
+ */
+public class ProTerritoryManager {
+
+  private final ProOddsCalculator calc;
+  private final PlayerID player;
+
+  private ProMyMoveOptions attackOptions;
+  private ProMyMoveOptions potentialAttackOptions;
+  private ProMyMoveOptions defendOptions;
+  private ProOtherMoveOptions alliedAttackOptions;
+  private ProOtherMoveOptions enemyDefendOptions;
+  private ProOtherMoveOptions enemyAttackOptions;
+
+<span class="nc" id="L53">  public ProTerritoryManager(final ProOddsCalculator calc) {</span>
+<span class="nc" id="L54">    this.calc = calc;</span>
+<span class="nc" id="L55">    player = ProData.getPlayer();</span>
+<span class="nc" id="L56">    attackOptions = new ProMyMoveOptions();</span>
+<span class="nc" id="L57">    potentialAttackOptions = new ProMyMoveOptions();</span>
+<span class="nc" id="L58">    defendOptions = new ProMyMoveOptions();</span>
+<span class="nc" id="L59">    alliedAttackOptions = new ProOtherMoveOptions();</span>
+<span class="nc" id="L60">    enemyDefendOptions = new ProOtherMoveOptions();</span>
+<span class="nc" id="L61">    enemyAttackOptions = new ProOtherMoveOptions();</span>
+<span class="nc" id="L62">  }</span>
+
+  public ProTerritoryManager(final ProOddsCalculator calc, final ProTerritoryManager territoryManager) {
+<span class="nc" id="L65">    this(calc);</span>
+<span class="nc" id="L66">    attackOptions = new ProMyMoveOptions(territoryManager.attackOptions);</span>
+<span class="nc" id="L67">    potentialAttackOptions = new ProMyMoveOptions(territoryManager.potentialAttackOptions);</span>
+<span class="nc" id="L68">    defendOptions = new ProMyMoveOptions(territoryManager.defendOptions);</span>
+<span class="nc" id="L69">    alliedAttackOptions = territoryManager.getAlliedAttackOptions();</span>
+<span class="nc" id="L70">    enemyDefendOptions = territoryManager.getEnemyDefendOptions();</span>
+<span class="nc" id="L71">    enemyAttackOptions = territoryManager.getEnemyAttackOptions();</span>
+<span class="nc" id="L72">  }</span>
+
+  public void populateAttackOptions() {
+<span class="nc" id="L75">    findAttackOptions(player, ProData.myUnitTerritories, attackOptions.getTerritoryMap(),</span>
+<span class="nc" id="L76">        attackOptions.getUnitMoveMap(), attackOptions.getTransportMoveMap(), attackOptions.getBombardMap(),</span>
+<span class="nc" id="L77">        attackOptions.getTransportList(), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), false, false);</span>
+<span class="nc" id="L78">    findBombingOptions();</span>
+<span class="nc" id="L79">    alliedAttackOptions = findAlliedAttackOptions(player);</span>
+<span class="nc" id="L80">  }</span>
+
+  public void populatePotentialAttackOptions() {
+<span class="nc" id="L83">    findPotentialAttackOptions(player, ProData.myUnitTerritories, potentialAttackOptions.getTerritoryMap(),</span>
+<span class="nc" id="L84">        potentialAttackOptions.getUnitMoveMap(), potentialAttackOptions.getTransportMoveMap(),</span>
+<span class="nc" id="L85">        potentialAttackOptions.getBombardMap(), potentialAttackOptions.getTransportList());</span>
+<span class="nc" id="L86">  }</span>
+
+  public void populateDefenseOptions(final List&lt;Territory&gt; clearedTerritories) {
+<span class="nc" id="L89">    findDefendOptions(player, ProData.myUnitTerritories, defendOptions.getTerritoryMap(),</span>
+<span class="nc" id="L90">        defendOptions.getUnitMoveMap(), defendOptions.getTransportMoveMap(), defendOptions.getTransportList(),</span>
+<span class="nc" id="L91">        clearedTerritories, false);</span>
+<span class="nc" id="L92">  }</span>
+
+  public void populateEnemyAttackOptions(final List&lt;Territory&gt; clearedTerritories,
+      final List&lt;Territory&gt; territoriesToCheck) {
+<span class="nc" id="L96">    enemyAttackOptions = findEnemyAttackOptions(player, clearedTerritories, territoriesToCheck);</span>
+<span class="nc" id="L97">  }</span>
+
+  public void populateEnemyDefenseOptions() {
+<span class="nc" id="L100">    findScrambleOptions(player, attackOptions.getTerritoryMap());</span>
+<span class="nc" id="L101">    enemyDefendOptions = findEnemyDefendOptions(player);</span>
+<span class="nc" id="L102">  }</span>
+
+  public List&lt;ProTerritory&gt; removeTerritoriesThatCantBeConquered() {
+<span class="nc" id="L105">    return removeTerritoriesThatCantBeConquered(player, attackOptions.getTerritoryMap(), attackOptions.getUnitMoveMap(),</span>
+<span class="nc" id="L106">        attackOptions.getTransportMoveMap(), alliedAttackOptions, enemyDefendOptions, false);</span>
+  }
+
+  public List&lt;ProTerritory&gt; removePotentialTerritoriesThatCantBeConquered() {
+<span class="nc" id="L110">    return removeTerritoriesThatCantBeConquered(player, potentialAttackOptions.getTerritoryMap(),</span>
+<span class="nc" id="L111">        potentialAttackOptions.getUnitMoveMap(), potentialAttackOptions.getTransportMoveMap(), alliedAttackOptions,</span>
+<span class="nc" id="L112">        enemyDefendOptions, true);</span>
+  }
+
+  public ProMyMoveOptions getAttackOptions() {
+<span class="nc" id="L116">    return attackOptions;</span>
+  }
+
+  public ProMyMoveOptions getPotentialAttackOptions() {
+<span class="nc" id="L120">    return potentialAttackOptions;</span>
+  }
+
+  public ProMyMoveOptions getDefendOptions() {
+<span class="nc" id="L124">    return defendOptions;</span>
+  }
+
+  public ProOtherMoveOptions getAlliedAttackOptions() {
+<span class="nc" id="L128">    return alliedAttackOptions;</span>
+  }
+
+  public ProOtherMoveOptions getEnemyDefendOptions() {
+<span class="nc" id="L132">    return enemyDefendOptions;</span>
+  }
+
+  public ProOtherMoveOptions getEnemyAttackOptions() {
+<span class="nc" id="L136">    return enemyAttackOptions;</span>
+  }
+
+  public List&lt;Territory&gt; getDefendTerritories() {
+<span class="nc" id="L140">    return new ArrayList&lt;&gt;(defendOptions.getTerritoryMap().keySet());</span>
+  }
+
+  public List&lt;Territory&gt; getStrafingTerritories() {
+<span class="nc" id="L144">    final List&lt;Territory&gt; strafingTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L145" title="All 2 branches missed.">    for (final Territory t : attackOptions.getTerritoryMap().keySet()) {</span>
+<span class="nc bnc" id="L146" title="All 2 branches missed.">      if (attackOptions.getTerritoryMap().get(t).isStrafing()) {</span>
+<span class="nc" id="L147">        strafingTerritories.add(t);</span>
+      }
+    }
+<span class="nc" id="L150">    return strafingTerritories;</span>
+  }
+
+  public List&lt;Territory&gt; getCantHoldTerritories() {
+<span class="nc" id="L154">    final List&lt;Territory&gt; territoriesThatCantBeHeld = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L155" title="All 2 branches missed.">    for (final Territory t : defendOptions.getTerritoryMap().keySet()) {</span>
+<span class="nc bnc" id="L156" title="All 2 branches missed.">      if (!defendOptions.getTerritoryMap().get(t).isCanHold()) {</span>
+<span class="nc" id="L157">        territoriesThatCantBeHeld.add(t);</span>
+      }
+    }
+<span class="nc" id="L160">    return territoriesThatCantBeHeld;</span>
+  }
+
+  public boolean haveUsedAllAttackTransports() {
+<span class="nc" id="L164">    final Set&lt;Unit&gt; movedTransports = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    for (final ProTerritory patd : attackOptions.getTerritoryMap().values()) {</span>
+<span class="nc" id="L166">      movedTransports.addAll(patd.getAmphibAttackMap().keySet());</span>
+<span class="nc" id="L167">      movedTransports.addAll(Match.getMatches(patd.getUnits(), Matches.UnitIsTransport));</span>
+    }
+<span class="nc bnc" id="L169" title="All 2 branches missed.">    return movedTransports.size() &gt;= attackOptions.getTransportList().size();</span>
+  }
+
+  private void findScrambleOptions(final PlayerID player, final Map&lt;Territory, ProTerritory&gt; moveMap) {
+<span class="nc" id="L173">    final GameData data = ProData.getData();</span>
+
+<span class="nc bnc" id="L175" title="All 2 branches missed.">    if (!Properties.getScramble_Rules_In_Effect(data)) {</span>
+<span class="nc" id="L176">      return;</span>
+    }
+
+    // Find scramble properties
+<span class="nc" id="L180">    final boolean fromIslandOnly = Properties.getScramble_From_Island_Only(data);</span>
+<span class="nc" id="L181">    final boolean toSeaOnly = Properties.getScramble_To_Sea_Only(data);</span>
+<span class="nc" id="L182">    int maxScrambleDistance = 0;</span>
+<span class="nc" id="L183">    final Iterator&lt;UnitType&gt; utIter = data.getUnitTypeList().iterator();</span>
+<span class="nc bnc" id="L184" title="All 2 branches missed.">    while (utIter.hasNext()) {</span>
+<span class="nc" id="L185">      final UnitAttachment ua = UnitAttachment.get(utIter.next());</span>
+<span class="nc bnc" id="L186" title="All 4 branches missed.">      if (ua.getCanScramble() &amp;&amp; maxScrambleDistance &lt; ua.getMaxScrambleDistance()) {</span>
+<span class="nc" id="L187">        maxScrambleDistance = ua.getMaxScrambleDistance();</span>
+      }
+    }
+<span class="nc" id="L190">    final Match&lt;Unit&gt; airbasesCanScramble = new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, player),</span>
+<span class="nc" id="L191">        Matches.UnitIsAirBase, Matches.UnitIsNotDisabled, Matches.unitIsBeingTransported().invert());</span>
+<span class="nc" id="L192">    final CompositeMatchAnd&lt;Territory&gt; canScramble = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L193">        new CompositeMatchOr&lt;&gt;(Matches.TerritoryIsWater, Matches.isTerritoryEnemy(player, data)),</span>
+<span class="nc" id="L194">        Matches.territoryHasUnitsThatMatch(new CompositeMatchAnd&lt;&gt;(Matches.UnitCanScramble,</span>
+<span class="nc" id="L195">            Matches.unitIsEnemyOf(data, player), Matches.UnitIsNotDisabled)),</span>
+<span class="nc" id="L196">        Matches.territoryHasUnitsThatMatch(airbasesCanScramble));</span>
+<span class="nc bnc" id="L197" title="All 2 branches missed.">    if (fromIslandOnly) {</span>
+<span class="nc" id="L198">      canScramble.add(Matches.TerritoryIsIsland);</span>
+    }
+
+    // Find potential territories to scramble from
+<span class="nc" id="L202">    final HashMap&lt;Territory, HashSet&lt;Territory&gt;&gt; scrambleTerrs = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">    for (final Territory t : moveMap.keySet()) {</span>
+<span class="nc bnc" id="L204" title="All 4 branches missed.">      if (t.isWater() || !toSeaOnly) {</span>
+<span class="nc" id="L205">        final HashSet&lt;Territory&gt; canScrambleFrom =</span>
+<span class="nc" id="L206">            new HashSet&lt;&gt;(Match.getMatches(data.getMap().getNeighbors(t, maxScrambleDistance), canScramble));</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">        if (!canScrambleFrom.isEmpty()) {</span>
+<span class="nc" id="L208">          scrambleTerrs.put(t, canScrambleFrom);</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L212" title="All 2 branches missed.">    if (scrambleTerrs.isEmpty()) {</span>
+<span class="nc" id="L213">      return;</span>
+    }
+
+    // Find potential max units that can be scrambled to each territory
+<span class="nc bnc" id="L217" title="All 2 branches missed.">    for (final Territory to : scrambleTerrs.keySet()) {</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">      for (final Territory from : scrambleTerrs.get(to)) {</span>
+
+        // Find potential scramble units from territory
+<span class="nc" id="L221">        final Collection&lt;Unit&gt; airbases = from.getUnits().getMatches(airbasesCanScramble);</span>
+<span class="nc" id="L222">        final int maxCanScramble = getMaxScrambleCount(airbases);</span>
+<span class="nc" id="L223">        final Route toBattleRoute = data.getMap().getRoute_IgnoreEnd(from, to, Matches.TerritoryIsNotImpassable);</span>
+<span class="nc" id="L224">        List&lt;Unit&gt; canScrambleAir = from.getUnits()</span>
+<span class="nc" id="L225">            .getMatches(new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, player), Matches.UnitCanScramble,</span>
+<span class="nc" id="L226">                Matches.UnitIsNotDisabled, Matches.UnitWasScrambled.invert(),</span>
+<span class="nc" id="L227">                Matches.unitCanScrambleOnRouteDistance(toBattleRoute)));</span>
+
+        // Add max scramble units
+<span class="nc bnc" id="L230" title="All 4 branches missed.">        if (maxCanScramble &gt; 0 &amp;&amp; !canScrambleAir.isEmpty()) {</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">          if (maxCanScramble &lt; canScrambleAir.size()) {</span>
+<span class="nc" id="L232">            Collections.sort(canScrambleAir, (o1, o2) -&gt; {</span>
+<span class="nc" id="L233">              final double strength1 =</span>
+<span class="nc" id="L234">                  ProBattleUtils.estimateStrength(to, Collections.singletonList(o1), new ArrayList&lt;&gt;(), false);</span>
+<span class="nc" id="L235">              final double strength2 =</span>
+<span class="nc" id="L236">                  ProBattleUtils.estimateStrength(to, Collections.singletonList(o2), new ArrayList&lt;&gt;(), false);</span>
+<span class="nc" id="L237">              return Double.compare(strength2, strength1);</span>
+            });
+<span class="nc" id="L239">            canScrambleAir = canScrambleAir.subList(0, maxCanScramble);</span>
+          }
+<span class="nc" id="L241">          moveMap.get(to).getMaxScrambleUnits().addAll(canScrambleAir);</span>
+        }
+      }
+    }
+<span class="nc" id="L245">  }</span>
+
+  private static int getMaxScrambleCount(final Collection&lt;Unit&gt; airbases) {
+<span class="nc bnc" id="L248" title="All 2 branches missed.">    if (!Match.allMatch(airbases, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAirBase, Matches.UnitIsNotDisabled))) {</span>
+<span class="nc" id="L249">      throw new IllegalStateException(&quot;All units must be viable airbases&quot;);</span>
+    }
+
+    // find how many is the max this territory can scramble
+<span class="nc" id="L253">    int maxScrambled = 0;</span>
+<span class="nc bnc" id="L254" title="All 2 branches missed.">    for (final Unit base : airbases) {</span>
+<span class="nc" id="L255">      final UnitAttachment ua = UnitAttachment.get(base.getType());</span>
+<span class="nc" id="L256">      final int baseMax = ua.getMaxScrambleCount();</span>
+<span class="nc bnc" id="L257" title="All 2 branches missed.">      if (baseMax == -1) {</span>
+<span class="nc" id="L258">        return Integer.MAX_VALUE;</span>
+      }
+<span class="nc" id="L260">      maxScrambled += baseMax;</span>
+    }
+<span class="nc" id="L262">    return maxScrambled;</span>
+  }
+
+  private void findAttackOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap,
+      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardMap,
+      final List&lt;ProTransport&gt; transportMapList, final List&lt;Territory&gt; enemyTerritories,
+      final List&lt;Territory&gt; alliedTerritories, final List&lt;Territory&gt; territoriesToCheck,
+      final boolean isCheckingEnemyAttacks, final boolean isIgnoringRelationships) {
+<span class="nc" id="L271">    final GameData data = ProData.getData();</span>
+
+<span class="nc" id="L273">    final Map&lt;Territory, Set&lt;Territory&gt;&gt; landRoutesMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L274">    final List&lt;Territory&gt; territoriesThatCantBeHeld = new ArrayList&lt;&gt;(enemyTerritories);</span>
+<span class="nc" id="L275">    territoriesThatCantBeHeld.addAll(territoriesToCheck);</span>
+<span class="nc" id="L276">    findNavalMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap, transportMoveMap,</span>
+<span class="nc" id="L277">        ProMatches.territoryIsEnemyOrHasEnemyUnitsOrCantBeHeld(player, data, territoriesThatCantBeHeld),</span>
+<span class="nc" id="L278">        enemyTerritories, true, isCheckingEnemyAttacks);</span>
+<span class="nc" id="L279">    findLandMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap, landRoutesMap,</span>
+<span class="nc" id="L280">        ProMatches.territoryIsEnemyOrCantBeHeld(player, data, territoriesThatCantBeHeld), enemyTerritories,</span>
+<span class="nc" id="L281">        alliedTerritories, true, isCheckingEnemyAttacks, isIgnoringRelationships);</span>
+<span class="nc" id="L282">    findAirMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap,</span>
+<span class="nc" id="L283">        ProMatches.territoryHasEnemyUnitsOrCantBeHeld(player, data, territoriesThatCantBeHeld), enemyTerritories,</span>
+<span class="nc" id="L284">        alliedTerritories, true, isCheckingEnemyAttacks, isIgnoringRelationships);</span>
+<span class="nc" id="L285">    findAmphibMoveOptions(player, myUnitTerritories, moveMap, transportMapList, landRoutesMap,</span>
+<span class="nc" id="L286">        ProMatches.territoryIsEnemyOrCantBeHeld(player, data, territoriesThatCantBeHeld), enemyTerritories, true,</span>
+<span class="nc" id="L287">        isCheckingEnemyAttacks, isIgnoringRelationships);</span>
+<span class="nc" id="L288">    findBombardOptions(player, myUnitTerritories, moveMap, bombardMap, transportMapList, isCheckingEnemyAttacks);</span>
+<span class="nc" id="L289">  }</span>
+
+  private void findBombingOptions() {
+<span class="nc bnc" id="L292" title="All 2 branches missed.">    for (final Unit unit : attackOptions.getUnitMoveMap().keySet()) {</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">      if (Matches.UnitIsStrategicBomber.match(unit)) {</span>
+<span class="nc" id="L294">        attackOptions.getBomberMoveMap().put(unit, new HashSet&lt;&gt;(attackOptions.getUnitMoveMap().get(unit)));</span>
+      }
+    }
+<span class="nc" id="L297">  }</span>
+
+  private ProOtherMoveOptions findAlliedAttackOptions(final PlayerID player) {
+<span class="nc" id="L300">    final GameData data = ProData.getData();</span>
+
+    // Get enemy players in order of turn
+<span class="nc" id="L303">    final List&lt;PlayerID&gt; alliedPlayers = ProUtils.getAlliedPlayersInTurnOrder(player);</span>
+<span class="nc" id="L304">    final List&lt;Map&lt;Territory, ProTerritory&gt;&gt; alliedAttackMaps = new ArrayList&lt;&gt;();</span>
+
+    // Loop through each enemy to determine the maximum number of enemy units that can attack each territory
+<span class="nc bnc" id="L307" title="All 2 branches missed.">    for (final PlayerID alliedPlayer : alliedPlayers) {</span>
+<span class="nc" id="L308">      final List&lt;Territory&gt; alliedUnitTerritories =</span>
+<span class="nc" id="L309">          Match.getMatches(data.getMap().getTerritories(), Matches.territoryHasUnitsOwnedBy(alliedPlayer));</span>
+<span class="nc" id="L310">      final Map&lt;Territory, ProTerritory&gt; attackMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L311">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitAttackMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L312">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportAttackMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L313">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L314">      final List&lt;ProTransport&gt; transportMapList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L315">      alliedAttackMaps.add(attackMap);</span>
+<span class="nc" id="L316">      findAttackOptions(alliedPlayer, alliedUnitTerritories, attackMap, unitAttackMap, transportAttackMap, bombardMap,</span>
+<span class="nc" id="L317">          transportMapList, new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), false, false);</span>
+    }
+<span class="nc" id="L319">    return new ProOtherMoveOptions(alliedAttackMaps, player, true);</span>
+  }
+
+  private ProOtherMoveOptions findEnemyAttackOptions(final PlayerID player, final List&lt;Territory&gt; clearedTerritories,
+      final List&lt;Territory&gt; territoriesToCheck) {
+<span class="nc" id="L324">    final GameData data = ProData.getData();</span>
+
+    // Get enemy players in order of turn
+<span class="nc" id="L327">    final List&lt;PlayerID&gt; enemyPlayers = ProUtils.getEnemyPlayersInTurnOrder(player);</span>
+<span class="nc" id="L328">    final List&lt;Map&lt;Territory, ProTerritory&gt;&gt; enemyAttackMaps = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L329">    final Set&lt;Territory&gt; alliedTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L330">    final List&lt;Territory&gt; enemyTerritories = new ArrayList&lt;&gt;(clearedTerritories);</span>
+
+    // Loop through each enemy to determine the maximum number of enemy units that can attack each territory
+<span class="nc bnc" id="L333" title="All 2 branches missed.">    for (final PlayerID enemyPlayer : enemyPlayers) {</span>
+<span class="nc" id="L334">      final List&lt;Territory&gt; enemyUnitTerritories =</span>
+<span class="nc" id="L335">          Match.getMatches(data.getMap().getTerritories(), Matches.territoryHasUnitsOwnedBy(enemyPlayer));</span>
+<span class="nc" id="L336">      enemyUnitTerritories.removeAll(clearedTerritories);</span>
+<span class="nc" id="L337">      final Map&lt;Territory, ProTerritory&gt; attackMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L338">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitAttackMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L339">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportAttackMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L340">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L341">      final List&lt;ProTransport&gt; transportMapList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L342">      enemyAttackMaps.add(attackMap);</span>
+<span class="nc" id="L343">      findAttackOptions(enemyPlayer, enemyUnitTerritories, attackMap, unitAttackMap, transportAttackMap, bombardMap,</span>
+<span class="nc" id="L344">          transportMapList, enemyTerritories, new ArrayList&lt;&gt;(alliedTerritories), territoriesToCheck, true, true);</span>
+<span class="nc" id="L345">      alliedTerritories.addAll(Match.getMatches(attackMap.keySet(), Matches.TerritoryIsLand));</span>
+<span class="nc" id="L346">      enemyTerritories.removeAll(alliedTerritories);</span>
+    }
+<span class="nc" id="L348">    return new ProOtherMoveOptions(enemyAttackMaps, player, true);</span>
+  }
+
+  private void findPotentialAttackOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap,
+      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardMap,
+      final List&lt;ProTransport&gt; transportMapList) {
+<span class="nc" id="L355">    final GameData data = ProData.getData();</span>
+
+<span class="nc" id="L357">    final Map&lt;Territory, Set&lt;Territory&gt;&gt; landRoutesMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L358">    final List&lt;PlayerID&gt; otherPlayers = ProUtils.getPotentialEnemyPlayers(player);</span>
+<span class="nc" id="L359">    findNavalMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap, transportMoveMap,</span>
+<span class="nc" id="L360">        ProMatches.territoryIsPotentialEnemyOrHasPotentialEnemyUnits(player, data, otherPlayers), new ArrayList&lt;&gt;(),</span>
+<span class="nc" id="L361">        true, false);</span>
+<span class="nc" id="L362">    findLandMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap, landRoutesMap,</span>
+<span class="nc" id="L363">        ProMatches.territoryIsPotentialEnemy(player, data, otherPlayers), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), true,</span>
+<span class="nc" id="L364">        false, true);</span>
+<span class="nc" id="L365">    findAirMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap,</span>
+<span class="nc" id="L366">        ProMatches.territoryHasPotentialEnemyUnits(player, data, otherPlayers), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(),</span>
+<span class="nc" id="L367">        true, false, true);</span>
+<span class="nc" id="L368">    findAmphibMoveOptions(player, myUnitTerritories, moveMap, transportMapList, landRoutesMap,</span>
+<span class="nc" id="L369">        ProMatches.territoryIsPotentialEnemy(player, data, otherPlayers), new ArrayList&lt;&gt;(), true, false, true);</span>
+<span class="nc" id="L370">    findBombardOptions(player, myUnitTerritories, moveMap, bombardMap, transportMapList, false);</span>
+<span class="nc" id="L371">  }</span>
+
+  private void findDefendOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap,
+      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap, final List&lt;ProTransport&gt; transportMapList,
+      final List&lt;Territory&gt; clearedTerritories, final boolean isCheckingEnemyAttacks) {
+<span class="nc" id="L377">    final GameData data = ProData.getData();</span>
+
+<span class="nc" id="L379">    final Map&lt;Territory, Set&lt;Territory&gt;&gt; landRoutesMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L380">    findNavalMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap, transportMoveMap,</span>
+<span class="nc" id="L381">        ProMatches.territoryHasNoEnemyUnitsOrCleared(player, data, clearedTerritories), clearedTerritories, false,</span>
+<span class="nc" id="L382">        isCheckingEnemyAttacks);</span>
+<span class="nc" id="L383">    findLandMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap, landRoutesMap,</span>
+<span class="nc" id="L384">        Matches.isTerritoryAllied(player, data), new ArrayList&lt;&gt;(), clearedTerritories, false, isCheckingEnemyAttacks,</span>
+<span class="nc" id="L385">        false);</span>
+<span class="nc" id="L386">    findAirMoveOptions(player, myUnitTerritories, moveMap, unitMoveMap,</span>
+<span class="nc" id="L387">        ProMatches.territoryIsNotConqueredAlliedLand(player, data), new ArrayList&lt;&gt;(), new ArrayList&lt;&gt;(), false,</span>
+<span class="nc" id="L388">        isCheckingEnemyAttacks, false);</span>
+<span class="nc" id="L389">    findAmphibMoveOptions(player, myUnitTerritories, moveMap, transportMapList, landRoutesMap,</span>
+<span class="nc" id="L390">        Matches.isTerritoryAllied(player, data), new ArrayList&lt;&gt;(), false, isCheckingEnemyAttacks, false);</span>
+<span class="nc" id="L391">  }</span>
+
+  private ProOtherMoveOptions findEnemyDefendOptions(final PlayerID player) {
+<span class="nc" id="L394">    final GameData data = ProData.getData();</span>
+
+    // Get enemy players in order of turn
+<span class="nc" id="L397">    final List&lt;PlayerID&gt; enemyPlayers = ProUtils.getEnemyPlayersInTurnOrder(player);</span>
+<span class="nc" id="L398">    final List&lt;Map&lt;Territory, ProTerritory&gt;&gt; enemyMoveMaps = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L399">    final List&lt;Territory&gt; clearedTerritories =</span>
+<span class="nc" id="L400">        Match.getMatches(data.getMap().getTerritories(), Matches.isTerritoryAllied(player, data));</span>
+
+    // Loop through each enemy to determine the maximum number of enemy units that can defend each territory
+<span class="nc bnc" id="L403" title="All 2 branches missed.">    for (final PlayerID enemyPlayer : enemyPlayers) {</span>
+<span class="nc" id="L404">      final List&lt;Territory&gt; enemyUnitTerritories =</span>
+<span class="nc" id="L405">          Match.getMatches(data.getMap().getTerritories(), Matches.territoryHasUnitsOwnedBy(enemyPlayer));</span>
+<span class="nc" id="L406">      final Map&lt;Territory, ProTerritory&gt; moveMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L407">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L408">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L409">      final List&lt;ProTransport&gt; transportMapList = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L410">      enemyMoveMaps.add(moveMap);</span>
+<span class="nc" id="L411">      findDefendOptions(enemyPlayer, enemyUnitTerritories, moveMap, unitMoveMap, transportMoveMap, transportMapList,</span>
+<span class="nc" id="L412">          clearedTerritories, true);</span>
+    }
+
+<span class="nc" id="L415">    return new ProOtherMoveOptions(enemyMoveMaps, player, false);</span>
+  }
+
+  private void findNavalMoveOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap,
+      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportMoveMap, final Match&lt;Territory&gt; moveToTerritoryMatch,
+      final List&lt;Territory&gt; clearedTerritories, final boolean isCombatMove, final boolean isCheckingEnemyAttacks) {
+<span class="nc" id="L422">    final GameData data = ProData.getData();</span>
+
+<span class="nc bnc" id="L424" title="All 2 branches missed.">    for (final Territory myUnitTerritory : myUnitTerritories) {</span>
+
+      // Find my naval units that have movement left
+<span class="nc" id="L427">      final List&lt;Unit&gt; mySeaUnits =</span>
+<span class="nc" id="L428">          myUnitTerritory.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedSea(player, isCombatMove));</span>
+
+      // Check each sea unit individually since they can have different ranges
+<span class="nc bnc" id="L431" title="All 2 branches missed.">      for (final Unit mySeaUnit : mySeaUnits) {</span>
+
+        // If my combat move and carrier has dependent allied fighters then skip it
+<span class="nc bnc" id="L434" title="All 4 branches missed.">        if (isCombatMove &amp;&amp; !isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L435">          final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith =</span>
+<span class="nc" id="L436">              MoveValidator.carrierMustMoveWith(myUnitTerritory.getUnits().getUnits(), myUnitTerritory, data, player);</span>
+<span class="nc bnc" id="L437" title="All 4 branches missed.">          if (carrierMustMoveWith.containsKey(mySeaUnit) &amp;&amp; !carrierMustMoveWith.get(mySeaUnit).isEmpty()) {</span>
+<span class="nc" id="L438">            continue;</span>
+          }
+        }
+
+        // Find range
+<span class="nc" id="L443">        int range = TripleAUnit.get(mySeaUnit).getMovementLeft();</span>
+<span class="nc bnc" id="L444" title="All 2 branches missed.">        if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L445">          range = UnitAttachment.get(mySeaUnit.getType()).getMovement(player);</span>
+<span class="nc" id="L446">          if (Matches.UnitCanBeGivenBonusMovementByFacilitiesInItsTerritory(myUnitTerritory, player, data)</span>
+<span class="nc bnc" id="L447" title="All 2 branches missed.">              .match(mySeaUnit)) {</span>
+<span class="nc" id="L448">            range++; // assumes bonus of +1 for now</span>
+          }
+        }
+
+        // Find list of potential territories to move to
+<span class="nc" id="L453">        final Set&lt;Territory&gt; possibleMoveTerritories = data.getMap().getNeighbors(myUnitTerritory, range,</span>
+<span class="nc" id="L454">            ProMatches.territoryCanMoveSeaUnits(player, data, isCombatMove));</span>
+<span class="nc" id="L455">        possibleMoveTerritories.add(myUnitTerritory);</span>
+<span class="nc" id="L456">        final Set&lt;Territory&gt; potentialTerritories =</span>
+<span class="nc" id="L457">            new HashSet&lt;&gt;(Match.getMatches(possibleMoveTerritories, moveToTerritoryMatch));</span>
+<span class="nc bnc" id="L458" title="All 2 branches missed.">        if (!isCombatMove) {</span>
+<span class="nc" id="L459">          potentialTerritories.add(myUnitTerritory);</span>
+        }
+<span class="nc bnc" id="L461" title="All 2 branches missed.">        for (final Territory potentialTerritory : potentialTerritories) {</span>
+
+          // Find route over water
+<span class="nc" id="L464">          boolean hasNoRoute = true;</span>
+<span class="nc" id="L465">          final List&lt;Territory&gt; eliminatedTerritories = new ArrayList&lt;&gt;();</span>
+          while (true) // Need a loop to consider different route combinations to avoid canals
+          {
+<span class="nc" id="L468">            Route myRoute = data.getMap().getRoute_IgnoreEnd(myUnitTerritory, potentialTerritory,</span>
+<span class="nc" id="L469">                ProMatches.territoryCanMoveSeaUnitsThroughOrClearedAndNotInList(player, data, isCombatMove,</span>
+<span class="nc" id="L470">                    clearedTerritories, eliminatedTerritories));</span>
+<span class="nc bnc" id="L471" title="All 2 branches missed.">            if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L472">              myRoute = data.getMap().getRoute_IgnoreEnd(myUnitTerritory, potentialTerritory,</span>
+<span class="nc" id="L473">                  ProMatches.territoryCanMoveSeaUnitsAndNotInList(player, data, isCombatMove, eliminatedTerritories));</span>
+            }
+<span class="nc bnc" id="L475" title="All 2 branches missed.">            if (myRoute == null) {</span>
+<span class="nc" id="L476">              break;</span>
+            }
+<span class="nc bnc" id="L478" title="All 2 branches missed.">            if (MoveValidator.validateCanal(myRoute, Collections.singletonList(mySeaUnit), player, data) != null) {</span>
+<span class="nc bnc" id="L479" title="All 2 branches missed.">              if (!myRoute.getMiddleSteps().isEmpty()) {</span>
+<span class="nc" id="L480">                eliminatedTerritories.addAll(myRoute.getMiddleSteps()); // Add failed canal territories to list</span>
+<span class="nc" id="L481">                continue;</span>
+              } else {
+                break;
+              }
+            }
+<span class="nc" id="L486">            final int myRouteLength = myRoute.numberOfSteps();</span>
+<span class="nc bnc" id="L487" title="All 2 branches missed.">            if (myRouteLength &gt; range) {</span>
+<span class="nc" id="L488">              break;</span>
+            }
+<span class="nc" id="L490">            hasNoRoute = false;</span>
+            break;
+          }
+<span class="nc bnc" id="L493" title="All 2 branches missed.">          if (hasNoRoute) {</span>
+<span class="nc" id="L494">            continue;</span>
+          }
+
+          // Populate territories with sea unit
+<span class="nc bnc" id="L498" title="All 2 branches missed.">          if (moveMap.containsKey(potentialTerritory)) {</span>
+<span class="nc" id="L499">            moveMap.get(potentialTerritory).addMaxUnit(mySeaUnit);</span>
+<span class="nc" id="L500">          } else {</span>
+<span class="nc" id="L501">            final ProTerritory moveTerritoryData = new ProTerritory(potentialTerritory);</span>
+<span class="nc" id="L502">            moveTerritoryData.addMaxUnit(mySeaUnit);</span>
+<span class="nc" id="L503">            moveMap.put(potentialTerritory, moveTerritoryData);</span>
+          }
+
+          // Populate appropriate unit move options map
+<span class="nc bnc" id="L507" title="All 2 branches missed.">          if (Matches.UnitIsTransport.match(mySeaUnit)) {</span>
+<span class="nc bnc" id="L508" title="All 2 branches missed.">            if (transportMoveMap.containsKey(mySeaUnit)) {</span>
+<span class="nc" id="L509">              transportMoveMap.get(mySeaUnit).add(potentialTerritory);</span>
+<span class="nc" id="L510">            } else {</span>
+<span class="nc" id="L511">              final Set&lt;Territory&gt; unitMoveTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L512">              unitMoveTerritories.add(potentialTerritory);</span>
+<span class="nc" id="L513">              transportMoveMap.put(mySeaUnit, unitMoveTerritories);</span>
+            }
+<span class="nc" id="L515">          } else {</span>
+<span class="nc bnc" id="L516" title="All 2 branches missed.">            if (unitMoveMap.containsKey(mySeaUnit)) {</span>
+<span class="nc" id="L517">              unitMoveMap.get(mySeaUnit).add(potentialTerritory);</span>
+<span class="nc" id="L518">            } else {</span>
+<span class="nc" id="L519">              final Set&lt;Territory&gt; unitMoveTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L520">              unitMoveTerritories.add(potentialTerritory);</span>
+<span class="nc" id="L521">              unitMoveMap.put(mySeaUnit, unitMoveTerritories);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L527">  }</span>
+
+  private void findLandMoveOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap,
+      final Map&lt;Territory, Set&lt;Territory&gt;&gt; landRoutesMap, final Match&lt;Territory&gt; moveToTerritoryMatch,
+      final List&lt;Territory&gt; enemyTerritories, final List&lt;Territory&gt; clearedTerritories, final boolean isCombatMove,
+      final boolean isCheckingEnemyAttacks, final boolean isIgnoringRelationships) {
+<span class="nc" id="L534">    final GameData data = ProData.getData();</span>
+
+<span class="nc bnc" id="L536" title="All 2 branches missed.">    for (final Territory myUnitTerritory : myUnitTerritories) {</span>
+
+      // Find my land units that have movement left
+<span class="nc" id="L539">      final List&lt;Unit&gt; myLandUnits =</span>
+<span class="nc" id="L540">          myUnitTerritory.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedLand(player, isCombatMove));</span>
+
+      // Check each land unit individually since they can have different ranges
+<span class="nc bnc" id="L543" title="All 2 branches missed.">      for (final Unit myLandUnit : myLandUnits) {</span>
+<span class="nc" id="L544">        final Territory startTerritory = ProData.unitTerritoryMap.get(myLandUnit);</span>
+<span class="nc" id="L545">        final int range = TripleAUnit.get(myLandUnit).getMovementLeft();</span>
+<span class="nc" id="L546">        Set&lt;Territory&gt; possibleMoveTerritories = data.getMap().getNeighbors(myUnitTerritory, range,</span>
+<span class="nc" id="L547">            ProMatches.territoryCanMoveSpecificLandUnit(player, data, isCombatMove, myLandUnit));</span>
+<span class="nc bnc" id="L548" title="All 2 branches missed.">        if (isIgnoringRelationships) {</span>
+<span class="nc" id="L549">          possibleMoveTerritories = data.getMap().getNeighbors(myUnitTerritory, range,</span>
+<span class="nc" id="L550">              ProMatches.territoryCanPotentiallyMoveSpecificLandUnit(player, data, isCombatMove, myLandUnit));</span>
+        }
+<span class="nc" id="L552">        possibleMoveTerritories.add(myUnitTerritory);</span>
+<span class="nc" id="L553">        final Set&lt;Territory&gt; potentialTerritories =</span>
+<span class="nc" id="L554">            new HashSet&lt;&gt;(Match.getMatches(possibleMoveTerritories, moveToTerritoryMatch));</span>
+<span class="nc bnc" id="L555" title="All 2 branches missed.">        if (!isCombatMove) {</span>
+<span class="nc" id="L556">          potentialTerritories.add(myUnitTerritory);</span>
+        }
+<span class="nc bnc" id="L558" title="All 2 branches missed.">        for (final Territory potentialTerritory : potentialTerritories) {</span>
+
+          // Find route over land checking whether unit can blitz
+<span class="nc" id="L561">          Route myRoute = data.getMap().getRoute_IgnoreEnd(myUnitTerritory, potentialTerritory,</span>
+<span class="nc" id="L562">              ProMatches.territoryCanMoveLandUnitsThrough(player, data, myLandUnit, startTerritory, isCombatMove,</span>
+<span class="nc" id="L563">                  enemyTerritories));</span>
+<span class="nc bnc" id="L564" title="All 2 branches missed.">          if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L565">            myRoute = data.getMap().getRoute_IgnoreEnd(myUnitTerritory, potentialTerritory,</span>
+<span class="nc" id="L566">                ProMatches.territoryCanMoveLandUnitsThroughIgnoreEnemyUnits(player, data, myLandUnit, startTerritory,</span>
+<span class="nc" id="L567">                    isCombatMove, enemyTerritories, clearedTerritories));</span>
+          }
+<span class="nc bnc" id="L569" title="All 2 branches missed.">          if (myRoute == null) {</span>
+<span class="nc" id="L570">            continue;</span>
+          }
+<span class="nc bnc" id="L572" title="All 2 branches missed.">          if (myRoute.hasMoreThenOneStep()</span>
+<span class="nc bnc" id="L573" title="All 2 branches missed.">              &amp;&amp; Match.someMatch(myRoute.getMiddleSteps(), Matches.isTerritoryEnemy(player, data))</span>
+<span class="nc" id="L574">              &amp;&amp; Matches.unitIsOfTypes(TerritoryEffectHelper.getUnitTypesThatLostBlitz(myRoute.getAllTerritories()))</span>
+<span class="nc bnc" id="L575" title="All 2 branches missed.">                  .match(myLandUnit)) {</span>
+<span class="nc" id="L576">            continue; // If blitzing then make sure none of the territories cause blitz ability to be lost</span>
+          }
+<span class="nc" id="L578">          final int myRouteLength = myRoute.numberOfSteps();</span>
+<span class="nc bnc" id="L579" title="All 2 branches missed.">          if (myRouteLength &gt; range) {</span>
+<span class="nc" id="L580">            continue;</span>
+          }
+
+          // Add to route map
+<span class="nc bnc" id="L584" title="All 2 branches missed.">          if (landRoutesMap.containsKey(potentialTerritory)) {</span>
+<span class="nc" id="L585">            landRoutesMap.get(potentialTerritory).add(myUnitTerritory);</span>
+<span class="nc" id="L586">          } else {</span>
+<span class="nc" id="L587">            final Set&lt;Territory&gt; territories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L588">            territories.add(myUnitTerritory);</span>
+<span class="nc" id="L589">            landRoutesMap.put(potentialTerritory, territories);</span>
+          }
+
+          // Populate territories with land units
+<span class="nc bnc" id="L593" title="All 2 branches missed.">          if (moveMap.containsKey(potentialTerritory)) {</span>
+<span class="nc" id="L594">            moveMap.get(potentialTerritory).addMaxUnit(myLandUnit);</span>
+<span class="nc" id="L595">          } else {</span>
+<span class="nc" id="L596">            final ProTerritory moveTerritoryData = new ProTerritory(potentialTerritory);</span>
+<span class="nc" id="L597">            moveTerritoryData.addMaxUnit(myLandUnit);</span>
+<span class="nc" id="L598">            moveMap.put(potentialTerritory, moveTerritoryData);</span>
+          }
+
+          // Populate unit move options map
+<span class="nc bnc" id="L602" title="All 2 branches missed.">          if (unitMoveMap.containsKey(myLandUnit)) {</span>
+<span class="nc" id="L603">            unitMoveMap.get(myLandUnit).add(potentialTerritory);</span>
+<span class="nc" id="L604">          } else {</span>
+<span class="nc" id="L605">            final Set&lt;Territory&gt; unitMoveTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L606">            unitMoveTerritories.add(potentialTerritory);</span>
+<span class="nc" id="L607">            unitMoveMap.put(myLandUnit, unitMoveTerritories);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L612">  }</span>
+
+  private void findAirMoveOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap,
+      final Match&lt;Territory&gt; moveToTerritoryMatch, final List&lt;Territory&gt; enemyTerritories,
+      final List&lt;Territory&gt; alliedTerritories, final boolean isCombatMove, final boolean isCheckingEnemyAttacks,
+      final boolean isIgnoringRelationships) {
+<span class="nc" id="L619">    final GameData data = ProData.getData();</span>
+
+    // TODO: add carriers to landing possibilities for non-enemy attacks
+    // Find possible carrier landing territories
+<span class="nc" id="L623">    final Set&lt;Territory&gt; possibleCarrierTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L624" title="All 4 branches missed.">    if (isCheckingEnemyAttacks || !isCombatMove) {</span>
+<span class="nc" id="L625">      final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitMoveMap2 = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L626">      findNavalMoveOptions(player, myUnitTerritories, new HashMap&lt;&gt;(), unitMoveMap2, new HashMap&lt;&gt;(),</span>
+<span class="nc" id="L627">          Matches.TerritoryIsWater, enemyTerritories, false, true);</span>
+<span class="nc bnc" id="L628" title="All 2 branches missed.">      for (final Unit u : unitMoveMap2.keySet()) {</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">        if (Matches.UnitIsCarrier.match(u)) {</span>
+<span class="nc" id="L630">          possibleCarrierTerritories.addAll(unitMoveMap2.get(u));</span>
+        }
+      }
+<span class="nc bnc" id="L633" title="All 2 branches missed.">      for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc bnc" id="L634" title="All 2 branches missed.">        if (t.getUnits().someMatch(Matches.UnitIsAlliedCarrier(player, data))) {</span>
+<span class="nc" id="L635">          possibleCarrierTerritories.add(t);</span>
+        }
+      }
+    }
+
+<span class="nc bnc" id="L640" title="All 2 branches missed.">    for (final Territory myUnitTerritory : myUnitTerritories) {</span>
+
+      // Find my air units that have movement left
+<span class="nc" id="L643">      final List&lt;Unit&gt; myAirUnits =</span>
+<span class="nc" id="L644">          myUnitTerritory.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedAir(player, isCombatMove));</span>
+
+      // Check each air unit individually since they can have different ranges
+<span class="nc bnc" id="L647" title="All 2 branches missed.">      for (final Unit myAirUnit : myAirUnits) {</span>
+
+        // Find range
+<span class="nc" id="L650">        int range = TripleAUnit.get(myAirUnit).getMovementLeft();</span>
+<span class="nc bnc" id="L651" title="All 2 branches missed.">        if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L652">          range = UnitAttachment.get(myAirUnit.getType()).getMovement(player);</span>
+<span class="nc" id="L653">          if (Matches.UnitCanBeGivenBonusMovementByFacilitiesInItsTerritory(myUnitTerritory, player, data)</span>
+<span class="nc bnc" id="L654" title="All 2 branches missed.">              .match(myAirUnit)) {</span>
+<span class="nc" id="L655">            range++; // assumes bonus of +1 for now</span>
+          }
+        }
+
+        // Find potential territories to move to
+<span class="nc" id="L660">        Set&lt;Territory&gt; possibleMoveTerritories = data.getMap().getNeighbors(myUnitTerritory, range,</span>
+<span class="nc" id="L661">            ProMatches.territoryCanMoveAirUnits(player, data, isCombatMove));</span>
+<span class="nc bnc" id="L662" title="All 2 branches missed.">        if (isIgnoringRelationships) {</span>
+<span class="nc" id="L663">          possibleMoveTerritories = data.getMap().getNeighbors(myUnitTerritory, range,</span>
+<span class="nc" id="L664">              ProMatches.territoryCanPotentiallyMoveAirUnits(player, data, isCombatMove));</span>
+        }
+<span class="nc" id="L666">        possibleMoveTerritories.add(myUnitTerritory);</span>
+<span class="nc" id="L667">        final Set&lt;Territory&gt; potentialTerritories =</span>
+<span class="nc" id="L668">            new HashSet&lt;&gt;(Match.getMatches(possibleMoveTerritories, moveToTerritoryMatch));</span>
+<span class="nc bnc" id="L669" title="All 4 branches missed.">        if (!isCombatMove &amp;&amp; Matches.UnitCanLandOnCarrier.match(myAirUnit)) {</span>
+<span class="nc" id="L670">          potentialTerritories</span>
+<span class="nc" id="L671">              .addAll(Match.getMatches(possibleMoveTerritories, Matches.territoryIsInList(possibleCarrierTerritories)));</span>
+        }
+
+
+<span class="nc bnc" id="L675" title="All 2 branches missed.">        for (final Territory potentialTerritory : potentialTerritories) {</span>
+
+          // Find route ignoring impassable and territories with AA
+<span class="nc" id="L678">          Match&lt;Territory&gt; canFlyOverMatch = ProMatches.territoryCanMoveAirUnitsAndNoAA(player, data, isCombatMove);</span>
+<span class="nc bnc" id="L679" title="All 2 branches missed.">          if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L680">            canFlyOverMatch = ProMatches.territoryCanMoveAirUnits(player, data, isCombatMove);</span>
+          }
+<span class="nc" id="L682">          final Route myRoute = data.getMap().getRoute_IgnoreEnd(myUnitTerritory, potentialTerritory, canFlyOverMatch);</span>
+<span class="nc bnc" id="L683" title="All 2 branches missed.">          if (myRoute == null) {</span>
+<span class="nc" id="L684">            continue;</span>
+          }
+<span class="nc" id="L686">          final int myRouteLength = myRoute.numberOfSteps();</span>
+<span class="nc" id="L687">          final int remainingMoves = range - myRouteLength;</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">          if (remainingMoves &lt; 0) {</span>
+<span class="nc" id="L689">            continue;</span>
+          }
+
+          // Check if unit can land
+<span class="nc bnc" id="L693" title="All 6 branches missed.">          if (isCombatMove &amp;&amp; (remainingMoves &lt; myRouteLength || myUnitTerritory.isWater())) {</span>
+<span class="nc" id="L694">            final Set&lt;Territory&gt; possibleLandingTerritories =</span>
+<span class="nc" id="L695">                data.getMap().getNeighbors(potentialTerritory, remainingMoves, canFlyOverMatch);</span>
+<span class="nc" id="L696">            final List&lt;Territory&gt; landingTerritories = Match.getMatches(possibleLandingTerritories,</span>
+<span class="nc" id="L697">                ProMatches.territoryCanLandAirUnits(player, data, isCombatMove, enemyTerritories, alliedTerritories));</span>
+<span class="nc" id="L698">            List&lt;Territory&gt; carrierTerritories = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L699" title="All 2 branches missed.">            if (Matches.UnitCanLandOnCarrier.match(myAirUnit)) {</span>
+<span class="nc" id="L700">              carrierTerritories =</span>
+<span class="nc" id="L701">                  Match.getMatches(possibleLandingTerritories, Matches.territoryIsInList(possibleCarrierTerritories));</span>
+            }
+<span class="nc bnc" id="L703" title="All 4 branches missed.">            if (landingTerritories.isEmpty() &amp;&amp; carrierTerritories.isEmpty()) {</span>
+<span class="nc" id="L704">              continue;</span>
+            }
+          }
+
+          // Populate enemy territories with air unit
+<span class="nc bnc" id="L709" title="All 2 branches missed.">          if (moveMap.containsKey(potentialTerritory)) {</span>
+<span class="nc" id="L710">            moveMap.get(potentialTerritory).addMaxUnit(myAirUnit);</span>
+<span class="nc" id="L711">          } else {</span>
+<span class="nc" id="L712">            final ProTerritory moveTerritoryData = new ProTerritory(potentialTerritory);</span>
+<span class="nc" id="L713">            moveTerritoryData.addMaxUnit(myAirUnit);</span>
+<span class="nc" id="L714">            moveMap.put(potentialTerritory, moveTerritoryData);</span>
+          }
+
+          // Populate unit attack options map
+<span class="nc bnc" id="L718" title="All 2 branches missed.">          if (unitMoveMap.containsKey(myAirUnit)) {</span>
+<span class="nc" id="L719">            unitMoveMap.get(myAirUnit).add(potentialTerritory);</span>
+<span class="nc" id="L720">          } else {</span>
+<span class="nc" id="L721">            final Set&lt;Territory&gt; unitMoveTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L722">            unitMoveTerritories.add(potentialTerritory);</span>
+<span class="nc" id="L723">            unitMoveMap.put(myAirUnit, unitMoveTerritories);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L728">  }</span>
+
+  private void findAmphibMoveOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final List&lt;ProTransport&gt; transportMapList,
+      final Map&lt;Territory, Set&lt;Territory&gt;&gt; landRoutesMap, final Match&lt;Territory&gt; moveAmphibToTerritoryMatch,
+      final List&lt;Territory&gt; enemyTerritories, final boolean isCombatMove, final boolean isCheckingEnemyAttacks,
+      final boolean isIgnoringRelationships) {
+<span class="nc" id="L735">    final GameData data = ProData.getData();</span>
+
+<span class="nc bnc" id="L737" title="All 2 branches missed.">    for (final Territory myUnitTerritory : myUnitTerritories) {</span>
+
+      // Find my transports and amphibious units that have movement left
+<span class="nc" id="L740">      final List&lt;Unit&gt; myTransportUnits =</span>
+<span class="nc" id="L741">          myUnitTerritory.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedTransport(player, isCombatMove));</span>
+<span class="nc" id="L742">      Match&lt;Territory&gt; unloadAmphibTerritoryMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L743">          ProMatches.territoryCanMoveLandUnits(player, data, isCombatMove), moveAmphibToTerritoryMatch);</span>
+<span class="nc bnc" id="L744" title="All 2 branches missed.">      if (isIgnoringRelationships) {</span>
+<span class="nc" id="L745">        unloadAmphibTerritoryMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L746">            ProMatches.territoryCanPotentiallyMoveLandUnits(player, data, isCombatMove), moveAmphibToTerritoryMatch);</span>
+      }
+
+      // Check each transport unit individually since they can have different ranges
+<span class="nc bnc" id="L750" title="All 2 branches missed.">      for (final Unit myTransportUnit : myTransportUnits) {</span>
+
+        // Get remaining moves
+<span class="nc" id="L753">        int movesLeft = TripleAUnit.get(myTransportUnit).getMovementLeft();</span>
+<span class="nc bnc" id="L754" title="All 2 branches missed.">        if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L755">          movesLeft = UnitAttachment.get(myTransportUnit.getType()).getMovement(player);</span>
+<span class="nc" id="L756">          if (Matches.UnitCanBeGivenBonusMovementByFacilitiesInItsTerritory(myUnitTerritory, player, data)</span>
+<span class="nc bnc" id="L757" title="All 2 branches missed.">              .match(myTransportUnit)) {</span>
+<span class="nc" id="L758">            movesLeft++; // assumes bonus of +1 for now</span>
+          }
+        }
+
+        // Find units to load and territories to unload
+<span class="nc" id="L763">        final ProTransport proTransportData = new ProTransport(myTransportUnit);</span>
+<span class="nc" id="L764">        transportMapList.add(proTransportData);</span>
+<span class="nc" id="L765">        final Set&lt;Territory&gt; currentTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L766">        currentTerritories.add(myUnitTerritory);</span>
+<span class="nc bnc" id="L767" title="All 2 branches missed.">        while (movesLeft &gt;= 0) {</span>
+<span class="nc" id="L768">          final Set&lt;Territory&gt; nextTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L769" title="All 2 branches missed.">          for (final Territory currentTerritory : currentTerritories) {</span>
+
+            // Find neighbors I can move to
+<span class="nc" id="L772">            final Set&lt;Territory&gt; possibleNeighborTerritories = data.getMap().getNeighbors(currentTerritory,</span>
+<span class="nc" id="L773">                ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+<span class="nc bnc" id="L774" title="All 2 branches missed.">            for (final Territory possibleNeighborTerritory : possibleNeighborTerritories) {</span>
+<span class="nc bnc" id="L775" title="All 2 branches missed.">              if (MoveValidator.validateCanal(new Route(currentTerritory, possibleNeighborTerritory),</span>
+<span class="nc" id="L776">                  Collections.singletonList(myTransportUnit), player, data) == null) {</span>
+<span class="nc" id="L777">                nextTerritories.add(possibleNeighborTerritory);</span>
+              }
+            }
+
+            // Get loaded units or get units that can be loaded into current territory if no enemies present
+<span class="nc" id="L782">            final List&lt;Unit&gt; units = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L783">            final Set&lt;Territory&gt; myUnitsToLoadTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L784" title="All 2 branches missed.">            if (TransportTracker.isTransporting(myTransportUnit)) {</span>
+<span class="nc" id="L785">              units.addAll(TransportTracker.transporting(myTransportUnit));</span>
+<span class="nc bnc" id="L786" title="All 2 branches missed.">            } else if (Matches.territoryHasEnemySeaUnits(player, data).invert().match(currentTerritory)) {</span>
+<span class="nc" id="L787">              final Set&lt;Territory&gt; possibleLoadTerritories = data.getMap().getNeighbors(currentTerritory);</span>
+<span class="nc bnc" id="L788" title="All 2 branches missed.">              for (final Territory possibleLoadTerritory : possibleLoadTerritories) {</span>
+<span class="nc" id="L789">                List&lt;Unit&gt; possibleUnits = possibleLoadTerritory.getUnits()</span>
+<span class="nc" id="L790">                    .getMatches(ProMatches.unitIsOwnedTransportableUnitAndCanBeLoaded(player, isCombatMove));</span>
+<span class="nc bnc" id="L791" title="All 2 branches missed.">                if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L792">                  possibleUnits = possibleLoadTerritory.getUnits()</span>
+<span class="nc" id="L793">                      .getMatches(ProMatches.unitIsOwnedCombatTransportableUnit(player));</span>
+                }
+<span class="nc bnc" id="L795" title="All 2 branches missed.">                for (final Unit possibleUnit : possibleUnits) {</span>
+<span class="nc" id="L796">                  if (UnitAttachment.get(possibleUnit.getType()).getTransportCost() &lt;= UnitAttachment</span>
+<span class="nc bnc" id="L797" title="All 2 branches missed.">                      .get(myTransportUnit.getType()).getTransportCapacity()) {</span>
+<span class="nc" id="L798">                    units.add(possibleUnit);</span>
+<span class="nc" id="L799">                    myUnitsToLoadTerritories.add(possibleLoadTerritory);</span>
+                  }
+                }
+              }
+            }
+
+            // If there are any units to be transported
+<span class="nc bnc" id="L806" title="All 2 branches missed.">            if (!units.isEmpty()) {</span>
+
+              // Find all water territories I can move to
+<span class="nc" id="L809">              final Set&lt;Territory&gt; seaMoveTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L810">              seaMoveTerritories.add(currentTerritory);</span>
+<span class="nc bnc" id="L811" title="All 2 branches missed.">              if (movesLeft &gt; 0) {</span>
+<span class="nc" id="L812">                Set&lt;Territory&gt; neighborTerritories = data.getMap().getNeighbors(currentTerritory, movesLeft,</span>
+<span class="nc" id="L813">                    ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+<span class="nc bnc" id="L814" title="All 2 branches missed.">                if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L815">                  neighborTerritories = data.getMap().getNeighbors(currentTerritory, movesLeft,</span>
+<span class="nc" id="L816">                      ProMatches.territoryCanMoveSeaUnits(player, data, isCombatMove));</span>
+                }
+<span class="nc bnc" id="L818" title="All 2 branches missed.">                for (final Territory neighborTerritory : neighborTerritories) {</span>
+<span class="nc" id="L819">                  final Route myRoute = data.getMap().getRoute_IgnoreEnd(currentTerritory, neighborTerritory,</span>
+<span class="nc" id="L820">                      ProMatches.territoryCanMoveSeaUnitsThrough(player, data, isCombatMove));</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">                  if (myRoute == null) {</span>
+<span class="nc" id="L822">                    continue;</span>
+                  }
+<span class="nc bnc" id="L824" title="All 2 branches missed.">                  if (MoveValidator.validateCanal(myRoute, Collections.singletonList(myTransportUnit), player,</span>
+<span class="nc" id="L825">                      data) != null) {</span>
+<span class="nc" id="L826">                    continue;</span>
+                  }
+<span class="nc" id="L828">                  seaMoveTerritories.add(neighborTerritory);</span>
+                }
+              }
+
+              // Find possible unload territories
+<span class="nc" id="L833">              final Set&lt;Territory&gt; amphibTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L834" title="All 2 branches missed.">              for (final Territory seaMoveTerritory : seaMoveTerritories) {</span>
+<span class="nc" id="L835">                amphibTerritories.addAll(data.getMap().getNeighbors(seaMoveTerritory, unloadAmphibTerritoryMatch));</span>
+              }
+
+              // Add to transport map
+<span class="nc" id="L839">              proTransportData.addTerritories(amphibTerritories, myUnitsToLoadTerritories);</span>
+<span class="nc" id="L840">              proTransportData.addSeaTerritories(seaMoveTerritories, myUnitsToLoadTerritories, data);</span>
+            }
+          }
+<span class="nc" id="L843">          currentTerritories.clear();</span>
+<span class="nc" id="L844">          currentTerritories.addAll(nextTerritories);</span>
+<span class="nc" id="L845">          movesLeft--;</span>
+        }
+      }
+    }
+
+    // Remove any territories from transport map that I can move to on land and transports with no amphib options
+<span class="nc bnc" id="L851" title="All 2 branches missed.">    for (final ProTransport proTransportData : transportMapList) {</span>
+<span class="nc" id="L852">      final Map&lt;Territory, Set&lt;Territory&gt;&gt; transportMap = proTransportData.getTransportMap();</span>
+<span class="nc" id="L853">      final List&lt;Territory&gt; transportTerritoriesToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L854" title="All 2 branches missed.">      for (final Territory t : transportMap.keySet()) {</span>
+<span class="nc" id="L855">        final Set&lt;Territory&gt; transportMoveTerritories = transportMap.get(t);</span>
+<span class="nc" id="L856">        final Set&lt;Territory&gt; landMoveTerritories = landRoutesMap.get(t);</span>
+<span class="nc bnc" id="L857" title="All 2 branches missed.">        if (landMoveTerritories != null) {</span>
+<span class="nc" id="L858">          transportMoveTerritories.removeAll(landMoveTerritories);</span>
+<span class="nc bnc" id="L859" title="All 2 branches missed.">          if (transportMoveTerritories.isEmpty()) {</span>
+<span class="nc" id="L860">            transportTerritoriesToRemove.add(t);</span>
+          }
+        }
+      }
+<span class="nc bnc" id="L864" title="All 2 branches missed.">      for (final Territory t : transportTerritoriesToRemove) {</span>
+<span class="nc" id="L865">        transportMap.remove(t);</span>
+      }
+    }
+
+    // Add transport units to attack map
+<span class="nc bnc" id="L870" title="All 2 branches missed.">    for (final ProTransport proTransportData : transportMapList) {</span>
+<span class="nc" id="L871">      final Map&lt;Territory, Set&lt;Territory&gt;&gt; transportMap = proTransportData.getTransportMap();</span>
+<span class="nc" id="L872">      final Unit transport = proTransportData.getTransport();</span>
+<span class="nc bnc" id="L873" title="All 2 branches missed.">      for (final Territory moveTerritory : transportMap.keySet()) {</span>
+
+        // Get units to transport
+<span class="nc" id="L876">        final Set&lt;Territory&gt; territoriesCanLoadFrom = transportMap.get(moveTerritory);</span>
+<span class="nc" id="L877">        List&lt;Unit&gt; alreadyAddedToMaxAmphibUnits = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L878" title="All 2 branches missed.">        if (moveMap.containsKey(moveTerritory)) {</span>
+<span class="nc" id="L879">          alreadyAddedToMaxAmphibUnits = moveMap.get(moveTerritory).getMaxAmphibUnits();</span>
+        }
+<span class="nc" id="L881">        List&lt;Unit&gt; amphibUnits = ProTransportUtils.getUnitsToTransportFromTerritories(player, transport,</span>
+<span class="nc" id="L882">            territoriesCanLoadFrom, alreadyAddedToMaxAmphibUnits);</span>
+<span class="nc bnc" id="L883" title="All 2 branches missed.">        if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L884">          amphibUnits = ProTransportUtils.getUnitsToTransportFromTerritories(player, transport, territoriesCanLoadFrom,</span>
+<span class="nc" id="L885">              alreadyAddedToMaxAmphibUnits, ProMatches.unitIsOwnedCombatTransportableUnit(player));</span>
+        }
+
+        // Add amphib units to attack map
+<span class="nc bnc" id="L889" title="All 2 branches missed.">        if (moveMap.containsKey(moveTerritory)) {</span>
+<span class="nc" id="L890">          moveMap.get(moveTerritory).addMaxAmphibUnits(amphibUnits);</span>
+<span class="nc" id="L891">        } else {</span>
+<span class="nc" id="L892">          final ProTerritory moveTerritoryData = new ProTerritory(moveTerritory);</span>
+<span class="nc" id="L893">          moveTerritoryData.addMaxAmphibUnits(amphibUnits);</span>
+<span class="nc" id="L894">          moveMap.put(moveTerritory, moveTerritoryData);</span>
+        }
+      }
+    }
+<span class="nc" id="L898">  }</span>
+
+  private void findBombardOptions(final PlayerID player, final List&lt;Territory&gt; myUnitTerritories,
+      final Map&lt;Territory, ProTerritory&gt; moveMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; bombardMap,
+      final List&lt;ProTransport&gt; transportMapList, final boolean isCheckingEnemyAttacks) {
+<span class="nc" id="L903">    final GameData data = ProData.getData();</span>
+
+    // Find all transport unload from and to territories
+<span class="nc" id="L906">    final Set&lt;Territory&gt; unloadFromTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L907">    final Set&lt;Territory&gt; unloadToTerritories = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">    for (final ProTransport amphibData : transportMapList) {</span>
+<span class="nc" id="L909">      unloadFromTerritories.addAll(amphibData.getSeaTransportMap().keySet());</span>
+<span class="nc" id="L910">      unloadToTerritories.addAll(amphibData.getTransportMap().keySet());</span>
+    }
+
+    // Loop through territories with my units
+<span class="nc bnc" id="L914" title="All 2 branches missed.">    for (final Territory myUnitTerritory : myUnitTerritories) {</span>
+
+      // Find my bombard units that have movement left
+<span class="nc" id="L917">      final List&lt;Unit&gt; mySeaUnits =</span>
+<span class="nc" id="L918">          myUnitTerritory.getUnits().getMatches(ProMatches.unitCanBeMovedAndIsOwnedBombard(player));</span>
+
+      // Check each sea unit individually since they can have different ranges
+<span class="nc bnc" id="L921" title="All 2 branches missed.">      for (final Unit mySeaUnit : mySeaUnits) {</span>
+
+        // Find range
+<span class="nc" id="L924">        int range = TripleAUnit.get(mySeaUnit).getMovementLeft();</span>
+<span class="nc bnc" id="L925" title="All 2 branches missed.">        if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L926">          range = UnitAttachment.get(mySeaUnit.getType()).getMovement(player);</span>
+<span class="nc" id="L927">          if (Matches.UnitCanBeGivenBonusMovementByFacilitiesInItsTerritory(myUnitTerritory, player, data)</span>
+<span class="nc bnc" id="L928" title="All 2 branches missed.">              .match(mySeaUnit)) {</span>
+<span class="nc" id="L929">            range++; // assumes bonus of +1 for now</span>
+          }
+        }
+
+        // Find list of potential territories to move to
+<span class="nc" id="L934">        final Set&lt;Territory&gt; potentialTerritories =</span>
+<span class="nc" id="L935">            data.getMap().getNeighbors(myUnitTerritory, range, ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+<span class="nc" id="L936">        potentialTerritories.add(myUnitTerritory);</span>
+<span class="nc" id="L937">        potentialTerritories.retainAll(unloadFromTerritories);</span>
+<span class="nc bnc" id="L938" title="All 2 branches missed.">        for (final Territory bombardFromTerritory : potentialTerritories) {</span>
+
+          // Find route over water with no enemy units blocking
+<span class="nc" id="L941">          Route myRoute = data.getMap().getRoute(myUnitTerritory, bombardFromTerritory,</span>
+<span class="nc" id="L942">              ProMatches.territoryCanMoveSeaUnitsThrough(player, data, true));</span>
+<span class="nc bnc" id="L943" title="All 2 branches missed.">          if (isCheckingEnemyAttacks) {</span>
+<span class="nc" id="L944">            myRoute = data.getMap().getRoute(myUnitTerritory, bombardFromTerritory,</span>
+<span class="nc" id="L945">                ProMatches.territoryCanMoveSeaUnits(player, data, true));</span>
+          }
+<span class="nc bnc" id="L947" title="All 2 branches missed.">          if (myRoute == null) {</span>
+<span class="nc" id="L948">            continue;</span>
+          }
+<span class="nc bnc" id="L950" title="All 2 branches missed.">          if (MoveValidator.validateCanal(myRoute, Collections.singletonList(mySeaUnit), player, data) != null) {</span>
+<span class="nc" id="L951">            continue;</span>
+          }
+<span class="nc" id="L953">          final int myRouteLength = myRoute.numberOfSteps();</span>
+<span class="nc bnc" id="L954" title="All 2 branches missed.">          if (myRouteLength &gt; range) {</span>
+<span class="nc" id="L955">            continue;</span>
+          }
+
+          // Find potential unload to territories
+<span class="nc" id="L959">          final Set&lt;Territory&gt; bombardToTerritories = new HashSet&lt;&gt;(data.getMap().getNeighbors(bombardFromTerritory));</span>
+<span class="nc" id="L960">          bombardToTerritories.retainAll(unloadToTerritories);</span>
+
+          // Populate attack territories with bombard unit
+<span class="nc bnc" id="L963" title="All 2 branches missed.">          for (final Territory bombardToTerritory : bombardToTerritories) {</span>
+<span class="nc bnc" id="L964" title="All 2 branches missed.">            if (moveMap.containsKey(bombardToTerritory)) // Should always contain it</span>
+            {
+<span class="nc" id="L966">              moveMap.get(bombardToTerritory).addMaxBombardUnit(mySeaUnit);</span>
+<span class="nc" id="L967">              moveMap.get(bombardToTerritory).addBombardOptionsMap(mySeaUnit, bombardFromTerritory);</span>
+            }
+          }
+
+          // Populate bombard options map
+<span class="nc bnc" id="L972" title="All 2 branches missed.">          if (bombardMap.containsKey(mySeaUnit)) {</span>
+<span class="nc" id="L973">            bombardMap.get(mySeaUnit).addAll(bombardToTerritories);</span>
+<span class="nc" id="L974">          } else {</span>
+<span class="nc" id="L975">            bombardMap.put(mySeaUnit, bombardToTerritories);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L980">  }</span>
+
+  private List&lt;ProTerritory&gt; removeTerritoriesThatCantBeConquered(final PlayerID player,
+      final Map&lt;Territory, ProTerritory&gt; attackMap, final Map&lt;Unit, Set&lt;Territory&gt;&gt; unitAttackMap,
+      final Map&lt;Unit, Set&lt;Territory&gt;&gt; transportAttackMap, final ProOtherMoveOptions alliedAttackOptions,
+      final ProOtherMoveOptions enemyDefendOptions, final boolean isIgnoringRelationships) {
+
+<span class="nc" id="L987">    ProLogger.info(&quot;Removing territories that can't be conquered&quot;);</span>
+<span class="nc" id="L988">    final GameData data = ProData.getData();</span>
+
+    // Determine if territory can be successfully attacked with max possible attackers
+<span class="nc" id="L991">    final List&lt;Territory&gt; territoriesToRemove = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L992" title="All 2 branches missed.">    for (final Territory t : attackMap.keySet()) {</span>
+<span class="nc" id="L993">      final ProTerritory patd = attackMap.get(t);</span>
+
+      // Check if I can win without amphib units and ignore AA since max units might have lots of planes
+<span class="nc" id="L996">      List&lt;Unit&gt; defenders =</span>
+<span class="nc" id="L997">          Match.getMatches(patd.getMaxEnemyDefenders(player, data), ProMatches.unitIsEnemyAndNotAA(player, data));</span>
+<span class="nc bnc" id="L998" title="All 2 branches missed.">      if (isIgnoringRelationships) {</span>
+<span class="nc" id="L999">        defenders = new ArrayList&lt;&gt;(t.getUnits().getUnits());</span>
+      }
+<span class="nc" id="L1001">      patd.setMaxBattleResult(</span>
+<span class="nc" id="L1002">          calc.estimateAttackBattleResults(player, t, patd.getMaxUnits(), defenders, new HashSet&lt;&gt;()));</span>
+
+      // Add in amphib units if I can't win without them
+<span class="nc bnc" id="L1005" title="All 4 branches missed.">      if (patd.getMaxBattleResult().getWinPercentage() &lt; ProData.winPercentage &amp;&amp; !patd.getMaxAmphibUnits().isEmpty()) {</span>
+<span class="nc" id="L1006">        final Set&lt;Unit&gt; combinedUnits = new HashSet&lt;&gt;(patd.getMaxUnits());</span>
+<span class="nc" id="L1007">        combinedUnits.addAll(patd.getMaxAmphibUnits());</span>
+<span class="nc" id="L1008">        patd.setMaxBattleResult(calc.estimateAttackBattleResults(player, t, new ArrayList&lt;&gt;(combinedUnits), defenders,</span>
+<span class="nc" id="L1009">            patd.getMaxBombardUnits()));</span>
+<span class="nc" id="L1010">        patd.setNeedAmphibUnits(true);</span>
+      }
+
+      // Check strafing and using allied attack if enemy capital/factory
+<span class="nc" id="L1014">      boolean isEnemyCapitalOrFactory = false;</span>
+<span class="nc" id="L1015">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">      if (!t.getOwner().isNull()</span>
+<span class="nc bnc" id="L1017" title="All 6 branches missed.">          &amp;&amp; ((ta != null &amp;&amp; ta.isCapital()) || ProMatches.territoryHasInfraFactoryAndIsLand(player).match(t))) {</span>
+<span class="nc" id="L1018">        isEnemyCapitalOrFactory = true;</span>
+      }
+<span class="nc bnc" id="L1020" title="All 4 branches missed.">      if (patd.getMaxBattleResult().getWinPercentage() &lt; ProData.minWinPercentage &amp;&amp; isEnemyCapitalOrFactory</span>
+<span class="nc bnc" id="L1021" title="All 2 branches missed.">          &amp;&amp; alliedAttackOptions.getMax(t) != null) {</span>
+
+        // Check for allied attackers
+<span class="nc" id="L1024">        final ProTerritory alliedAttack = alliedAttackOptions.getMax(t);</span>
+<span class="nc" id="L1025">        final Set&lt;Unit&gt; alliedUnits = new HashSet&lt;&gt;(alliedAttack.getMaxUnits());</span>
+<span class="nc" id="L1026">        alliedUnits.addAll(alliedAttack.getMaxAmphibUnits());</span>
+<span class="nc bnc" id="L1027" title="All 2 branches missed.">        if (!alliedUnits.isEmpty()) {</span>
+
+          // Make sure allies' capital isn't next to territory
+<span class="nc" id="L1030">          final PlayerID alliedPlayer = alliedUnits.iterator().next().getOwner();</span>
+<span class="nc" id="L1031">          final Territory capital = TerritoryAttachment.getFirstOwnedCapitalOrFirstUnownedCapital(alliedPlayer, data);</span>
+<span class="nc bnc" id="L1032" title="All 4 branches missed.">          if (capital != null &amp;&amp; !data.getMap().getNeighbors(capital).contains(t)) {</span>
+
+            // Get max enemy defenders
+<span class="nc" id="L1035">            final Set&lt;Unit&gt; additionalEnemyDefenders = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1036">            final List&lt;PlayerID&gt; players = ProUtils.getOtherPlayersInTurnOrder(player);</span>
+<span class="nc bnc" id="L1037" title="All 2 branches missed.">            for (final ProTerritory enemyDefendOption : enemyDefendOptions.getAll(t)) {</span>
+<span class="nc" id="L1038">              final Set&lt;Unit&gt; enemyUnits = new HashSet&lt;&gt;(enemyDefendOption.getMaxUnits());</span>
+<span class="nc" id="L1039">              enemyUnits.addAll(enemyDefendOption.getMaxAmphibUnits());</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">              if (!enemyUnits.isEmpty()) {</span>
+<span class="nc" id="L1041">                final PlayerID enemyPlayer = enemyUnits.iterator().next().getOwner();</span>
+<span class="nc bnc" id="L1042" title="All 2 branches missed.">                if (ProUtils.isPlayersTurnFirst(players, enemyPlayer, alliedPlayer)) {</span>
+<span class="nc" id="L1043">                  additionalEnemyDefenders.addAll(enemyUnits);</span>
+                }
+              }
+            }
+
+            // Check allied result without strafe
+<span class="nc" id="L1049">            final Set&lt;Unit&gt; enemyDefendersBeforeStrafe = new HashSet&lt;&gt;(defenders);</span>
+<span class="nc" id="L1050">            enemyDefendersBeforeStrafe.addAll(additionalEnemyDefenders);</span>
+<span class="nc" id="L1051">            final ProBattleResult result =</span>
+<span class="nc" id="L1052">                calc.estimateAttackBattleResults(alliedPlayer, t, new ArrayList&lt;&gt;(alliedUnits),</span>
+<span class="nc" id="L1053">                    new ArrayList&lt;&gt;(enemyDefendersBeforeStrafe), alliedAttack.getMaxBombardUnits());</span>
+<span class="nc bnc" id="L1054" title="All 2 branches missed.">            if (result.getWinPercentage() &lt; ProData.winPercentage) {</span>
+<span class="nc" id="L1055">              patd.setStrafing(true);</span>
+
+              // Try to strafe to allow allies to conquer territory
+<span class="nc" id="L1058">              final Set&lt;Unit&gt; combinedUnits = new HashSet&lt;&gt;(patd.getMaxUnits());</span>
+<span class="nc" id="L1059">              combinedUnits.addAll(patd.getMaxAmphibUnits());</span>
+<span class="nc" id="L1060">              final ProBattleResult strafeResult = calc.callBattleCalculator(player, t, new ArrayList&lt;&gt;(combinedUnits),</span>
+<span class="nc" id="L1061">                  defenders, patd.getMaxBombardUnits(), true);</span>
+
+              // Check allied result with strafe
+<span class="nc" id="L1064">              final Set&lt;Unit&gt; enemyDefendersAfterStrafe = new HashSet&lt;&gt;(strafeResult.getAverageDefendersRemaining());</span>
+<span class="nc" id="L1065">              enemyDefendersAfterStrafe.addAll(additionalEnemyDefenders);</span>
+<span class="nc" id="L1066">              patd.setMaxBattleResult(calc.estimateAttackBattleResults(alliedPlayer, t, new ArrayList&lt;&gt;(alliedUnits),</span>
+<span class="nc" id="L1067">                  new ArrayList&lt;&gt;(enemyDefendersAfterStrafe), alliedAttack.getMaxBombardUnits()));</span>
+
+
+<span class="nc" id="L1070">              ProLogger.debug(&quot;Checking strafing territory: &quot; + t + &quot;, alliedPlayer=&quot;</span>
+<span class="nc" id="L1071">                  + alliedUnits.iterator().next().getOwner().getName() + &quot;, maxWin%=&quot;</span>
+<span class="nc" id="L1072">                  + patd.getMaxBattleResult().getWinPercentage() + &quot;, maxAttackers=&quot; + alliedUnits.size()</span>
+<span class="nc" id="L1073">                  + &quot;, maxDefenders=&quot; + enemyDefendersAfterStrafe.size());</span>
+
+<span class="nc bnc" id="L1075" title="All 2 branches missed.">              if (patd.getMaxBattleResult().getWinPercentage() &gt;= ProData.winPercentage) {</span>
+<span class="nc" id="L1076">                System.out.println(data.getSequence().getRound() + &quot; - &quot; + player.getName() + &quot;. strafing territory: &quot;</span>
+<span class="nc" id="L1077">                    + t + &quot;, alliedPlayer=&quot; + alliedUnits.iterator().next().getOwner().getName() + &quot;, maxWin%=&quot;</span>
+<span class="nc" id="L1078">                    + patd.getMaxBattleResult().getWinPercentage() + &quot;, maxAttackers=&quot; + alliedUnits.size()</span>
+<span class="nc" id="L1079">                    + &quot;, maxDefenders=&quot; + enemyDefendersAfterStrafe.size());</span>
+              }
+            }
+          }
+        }
+      }
+
+<span class="nc bnc" id="L1086" title="All 2 branches missed.">      if (patd.getMaxBattleResult().getWinPercentage() &lt; ProData.minWinPercentage</span>
+<span class="nc bnc" id="L1087" title="All 4 branches missed.">          || (patd.isStrafing() &amp;&amp; (patd.getMaxBattleResult().getWinPercentage() &lt; ProData.winPercentage</span>
+<span class="nc bnc" id="L1088" title="All 2 branches missed.">              || !patd.getMaxBattleResult().isHasLandUnitRemaining()))) {</span>
+<span class="nc" id="L1089">        territoriesToRemove.add(t);</span>
+      }
+    }
+
+    // Remove territories that can't be successfully attacked
+<span class="nc" id="L1094">    Collections.sort(territoriesToRemove);</span>
+<span class="nc" id="L1095">    final List&lt;ProTerritory&gt; result = new ArrayList&lt;&gt;(attackMap.values());</span>
+<span class="nc bnc" id="L1096" title="All 2 branches missed.">    for (final Territory t : territoriesToRemove) {</span>
+<span class="nc" id="L1097">      final ProTerritory proTerritoryToRemove = attackMap.get(t);</span>
+<span class="nc" id="L1098">      final Set&lt;Unit&gt; combinedUnits = new HashSet&lt;&gt;(proTerritoryToRemove.getMaxUnits());</span>
+<span class="nc" id="L1099">      combinedUnits.addAll(proTerritoryToRemove.getMaxAmphibUnits());</span>
+<span class="nc" id="L1100">      ProLogger.debug(&quot;Removing territory that we can't successfully attack: &quot; + t + &quot;, maxWin%=&quot;</span>
+<span class="nc" id="L1101">          + proTerritoryToRemove.getMaxBattleResult().getWinPercentage() + &quot;, maxAttackers=&quot; + combinedUnits.size());</span>
+<span class="nc" id="L1102">      result.remove(proTerritoryToRemove);</span>
+<span class="nc bnc" id="L1103" title="All 2 branches missed.">      for (final Set&lt;Territory&gt; territories : unitAttackMap.values()) {</span>
+<span class="nc" id="L1104">        territories.remove(t);</span>
+      }
+<span class="nc bnc" id="L1106" title="All 2 branches missed.">      for (final Set&lt;Territory&gt; territories : transportAttackMap.values()) {</span>
+<span class="nc" id="L1107">        territories.remove(t);</span>
+      }
+    }
+<span class="nc" id="L1110">    return result;</span>
+  }
+
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

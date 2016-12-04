@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>TechActivationDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">TechActivationDelegate.java</span></div><h1>TechActivationDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.message.IRemote;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TriggerAttachment;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/**
+ * Logic for activating tech rolls. This delegate requires the
+ * TechnologyDelegate to run correctly.
+ */
+@MapSupport
+public class TechActivationDelegate extends BaseTripleADelegate {
+<span class="fc" id="L30">  private boolean m_needToInitialize = true;</span>
+
+  /** Creates new TechActivationDelegate */
+<span class="fc" id="L33">  public TechActivationDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run. In this class, this does all the
+   * work.
+   */
+  @Override
+  public void start() {
+<span class="nc" id="L41">    super.start();</span>
+<span class="nc" id="L42">    final GameData data = getData();</span>
+<span class="nc bnc" id="L43" title="All 2 branches missed.">    if (!m_needToInitialize) {</span>
+<span class="nc" id="L44">      return;</span>
+    }
+    // Activate techs
+<span class="nc" id="L47">    final Map&lt;PlayerID, Collection&lt;TechAdvance&gt;&gt; techMap = DelegateFinder.techDelegate(data).getAdvances();</span>
+<span class="nc" id="L48">    final Collection&lt;TechAdvance&gt; advances = techMap.get(m_player);</span>
+<span class="nc bnc" id="L49" title="All 4 branches missed.">    if ((advances != null) &amp;&amp; (advances.size() &gt; 0)) {</span>
+      // Start event
+<span class="nc" id="L51">      m_bridge.getHistoryWriter().startEvent(m_player.getName() + &quot; activating &quot; + advancesAsString(advances));</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">      for (final TechAdvance advance : advances) {</span>
+        // advance.perform(m_bridge.getPlayerID(), m_bridge, m_data);
+<span class="nc" id="L54">        TechTracker.addAdvance(m_player, m_bridge, advance);</span>
+      }
+    }
+    // empty
+<span class="nc" id="L58">    techMap.put(m_player, null);</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getTriggers(data)) {</span>
+      // First set up a match for what we want to have fire as a default in this delegate. List out as a composite match
+      // OR.
+      // use 'null, null' because this is the Default firing location for any trigger that does NOT have 'when' set.
+<span class="nc" id="L63">      final Match&lt;TriggerAttachment&gt; techActivationDelegateTriggerMatch = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L64">          TriggerAttachment.availableUses, TriggerAttachment.whenOrDefaultMatch(null, null),</span>
+<span class="nc" id="L65">          new CompositeMatchOr&lt;TriggerAttachment&gt;(TriggerAttachment.unitPropertyMatch(), TriggerAttachment.techMatch(),</span>
+<span class="nc" id="L66">              TriggerAttachment.supportMatch()));</span>
+      // get all possible triggers based on this match.
+<span class="nc" id="L68">      final HashSet&lt;TriggerAttachment&gt; toFirePossible = TriggerAttachment.collectForAllTriggersMatching(</span>
+<span class="nc" id="L69">          new HashSet&lt;&gt;(Collections.singleton(m_player)), techActivationDelegateTriggerMatch, m_bridge);</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">      if (!toFirePossible.isEmpty()) {</span>
+        // get all conditions possibly needed by these triggers, and then test them.
+<span class="nc" id="L72">        final HashMap&lt;ICondition, Boolean&gt; testedConditions =</span>
+<span class="nc" id="L73">            TriggerAttachment.collectTestsForAllTriggers(toFirePossible, m_bridge);</span>
+        // get all triggers that are satisfied based on the tested conditions.
+<span class="nc" id="L75">        final Set&lt;TriggerAttachment&gt; toFireTestedAndSatisfied = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L76">            Match.getMatches(toFirePossible, TriggerAttachment.isSatisfiedMatch(testedConditions)));</span>
+        // now list out individual types to fire, once for each of the matches above.
+<span class="nc" id="L78">        TriggerAttachment.triggerUnitPropertyChange(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true,</span>
+<span class="nc" id="L79">            true);</span>
+<span class="nc" id="L80">        TriggerAttachment.triggerTechChange(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true, true);</span>
+<span class="nc" id="L81">        TriggerAttachment.triggerSupportChange(toFireTestedAndSatisfied, m_bridge, null, null, true, true, true, true);</span>
+      }
+    }
+<span class="nc" id="L84">    shareTechnology();</span>
+<span class="nc" id="L85">    m_needToInitialize = false;</span>
+<span class="nc" id="L86">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L90">    super.end();</span>
+<span class="nc" id="L91">    m_needToInitialize = true;</span>
+<span class="nc" id="L92">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc" id="L96">    return false;</span>
+  }
+
+  private void shareTechnology() {
+<span class="nc" id="L100">    final PlayerAttachment pa = PlayerAttachment.get(m_player);</span>
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    if (pa == null) {</span>
+<span class="nc" id="L102">      return;</span>
+    }
+<span class="nc" id="L104">    final Collection&lt;PlayerID&gt; shareWith = pa.getShareTechnology();</span>
+<span class="nc bnc" id="L105" title="All 4 branches missed.">    if (shareWith == null || shareWith.isEmpty()) {</span>
+<span class="nc" id="L106">      return;</span>
+    }
+<span class="nc" id="L108">    final GameData data = getData();</span>
+<span class="nc" id="L109">    final Collection&lt;TechAdvance&gt; currentAdvances = TechTracker.getCurrentTechAdvances(m_player, data);</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">    for (final PlayerID p : shareWith) {</span>
+<span class="nc" id="L111">      final Collection&lt;TechAdvance&gt; availableTechs = TechnologyDelegate.getAvailableTechs(p, data);</span>
+<span class="nc" id="L112">      final Collection&lt;TechAdvance&gt; toGive = Util.intersection(currentAdvances, availableTechs);</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">      if (!toGive.isEmpty()) {</span>
+        // Start event
+<span class="nc" id="L115">        m_bridge.getHistoryWriter()</span>
+<span class="nc" id="L116">            .startEvent(m_player.getName() + &quot; giving technology to &quot; + p.getName() + &quot;: &quot; + advancesAsString(toGive));</span>
+<span class="nc bnc" id="L117" title="All 2 branches missed.">        for (final TechAdvance advance : toGive) {</span>
+<span class="nc" id="L118">          TechTracker.addAdvance(p, m_bridge, advance);</span>
+        }
+      }
+    }
+<span class="nc" id="L122">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L126">    final TechActivationExtendedDelegateState state = new TechActivationExtendedDelegateState();</span>
+<span class="nc" id="L127">    state.superState = super.saveState();</span>
+<span class="nc" id="L128">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L129">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L134">    final TechActivationExtendedDelegateState s = (TechActivationExtendedDelegateState) state;</span>
+<span class="nc" id="L135">    super.loadState(s.superState);</span>
+<span class="nc" id="L136">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L137">  }</span>
+
+  // Return string representing all advances in collection
+  private static String advancesAsString(final Collection&lt;TechAdvance&gt; advances) {
+<span class="nc" id="L141">    final Iterator&lt;TechAdvance&gt; iter = advances.iterator();</span>
+<span class="nc" id="L142">    int count = advances.size();</span>
+<span class="nc" id="L143">    final StringBuilder text = new StringBuilder();</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">    while (iter.hasNext()) {</span>
+<span class="nc" id="L145">      final TechAdvance advance = iter.next();</span>
+<span class="nc" id="L146">      text.append(advance.getName());</span>
+<span class="nc" id="L147">      count--;</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      if (count &gt; 1) {</span>
+<span class="nc" id="L149">        text.append(&quot;, &quot;);</span>
+      }
+<span class="nc bnc" id="L151" title="All 2 branches missed.">      if (count == 1) {</span>
+<span class="nc" id="L152">        text.append(&quot; and &quot;);</span>
+      }
+    }
+<span class="nc" id="L155">    return text.toString();</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L160">    return null;</span>
+  }
+}
+
+
+<span class="nc" id="L165">class TechActivationExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 1742776261442260882L;
+  Serializable superState;
+  public boolean m_needToInitialize;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

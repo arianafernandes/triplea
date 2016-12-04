@@ -1,0 +1,1669 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>UnitAutoChooserTest.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">test</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.util</a> &gt; <span class="el_source">UnitAutoChooserTest.java</span></div><h1>UnitAutoChooserTest.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.util;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.junit.Before;
+import org.junit.Test;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.ITestDelegateBridge;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.delegate.GameDataTestUtil;
+import games.strategy.triplea.xml.LoadGameUtil;
+import games.strategy.util.PropertyUtil;
+
+class TestUnit {
+<span class="fc" id="L35">  static final Map&lt;TripleAUnit, TestUnit&gt; m_map = new HashMap&lt;&gt;();</span>
+  TripleAUnit m_unit;
+  String m_name;
+
+  public static TripleAUnit createUnit(final String name, final UnitType type, final PlayerID owner) {
+<span class="fc" id="L40">    final TripleAUnit u = (TripleAUnit) type.create(owner);</span>
+<span class="fc" id="L41">    add(name, u);</span>
+<span class="fc" id="L42">    return u;</span>
+  }
+
+  public static TestUnit add(final String name, final Unit unit) {
+<span class="fc" id="L46">    final TestUnit testUnit = new TestUnit(name, unit);</span>
+<span class="fc" id="L47">    m_map.put((TripleAUnit) unit, testUnit);</span>
+<span class="fc" id="L48">    return testUnit;</span>
+  }
+
+  public static TestUnit get(final String name) {
+<span class="nc bnc" id="L52" title="All 2 branches missed.">    for (final TestUnit testUnit : m_map.values()) {</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">      if (testUnit.getName().equals(name)) {</span>
+<span class="nc" id="L54">        return testUnit;</span>
+      }
+    }
+<span class="nc" id="L57">    return null;</span>
+  }
+
+  public static TestUnit get(final Unit unit) {
+<span class="fc" id="L61">    return m_map.get(unit);</span>
+  }
+
+  protected static Set&lt;TestUnit&gt; createSet(final Collection&lt;Unit&gt; units) {
+<span class="fc" id="L65">    final Set&lt;TestUnit&gt; testUnitSet = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L66" title="All 2 branches covered.">    for (final Unit unit : units) {</span>
+<span class="fc" id="L67">      TestUnit testUnit = TestUnit.get(unit);</span>
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">      if (testUnit == null) {</span>
+<span class="nc" id="L69">        testUnit = new TestUnit(unit);</span>
+      }
+<span class="fc" id="L71">      testUnitSet.add(testUnit);</span>
+    }
+<span class="fc" id="L73">    return testUnitSet;</span>
+  }
+
+<span class="nc" id="L76">  public TestUnit(final Unit unit) {</span>
+<span class="nc" id="L77">    m_unit = (TripleAUnit) unit;</span>
+<span class="nc" id="L78">    m_name = m_unit.getType().getName() + &quot;:&quot; + m_unit.hashCode();</span>
+<span class="nc" id="L79">  }</span>
+
+<span class="fc" id="L81">  public TestUnit(final String name, final Unit unit) {</span>
+<span class="fc" id="L82">    m_unit = (TripleAUnit) unit;</span>
+<span class="fc" id="L83">    m_name = name;</span>
+<span class="fc" id="L84">  }</span>
+
+  public String getName() {
+<span class="nc" id="L87">    return m_name;</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L92">    return m_name;</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="fc" id="L97">    return m_unit.hashCode();</span>
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+<span class="nc" id="L102">    return m_unit.equals(o);</span>
+  }
+}
+
+
+<span class="fc" id="L107">public class UnitAutoChooserTest {</span>
+  private GameData m_data;
+  private PlayerID british;
+  private UnitType infantry;
+  private UnitType armour;
+  private UnitType transport;
+  private UnitType battleship;
+
+  @Before
+  public void setUp() throws Exception {
+<span class="fc" id="L117">    m_data = LoadGameUtil.loadTestGame(LoadGameUtil.TestMapXml.REVISED);</span>
+<span class="fc" id="L118">    british = m_data.getPlayerList().getPlayerID(Constants.PLAYER_NAME_BRITISH);</span>
+<span class="fc" id="L119">    armour = m_data.getUnitTypeList().getUnitType(Constants.UNIT_TYPE_ARMOUR);</span>
+<span class="fc" id="L120">    infantry = m_data.getUnitTypeList().getUnitType(Constants.UNIT_TYPE_INFANTRY);</span>
+<span class="fc" id="L121">    transport = m_data.getUnitTypeList().getUnitType(Constants.UNIT_TYPE_TRANSPORT);</span>
+<span class="fc" id="L122">    battleship = m_data.getUnitTypeList().getUnitType(Constants.UNIT_TYPE_BATTLESHIP);</span>
+<span class="fc" id="L123">  }</span>
+
+  protected ITestDelegateBridge getDelegateBridge(final PlayerID player) {
+<span class="nc" id="L126">    return GameDataTestUtil.getDelegateBridge(player, m_data);</span>
+  }
+
+  private void loadTransport(final Map&lt;Unit, Collection&lt;Unit&gt;&gt; mustMoveWith, final Unit trn, final Unit... units) {
+    // the transport determines which unit it is transporting by
+    // looking at the units in the same territory it is in
+    // so we must place the units in the same territory
+<span class="fc" id="L133">    final Territory t = m_data.getMap().getTerritory(&quot;11 Sea Zone&quot;);</span>
+<span class="fc" id="L134">    ensureIn(t, trn);</span>
+<span class="fc" id="L135">    t.getUnits().getUnits();</span>
+<span class="fc" id="L136">    final List&lt;Unit&gt; transporting = new ArrayList&lt;&gt;();</span>
+<span class="fc bfc" id="L137" title="All 2 branches covered.">    for (final Unit u : units) {</span>
+<span class="fc" id="L138">      ensureIn(t, u);</span>
+<span class="fc" id="L139">      transporting.add(u);</span>
+<span class="fc" id="L140">      PropertyUtil.set(TripleAUnit.TRANSPORTED_BY, trn, u);</span>
+    }
+<span class="fc" id="L142">    mustMoveWith.put(trn, transporting);</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">    assertTrue(TripleAUnit.get(trn).getTransporting().size() == units.length);</span>
+<span class="fc" id="L144">    assertTrue(TripleAUnit.get(trn).getTransporting().containsAll(Arrays.asList(units)));</span>
+<span class="fc" id="L145">  }</span>
+
+  private void ensureIn(final Territory t, final Unit u) {
+    // make sure the given unit is in the given territory
+<span class="pc bpc" id="L149" title="1 of 2 branches missed.">    if (t.getUnits().getUnits().contains(u)) {</span>
+<span class="nc" id="L150">      return;</span>
+    }
+<span class="fc" id="L152">    final Change c = ChangeFactory.addUnits(t, Collections.singleton(u));</span>
+<span class="fc" id="L153">    m_data.performChange(c);</span>
+<span class="fc" id="L154">  }</span>
+
+  private void setUnits(final Collection&lt;Unit&gt; c, final Unit... objects) {
+<span class="fc" id="L157">    c.clear();</span>
+<span class="fc" id="L158">    Collections.addAll(c, objects);</span>
+<span class="fc" id="L159">  }</span>
+
+  // The MovePanel and EditPanel use the UnitAutoChooser in this mode
+  // when finding initial solutions
+  @Test
+  public void testUnitAutoChooserWithImplicitDependentsNoMovementCategorized() {
+<span class="fc" id="L165">    final List&lt;Unit&gt; allUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L166">    final List&lt;Unit&gt; chosenUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L167">    final List&lt;Unit&gt; expectedCandidateUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L168">    final List&lt;Unit&gt; expectedSelectedUnitsWithDependents = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L169">    final List&lt;Unit&gt; expectedSelectedUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L170">    UnitAutoChooser autoChooser = null;</span>
+<span class="fc" id="L171">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; mustMoveWith = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L172">    final boolean bImplicitDependents = true;</span>
+<span class="fc" id="L173">    final boolean bCategorizeMovement = false;</span>
+    // Setup units/dependencies
+<span class="fc" id="L175">    final TripleAUnit bb1 = TestUnit.createUnit(&quot;bb1&quot;, battleship, british);</span>
+<span class="fc" id="L176">    final TripleAUnit t1 = TestUnit.createUnit(&quot;t1&quot;, transport, british);</span>
+<span class="fc" id="L177">    final TripleAUnit a1 = TestUnit.createUnit(&quot;a1&quot;, armour, british);</span>
+<span class="fc" id="L178">    final TripleAUnit i1 = TestUnit.createUnit(&quot;i1&quot;, infantry, british);</span>
+<span class="fc" id="L179">    loadTransport(mustMoveWith, t1, a1, i1);</span>
+<span class="fc" id="L180">    final TripleAUnit bb2 = TestUnit.createUnit(&quot;bb2&quot;, battleship, british);</span>
+<span class="fc" id="L181">    final TripleAUnit t2 = TestUnit.createUnit(&quot;t2&quot;, transport, british);</span>
+<span class="fc" id="L182">    final TripleAUnit a2 = TestUnit.createUnit(&quot;a2&quot;, armour, british);</span>
+<span class="fc" id="L183">    final TripleAUnit i2 = TestUnit.createUnit(&quot;i2&quot;, infantry, british);</span>
+<span class="fc" id="L184">    loadTransport(mustMoveWith, t2, a2, i2);</span>
+    // make this trn only have 1 movement left
+<span class="fc" id="L186">    TripleAUnit.get(t2).setAlreadyMoved(1);</span>
+<span class="fc" id="L187">    final TripleAUnit t3 = TestUnit.createUnit(&quot;t3&quot;, transport, british);</span>
+<span class="fc" id="L188">    final TripleAUnit i3 = TestUnit.createUnit(&quot;i3&quot;, infantry, british);</span>
+<span class="fc" id="L189">    loadTransport(mustMoveWith, t3, i3);</span>
+<span class="fc" id="L190">    final TripleAUnit t4 = TestUnit.createUnit(&quot;t4&quot;, transport, british);</span>
+<span class="fc" id="L191">    final TripleAUnit a4 = TestUnit.createUnit(&quot;a4&quot;, armour, british);</span>
+<span class="fc" id="L192">    loadTransport(mustMoveWith, t4, a4);</span>
+<span class="fc" id="L193">    final TripleAUnit t5 = TestUnit.createUnit(&quot;t5&quot;, transport, british);</span>
+<span class="fc" id="L194">    final TripleAUnit t6 = TestUnit.createUnit(&quot;t6&quot;, transport, british);</span>
+<span class="fc" id="L195">    final TripleAUnit t7 = TestUnit.createUnit(&quot;t7&quot;, transport, british);</span>
+<span class="fc" id="L196">    final TripleAUnit i7 = TestUnit.createUnit(&quot;i7&quot;, infantry, british);</span>
+<span class="fc" id="L197">    final TripleAUnit I7 = TestUnit.createUnit(&quot;I7&quot;, infantry, british);</span>
+<span class="fc" id="L198">    loadTransport(mustMoveWith, t7, i7, I7);</span>
+    // BEGIN TESTS
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1
+    // chosenUnits:
+    // trn, trn, inf, inf, arm, arm, bb
+    // candidateCompositeCategories:
+    // [trn[arm,inf],trn[arm,inf]] =&gt; exact
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1
+    // exactSolutions:
+    // t1[a1,i1], t2[a2,i2], bb1
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L222">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1);</span>
+<span class="fc" id="L223">    setUnits(chosenUnits, t1, t5, a1, a4, i2, i3, bb1);</span>
+<span class="fc" id="L224">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L225">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L226">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L227">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L228">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1);</span>
+<span class="fc" id="L229">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L230">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, bb1);</span>
+<span class="fc" id="L231">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, bb1);</span>
+<span class="fc" id="L232">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L233">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L234">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, trn, inf, inf, arm, arm
+    // candidateCompositeCategories:
+    // [trn[inf,arm],trn[inf,arm],trn] =&gt; exact
+    // [trn[inf,arm],trn[inf],trn[arm]] =&gt; exact
+    // [trn[inf,arm],trn[inf,arm],trn[inf]] =&gt; greedy
+    // [trn[inf,arm],trn[inf,arm],trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // t1[a1,i1],t2[a2,i2],t5[ , ]
+    // t1[a1,i1],t3[ ,i3],t4[a4, ]
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3]
+    // t1[a1,i1],t2[a2,i2],t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 2
+    // solutionCount:
+    // 4
+<span class="fc" id="L262">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L263">    setUnits(chosenUnits, t1, a2, i2, t5, a1, i3, t6);</span>
+<span class="fc" id="L264">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L265">    assertEquals(2, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L266">    assertEquals(4, autoChooser.solutionCount());</span>
+<span class="fc" id="L267">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L268">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L269">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L270">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t5);</span>
+<span class="fc" id="L271">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t5);</span>
+<span class="fc" id="L272">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L273">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L274">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L275">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, t4, a4);</span>
+<span class="fc" id="L276">    setUnits(expectedSelectedUnits, t1, a1, i1, t3, i3, t4, a4);</span>
+<span class="fc" id="L277">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L278">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L279">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+    // setUnits(expectedSelectedUnitsWithDependents ,t1,a1,i1,t2,a2,i2,t3,i3);
+    // setUnits(expectedSelectedUnits ,t1,a1,i1,t2,a2,i2,t3);
+<span class="fc" id="L282">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t4, a4);</span>
+<span class="fc" id="L283">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t4);</span>
+<span class="fc" id="L284">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L285">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L286">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+    // setUnits(expectedSelectedUnitsWithDependents ,t1,a1,i1,t2,a2,i2,t4,a4);
+    // setUnits(expectedSelectedUnits ,t1,a1,i1,t2,a2,i2,t4);
+<span class="fc" id="L289">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t3, i3);</span>
+<span class="fc" id="L290">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t3);</span>
+<span class="fc" id="L291">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L292">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L293">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // bb
+    // candidateCompositeCategories:
+    // none
+    // candidateUnits:
+    // bb1,bb2
+    // exactSolutions:
+    // bb1
+    // greedySolutions:
+    // none
+    // incompleteSolutions:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L316">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L317">    setUnits(chosenUnits, bb2);</span>
+<span class="fc" id="L318">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L319">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L320">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L321">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L322">    setUnits(expectedCandidateUnits, bb1, bb2);</span>
+<span class="fc" id="L323">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L324">    setUnits(expectedSelectedUnitsWithDependents, bb1);</span>
+<span class="fc" id="L325">    setUnits(expectedSelectedUnits, bb1);</span>
+<span class="fc" id="L326">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L327">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L328">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // bb,bb
+    // candidateCompositeCategories:
+    // none
+    // candidateUnits:
+    // bb1,bb2
+    // exactSolutions:
+    // bb1,bb2
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L351">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L352">    setUnits(chosenUnits, bb2, bb1);</span>
+<span class="fc" id="L353">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L354">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L355">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L356">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L357">    setUnits(expectedCandidateUnits, bb1, bb2);</span>
+<span class="fc" id="L358">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L359">    setUnits(expectedSelectedUnitsWithDependents, bb1, bb2);</span>
+<span class="fc" id="L360">    setUnits(expectedSelectedUnits, bb1, bb2);</span>
+<span class="fc" id="L361">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L362">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L363">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn,trn,bb,bb
+    // candidateCompositeCategories:
+    // [trn,trn] =&gt; exact
+    // [trn[arm,inf],trn[arm,inf]] =&gt; greedy
+    // [trn[arm,inf],trn[arm]] =&gt; greedy
+    // [trn[arm,inf],trn[inf]] =&gt; greedy
+    // [trn[arm,inf],trn] =&gt; greedy
+    // [trn[inf],trn[arm]] =&gt; greedy
+    // [trn[inf],trn] =&gt; greedy
+    // [trn[arm],trn] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // exactSolutions:
+    // t5[ , ],t6[ , ],bb1,bb2
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2],bb1,bb2
+    // t1[a1,i1],t3[ ,i3],bb1,bb2
+    // t1[a1,i1],t4[a4, ],bb1,bb2
+    // t1[a1,i1],t5[ , ],bb1,bb2
+    // t3[ ,i3],t4[a4, ],bb1,bb2
+    // t3[ ,i3],t5[ , ],bb1,bb2
+    // t4[a4, ],t5[ , ],bb1,bb2
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 8
+<span class="fc" id="L399">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L400">    setUnits(chosenUnits, t2, t4, bb1, bb2);</span>
+<span class="fc" id="L401">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L402">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L403">    assertEquals(8, autoChooser.solutionCount());</span>
+<span class="fc" id="L404">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L405">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L406">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L407">    setUnits(expectedSelectedUnitsWithDependents, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L408">    setUnits(expectedSelectedUnits, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L409">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L410">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L411">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L412">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, bb1, bb2);</span>
+<span class="fc" id="L413">    setUnits(expectedSelectedUnits, t1, t2, bb1, bb2);</span>
+<span class="fc" id="L414">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L415">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L416">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L417">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L418">    setUnits(expectedSelectedUnits, t1, t4, bb1, bb2);</span>
+<span class="fc" id="L419">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L420">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L421">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L422">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, bb1, bb2);</span>
+<span class="fc" id="L423">    setUnits(expectedSelectedUnits, t1, t3, bb1, bb2);</span>
+<span class="fc" id="L424">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L425">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L426">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L427">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t5, bb1, bb2);</span>
+<span class="fc" id="L428">    setUnits(expectedSelectedUnits, t1, t5, bb1, bb2);</span>
+<span class="fc" id="L429">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L430">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L431">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+<span class="fc" id="L432">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L433">    setUnits(expectedSelectedUnits, t3, t4, bb1, bb2);</span>
+<span class="fc" id="L434">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L435">        TestUnit.createSet(autoChooser.getSolution(5, true)));</span>
+<span class="fc" id="L436">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(5, false)));</span>
+<span class="fc" id="L437">    setUnits(expectedSelectedUnitsWithDependents, t4, a4, t5, bb1, bb2);</span>
+<span class="fc" id="L438">    setUnits(expectedSelectedUnits, t4, t5, bb1, bb2);</span>
+<span class="fc" id="L439">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L440">        TestUnit.createSet(autoChooser.getSolution(6, true)));</span>
+<span class="fc" id="L441">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(6, false)));</span>
+<span class="fc" id="L442">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t5, bb1, bb2);</span>
+<span class="fc" id="L443">    setUnits(expectedSelectedUnits, t3, t5, bb1, bb2);</span>
+<span class="fc" id="L444">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L445">        TestUnit.createSet(autoChooser.getSolution(7, true)));</span>
+<span class="fc" id="L446">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(7, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, arm, arm
+    // candidateCompositeCategories:
+    // [trn[arm,inf],trn[arm,inf]] =&gt; greedy
+    // [trn[arm,inf],trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t4[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2]
+    // t1[a1,i1],t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 2
+<span class="fc" id="L471">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L472">    setUnits(chosenUnits, t1, a1, t2, a2);</span>
+<span class="fc" id="L473">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L474">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L475">    assertEquals(2, autoChooser.solutionCount());</span>
+<span class="fc" id="L476">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L477">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L478">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L479">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2);</span>
+<span class="fc" id="L480">    setUnits(expectedSelectedUnits, t1, a1, t2, a2);</span>
+<span class="fc" id="L481">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L482">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L483">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L484">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t4, a4);</span>
+<span class="fc" id="L485">    setUnits(expectedSelectedUnits, t1, a1, t4, a4);</span>
+<span class="fc" id="L486">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L487">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L488">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],bb1,bb2
+    // chosenUnits:
+    // trn
+    // candidateCompositeCategories:
+    // [trn[arm,inf]] =&gt; greedy
+    // [trn[inf]] =&gt; greedy
+    // [trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1], t2[a2,i2], t3[ ,i3], t4[a4, ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1]
+    // t3[ ,i3]
+    // t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 3
+<span class="fc" id="L515">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L516">    setUnits(chosenUnits, t4);</span>
+<span class="fc" id="L517">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L518">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L519">    assertEquals(3, autoChooser.solutionCount());</span>
+<span class="fc" id="L520">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L521">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4);</span>
+<span class="fc" id="L522">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L523">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1);</span>
+<span class="fc" id="L524">    setUnits(expectedSelectedUnits, t1);</span>
+<span class="fc" id="L525">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L526">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L527">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L528">    setUnits(expectedSelectedUnitsWithDependents, t4, a4);</span>
+<span class="fc" id="L529">    setUnits(expectedSelectedUnits, t4);</span>
+<span class="fc" id="L530">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L531">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L532">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L533">    setUnits(expectedSelectedUnitsWithDependents, t3, i3);</span>
+<span class="fc" id="L534">    setUnits(expectedSelectedUnits, t3);</span>
+<span class="fc" id="L535">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L536">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L537">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],bb1,bb2
+    // chosenUnits:
+    // trn
+    // candidateCompositeCategories:
+    // [trn] =&gt; exact
+    // [trn[arm,inf]] =&gt; greedy
+    // [trn[inf]] =&gt; greedy
+    // [trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ]
+    // exactSolutions:
+    // t5[ , ]
+    // greedySolutions:
+    // t1[a1,i1]
+    // t3[ ,i3]
+    // t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 4
+<span class="fc" id="L565">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, bb1, bb2);</span>
+<span class="fc" id="L566">    setUnits(chosenUnits, t4);</span>
+<span class="fc" id="L567">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L568">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L569">    assertEquals(4, autoChooser.solutionCount());</span>
+<span class="fc" id="L570">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L571">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5);</span>
+<span class="fc" id="L572">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L573">    setUnits(expectedSelectedUnitsWithDependents, t5);</span>
+<span class="fc" id="L574">    setUnits(expectedSelectedUnits, t5);</span>
+<span class="fc" id="L575">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L576">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L577">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L578">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1);</span>
+<span class="fc" id="L579">    setUnits(expectedSelectedUnits, t1);</span>
+<span class="fc" id="L580">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L581">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L582">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L583">    setUnits(expectedSelectedUnitsWithDependents, t4, a4);</span>
+<span class="fc" id="L584">    setUnits(expectedSelectedUnits, t4);</span>
+<span class="fc" id="L585">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L586">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L587">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L588">    setUnits(expectedSelectedUnitsWithDependents, t3, i3);</span>
+<span class="fc" id="L589">    setUnits(expectedSelectedUnits, t3);</span>
+<span class="fc" id="L590">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L591">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L592">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, trn, trn, trn
+    // candidateCompositeCategories:
+    // [trn[arm,inf],trn[arm,inf],trn[inf],trn[arm],trn] =&gt; greedy
+    // [trn[arm,inf],trn[arm,inf],trn[inf],trn,trn] =&gt; greedy
+    // [trn[arm,inf],trn[arm,inf],trn[arm],trn,trn] =&gt; greedy
+    // [trn[arm,inf],trn[inf],trn[arm],trn,trn] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ]
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t5[ , ],t6[ , ]
+    // t1[a1,i1],t2[a2,i2],t4[a4, ],t5[ , ],t6[ , ]
+    // t1[a1,i1],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 4
+<span class="fc" id="L621">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L622">    setUnits(chosenUnits, t1, t2, t3, t4, t5);</span>
+<span class="fc" id="L623">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L624">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L625">    assertEquals(4, autoChooser.solutionCount());</span>
+<span class="fc" id="L626">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L627">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L628">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L629">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5);</span>
+<span class="fc" id="L630">    setUnits(expectedSelectedUnits, t1, t2, t3, t4, t5);</span>
+<span class="fc" id="L631">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L632">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L633">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L634">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t4, a4, t5, t6);</span>
+<span class="fc" id="L635">    setUnits(expectedSelectedUnits, t1, t2, t4, t5, t6);</span>
+<span class="fc" id="L636">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L637">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L638">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L639">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t3, i3, t5, t6);</span>
+<span class="fc" id="L640">    setUnits(expectedSelectedUnits, t1, t2, t3, t5, t6);</span>
+<span class="fc" id="L641">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L642">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L643">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L644">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L645">    setUnits(expectedSelectedUnits, t1, t3, t4, t5, t6);</span>
+<span class="fc" id="L646">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L647">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L648">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],t7[i7,I7],bb1,bb2
+    // chosenUnits:
+    // trn, trn, inf
+    // candidateCompositeCategories:
+    // [trn[inf],trn] =&gt; exact
+    // [trn[arm,inf],trn[arm,inf]] =&gt; greedy
+    // [trn[arm,inf],trn[inf]] =&gt; greedy
+    // [trn[arm,inf],trn[arm]] =&gt; greedy
+    // [trn[arm,inf],trn] =&gt; greedy
+    // [trn[arm,inf],trn[inf,inf]] =&gt; greedy
+    // [trn[inf],trn[arm]] =&gt; greedy
+    // [trn[inf],trn[inf,inf]] =&gt; greedy
+    // [trn[arm],trn[inf,inf]] =&gt; greedy
+    // [trn,trn[inf,inf]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],t7[i7,I7]
+    // exactSolutions:
+    // t3[ ,i3], t5[ , ]
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2]
+    // t1[a1,i1],t3[ ,i3]
+    // t1[a1,i1],t4[a4, ]
+    // t1[a1,i1],t5[ , ]
+    // t1[a1,i1],t7[i7,I7]
+    // t3[ ,i3],t4[a4, ]
+    // t3[ ,i3],t7[i7,I7]
+    // t4[a4, ],t7[i7,I7]
+    // t5[ , ],t7[i7,I7]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 10
+<span class="fc" id="L688">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, t7, i7, I7, bb1, bb2);</span>
+<span class="fc" id="L689">    setUnits(chosenUnits, t1, t4, i3);</span>
+<span class="fc" id="L690">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L691">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L692">    assertEquals(10, autoChooser.solutionCount());</span>
+<span class="fc" id="L693">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L694">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, t7, i7, I7);</span>
+<span class="fc" id="L695">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L696">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t5);</span>
+<span class="fc" id="L697">    setUnits(expectedSelectedUnits, t3, i3, t5);</span>
+<span class="fc" id="L698">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L699">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L700">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L701">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2);</span>
+<span class="fc" id="L702">    setUnits(expectedSelectedUnits, t1, i1, t2);</span>
+<span class="fc" id="L703">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L704">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L705">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L706">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t4, a4);</span>
+<span class="fc" id="L707">    setUnits(expectedSelectedUnits, t1, i1, t4);</span>
+<span class="fc" id="L708">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L709">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L710">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L711">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t7, i7, I7);</span>
+<span class="fc" id="L712">    setUnits(expectedSelectedUnits, t1, i1, t7);</span>
+<span class="fc" id="L713">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L714">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L715">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L716">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3);</span>
+<span class="fc" id="L717">    setUnits(expectedSelectedUnits, t1, i1, t3);</span>
+<span class="fc" id="L718">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L719">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L720">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+<span class="fc" id="L721">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t5);</span>
+<span class="fc" id="L722">    setUnits(expectedSelectedUnits, t1, i1, t5);</span>
+<span class="fc" id="L723">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L724">        TestUnit.createSet(autoChooser.getSolution(5, true)));</span>
+<span class="fc" id="L725">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(5, false)));</span>
+<span class="fc" id="L726">    setUnits(expectedSelectedUnitsWithDependents, t7, i7, I7, t4, a4);</span>
+<span class="fc" id="L727">    setUnits(expectedSelectedUnits, t7, i7, t4);</span>
+<span class="fc" id="L728">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L729">        TestUnit.createSet(autoChooser.getSolution(6, true)));</span>
+<span class="fc" id="L730">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(6, false)));</span>
+<span class="fc" id="L731">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t4, a4);</span>
+<span class="fc" id="L732">    setUnits(expectedSelectedUnits, t3, i3, t4);</span>
+<span class="fc" id="L733">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L734">        TestUnit.createSet(autoChooser.getSolution(7, true)));</span>
+<span class="fc" id="L735">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(7, false)));</span>
+<span class="fc" id="L736">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t7, i7, I7);</span>
+<span class="fc" id="L737">    setUnits(expectedSelectedUnits, t3, t7, i7);</span>
+<span class="fc" id="L738">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L739">        TestUnit.createSet(autoChooser.getSolution(8, true)));</span>
+<span class="fc" id="L740">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(8, false)));</span>
+<span class="fc" id="L741">    setUnits(expectedSelectedUnitsWithDependents, t5, t7, i7, I7);</span>
+<span class="fc" id="L742">    setUnits(expectedSelectedUnits, t5, t7, i7);</span>
+<span class="fc" id="L743">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L744">        TestUnit.createSet(autoChooser.getSolution(9, true)));</span>
+<span class="fc" id="L745">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(9, false)));</span>
+<span class="fc" id="L746">  }</span>
+
+  // This mode is currently unused.
+  @Test
+  public void testUnitAutoChooserNoImplicitDependentsNoMovementCategorized() {
+<span class="fc" id="L751">    final List&lt;Unit&gt; allUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L752">    final List&lt;Unit&gt; chosenUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L753">    final List&lt;Unit&gt; expectedCandidateUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L754">    final List&lt;Unit&gt; expectedSelectedUnitsWithDependents = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L755">    final List&lt;Unit&gt; expectedSelectedUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L756">    UnitAutoChooser autoChooser = null;</span>
+<span class="fc" id="L757">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; mustMoveWith = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L758">    final boolean bImplicitDependents = false;</span>
+<span class="fc" id="L759">    final boolean bCategorizeMovement = false;</span>
+    // Setup units/dependencies
+<span class="fc" id="L761">    final TripleAUnit bb1 = TestUnit.createUnit(&quot;bb1&quot;, battleship, british);</span>
+<span class="fc" id="L762">    final TripleAUnit t1 = TestUnit.createUnit(&quot;t1&quot;, transport, british);</span>
+<span class="fc" id="L763">    final TripleAUnit a1 = TestUnit.createUnit(&quot;a1&quot;, armour, british);</span>
+<span class="fc" id="L764">    final TripleAUnit i1 = TestUnit.createUnit(&quot;i1&quot;, infantry, british);</span>
+<span class="fc" id="L765">    loadTransport(mustMoveWith, t1, a1, i1);</span>
+<span class="fc" id="L766">    final TripleAUnit bb2 = TestUnit.createUnit(&quot;bb2&quot;, battleship, british);</span>
+<span class="fc" id="L767">    final TripleAUnit t2 = TestUnit.createUnit(&quot;t2&quot;, transport, british);</span>
+<span class="fc" id="L768">    final TripleAUnit a2 = TestUnit.createUnit(&quot;a2&quot;, armour, british);</span>
+<span class="fc" id="L769">    final TripleAUnit i2 = TestUnit.createUnit(&quot;i2&quot;, infantry, british);</span>
+<span class="fc" id="L770">    loadTransport(mustMoveWith, t2, a2, i2);</span>
+    // make this trn only have 1 movement left
+<span class="fc" id="L772">    TripleAUnit.get(t2).setAlreadyMoved(1);</span>
+<span class="fc" id="L773">    final TripleAUnit t3 = TestUnit.createUnit(&quot;t3&quot;, transport, british);</span>
+<span class="fc" id="L774">    final TripleAUnit i3 = TestUnit.createUnit(&quot;i3&quot;, infantry, british);</span>
+<span class="fc" id="L775">    loadTransport(mustMoveWith, t3, i3);</span>
+<span class="fc" id="L776">    final TripleAUnit t4 = TestUnit.createUnit(&quot;t4&quot;, transport, british);</span>
+<span class="fc" id="L777">    final TripleAUnit a4 = TestUnit.createUnit(&quot;a4&quot;, armour, british);</span>
+<span class="fc" id="L778">    loadTransport(mustMoveWith, t4, a4);</span>
+<span class="fc" id="L779">    final TripleAUnit t5 = TestUnit.createUnit(&quot;t5&quot;, transport, british);</span>
+<span class="fc" id="L780">    final TripleAUnit t6 = TestUnit.createUnit(&quot;t6&quot;, transport, british);</span>
+    // BEGIN TESTS
+    // implicitDependents:
+    // NO
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[i3],t4[a4],t5[],t6[],bb1
+    // chosenUnits:
+    // trn, trn, inf, inf, arm, arm, bb
+    // candidateCompositeCategories:
+    // [trn[arm,inf],trn[arm,inf]]
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t5[ , ],t6[ , ],bb1
+    // exactSolutions:
+    // t1[a1,i1],t2[a2,i2],bb1
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L804">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1);</span>
+<span class="fc" id="L805">    setUnits(chosenUnits, t1, t5, a1, a4, i2, i3, bb1);</span>
+<span class="fc" id="L806">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L807">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L808">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L809">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L810">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t5, t6, bb1);</span>
+<span class="fc" id="L811">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L812">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, bb1);</span>
+<span class="fc" id="L813">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, bb1);</span>
+<span class="fc" id="L814">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L815">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L816">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // NO
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, trn, inf, inf, arm, arm
+    // candidateCompositeCategories:
+    // [trn[inf,arm],trn[inf],trn[arm]] =&gt; exact
+    // [trn[inf,arm],trn[inf,arm],trn[]] =&gt; exact
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // t1[a1,i1],t3[ ,i3],t4[a4, ]
+    // t1[a1,i1],t2[a2,i2],t5[ , ]
+    // greedySolutions:
+    // none
+    // incompleteSolutions:
+    // none
+    // exactSolutionCount:
+    // 2
+    // solutionCount:
+    // 2
+<span class="fc" id="L841">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L842">    setUnits(chosenUnits, t1, a2, i2, t5, i3, t6, a1);</span>
+<span class="fc" id="L843">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L844">    assertEquals(2, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L845">    assertEquals(2, autoChooser.solutionCount());</span>
+<span class="fc" id="L846">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L847">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L848">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L849">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t5);</span>
+<span class="fc" id="L850">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t5);</span>
+<span class="fc" id="L851">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L852">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L853">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L854">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, t4, a4);</span>
+<span class="fc" id="L855">    setUnits(expectedSelectedUnits, t1, a1, i1, t3, i3, t4, a4);</span>
+<span class="fc" id="L856">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L857">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L858">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+    // implicitDependents:
+    // NO
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t5[ , ],t6[ , ],t4[a4, ],bb1,bb2
+    // chosenUnits:
+    // trn,trn,bb,bb
+    // candidateCompositeCategories:
+    // [[trn,trn]] =&gt; exact
+    // candidateUnits:
+    // t5[ , ],t6[ , ],bb1,bb2
+    // exactSolutions:
+    // t5[ , ],t6[ , ],bb1,bb2
+    // greedySolutions:
+    // none
+    // incompleSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L881">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L882">    setUnits(chosenUnits, t2, t4, bb1, bb2);</span>
+<span class="fc" id="L883">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L884">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L885">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L886">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L887">    setUnits(expectedCandidateUnits, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L888">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L889">    setUnits(expectedSelectedUnitsWithDependents, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L890">    setUnits(expectedSelectedUnits, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L891">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L892">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L893">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // NO
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, arm, arm
+    // candidateCompositeCategories:
+    // [trn[arm],?] =&gt; incomplete
+    // candidateUnits:
+    // t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // t4[a4, ],t5[ , ]
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 1
+<span class="fc" id="L916">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L917">    setUnits(chosenUnits, t1, a1, t2, a2);</span>
+<span class="fc" id="L918">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L919">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L920">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L921">    assertFalse(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L922">    setUnits(expectedCandidateUnits, t4, a4, t5, t6);</span>
+<span class="fc" id="L923">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L924">    setUnits(expectedSelectedUnitsWithDependents, t4, a4, t5);</span>
+<span class="fc" id="L925">    setUnits(expectedSelectedUnits, t4, a4, t5);</span>
+<span class="fc" id="L926">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L927">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L928">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // NO
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],bb1,bb2
+    // chosenUnits:
+    // trn
+    // candidateCompositeCategories:
+    // none
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 1
+<span class="fc" id="L951">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L952">    setUnits(chosenUnits, t4);</span>
+<span class="fc" id="L953">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L954">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L955">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L956">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L957">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4);</span>
+<span class="fc" id="L958">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L959">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1);</span>
+    // simple solution
+<span class="fc" id="L961">    setUnits(expectedSelectedUnits, t1);</span>
+<span class="fc" id="L962">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L963">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L964">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // NO
+    // categorizeMovement:
+    // NO
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, trn, trn, trn
+    // candidateCompositeCategories:
+    // [[trn,trn,?]] =&gt; incomplete
+    // candidateUnits:
+    // t5[ , ],t6[ , ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // t5[ , ],t6[ , ]
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 1
+<span class="fc" id="L987">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L988">    setUnits(chosenUnits, t1, t2, t3, t4, t5);</span>
+<span class="fc" id="L989">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L990">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L991">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L992">    assertFalse(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L993">    setUnits(expectedCandidateUnits, t5, t6);</span>
+<span class="fc" id="L994">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L995">    setUnits(expectedSelectedUnitsWithDependents, t5, t6);</span>
+<span class="fc" id="L996">    setUnits(expectedSelectedUnits, t5, t6);</span>
+<span class="fc" id="L997">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L998">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L999">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1000">  }</span>
+
+  // The MovePanel and EditPanel use the UnitAutoChooser in this mode
+  // when running the UnitChooser
+  @Test
+  public void testUnitAutoChooserWithImplicitDependentsWithMovementCategorized() {
+<span class="fc" id="L1006">    final List&lt;Unit&gt; allUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1007">    final List&lt;Unit&gt; chosenUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1008">    final List&lt;Unit&gt; expectedCandidateUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1009">    final List&lt;Unit&gt; expectedSelectedUnitsWithDependents = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1010">    final List&lt;Unit&gt; expectedSelectedUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L1011">    UnitAutoChooser autoChooser = null;</span>
+<span class="fc" id="L1012">    final Map&lt;Unit, Collection&lt;Unit&gt;&gt; mustMoveWith = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L1013">    final boolean bImplicitDependents = true;</span>
+<span class="fc" id="L1014">    final boolean bCategorizeMovement = true;</span>
+    // Setup units/dependencies
+<span class="fc" id="L1016">    final TripleAUnit bb1 = TestUnit.createUnit(&quot;bb1&quot;, battleship, british);</span>
+<span class="fc" id="L1017">    final TripleAUnit t1 = TestUnit.createUnit(&quot;t1&quot;, transport, british);</span>
+<span class="fc" id="L1018">    final TripleAUnit a1 = TestUnit.createUnit(&quot;a1&quot;, armour, british);</span>
+<span class="fc" id="L1019">    final TripleAUnit i1 = TestUnit.createUnit(&quot;i1&quot;, infantry, british);</span>
+<span class="fc" id="L1020">    loadTransport(mustMoveWith, t1, a1, i1);</span>
+<span class="fc" id="L1021">    final TripleAUnit bb2 = TestUnit.createUnit(&quot;bb2&quot;, battleship, british);</span>
+<span class="fc" id="L1022">    final TripleAUnit t2 = TestUnit.createUnit(&quot;t2&quot;, transport, british);</span>
+<span class="fc" id="L1023">    final TripleAUnit a2 = TestUnit.createUnit(&quot;a2&quot;, armour, british);</span>
+<span class="fc" id="L1024">    final TripleAUnit i2 = TestUnit.createUnit(&quot;i2&quot;, infantry, british);</span>
+<span class="fc" id="L1025">    loadTransport(mustMoveWith, t2, a2, i2);</span>
+    // make this trn only have 1 movement left
+<span class="fc" id="L1027">    TripleAUnit.get(t2).setAlreadyMoved(1);</span>
+<span class="fc" id="L1028">    final TripleAUnit t3 = TestUnit.createUnit(&quot;t3&quot;, transport, british);</span>
+<span class="fc" id="L1029">    final TripleAUnit i3 = TestUnit.createUnit(&quot;i3&quot;, infantry, british);</span>
+<span class="fc" id="L1030">    loadTransport(mustMoveWith, t3, i3);</span>
+<span class="fc" id="L1031">    final TripleAUnit t4 = TestUnit.createUnit(&quot;t4&quot;, transport, british);</span>
+<span class="fc" id="L1032">    final TripleAUnit a4 = TestUnit.createUnit(&quot;a4&quot;, armour, british);</span>
+<span class="fc" id="L1033">    loadTransport(mustMoveWith, t4, a4);</span>
+<span class="fc" id="L1034">    final TripleAUnit t5 = TestUnit.createUnit(&quot;t5&quot;, transport, british);</span>
+<span class="fc" id="L1035">    final TripleAUnit t6 = TestUnit.createUnit(&quot;t6&quot;, transport, british);</span>
+<span class="fc" id="L1036">    final TripleAUnit t7 = TestUnit.createUnit(&quot;t7&quot;, transport, british);</span>
+<span class="fc" id="L1037">    final TripleAUnit i7 = TestUnit.createUnit(&quot;i7&quot;, infantry, british);</span>
+<span class="fc" id="L1038">    final TripleAUnit I7 = TestUnit.createUnit(&quot;I7&quot;, infantry, british);</span>
+<span class="fc" id="L1039">    loadTransport(mustMoveWith, t7, i7, I7);</span>
+    // BEGIN TESTS
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1
+    // chosenUnits:
+    // trn, trn, inf, inf, arm, arm, bb
+    // candidateCompositeCategories:
+    // [trn[arm,inf],trn[arm,inf]] =&gt; exact
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1
+    // exactSolutions:
+    // t1[a1,i1],t2[a2,i2], bb1
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L1063">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1);</span>
+<span class="fc" id="L1064">    setUnits(chosenUnits, t1, t5, a1, a4, i2, i3, bb1);</span>
+<span class="fc" id="L1065">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1066">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1067">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L1068">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1069">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1);</span>
+<span class="fc" id="L1070">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1071">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, bb1);</span>
+<span class="fc" id="L1072">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, bb1);</span>
+<span class="fc" id="L1073">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1074">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1075">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, trn, inf, inf, arm, arm
+    // candidateCompositeCategories:
+    // [trnM1[inf,arm],trn[inf],trn[arm]] =&gt; exact
+    // [trnM2[inf,arm],trn[inf],trn[arm]] =&gt; exact
+    // [trnM1[inf,arm],trnM2[inf,arm],trn[]] =&gt; exact
+    // [trnM1[inf,arm],trnM2[inf,arm],trn[inf]] =&gt; greedy
+    // [trnM1[inf,arm],trnM2[inf,arm],trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // t1[a1,i1],t2[a2,i2],t5[ , ]
+    // t1[a1,i1],t3[ ,i3],t4[a4, ]
+    // t2[a2,i2],t3[ ,i3],t4[a4, ]
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3]
+    // t1[a1,i1],t2[a2,i2],t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 3
+    // solutionCount:
+    // 5
+<span class="fc" id="L1105">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1106">    setUnits(chosenUnits, t1, a2, i2, t5, a1, i3, t6);</span>
+<span class="fc" id="L1107">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1108">    assertEquals(3, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1109">    assertEquals(5, autoChooser.solutionCount());</span>
+<span class="fc" id="L1110">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1111">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L1112">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1113">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t5);</span>
+<span class="fc" id="L1114">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t5);</span>
+<span class="fc" id="L1115">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1116">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1117">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1118">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t3, i3, t4, a4);</span>
+<span class="fc" id="L1119">    setUnits(expectedSelectedUnits, t2, a2, i2, t3, i3, t4, a4);</span>
+<span class="fc" id="L1120">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1121">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1122">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1123">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, t4, a4);</span>
+<span class="fc" id="L1124">    setUnits(expectedSelectedUnits, t1, a1, i1, t3, i3, t4, a4);</span>
+<span class="fc" id="L1125">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1126">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1127">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L1128">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t4, a4);</span>
+<span class="fc" id="L1129">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t4);</span>
+<span class="fc" id="L1130">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1131">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L1132">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L1133">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t3, i3);</span>
+<span class="fc" id="L1134">    setUnits(expectedSelectedUnits, t1, a1, i1, t2, a2, i2, t3);</span>
+<span class="fc" id="L1135">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1136">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L1137">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // bb
+    // candidateCompositeCategories:
+    // none
+    // candidateUnits:
+    // bb1,bb2
+    // exactSolutions:
+    // bb1
+    // greedySolutions:
+    // none
+    // incompleteSolutions:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L1160">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1161">    setUnits(chosenUnits, bb2);</span>
+<span class="fc" id="L1162">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1163">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1164">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L1165">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1166">    setUnits(expectedCandidateUnits, bb1, bb2);</span>
+<span class="fc" id="L1167">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1168">    setUnits(expectedSelectedUnitsWithDependents, bb1);</span>
+<span class="fc" id="L1169">    setUnits(expectedSelectedUnits, bb1);</span>
+<span class="fc" id="L1170">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1171">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1172">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // bb,bb
+    // candidateCompositeCategories:
+    // none
+    // candidateUnits:
+    // bb1,bb2
+    // exactSolutions:
+    // bb1,bb2
+    // greedySolutions:
+    // none
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 1
+<span class="fc" id="L1195">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1196">    setUnits(chosenUnits, bb2, bb1);</span>
+<span class="fc" id="L1197">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1198">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1199">    assertEquals(1, autoChooser.solutionCount());</span>
+<span class="fc" id="L1200">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1201">    setUnits(expectedCandidateUnits, bb1, bb2);</span>
+<span class="fc" id="L1202">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1203">    setUnits(expectedSelectedUnitsWithDependents, bb1, bb2);</span>
+<span class="fc" id="L1204">    setUnits(expectedSelectedUnits, bb1, bb2);</span>
+<span class="fc" id="L1205">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1206">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1207">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn,trn,bb,bb
+    // candidateCompositeCategories:
+    // [trn,trn] =&gt; exact
+    // [trnM1[inf,arm],trnM2[inf,arm]] =&gt; greedy
+    // [trnM1[inf,arm],trn[inf]] =&gt; greedy
+    // [trnM1[inf,arm],trn[arm]] =&gt; greedy
+    // [trnM1[inf,arm],trn] =&gt; greedy
+    // [trnM2[inf,arm],trn[inf]] =&gt; greedy
+    // [trnM2[inf,arm],trn[arm]] =&gt; greedy
+    // [trnM2[inf,arm],trn] =&gt; greedy
+    // [trn[inf],trn[arm]] =&gt; greedy
+    // [trn[inf],trn] =&gt; greedy
+    // [trn[arm],trn] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1,t2[a2,i2],t3[ ,i3],t4[a4, ],t5,t6,bb1,bb2
+    // exactSolutions:
+    // t5[ , ],t6[ , ],bb1,bb2
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2],bb1,bb2
+    // t1[a1,i1],t3[ ,i3],bb1,bb2
+    // t1[a1,i1],t4[a4, ],bb1,bb2
+    // t1[a1,i1],t5[ , ],bb1,bb2
+    // t2[a2,i2],t3[ ,i3],bb1,bb2
+    // t2[a2,i2],t4[a4, ],bb1,bb2
+    // t2[a2,i2],t5[ , ],bb1,bb2
+    // t3[ ,i3],t4[a4, ],bb1,bb2
+    // t3[ ,i3],t5[ , ],bb1,bb2
+    // t4[a4, ],t5[ , ],bb1,bb2
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 11
+<span class="fc" id="L1249">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1250">    setUnits(chosenUnits, t2, t4, bb1, bb2);</span>
+<span class="fc" id="L1251">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1252">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1253">    assertEquals(11, autoChooser.solutionCount());</span>
+<span class="fc" id="L1254">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1255">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1256">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1257">    setUnits(expectedSelectedUnitsWithDependents, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1258">    setUnits(expectedSelectedUnits, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1259">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1260">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1261">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1262">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, bb1, bb2);</span>
+<span class="fc" id="L1263">    setUnits(expectedSelectedUnits, t1, t2, bb1, bb2);</span>
+<span class="fc" id="L1264">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1265">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1266">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1267">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L1268">    setUnits(expectedSelectedUnits, t2, t4, bb1, bb2);</span>
+<span class="fc" id="L1269">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1270">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1271">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L1272">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t3, i3, bb1, bb2);</span>
+<span class="fc" id="L1273">    setUnits(expectedSelectedUnits, t2, t3, bb1, bb2);</span>
+<span class="fc" id="L1274">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1275">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L1276">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L1277">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t5, bb1, bb2);</span>
+<span class="fc" id="L1278">    setUnits(expectedSelectedUnits, t2, t5, bb1, bb2);</span>
+<span class="fc" id="L1279">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1280">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L1281">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+<span class="fc" id="L1282">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L1283">    setUnits(expectedSelectedUnits, t1, t4, bb1, bb2);</span>
+<span class="fc" id="L1284">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1285">        TestUnit.createSet(autoChooser.getSolution(5, true)));</span>
+<span class="fc" id="L1286">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(5, false)));</span>
+<span class="fc" id="L1287">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, bb1, bb2);</span>
+<span class="fc" id="L1288">    setUnits(expectedSelectedUnits, t3, t1, bb1, bb2);</span>
+<span class="fc" id="L1289">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1290">        TestUnit.createSet(autoChooser.getSolution(6, true)));</span>
+<span class="fc" id="L1291">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(6, false)));</span>
+<span class="fc" id="L1292">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t5, bb1, bb2);</span>
+<span class="fc" id="L1293">    setUnits(expectedSelectedUnits, t1, t5, bb1, bb2);</span>
+<span class="fc" id="L1294">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1295">        TestUnit.createSet(autoChooser.getSolution(7, true)));</span>
+<span class="fc" id="L1296">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(7, false)));</span>
+<span class="fc" id="L1297">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L1298">    setUnits(expectedSelectedUnits, t3, t4, bb1, bb2);</span>
+<span class="fc" id="L1299">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1300">        TestUnit.createSet(autoChooser.getSolution(8, true)));</span>
+<span class="fc" id="L1301">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(8, false)));</span>
+<span class="fc" id="L1302">    setUnits(expectedSelectedUnitsWithDependents, t4, a4, t5, bb1, bb2);</span>
+<span class="fc" id="L1303">    setUnits(expectedSelectedUnits, t4, t5, bb1, bb2);</span>
+<span class="fc" id="L1304">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1305">        TestUnit.createSet(autoChooser.getSolution(9, true)));</span>
+<span class="fc" id="L1306">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(9, false)));</span>
+<span class="fc" id="L1307">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t5, bb1, bb2);</span>
+<span class="fc" id="L1308">    setUnits(expectedSelectedUnits, t3, t5, bb1, bb2);</span>
+<span class="fc" id="L1309">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1310">        TestUnit.createSet(autoChooser.getSolution(10, true)));</span>
+<span class="fc" id="L1311">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(10, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, arm, arm
+    // candidateCompositeCategories:
+    // [trnM1[inf,arm],trnM2[inf,arm]] =&gt; greedy
+    // [trnM1[inf,arm],trn[arm]] =&gt; greedy
+    // [trnM2[inf,arm],trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[i3, ],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2]
+    // t1[a1,i1],t4[a4, ]
+    // t2[a2,i2],t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 3
+<span class="fc" id="L1338">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1339">    setUnits(chosenUnits, t1, a1, t2, a2);</span>
+<span class="fc" id="L1340">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1341">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1342">    assertEquals(3, autoChooser.solutionCount());</span>
+<span class="fc" id="L1343">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1344">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L1345">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1346">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2);</span>
+<span class="fc" id="L1347">    setUnits(expectedSelectedUnits, t1, a1, t2, a2);</span>
+<span class="fc" id="L1348">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1349">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1350">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1351">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t4, a4);</span>
+<span class="fc" id="L1352">    setUnits(expectedSelectedUnits, t2, a2, t4, a4);</span>
+<span class="fc" id="L1353">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1354">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1355">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1356">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t4, a4);</span>
+<span class="fc" id="L1357">    setUnits(expectedSelectedUnits, t1, a1, t4, a4);</span>
+<span class="fc" id="L1358">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1359">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1360">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],bb1,bb2
+    // chosenUnits:
+    // trn
+    // candidateCompositeCategories:
+    // trnM1[inf,arm] =&gt; greedy
+    // trnM2[inf,arm] =&gt; greedy
+    // trn[inf] =&gt; greedy
+    // trn[arm] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1]
+    // t2[a2,i2]
+    // t3[ ,i3]
+    // t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 4
+<span class="fc" id="L1389">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, bb1, bb2);</span>
+<span class="fc" id="L1390">    setUnits(chosenUnits, t4);</span>
+<span class="fc" id="L1391">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1392">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1393">    assertEquals(4, autoChooser.solutionCount());</span>
+<span class="fc" id="L1394">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1395">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4);</span>
+<span class="fc" id="L1396">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1397">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2);</span>
+<span class="fc" id="L1398">    setUnits(expectedSelectedUnits, t2);</span>
+<span class="fc" id="L1399">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1400">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1401">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1402">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1);</span>
+<span class="fc" id="L1403">    setUnits(expectedSelectedUnits, t1);</span>
+<span class="fc" id="L1404">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1405">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1406">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1407">    setUnits(expectedSelectedUnitsWithDependents, t4, a4);</span>
+<span class="fc" id="L1408">    setUnits(expectedSelectedUnits, t4);</span>
+<span class="fc" id="L1409">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1410">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1411">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L1412">    setUnits(expectedSelectedUnitsWithDependents, t3, i3);</span>
+<span class="fc" id="L1413">    setUnits(expectedSelectedUnits, t3);</span>
+<span class="fc" id="L1414">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1415">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L1416">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],bb1,bb2
+    // chosenUnits:
+    // trn
+    // candidateCompositeCategories:
+    // [trn] =&gt; exact
+    // [trnM1[inf,arm]] =&gt; greedy
+    // [trnM2[inf,arm]] =&gt; greedy
+    // [trn[inf]] =&gt; greedy
+    // [trn[arm]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ]
+    // exactSolutions:
+    // t5[ , ]
+    // greedySolutions:
+    // t1[a1,i1]
+    // t2[a2,i2]
+    // t3[ ,i3]
+    // t4[a4, ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 5
+<span class="fc" id="L1446">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, bb1, bb2);</span>
+<span class="fc" id="L1447">    setUnits(chosenUnits, t4);</span>
+<span class="fc" id="L1448">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1449">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1450">    assertEquals(5, autoChooser.solutionCount());</span>
+<span class="fc" id="L1451">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1452">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5);</span>
+<span class="fc" id="L1453">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1454">    setUnits(expectedSelectedUnitsWithDependents, t5);</span>
+<span class="fc" id="L1455">    setUnits(expectedSelectedUnits, t5);</span>
+<span class="fc" id="L1456">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1457">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1458">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1459">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2);</span>
+<span class="fc" id="L1460">    setUnits(expectedSelectedUnits, t2);</span>
+<span class="fc" id="L1461">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1462">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1463">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1464">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1);</span>
+<span class="fc" id="L1465">    setUnits(expectedSelectedUnits, t1);</span>
+<span class="fc" id="L1466">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1467">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1468">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L1469">    setUnits(expectedSelectedUnitsWithDependents, t4, a4);</span>
+<span class="fc" id="L1470">    setUnits(expectedSelectedUnits, t4);</span>
+<span class="fc" id="L1471">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1472">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L1473">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L1474">    setUnits(expectedSelectedUnitsWithDependents, t3, i3);</span>
+<span class="fc" id="L1475">    setUnits(expectedSelectedUnits, t3);</span>
+<span class="fc" id="L1476">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1477">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L1478">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],bb1,bb2
+    // chosenUnits:
+    // trn, trn, trn, trn, trn
+    // candidateCompositeCategories:
+    // [trnM1[arm,inf],trnM2[arm,inf],trn[inf],trn[arm],trn] =&gt; greedy
+    // [trnM1[arm,inf],trnM2[arm,inf],trn[inf],trn,trn] =&gt; greedy
+    // [trnM1[arm,inf],trnM2[arm,inf],trn[arm],trn,trn] =&gt; greedy
+    // [trnM1[arm,inf],trn[inf],trn[arm],trn,trn] =&gt; greedy
+    // [trnM2[arm,inf],trn[inf],trn[arm],trn,trn] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ]
+    // exactSolutions:
+    // none
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ]
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t5[ , ],t6[ , ]
+    // t1[a1,i1],t2[a2,i2],t4[a4, ],t5[ , ],t6[ , ]
+    // t1[a1,i1],t3[ ,i2],t4[a4, ],t5[ , ],t6[ , ]
+    // t2[a2,i2],t3[ ,i2],t4[a4, ],t5[ , ],t6[ , ]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 0
+    // solutionCount:
+    // 5
+<span class="fc" id="L1509">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, bb1, bb2);</span>
+<span class="fc" id="L1510">    setUnits(chosenUnits, t1, t2, t3, t4, t5);</span>
+<span class="fc" id="L1511">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1512">    assertEquals(0, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1513">    assertEquals(5, autoChooser.solutionCount());</span>
+<span class="fc" id="L1514">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1515">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L1516">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1517">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5);</span>
+<span class="fc" id="L1518">    setUnits(expectedSelectedUnits, t1, t2, t3, t4, t5);</span>
+<span class="fc" id="L1519">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1520">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1521">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1522">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t4, a4, i1, t1, a1, t5, t6);</span>
+<span class="fc" id="L1523">    setUnits(expectedSelectedUnits, t1, t2, t4, t5, t6);</span>
+<span class="fc" id="L1524">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1525">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1526">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1527">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2, t3, i3, t5, t6);</span>
+<span class="fc" id="L1528">    setUnits(expectedSelectedUnits, t1, t2, t3, t5, t6);</span>
+<span class="fc" id="L1529">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1530">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1531">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L1532">    setUnits(expectedSelectedUnitsWithDependents, t2, i2, a2, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L1533">    setUnits(expectedSelectedUnits, t2, t3, t4, t5, t6);</span>
+<span class="fc" id="L1534">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1535">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L1536">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L1537">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3, t4, a4, t5, t6);</span>
+<span class="fc" id="L1538">    setUnits(expectedSelectedUnits, t1, t3, t4, t5, t6);</span>
+<span class="fc" id="L1539">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1540">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L1541">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+    // implicitDependents:
+    // YES
+    // categorizeMovement:
+    // YES
+    // allUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],t7[i7,I7],bb1,bb2
+    // chosenUnits:
+    // trn, trn, inf
+    // candidateCompositeCategories:
+    // [trn[inf],trn] =&gt; exact
+    // [trnM1[arm,inf],trnM2[arm,inf]] =&gt; greedy
+    // [trnM1[arm,inf],trn[inf]] =&gt; greedy
+    // [trnM1[arm,inf],trn[arm]] =&gt; greedy
+    // [trnM1[arm,inf],trn] =&gt; greedy
+    // [trnM1[arm,inf],trn[inf,inf]] =&gt; greedy
+    // [trnM2[arm,inf],trn[inf]] =&gt; greedy
+    // [trnM2[arm,inf],trn[arm]] =&gt; greedy
+    // [trnM2[arm,inf],trn] =&gt; greedy
+    // [trnM2[arm,inf],trn[inf,inf]] =&gt; greedy
+    // [trn[inf],trn[arm]] =&gt; greedy
+    // [trn[inf],trn[inf,inf]] =&gt; greedy
+    // [trn[arm],trn[inf,inf]] =&gt; greedy
+    // [trn,trn[inf,inf]] =&gt; greedy
+    // candidateUnits:
+    // t1[a1,i1],t2[a2,i2],t3[ ,i3],t4[a4, ],t5[ , ],t6[ , ],t7[i7,I7]
+    // exactSolutions:
+    // t3[ ,i3],t5[ , ]
+    // greedySolutions:
+    // t1[a1,i1],t2[a2,i2]
+    // t1[a1,i1],t3[ ,i3]
+    // t1[a1,i1],t4[a4, ]
+    // t1[a1,i1],t5[ , ]
+    // t1[a1,i1],t7[i7,I7]
+    // t2[a2,i2],t3[ ,i3]
+    // t2[a2,i2],t4[a4, ]
+    // t2[a2,i2],t5[ , ]
+    // t2[a2,i2],t7[i7,I7]
+    // t3[ ,i3],t4[a4, ]
+    // t3[ ,i3],t7[i7,I7]
+    // t4[a4, ],t7[i7,I7]
+    // t5[ , ],t7[i7,I7]
+    // incompleteSolution:
+    // none
+    // exactSolutionCount:
+    // 1
+    // solutionCount:
+    // 14
+<span class="fc" id="L1589">    setUnits(allUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, t7, i7, I7, bb1, bb2);</span>
+<span class="fc" id="L1590">    setUnits(chosenUnits, t1, t4, i3);</span>
+<span class="fc" id="L1591">    autoChooser = new UnitAutoChooser(allUnits, chosenUnits, mustMoveWith, bImplicitDependents, bCategorizeMovement);</span>
+<span class="fc" id="L1592">    assertEquals(1, autoChooser.exactSolutionCount());</span>
+<span class="fc" id="L1593">    assertEquals(14, autoChooser.solutionCount());</span>
+<span class="fc" id="L1594">    assertTrue(autoChooser.foundCompleteSolution());</span>
+<span class="fc" id="L1595">    setUnits(expectedCandidateUnits, t1, a1, i1, t2, a2, i2, t3, i3, t4, a4, t5, t6, t7, i7, I7);</span>
+<span class="fc" id="L1596">    assertEquals(TestUnit.createSet(expectedCandidateUnits), TestUnit.createSet(autoChooser.getCandidateUnits(true)));</span>
+<span class="fc" id="L1597">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t5);</span>
+<span class="fc" id="L1598">    setUnits(expectedSelectedUnits, t3, i3, t5);</span>
+<span class="fc" id="L1599">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1600">        TestUnit.createSet(autoChooser.getSolution(0, true)));</span>
+<span class="fc" id="L1601">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(0, false)));</span>
+<span class="fc" id="L1602">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t2, a2, i2);</span>
+<span class="fc" id="L1603">    setUnits(expectedSelectedUnits, t1, i2, t2);</span>
+<span class="fc" id="L1604">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1605">        TestUnit.createSet(autoChooser.getSolution(1, true)));</span>
+<span class="fc" id="L1606">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(1, false)));</span>
+<span class="fc" id="L1607">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t4, a4);</span>
+<span class="fc" id="L1608">    setUnits(expectedSelectedUnits, t2, i2, t4);</span>
+<span class="fc" id="L1609">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1610">        TestUnit.createSet(autoChooser.getSolution(2, true)));</span>
+<span class="fc" id="L1611">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(2, false)));</span>
+<span class="fc" id="L1612">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t7, i7, I7);</span>
+<span class="fc" id="L1613">    setUnits(expectedSelectedUnits, t2, i2, t7);</span>
+<span class="fc" id="L1614">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1615">        TestUnit.createSet(autoChooser.getSolution(3, true)));</span>
+<span class="fc" id="L1616">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(3, false)));</span>
+<span class="fc" id="L1617">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t3, i3);</span>
+<span class="fc" id="L1618">    setUnits(expectedSelectedUnits, t2, i2, t3);</span>
+<span class="fc" id="L1619">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1620">        TestUnit.createSet(autoChooser.getSolution(4, true)));</span>
+<span class="fc" id="L1621">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(4, false)));</span>
+<span class="fc" id="L1622">    setUnits(expectedSelectedUnitsWithDependents, t2, a2, i2, t5);</span>
+<span class="fc" id="L1623">    setUnits(expectedSelectedUnits, t2, i2, t5);</span>
+<span class="fc" id="L1624">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1625">        TestUnit.createSet(autoChooser.getSolution(5, true)));</span>
+<span class="fc" id="L1626">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(5, false)));</span>
+<span class="fc" id="L1627">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t4, a4);</span>
+<span class="fc" id="L1628">    setUnits(expectedSelectedUnits, t1, i1, t4);</span>
+<span class="fc" id="L1629">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1630">        TestUnit.createSet(autoChooser.getSolution(6, true)));</span>
+<span class="fc" id="L1631">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(6, false)));</span>
+<span class="fc" id="L1632">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t7, i7, I7);</span>
+<span class="fc" id="L1633">    setUnits(expectedSelectedUnits, t1, i1, t7);</span>
+<span class="fc" id="L1634">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1635">        TestUnit.createSet(autoChooser.getSolution(7, true)));</span>
+<span class="fc" id="L1636">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(7, false)));</span>
+<span class="fc" id="L1637">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t3, i3);</span>
+<span class="fc" id="L1638">    setUnits(expectedSelectedUnits, t1, i1, t3);</span>
+<span class="fc" id="L1639">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1640">        TestUnit.createSet(autoChooser.getSolution(8, true)));</span>
+<span class="fc" id="L1641">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(8, false)));</span>
+<span class="fc" id="L1642">    setUnits(expectedSelectedUnitsWithDependents, t1, a1, i1, t5);</span>
+<span class="fc" id="L1643">    setUnits(expectedSelectedUnits, t1, i1, t5);</span>
+<span class="fc" id="L1644">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1645">        TestUnit.createSet(autoChooser.getSolution(9, true)));</span>
+<span class="fc" id="L1646">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(9, false)));</span>
+<span class="fc" id="L1647">    setUnits(expectedSelectedUnitsWithDependents, t7, i7, t4, a4, I7);</span>
+<span class="fc" id="L1648">    setUnits(expectedSelectedUnits, t7, i7, t4);</span>
+<span class="fc" id="L1649">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1650">        TestUnit.createSet(autoChooser.getSolution(10, true)));</span>
+<span class="fc" id="L1651">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(10, false)));</span>
+<span class="fc" id="L1652">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t4, a4);</span>
+<span class="fc" id="L1653">    setUnits(expectedSelectedUnits, t3, i3, t4);</span>
+<span class="fc" id="L1654">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1655">        TestUnit.createSet(autoChooser.getSolution(11, true)));</span>
+<span class="fc" id="L1656">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(11, false)));</span>
+<span class="fc" id="L1657">    setUnits(expectedSelectedUnitsWithDependents, t3, i3, t7, i7, I7);</span>
+<span class="fc" id="L1658">    setUnits(expectedSelectedUnits, t3, t7, i7);</span>
+<span class="fc" id="L1659">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1660">        TestUnit.createSet(autoChooser.getSolution(12, true)));</span>
+<span class="fc" id="L1661">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(12, false)));</span>
+<span class="fc" id="L1662">    setUnits(expectedSelectedUnitsWithDependents, t5, t7, i7, I7);</span>
+<span class="fc" id="L1663">    setUnits(expectedSelectedUnits, t5, t7, i7);</span>
+<span class="fc" id="L1664">    assertEquals(TestUnit.createSet(expectedSelectedUnitsWithDependents),</span>
+<span class="fc" id="L1665">        TestUnit.createSet(autoChooser.getSolution(13, true)));</span>
+<span class="fc" id="L1666">    assertEquals(TestUnit.createSet(expectedSelectedUnits), TestUnit.createSet(autoChooser.getSolution(13, false)));</span>
+<span class="fc" id="L1667">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

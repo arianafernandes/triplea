@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>PropertiesDiceRoller.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.random</a> &gt; <span class="el_source">PropertiesDiceRoller.java</span></div><h1>PropertiesDiceRoller.java</h1><pre class="source lang-java linenums">package games.strategy.engine.random;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
+import java.util.StringTokenizer;
+
+import org.apache.commons.httpclient.HostConfiguration;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.NameValuePair;
+import org.apache.commons.httpclient.methods.PostMethod;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.ClientContext;
+import games.strategy.engine.ClientFileSystemHelper;
+import games.strategy.engine.framework.startup.ui.editors.DiceServerEditor;
+import games.strategy.engine.framework.startup.ui.editors.EditorPanel;
+import games.strategy.engine.framework.startup.ui.editors.IBean;
+import games.strategy.engine.framework.system.HttpProxy;
+
+/**
+ * A pbem dice roller that reads its configuration from a properties file
+ */
+public class PropertiesDiceRoller implements IRemoteDiceServer {
+  private static final long serialVersionUID = 6481409417543119539L;
+
+  /**
+   * Loads the property dice rollers from the properties file
+   *
+   * @return the collection of available dice rollers
+   */
+  public static Collection&lt;PropertiesDiceRoller&gt; loadFromFile() {
+<span class="nc" id="L39">    final List&lt;PropertiesDiceRoller&gt; rollers = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L40">    final File f = new File(ClientFileSystemHelper.getRootFolder(), &quot;dice_servers&quot;);</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">    if (!f.exists()) {</span>
+<span class="nc" id="L42">      throw new IllegalStateException(&quot;No dice server folder:&quot; + f);</span>
+    }
+<span class="nc" id="L44">    final java.util.List&lt;Properties&gt; propFiles = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L45">    final File[] files = f.listFiles();</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">    for (final File file : files) {</span>
+<span class="nc bnc" id="L47" title="All 4 branches missed.">      if (!file.isDirectory() &amp;&amp; file.getName().endsWith(&quot;.properties&quot;)) {</span>
+        try {
+<span class="nc" id="L49">          final Properties props = new Properties();</span>
+<span class="nc" id="L50">          try (final FileInputStream fin = new FileInputStream(file)) {</span>
+<span class="nc" id="L51">            props.load(fin);</span>
+<span class="nc" id="L52">            propFiles.add(props);</span>
+<span class="nc bnc" id="L53" title="All 8 branches missed.">          }</span>
+<span class="nc" id="L54">        } catch (final IOException e) {</span>
+<span class="nc" id="L55">          System.out.println(&quot;error reading file:&quot; + file);</span>
+<span class="nc" id="L56">          ClientLogger.logQuietly(e);</span>
+        }
+      }
+    }
+<span class="nc" id="L60">    Collections.sort(propFiles, (o1, o2) -&gt; {</span>
+<span class="nc" id="L61">      final int n1 = Integer.parseInt(o1.getProperty(&quot;order&quot;));</span>
+<span class="nc" id="L62">      final int n2 = Integer.parseInt(o2.getProperty(&quot;order&quot;));</span>
+<span class="nc" id="L63">      return n1 - n2;</span>
+    });
+<span class="nc bnc" id="L65" title="All 2 branches missed.">    for (final Properties prop : propFiles) {</span>
+<span class="nc" id="L66">      rollers.add(new PropertiesDiceRoller(prop));</span>
+    }
+<span class="nc" id="L68">    return rollers;</span>
+  }
+
+  private final Properties m_props;
+  private String m_toAddress;
+  private String m_ccAddress;
+  private String m_gameId;
+
+<span class="nc" id="L76">  public PropertiesDiceRoller(final Properties props) {</span>
+<span class="nc" id="L77">    m_props = props;</span>
+<span class="nc" id="L78">  }</span>
+
+  @Override
+  public String getDisplayName() {
+<span class="nc" id="L82">    return m_props.getProperty(&quot;name&quot;);</span>
+  }
+
+  @Override
+  public EditorPanel getEditor() {
+<span class="nc" id="L87">    return new DiceServerEditor(this);</span>
+  }
+
+  @Override
+  public boolean sameType(final IBean other) {
+<span class="nc bnc" id="L92" title="All 4 branches missed.">    return other instanceof PropertiesDiceRoller &amp;&amp; getDisplayName().equals(other.getDisplayName());</span>
+  }
+
+  @Override
+  public boolean sendsEmail() {
+<span class="nc" id="L97">    final String property = m_props.getProperty(&quot;send.email&quot;);</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    if (property == null) {</span>
+<span class="nc" id="L99">      return true;</span>
+    }
+<span class="nc" id="L101">    return Boolean.valueOf(property);</span>
+  }
+
+  @Override
+  public String postRequest(final int max, final int numDice, final String subjectMessage, String gameID,
+      final String gameUUID) throws IOException {
+<span class="nc bnc" id="L107" title="All 2 branches missed.">    if (gameID.trim().length() == 0) {</span>
+<span class="nc" id="L108">      gameID = &quot;TripleA&quot;;</span>
+    }
+<span class="nc" id="L110">    String message = gameID + &quot;:&quot; + subjectMessage;</span>
+<span class="nc" id="L111">    final int maxLength = Integer.valueOf(m_props.getProperty(&quot;message.maxlength&quot;));</span>
+<span class="nc bnc" id="L112" title="All 2 branches missed.">    if (message.length() &gt; maxLength) {</span>
+<span class="nc" id="L113">      message = message.substring(0, maxLength - 1);</span>
+    }
+<span class="nc" id="L115">    final PostMethod post = new PostMethod(m_props.getProperty(&quot;path&quot;));</span>
+<span class="nc" id="L116">    final NameValuePair[] data = {new NameValuePair(&quot;numdice&quot;, &quot;&quot; + numDice), new NameValuePair(&quot;numsides&quot;, &quot;&quot; + max),</span>
+<span class="nc" id="L117">        new NameValuePair(&quot;modroll&quot;, &quot;No&quot;), new NameValuePair(&quot;numroll&quot;, &quot;&quot; + 1), new NameValuePair(&quot;subject&quot;, message),</span>
+<span class="nc" id="L118">        new NameValuePair(&quot;roller&quot;, getToAddress()), new NameValuePair(&quot;gm&quot;, getCcAddress()),</span>
+<span class="nc" id="L119">        new NameValuePair(&quot;send&quot;, &quot;true&quot;),};</span>
+<span class="nc" id="L120">    post.setRequestHeader(&quot;User-Agent&quot;, &quot;triplea/&quot; + ClientContext.engineVersion());</span>
+    // this is to allow a dice server to allow the user to request the emails for the game
+    // rather than sending out email for each roll
+<span class="nc" id="L123">    post.setRequestHeader(&quot;X-Triplea-Game-UUID&quot;, gameUUID);</span>
+<span class="nc" id="L124">    post.setRequestBody(data);</span>
+<span class="nc" id="L125">    final HttpClient client = new HttpClient();</span>
+    try {
+<span class="nc" id="L127">      final String host = m_props.getProperty(&quot;host&quot;);</span>
+<span class="nc" id="L128">      int port = 80;</span>
+<span class="nc bnc" id="L129" title="All 2 branches missed.">      if (m_props.getProperty(&quot;port&quot;) != null) {</span>
+<span class="nc" id="L130">        port = Integer.parseInt(m_props.getProperty(&quot;port&quot;));</span>
+      }
+<span class="nc" id="L132">      final HostConfiguration config = client.getHostConfiguration();</span>
+<span class="nc" id="L133">      config.setHost(host, port);</span>
+<span class="nc" id="L134">      HttpProxy.addProxy(config);</span>
+<span class="nc" id="L135">      client.executeMethod(post);</span>
+<span class="nc" id="L136">      final String result = post.getResponseBodyAsString();</span>
+<span class="nc" id="L137">      return result;</span>
+<span class="nc" id="L138">    } finally {</span>
+<span class="nc" id="L139">      post.releaseConnection();</span>
+<span class="nc" id="L140">    }</span>
+  }
+
+  @Override
+  public String getInfoText() {
+<span class="nc" id="L145">    return m_props.getProperty(&quot;infotext&quot;);</span>
+  }
+
+  /**
+   * @throws IOException
+   *         if there was an error parsing the string
+   */
+  @Override
+  public int[] getDice(final String string, final int count) throws IOException, InvocationTargetException {
+<span class="nc" id="L154">    final String errorStartString = m_props.getProperty(&quot;error.start&quot;);</span>
+<span class="nc" id="L155">    final String errorEndString = m_props.getProperty(&quot;error.end&quot;);</span>
+    // if the error strings are defined
+<span class="nc bnc" id="L157" title="All 6 branches missed.">    if (errorStartString != null &amp;&amp; errorStartString.length() &gt; 0 &amp;&amp; errorEndString != null</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">        &amp;&amp; errorEndString.length() &gt; 0) {</span>
+<span class="nc" id="L159">      final int startIndex = string.indexOf(errorStartString);</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">      if (startIndex &gt;= 0) {</span>
+<span class="nc" id="L161">        final int endIndex = string.indexOf(errorEndString, (startIndex + errorStartString.length()));</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">        if (endIndex &gt; 0) {</span>
+<span class="nc" id="L163">          final String error = string.substring(startIndex + errorStartString.length(), endIndex);</span>
+<span class="nc" id="L164">          throw new InvocationTargetException(null, error);</span>
+        }
+      }
+    }
+    String rollStartString;
+    String rollEndString;
+<span class="nc bnc" id="L170" title="All 2 branches missed.">    if (count == 1) {</span>
+<span class="nc" id="L171">      rollStartString = m_props.getProperty(&quot;roll.single.start&quot;);</span>
+<span class="nc" id="L172">      rollEndString = m_props.getProperty(&quot;roll.single.end&quot;);</span>
+<span class="nc" id="L173">    } else {</span>
+<span class="nc" id="L174">      rollStartString = m_props.getProperty(&quot;roll.multiple.start&quot;);</span>
+<span class="nc" id="L175">      rollEndString = m_props.getProperty(&quot;roll.multiple.end&quot;);</span>
+    }
+<span class="nc" id="L177">    int startIndex = string.indexOf(rollStartString);</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">    if (startIndex == -1) {</span>
+<span class="nc" id="L179">      throw new IOException(&quot;Cound not find start index, text returned is:&quot; + string);</span>
+    }
+<span class="nc" id="L181">    startIndex += rollStartString.length();</span>
+<span class="nc" id="L182">    final int endIndex = string.indexOf(rollEndString, startIndex);</span>
+<span class="nc bnc" id="L183" title="All 2 branches missed.">    if (endIndex == -1) {</span>
+<span class="nc" id="L184">      throw new IOException(&quot;Cound not find end index&quot;);</span>
+    }
+<span class="nc" id="L186">    final StringTokenizer tokenizer = new StringTokenizer(string.substring(startIndex, endIndex), &quot; ,&quot;, false);</span>
+<span class="nc" id="L187">    final int[] rVal = new int[count];</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">    for (int i = 0; i &lt; count; i++) {</span>
+      try {
+        // -1 since we are 0 based
+<span class="nc" id="L191">        rVal[i] = Integer.parseInt(tokenizer.nextToken()) - 1;</span>
+<span class="nc" id="L192">      } catch (final NumberFormatException ex) {</span>
+<span class="nc" id="L193">        ClientLogger.logQuietly(&quot;Number format parsing: &quot; + string, ex);</span>
+<span class="nc" id="L194">        throw new IOException(ex.getMessage());</span>
+      }
+    }
+<span class="nc" id="L197">    return rVal;</span>
+  }
+
+  @Override
+  public String getToAddress() {
+<span class="nc" id="L202">    return m_toAddress;</span>
+  }
+
+  @Override
+  public void setToAddress(final String toAddress) {
+<span class="nc" id="L207">    m_toAddress = toAddress;</span>
+<span class="nc" id="L208">  }</span>
+
+  @Override
+  public String getCcAddress() {
+<span class="nc" id="L212">    return m_ccAddress;</span>
+  }
+
+  @Override
+  public void setCcAddress(final String ccAddress) {
+<span class="nc" id="L217">    m_ccAddress = ccAddress;</span>
+<span class="nc" id="L218">  }</span>
+
+  @Override
+  public boolean supportsGameId() {
+<span class="nc" id="L222">    final String gameid = m_props.getProperty(&quot;gameid&quot;);</span>
+<span class="nc" id="L223">    return &quot;true&quot;.equals(gameid);</span>
+  }
+
+  @Override
+  public void setGameId(final String gameId) {
+<span class="nc" id="L228">    m_gameId = gameId;</span>
+<span class="nc" id="L229">  }</span>
+
+  @Override
+  public String getGameId() {
+<span class="nc" id="L233">    return m_gameId;</span>
+  }
+
+  @Override
+  public String getHelpText() {
+<span class="nc" id="L238">    return getInfoText();</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

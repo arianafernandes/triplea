@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>HeadlessLobbyConsole.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.lobby.server.headless</a> &gt; <span class="el_source">HeadlessLobbyConsole.java</span></div><h1>HeadlessLobbyConsole.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.engine.lobby.server.headless;</span>
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Date;
+import java.util.Formatter;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.debug.DebugUtils;
+import games.strategy.engine.lobby.server.LobbyServer;
+import games.strategy.engine.lobby.server.ui.DBExplorerPanel;
+import games.strategy.engine.lobby.server.userDB.Database;
+import games.strategy.net.IConnectionChangeListener;
+import games.strategy.net.INode;
+import games.strategy.util.TimeManager;
+
+/**
+ * Headless admin console for the lobby.
+ * Reads commands from stdin, and writes responses to stdout.
+ */
+public class HeadlessLobbyConsole {
+  private final LobbyServer server;
+  private final PrintStream out;
+  private final BufferedReader in;
+<span class="nc" id="L33">  private final String startDate = TimeManager.getGMTString(new Date());</span>
+<span class="nc" id="L34">  private final AtomicInteger totalLogins = new AtomicInteger();</span>
+<span class="nc" id="L35">  private final AtomicInteger currentConnections = new AtomicInteger();</span>
+<span class="nc" id="L36">  private volatile int maxConcurrentLogins = 0;</span>
+
+<span class="nc" id="L38">  public HeadlessLobbyConsole(final LobbyServer server, final InputStream in, final PrintStream out) {</span>
+<span class="nc" id="L39">    this.out = out;</span>
+<span class="nc" id="L40">    this.in = new BufferedReader(new InputStreamReader(in));</span>
+<span class="nc" id="L41">    this.server = server;</span>
+<span class="nc" id="L42">    server.getMessenger().addConnectionChangeListener(new IConnectionChangeListener() {</span>
+      @Override
+      public void connectionAdded(final INode to) {
+<span class="nc" id="L45">        currentConnections.incrementAndGet();</span>
+<span class="nc" id="L46">        totalLogins.incrementAndGet();</span>
+        // not strictly thread safe, but good enough
+<span class="nc" id="L48">        maxConcurrentLogins = Math.max(maxConcurrentLogins, currentConnections.get());</span>
+<span class="nc" id="L49">      }</span>
+
+      @Override
+      public void connectionRemoved(final INode to) {
+<span class="nc" id="L53">        currentConnections.decrementAndGet();</span>
+<span class="nc" id="L54">      }</span>
+    });
+<span class="nc" id="L56">  }</span>
+
+  public void start() {
+<span class="nc" id="L59">    final Thread t = new Thread(() -&gt; printEvalLoop(), &quot;Headless console eval print loop&quot;);</span>
+<span class="nc" id="L60">    t.start();</span>
+<span class="nc" id="L61">  }</span>
+
+  private void printEvalLoop() {
+<span class="nc" id="L64">    out.println();</span>
+<span class="nc" id="L65">    while (true) {</span>
+<span class="nc" id="L66">      out.print(&quot;&gt;&gt;&gt;&gt;&quot;);</span>
+<span class="nc" id="L67">      out.flush();</span>
+      try {
+<span class="nc" id="L69">        final String command = in.readLine();</span>
+<span class="nc" id="L70">        process(command.trim());</span>
+<span class="nc" id="L71">      } catch (final Throwable t) {</span>
+<span class="nc" id="L72">        t.printStackTrace();</span>
+<span class="nc" id="L73">        t.printStackTrace(out);</span>
+      }
+    }
+  }
+
+  private void process(final String command) {
+<span class="nc bnc" id="L79" title="All 2 branches missed.">    if (command.equals(&quot;&quot;)) {</span>
+<span class="nc" id="L80">      return;</span>
+    }
+<span class="nc" id="L82">    final String noun = command.split(&quot;\\s&quot;)[0];</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">    if (noun.equals(&quot;help&quot;)) {</span>
+<span class="nc" id="L84">      showHelp();</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    } else if (noun.equals(&quot;status&quot;)) {</span>
+<span class="nc" id="L86">      showStatus();</span>
+<span class="nc bnc" id="L87" title="All 2 branches missed.">    } else if (noun.equals(&quot;sql&quot;)) {</span>
+<span class="nc" id="L88">      executeSql(command.substring(&quot;sql&quot;.length(), command.length()).trim());</span>
+<span class="nc bnc" id="L89" title="All 2 branches missed.">    } else if (noun.equals(&quot;quit&quot;)) {</span>
+<span class="nc" id="L90">      quit();</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">    } else if (noun.equals(&quot;backup&quot;)) {</span>
+<span class="nc" id="L92">      backup();</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">    } else if (noun.equals(&quot;memory&quot;)) {</span>
+<span class="nc" id="L94">      memory();</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">    } else if (noun.equals(&quot;threads&quot;)) {</span>
+<span class="nc" id="L96">      threads();</span>
+<span class="nc" id="L97">    } else {</span>
+<span class="nc" id="L98">      out.println(&quot;unrecognized command:&quot; + command);</span>
+<span class="nc" id="L99">      showHelp();</span>
+    }
+<span class="nc" id="L101">  }</span>
+
+  private void threads() {
+<span class="nc" id="L104">    out.println(DebugUtils.getThreadDumps());</span>
+<span class="nc" id="L105">  }</span>
+
+  private void memory() {
+<span class="nc" id="L108">    out.println(DebugUtils.getMemory());</span>
+<span class="nc" id="L109">  }</span>
+
+  private static void backup() {
+<span class="nc" id="L112">    Database.backup();</span>
+<span class="nc" id="L113">  }</span>
+
+  private void quit() {
+<span class="nc" id="L116">    out.println(&quot;Are you sure? (y/n)&quot;);</span>
+    try {
+<span class="nc" id="L118">      final String readin = in.readLine();</span>
+<span class="nc bnc" id="L119" title="All 4 branches missed.">      if (readin != null &amp;&amp; readin.toLowerCase().startsWith(&quot;y&quot;)) {</span>
+<span class="nc" id="L120">        System.exit(0);</span>
+      }
+<span class="nc" id="L122">    } catch (final IOException e) {</span>
+<span class="nc" id="L123">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L125">  }</span>
+
+  private void executeSql(final String sql) {
+<span class="nc" id="L128">    try (final Connection con = Database.getConnection()) {</span>
+<span class="nc" id="L129">      final Statement ps = con.createStatement();</span>
+<span class="nc bnc" id="L130" title="All 2 branches missed.">      if (DBExplorerPanel.isNotQuery(sql)) {</span>
+<span class="nc" id="L131">        final int rs = ps.executeUpdate(sql);</span>
+<span class="nc" id="L132">        out.println(&quot;Update count:&quot; + rs);</span>
+<span class="nc" id="L133">      } else {</span>
+<span class="nc" id="L134">        final ResultSet rs = ps.executeQuery(sql);</span>
+<span class="nc" id="L135">        print(rs);</span>
+<span class="nc" id="L136">        rs.close();</span>
+      }
+<span class="nc bnc" id="L138" title="All 8 branches missed.">    } catch (final SQLException e) {</span>
+<span class="nc" id="L139">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L141">  }</span>
+
+  private void print(final ResultSet rs) {
+<span class="nc" id="L144">    try (final Formatter f = new Formatter(out)) {</span>
+<span class="nc" id="L145">      final String itemFormat = &quot;%20s &quot;;</span>
+<span class="nc" id="L146">      f.format(itemFormat, &quot;Count&quot;);</span>
+<span class="nc" id="L147">      final int count = rs.getMetaData().getColumnCount();</span>
+<span class="nc bnc" id="L148" title="All 2 branches missed.">      for (int i = 1; i &lt;= count; i++) {</span>
+<span class="nc" id="L149">        final String columnName = rs.getMetaData().getColumnName(i);</span>
+<span class="nc" id="L150">        f.format(itemFormat, columnName);</span>
+      }
+<span class="nc" id="L152">      f.format(&quot;\n&quot;);</span>
+<span class="nc bnc" id="L153" title="All 2 branches missed.">      for (int i = 0; i &lt; count; i++) {</span>
+<span class="nc" id="L154">        f.format(itemFormat, &quot;-----------&quot;);</span>
+      }
+<span class="nc" id="L156">      f.format(&quot;\n&quot;);</span>
+<span class="nc" id="L157">      int row = 1;</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      while (rs.next()) {</span>
+<span class="nc" id="L159">        f.format(itemFormat, row++);</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">        for (int i = 1; i &lt;= count; i++) {</span>
+<span class="nc" id="L161">          f.format(itemFormat, rs.getString(i));</span>
+        }
+<span class="nc" id="L163">        f.format(&quot;\n&quot;);</span>
+<span class="nc" id="L164">        f.flush();</span>
+      }
+      // do not close, because this closes the underlying stream, which is system.out, which you should never close
+      // f.close();
+<span class="nc bnc" id="L168" title="All 8 branches missed.">    } catch (final SQLException e) {</span>
+<span class="nc" id="L169">      e.printStackTrace(out);</span>
+    }
+<span class="nc" id="L171">  }</span>
+
+  private void showStatus() {
+<span class="nc" id="L174">    final int port = server.getMessenger().getServerNode().getPort();</span>
+<span class="nc" id="L175">    out.print(String.format(</span>
+<span class="nc" id="L176">        &quot;port:%s\n&quot; + &quot;up since:%s\n&quot; + &quot;total logins:%s\n&quot; + &quot;current connections:%s\n&quot;</span>
+            + &quot;max concurrent connections:%s\n&quot;,
+<span class="nc" id="L178">        port, startDate, totalLogins.get(), currentConnections.get(), maxConcurrentLogins));</span>
+<span class="nc" id="L179">  }</span>
+
+  private void showHelp() {
+<span class="nc" id="L182">    out.println(&quot;available commands:\n&quot; + &quot;  backup - backup the database \n&quot; + &quot;  help - show this message\n&quot;</span>
+        + &quot;  memory - show memory usage\n&quot; + &quot;  status - show status information\n&quot;
+        + &quot;  sql {sql} - execute a sql command and print the results\n&quot; + &quot;  threads - get thread dumps\n&quot;
+        + &quot;  quit - quit\n&quot;);
+<span class="nc" id="L186">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

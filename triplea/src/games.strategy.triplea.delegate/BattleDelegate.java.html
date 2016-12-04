@@ -1,0 +1,1618 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>BattleDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">BattleDelegate.java</span></div><h1>BattleDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.CompositeChange;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.RouteScripted;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.delegate.AutoSave;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.message.IRemote;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.IBattle.BattleType;
+import games.strategy.triplea.delegate.IBattle.WhoWon;
+import games.strategy.triplea.delegate.dataObjects.BattleListing;
+import games.strategy.triplea.delegate.dataObjects.BattleRecord;
+import games.strategy.triplea.delegate.remote.IBattleDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.oddsCalculator.ta.BattleResults;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+
+@MapSupport
+@AutoSave(beforeStepStart = true, afterStepEnd = true)
+<span class="fc" id="L52">public class BattleDelegate extends BaseTripleADelegate implements IBattleDelegate {</span>
+<span class="fc" id="L53">  protected BattleTracker m_battleTracker = new BattleTracker();</span>
+  // private OriginalOwnerTracker m_originalOwnerTracker = new OriginalOwnerTracker();
+<span class="fc" id="L55">  private boolean m_needToInitialize = true;</span>
+<span class="fc" id="L56">  private boolean m_needToScramble = true;</span>
+<span class="fc" id="L57">  private boolean m_needToKamikazeSuicideAttacks = true;</span>
+<span class="fc" id="L58">  private boolean m_needToClearEmptyAirBattleAttacks = true;</span>
+<span class="fc" id="L59">  private boolean m_needToAddBombardmentSources = true;</span>
+<span class="fc" id="L60">  private boolean m_needToRecordBattleStatistics = true;</span>
+<span class="fc" id="L61">  private boolean m_needToCheckDefendingPlanesCanLand = true;</span>
+<span class="fc" id="L62">  private boolean m_needToCleanup = true;</span>
+<span class="fc" id="L63">  protected IBattle m_currentBattle = null;</span>
+
+  /**
+   * Called before the delegate will run, AND before &quot;start&quot; is called.
+   */
+  @Override
+  public void setDelegateBridgeAndPlayer(final IDelegateBridge iDelegateBridge) {
+<span class="fc" id="L70">    super.setDelegateBridgeAndPlayer(new GameDelegateBridge(iDelegateBridge));</span>
+<span class="fc" id="L71">  }</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="fc" id="L78">    super.start();</span>
+    // we may start multiple times due to loading after saving
+    // only initialize once
+<span class="fc bfc" id="L81" title="All 2 branches covered.">    if (m_needToInitialize) {</span>
+<span class="fc" id="L82">      doInitialize(m_battleTracker, m_bridge);</span>
+<span class="fc" id="L83">      m_needToInitialize = false;</span>
+    }
+    // do pre-combat stuff, like scrambling, after we have setup all battles, but before we have bombardment, etc.
+    // the order of all of this stuff matters quite a bit.
+<span class="fc bfc" id="L87" title="All 2 branches covered.">    if (m_needToScramble) {</span>
+<span class="fc" id="L88">      doScrambling();</span>
+<span class="fc" id="L89">      m_needToScramble = false;</span>
+    }
+<span class="fc bfc" id="L91" title="All 2 branches covered.">    if (m_needToKamikazeSuicideAttacks) {</span>
+<span class="fc" id="L92">      doKamikazeSuicideAttacks();</span>
+<span class="fc" id="L93">      m_needToKamikazeSuicideAttacks = false;</span>
+    }
+<span class="fc bfc" id="L95" title="All 2 branches covered.">    if (m_needToClearEmptyAirBattleAttacks) {</span>
+<span class="fc" id="L96">      clearEmptyAirBattleAttacks(m_battleTracker, m_bridge);</span>
+<span class="fc" id="L97">      m_needToClearEmptyAirBattleAttacks = false;</span>
+    }
+<span class="fc bfc" id="L99" title="All 2 branches covered.">    if (m_needToAddBombardmentSources) {</span>
+<span class="fc" id="L100">      addBombardmentSources();</span>
+<span class="fc" id="L101">      m_needToAddBombardmentSources = false;</span>
+    }
+<span class="fc" id="L103">  }</span>
+
+  /**
+   * Called before the delegate will stop running.
+   */
+  @Override
+  public void end() {
+<span class="pc bpc" id="L110" title="1 of 2 branches missed.">    if (m_needToRecordBattleStatistics) {</span>
+<span class="fc" id="L111">      getBattleTracker().sendBattleRecordsToGameData(m_bridge);</span>
+<span class="fc" id="L112">      m_needToRecordBattleStatistics = false;</span>
+    }
+<span class="pc bpc" id="L114" title="1 of 2 branches missed.">    if (m_needToCleanup) {</span>
+<span class="fc" id="L115">      getBattleTracker().clearBattleRecords();</span>
+<span class="fc" id="L116">      scramblingCleanup();</span>
+<span class="fc" id="L117">      airBattleCleanup();</span>
+<span class="fc" id="L118">      m_needToCleanup = false;</span>
+    }
+<span class="pc bpc" id="L120" title="1 of 2 branches missed.">    if (m_needToCheckDefendingPlanesCanLand) {</span>
+<span class="fc" id="L121">      checkDefendingPlanesCanLand();</span>
+<span class="fc" id="L122">      m_needToCheckDefendingPlanesCanLand = false;</span>
+    }
+<span class="fc" id="L124">    super.end();</span>
+<span class="fc" id="L125">    m_needToInitialize = true;</span>
+<span class="fc" id="L126">    m_needToScramble = true;</span>
+<span class="fc" id="L127">    m_needToKamikazeSuicideAttacks = true;</span>
+<span class="fc" id="L128">    m_needToClearEmptyAirBattleAttacks = true;</span>
+<span class="fc" id="L129">    m_needToAddBombardmentSources = true;</span>
+<span class="fc" id="L130">    m_needToRecordBattleStatistics = true;</span>
+<span class="fc" id="L131">    m_needToCleanup = true;</span>
+<span class="fc" id="L132">    m_needToCheckDefendingPlanesCanLand = true;</span>
+<span class="fc" id="L133">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L137">    final BattleExtendedDelegateState state = new BattleExtendedDelegateState();</span>
+<span class="nc" id="L138">    state.superState = super.saveState();</span>
+    // add other variables to state here:
+<span class="nc" id="L140">    state.m_battleTracker = m_battleTracker;</span>
+    // state.m_originalOwnerTracker = m_originalOwnerTracker;
+<span class="nc" id="L142">    state.m_needToInitialize = m_needToInitialize;</span>
+<span class="nc" id="L143">    state.m_needToScramble = m_needToScramble;</span>
+<span class="nc" id="L144">    state.m_needToKamikazeSuicideAttacks = m_needToKamikazeSuicideAttacks;</span>
+<span class="nc" id="L145">    state.m_needToClearEmptyAirBattleAttacks = m_needToClearEmptyAirBattleAttacks;</span>
+<span class="nc" id="L146">    state.m_needToAddBombardmentSources = m_needToAddBombardmentSources;</span>
+<span class="nc" id="L147">    state.m_needToRecordBattleStatistics = m_needToRecordBattleStatistics;</span>
+<span class="nc" id="L148">    state.m_needToCheckDefendingPlanesCanLand = m_needToCheckDefendingPlanesCanLand;</span>
+<span class="nc" id="L149">    state.m_needToCleanup = m_needToCleanup;</span>
+<span class="nc" id="L150">    state.m_currentBattle = m_currentBattle;</span>
+<span class="nc" id="L151">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L156">    final BattleExtendedDelegateState s = (BattleExtendedDelegateState) state;</span>
+<span class="nc" id="L157">    super.loadState(s.superState);</span>
+<span class="nc" id="L158">    m_battleTracker = s.m_battleTracker;</span>
+<span class="nc" id="L159">    m_needToInitialize = s.m_needToInitialize;</span>
+<span class="nc" id="L160">    m_needToScramble = s.m_needToScramble;</span>
+<span class="nc" id="L161">    m_needToKamikazeSuicideAttacks = s.m_needToKamikazeSuicideAttacks;</span>
+<span class="nc" id="L162">    m_needToClearEmptyAirBattleAttacks = s.m_needToClearEmptyAirBattleAttacks;</span>
+<span class="nc" id="L163">    m_needToAddBombardmentSources = s.m_needToAddBombardmentSources;</span>
+<span class="nc" id="L164">    m_needToRecordBattleStatistics = s.m_needToRecordBattleStatistics;</span>
+<span class="nc" id="L165">    m_needToCheckDefendingPlanesCanLand = s.m_needToCheckDefendingPlanesCanLand;</span>
+<span class="nc" id="L166">    m_needToCleanup = s.m_needToCleanup;</span>
+<span class="nc" id="L167">    m_currentBattle = s.m_currentBattle;</span>
+<span class="nc" id="L168">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc" id="L172">    final BattleListing battles = getBattles();</span>
+<span class="nc bnc" id="L173" title="All 2 branches missed.">    if (battles.isEmpty()) {</span>
+<span class="nc" id="L174">      final IBattle battle = getCurrentBattle();</span>
+<span class="nc bnc" id="L175" title="All 2 branches missed.">      return battle != null;</span>
+    }
+<span class="nc" id="L177">    return true;</span>
+  }
+
+  public static void doInitialize(final BattleTracker battleTracker, final IDelegateBridge aBridge) {
+<span class="fc" id="L181">    setupUnitsInSameTerritoryBattles(battleTracker, aBridge);</span>
+<span class="fc" id="L182">    setupTerritoriesAbandonedToTheEnemy(battleTracker, aBridge);</span>
+    // these are &quot;blitzed&quot; and &quot;conquered&quot; territories without a fight, without a pending
+    // battle
+<span class="fc" id="L185">    battleTracker.clearFinishedBattles(aBridge);</span>
+<span class="fc" id="L186">    resetMaxScrambleCount(aBridge);</span>
+<span class="fc" id="L187">  }</span>
+
+  public static void clearEmptyAirBattleAttacks(final BattleTracker battleTracker, final IDelegateBridge aBridge) {
+    // these are air battle and air raids where there is no defender, probably because no
+    // air is in range to defend
+<span class="fc" id="L192">    battleTracker.clearEmptyAirBattleAttacks(aBridge);</span>
+<span class="fc" id="L193">  }</span>
+
+  @Override
+  public String fightCurrentBattle() {
+<span class="nc bnc" id="L197" title="All 2 branches missed.">    if (m_currentBattle == null) {</span>
+<span class="nc" id="L198">      return null;</span>
+    }
+    // fight the battle
+<span class="nc" id="L201">    m_currentBattle.fight(m_bridge);</span>
+<span class="nc" id="L202">    m_currentBattle = null;</span>
+    // and were done
+<span class="nc" id="L204">    return null;</span>
+  }
+
+  @Override
+  public String fightBattle(final Territory territory, final boolean bombing, final BattleType type) {
+<span class="fc" id="L209">    final IBattle battle = m_battleTracker.getPendingBattle(territory, bombing, type);</span>
+<span class="pc bpc" id="L210" title="3 of 4 branches missed.">    if (m_currentBattle != null &amp;&amp; m_currentBattle != battle) {</span>
+<span class="nc" id="L211">      return &quot;Must finish &quot; + getFightingWord(m_currentBattle) + &quot; in &quot; + m_currentBattle.getTerritory() + &quot; first&quot;;</span>
+    }
+    // does the battle exist
+<span class="pc bpc" id="L214" title="1 of 2 branches missed.">    if (battle == null) {</span>
+<span class="nc" id="L215">      return &quot;No pending battle in&quot; + territory.getName();</span>
+    }
+    // are there battles that must occur first
+<span class="fc" id="L218">    final Collection&lt;IBattle&gt; allMustPrecede = m_battleTracker.getDependentOn(battle);</span>
+<span class="pc bpc" id="L219" title="1 of 2 branches missed.">    if (!allMustPrecede.isEmpty()) {</span>
+<span class="nc" id="L220">      final IBattle firstPrecede = allMustPrecede.iterator().next();</span>
+<span class="nc" id="L221">      final String name = firstPrecede.getTerritory().getName();</span>
+<span class="nc" id="L222">      return &quot;Must complete &quot; + getFightingWord(firstPrecede) + &quot; in &quot; + name + &quot; first&quot;;</span>
+    }
+<span class="fc" id="L224">    m_currentBattle = battle;</span>
+    // fight the battle
+<span class="fc" id="L226">    battle.fight(m_bridge);</span>
+<span class="fc" id="L227">    m_currentBattle = null;</span>
+    // and were done
+<span class="fc" id="L229">    return null;</span>
+  }
+
+  private String getFightingWord(final IBattle battle) {
+<span class="nc" id="L233">    return battle.getBattleType().toString();</span>
+  }
+
+  @Override
+  public BattleListing getBattles() {
+<span class="fc" id="L238">    return m_battleTracker.getPendingBattleSites();</span>
+  }
+
+  private boolean isShoreBombardPerGroundUnitRestricted(final GameData data) {
+<span class="fc" id="L242">    return games.strategy.triplea.Properties.getShoreBombardPerGroundUnitRestricted(data);</span>
+  }
+
+  public BattleTracker getBattleTracker() {
+<span class="fc" id="L246">    return m_battleTracker;</span>
+  }
+
+  public IDelegateBridge getBattleBridge() {
+<span class="nc" id="L250">    return getBridge();</span>
+  }
+
+  /**
+   * Add bombardment units to battles.
+   */
+  private void addBombardmentSources() {
+<span class="fc" id="L257">    final PlayerID attacker = m_bridge.getPlayerID();</span>
+<span class="fc" id="L258">    final ITripleAPlayer remotePlayer = getRemotePlayer();</span>
+<span class="fc" id="L259">    final Match&lt;Unit&gt; ownedAndCanBombard =</span>
+<span class="fc" id="L260">        new CompositeMatchAnd&lt;&gt;(Matches.unitCanBombard(attacker), Matches.unitIsOwnedBy(attacker));</span>
+<span class="fc" id="L261">    final Map&lt;Territory, Collection&lt;IBattle&gt;&gt; adjBombardment = getPossibleBombardingTerritories();</span>
+<span class="fc" id="L262">    final Iterator&lt;Territory&gt; territories = adjBombardment.keySet().iterator();</span>
+<span class="fc" id="L263">    final boolean shoreBombardPerGroundUnitRestricted = isShoreBombardPerGroundUnitRestricted(getData());</span>
+<span class="fc bfc" id="L264" title="All 2 branches covered.">    while (territories.hasNext()) {</span>
+<span class="fc" id="L265">      final Territory t = territories.next();</span>
+<span class="fc bfc" id="L266" title="All 2 branches covered.">      if (!m_battleTracker.hasPendingBattle(t, false)) {</span>
+<span class="fc" id="L267">        Collection&lt;IBattle&gt; battles = adjBombardment.get(t);</span>
+<span class="fc" id="L268">        battles = Match.getMatches(battles, Matches.BattleIsAmphibious);</span>
+<span class="fc bfc" id="L269" title="All 2 branches covered.">        if (!battles.isEmpty()) {</span>
+<span class="fc" id="L270">          final Collection&lt;Unit&gt; bombardUnits = t.getUnits().getMatches(ownedAndCanBombard);</span>
+<span class="fc" id="L271">          final List&lt;Unit&gt; ListedBombardUnits = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L272">          ListedBombardUnits.addAll(bombardUnits);</span>
+<span class="fc" id="L273">          sortUnitsToBombard(ListedBombardUnits, attacker);</span>
+<span class="fc" id="L274">          final Iterator&lt;Unit&gt; bombarding = ListedBombardUnits.iterator();</span>
+<span class="fc bfc" id="L275" title="All 2 branches covered.">          if (!bombardUnits.isEmpty()) {</span>
+            // ask if they want to bombard
+<span class="pc bpc" id="L277" title="1 of 2 branches missed.">            if (!remotePlayer.selectShoreBombard(t)) {</span>
+<span class="nc" id="L278">              continue;</span>
+            }
+          }
+<span class="fc bfc" id="L281" title="All 2 branches covered.">          while (bombarding.hasNext()) {</span>
+<span class="fc" id="L282">            final Unit u = bombarding.next();</span>
+<span class="fc" id="L283">            final IBattle battle = selectBombardingBattle(u, t, battles);</span>
+<span class="pc bpc" id="L284" title="1 of 2 branches missed.">            if (battle != null) {</span>
+<span class="pc bpc" id="L285" title="1 of 2 branches missed.">              if (shoreBombardPerGroundUnitRestricted) {</span>
+<span class="fc bfc" id="L286" title="All 2 branches covered.">                if (battle.getAmphibiousLandAttackers().size() &lt;= battle.getBombardingUnits().size()) {</span>
+<span class="fc" id="L287">                  battles.remove(battle);</span>
+<span class="fc" id="L288">                  break;</span>
+                }
+              }
+<span class="fc" id="L291">              battle.addBombardingUnit(u);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="fc" id="L297">  }</span>
+
+  /**
+   * Sort the specified units in preferred movement or unload order.
+   */
+  private void sortUnitsToBombard(final List&lt;Unit&gt; units, final PlayerID player) {
+<span class="fc bfc" id="L303" title="All 2 branches covered.">    if (units.isEmpty()) {</span>
+<span class="fc" id="L304">      return;</span>
+    }
+<span class="fc" id="L306">    Collections.sort(units, UnitComparator.getDecreasingAttackComparator(player));</span>
+<span class="fc" id="L307">  }</span>
+
+  /**
+   * Return map of adjacent territories along attack routes in battles where fighting will occur.
+   */
+  private Map&lt;Territory, Collection&lt;IBattle&gt;&gt; getPossibleBombardingTerritories() {
+<span class="fc" id="L313">    final Map&lt;Territory, Collection&lt;IBattle&gt;&gt; possibleBombardingTerritories =</span>
+<span class="fc" id="L314">        new HashMap&lt;&gt;();</span>
+<span class="fc" id="L315">    final Iterator&lt;Territory&gt; battleTerritories = m_battleTracker.getPendingBattleSites(false).iterator();</span>
+<span class="fc bfc" id="L316" title="All 2 branches covered.">    while (battleTerritories.hasNext()) {</span>
+<span class="fc" id="L317">      final Territory t = battleTerritories.next();</span>
+<span class="fc" id="L318">      final IBattle battle = m_battleTracker.getPendingBattle(t, false, BattleType.NORMAL);</span>
+      // we only care about battles where we must fight
+      // this check is really to avoid implementing getAttackingFrom() in other battle subclasses
+<span class="pc bpc" id="L321" title="1 of 2 branches missed.">      if (!(battle instanceof MustFightBattle)) {</span>
+<span class="nc" id="L322">        continue;</span>
+      }
+      // bombarding can only occur in territories from which at least 1 land unit attacked
+<span class="fc" id="L325">      final Map&lt;Territory, Collection&lt;Unit&gt;&gt; attackingFromMap = ((MustFightBattle) battle).getAttackingFromMap();</span>
+<span class="fc" id="L326">      final Iterator&lt;Territory&gt; bombardingTerritories = ((MustFightBattle) battle).getAttackingFrom().iterator();</span>
+<span class="fc bfc" id="L327" title="All 2 branches covered.">      while (bombardingTerritories.hasNext()) {</span>
+<span class="fc" id="L328">        final Territory neighbor = bombardingTerritories.next();</span>
+        // we do not allow bombarding from certain sea zones (like if there was a kamikaze suicide attack there, etc)
+<span class="pc bpc" id="L330" title="1 of 2 branches missed.">        if (m_battleTracker.noBombardAllowedFromHere(neighbor)) {</span>
+<span class="nc" id="L331">          continue;</span>
+        }
+        // If all units from a territory are air- no bombard
+<span class="fc bfc" id="L334" title="All 2 branches covered.">        if (Match.allMatch(attackingFromMap.get(neighbor), Matches.UnitIsAir)) {</span>
+<span class="fc" id="L335">          continue;</span>
+        }
+<span class="fc" id="L337">        Collection&lt;IBattle&gt; battles = possibleBombardingTerritories.get(neighbor);</span>
+<span class="fc bfc" id="L338" title="All 2 branches covered.">        if (battles == null) {</span>
+<span class="fc" id="L339">          battles = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L340">          possibleBombardingTerritories.put(neighbor, battles);</span>
+        }
+<span class="fc" id="L342">        battles.add(battle);</span>
+      }
+    }
+<span class="fc" id="L345">    return possibleBombardingTerritories;</span>
+  }
+
+  /**
+   * Select which territory to bombard.
+   */
+  private IBattle selectBombardingBattle(final Unit u, final Territory uTerritory, final Collection&lt;IBattle&gt; battles) {
+<span class="fc" id="L352">    final boolean bombardRestricted = isShoreBombardPerGroundUnitRestricted(getData());</span>
+    // If only one battle to select from just return that battle
+<span class="pc bpc" id="L354" title="1 of 2 branches missed.">    if ((battles.size() == 1)) {</span>
+<span class="fc" id="L355">      return battles.iterator().next();</span>
+    }
+<span class="nc" id="L357">    final List&lt;Territory&gt; territories = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L358">    final Map&lt;Territory, IBattle&gt; battleTerritories = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L359">    final Iterator&lt;IBattle&gt; battlesIter = battles.iterator();</span>
+<span class="nc bnc" id="L360" title="All 2 branches missed.">    while (battlesIter.hasNext()) {</span>
+<span class="nc" id="L361">      final IBattle battle = battlesIter.next();</span>
+      // If Restricted &amp; # of bombarding units =&gt; landing units, don't add territory to list to bombard
+<span class="nc bnc" id="L363" title="All 2 branches missed.">      if (bombardRestricted) {</span>
+<span class="nc bnc" id="L364" title="All 2 branches missed.">        if (battle.getBombardingUnits().size() &lt; battle.getAmphibiousLandAttackers().size()) {</span>
+<span class="nc" id="L365">          territories.add(battle.getTerritory());</span>
+        }
+<span class="nc" id="L367">      } else {</span>
+<span class="nc" id="L368">        territories.add(battle.getTerritory());</span>
+      }
+<span class="nc" id="L370">      battleTerritories.put(battle.getTerritory(), battle);</span>
+    }
+<span class="nc" id="L372">    final ITripleAPlayer remotePlayer = getRemotePlayer();</span>
+<span class="nc" id="L373">    Territory bombardingTerritory = null;</span>
+<span class="nc bnc" id="L374" title="All 2 branches missed.">    if (!territories.isEmpty()) {</span>
+<span class="nc" id="L375">      bombardingTerritory = remotePlayer.selectBombardingTerritory(u, uTerritory, territories, true);</span>
+    }
+<span class="nc bnc" id="L377" title="All 2 branches missed.">    if (bombardingTerritory != null) {</span>
+<span class="nc" id="L378">      return battleTerritories.get(bombardingTerritory);</span>
+    }
+    // User elected not to bombard with this unit
+<span class="nc" id="L381">    return null;</span>
+  }
+
+  private static void landParatroopers(final PlayerID player, final Territory battleSite, final GameData data,
+      final IDelegateBridge bridge) {
+<span class="nc bnc" id="L386" title="All 2 branches missed.">    if (TechTracker.hasParatroopers(player)) {</span>
+<span class="nc" id="L387">      final Collection&lt;Unit&gt; airTransports =</span>
+<span class="nc" id="L388">          Match.getMatches(battleSite.getUnits().getUnits(), Matches.UnitIsAirTransport);</span>
+<span class="nc" id="L389">      final Collection&lt;Unit&gt; paratroops =</span>
+<span class="nc" id="L390">          Match.getMatches(battleSite.getUnits().getUnits(), Matches.UnitIsAirTransportable);</span>
+<span class="nc bnc" id="L391" title="All 4 branches missed.">      if (!airTransports.isEmpty() &amp;&amp; !paratroops.isEmpty()) {</span>
+<span class="nc" id="L392">        final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L393" title="All 2 branches missed.">        for (final Unit u : paratroops) {</span>
+<span class="nc" id="L394">          final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="nc" id="L395">          final Unit transport = taUnit.getTransportedBy();</span>
+<span class="nc bnc" id="L396" title="All 4 branches missed.">          if (transport == null || !airTransports.contains(transport)) {</span>
+<span class="nc" id="L397">            continue;</span>
+          }
+<span class="nc" id="L399">          change.add(TransportTracker.unloadAirTransportChange(taUnit, battleSite, player, false));</span>
+        }
+<span class="nc bnc" id="L401" title="All 2 branches missed.">        if (!change.isEmpty()) {</span>
+<span class="nc" id="L402">          bridge.getHistoryWriter().startEvent(player.getName() + &quot; lands units in &quot; + battleSite.getName());</span>
+<span class="nc" id="L403">          bridge.addChange(change);</span>
+        }
+      }
+    }
+<span class="nc" id="L407">  }</span>
+
+  /**
+   * Setup the battles where the battle occurs because units are in the
+   * same territory. This happens when subs emerge (after being submerged), and
+   * when naval units are placed in enemy occupied sea zones, and also
+   * when political relationships change and potentially leave units in now-hostile territories.
+   */
+  private static void setupUnitsInSameTerritoryBattles(final BattleTracker battleTracker,
+      final IDelegateBridge aBridge) {
+<span class="fc" id="L417">    final PlayerID player = aBridge.getPlayerID();</span>
+<span class="fc" id="L418">    final GameData data = aBridge.getData();</span>
+<span class="fc" id="L419">    final boolean ignoreTransports = isIgnoreTransportInMovement(data);</span>
+<span class="fc" id="L420">    final boolean ignoreSubs = isIgnoreSubInMovement(data);</span>
+<span class="fc" id="L421">    final CompositeMatchAnd&lt;Unit&gt; seaTransports =</span>
+<span class="fc" id="L422">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransportButNotCombatTransport, Matches.UnitIsSea);</span>
+<span class="fc" id="L423">    final CompositeMatchOr&lt;Unit&gt; seaTranportsOrSubs = new CompositeMatchOr&lt;&gt;(seaTransports, Matches.UnitIsSub);</span>
+    // we want to match all sea zones with our units and enemy units
+<span class="fc" id="L425">    final CompositeMatch&lt;Territory&gt; anyTerritoryWithOwnAndEnemy = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L426">        Matches.territoryHasUnitsOwnedBy(player), Matches.territoryHasEnemyUnits(player, data));</span>
+<span class="fc" id="L427">    final CompositeMatch&lt;Territory&gt; enemyTerritoryAndOwnUnits = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="fc" id="L428">        Matches.isTerritoryEnemyAndNotUnownedWater(player, data), Matches.territoryHasUnitsOwnedBy(player));</span>
+<span class="fc" id="L429">    final CompositeMatch&lt;Territory&gt; enemyUnitsOrEnemyTerritory =</span>
+<span class="fc" id="L430">        new CompositeMatchOr&lt;&gt;(anyTerritoryWithOwnAndEnemy, enemyTerritoryAndOwnUnits);</span>
+<span class="fc" id="L431">    final Iterator&lt;Territory&gt; battleTerritories =</span>
+<span class="fc" id="L432">        Match.getMatches(data.getMap().getTerritories(), enemyUnitsOrEnemyTerritory).iterator();</span>
+<span class="fc bfc" id="L433" title="All 2 branches covered.">    while (battleTerritories.hasNext()) {</span>
+<span class="fc" id="L434">      final Territory territory = battleTerritories.next();</span>
+<span class="fc" id="L435">      final List&lt;Unit&gt; attackingUnits = territory.getUnits().getMatches(Matches.unitIsOwnedBy(player));</span>
+      // now make sure to add any units that must move with these attacking units, so that they get included as
+      // dependencies
+<span class="fc" id="L438">      final Map&lt;Unit, Collection&lt;Unit&gt;&gt; transportMap = TransportTracker.transporting(territory.getUnits().getUnits());</span>
+<span class="fc" id="L439">      final HashSet&lt;Unit&gt; dependants = new HashSet&lt;&gt;();</span>
+<span class="fc bfc" id="L440" title="All 2 branches covered.">      for (final Entry&lt;Unit, Collection&lt;Unit&gt;&gt; entry : transportMap.entrySet()) {</span>
+        // only consider those transports that we are attacking with. allied and enemy transports are not added.
+<span class="fc bfc" id="L442" title="All 2 branches covered.">        if (attackingUnits.contains(entry.getKey())) {</span>
+<span class="fc" id="L443">          dependants.addAll(entry.getValue());</span>
+        }
+      }
+      // no duplicates
+<span class="fc" id="L447">      dependants.removeAll(attackingUnits);</span>
+      // add the dependants to the attacking list
+<span class="fc" id="L449">      attackingUnits.addAll(dependants);</span>
+<span class="fc" id="L450">      final List&lt;Unit&gt; enemyUnits = territory.getUnits().getMatches(Matches.enemyUnit(player, data));</span>
+<span class="fc" id="L451">      final IBattle bombingBattle = battleTracker.getPendingBattle(territory, true, null);</span>
+<span class="fc bfc" id="L452" title="All 2 branches covered.">      if (bombingBattle != null) {</span>
+        // we need to remove any units which are participating in bombing raids
+<span class="fc" id="L454">        attackingUnits.removeAll(bombingBattle.getAttackingUnits());</span>
+      }
+<span class="pc bpc" id="L456" title="1 of 4 branches missed.">      if (attackingUnits.isEmpty() || Match.allMatch(attackingUnits, Matches.UnitIsInfrastructure)) {</span>
+<span class="nc" id="L457">        continue;</span>
+      }
+<span class="fc" id="L459">      IBattle battle = battleTracker.getPendingBattle(territory, false, BattleType.NORMAL);</span>
+<span class="fc bfc" id="L460" title="All 2 branches covered.">      if (battle == null) {</span>
+        // we must land any paratroopers here, but only if there is not going to be a battle (cus battles land them
+        // separately, after aa
+        // fires)
+<span class="pc bpc" id="L464" title="2 of 4 branches missed.">        if (enemyUnits.isEmpty() || Match.allMatch(enemyUnits, Matches.UnitIsInfrastructure)) {</span>
+<span class="nc" id="L465">          landParatroopers(player, territory, data, aBridge);</span>
+        }
+<span class="fc" id="L467">        aBridge.getHistoryWriter().startEvent(player.getName() + &quot; creates battle in territory &quot; + territory.getName());</span>
+<span class="fc" id="L468">        battleTracker.addBattle(new RouteScripted(territory), attackingUnits, false, player, aBridge, null, null);</span>
+<span class="fc" id="L469">        battle = battleTracker.getPendingBattle(territory, false, BattleType.NORMAL);</span>
+      }
+<span class="pc bpc" id="L471" title="1 of 2 branches missed.">      if (battle == null) {</span>
+<span class="nc" id="L472">        continue;</span>
+      }
+<span class="pc bpc" id="L474" title="1 of 2 branches missed.">      if (bombingBattle != null) {</span>
+<span class="nc" id="L475">        battleTracker.addDependency(battle, bombingBattle);</span>
+      }
+<span class="pc bpc" id="L477" title="1 of 2 branches missed.">      if (battle.isEmpty()) {</span>
+<span class="nc" id="L478">        battle.addAttackChange(new RouteScripted(territory), attackingUnits, null);</span>
+      }
+<span class="fc bfc" id="L480" title="All 2 branches covered.">      if (!battle.getAttackingUnits().containsAll(attackingUnits)) {</span>
+<span class="fc" id="L481">        List&lt;Unit&gt; attackingUnitsNeedToBeAdded = new ArrayList&lt;&gt;(attackingUnits);</span>
+<span class="fc" id="L482">        attackingUnitsNeedToBeAdded.removeAll(battle.getAttackingUnits());</span>
+<span class="fc" id="L483">        attackingUnitsNeedToBeAdded.removeAll(battle.getDependentUnits(battle.getAttackingUnits()));</span>
+<span class="pc bpc" id="L484" title="1 of 2 branches missed.">        if (territory.isWater()) {</span>
+<span class="fc" id="L485">          attackingUnitsNeedToBeAdded = Match.getMatches(attackingUnitsNeedToBeAdded, Matches.UnitIsLand.invert());</span>
+<span class="fc" id="L486">        } else {</span>
+<span class="nc" id="L487">          attackingUnitsNeedToBeAdded = Match.getMatches(attackingUnitsNeedToBeAdded, Matches.UnitIsSea.invert());</span>
+        }
+<span class="pc bpc" id="L489" title="1 of 2 branches missed.">        if (!attackingUnitsNeedToBeAdded.isEmpty()) {</span>
+<span class="fc" id="L490">          battle.addAttackChange(new RouteScripted(territory), attackingUnitsNeedToBeAdded, null);</span>
+        }
+      }
+      // Reach stalemate if all attacking and defending units are transports
+<span class="pc bpc" id="L494" title="1 of 4 branches missed.">      if ((ignoreTransports &amp;&amp; Match.allMatch(attackingUnits, seaTransports)</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">          &amp;&amp; Match.allMatch(enemyUnits, seaTransports))</span>
+<span class="pc bpc" id="L496" title="1 of 2 branches missed.">          || ((Match.allMatch(attackingUnits, Matches.unitHasAttackValueOfAtLeast(1).invert()))</span>
+<span class="nc bnc" id="L497" title="All 2 branches missed.">              &amp;&amp; Match.allMatch(enemyUnits, Matches.unitHasDefendValueOfAtLeast(1).invert()))) {</span>
+<span class="nc" id="L498">        final BattleResults results = new BattleResults(battle, WhoWon.DRAW, data);</span>
+<span class="nc" id="L499">        battleTracker.getBattleRecords().addResultToBattle(player, battle.getBattleID(), null, 0, 0,</span>
+<span class="nc" id="L500">            BattleRecord.BattleResultDescription.STALEMATE, results);</span>
+<span class="nc" id="L501">        battle.cancelBattle(aBridge);</span>
+<span class="nc" id="L502">        battleTracker.removeBattle(battle);</span>
+<span class="nc" id="L503">        continue;</span>
+      }
+      // possibility to ignore battle altogether
+<span class="pc bpc" id="L506" title="1 of 2 branches missed.">      if (!attackingUnits.isEmpty()) {</span>
+<span class="fc" id="L507">        final ITripleAPlayer remotePlayer = getRemotePlayer(aBridge);</span>
+<span class="pc bpc" id="L508" title="1 of 4 branches missed.">        if (territory.isWater() &amp;&amp; games.strategy.triplea.Properties.getSeaBattlesMayBeIgnored(data)) {</span>
+<span class="nc bnc" id="L509" title="All 2 branches missed.">          if (!remotePlayer.selectAttackUnits(territory)) {</span>
+<span class="nc" id="L510">            final BattleResults results = new BattleResults(battle, WhoWon.NOTFINISHED, data);</span>
+<span class="nc" id="L511">            battleTracker.getBattleRecords().addResultToBattle(player, battle.getBattleID(), null, 0, 0,</span>
+<span class="nc" id="L512">                BattleRecord.BattleResultDescription.NO_BATTLE, results);</span>
+<span class="nc" id="L513">            battle.cancelBattle(aBridge);</span>
+<span class="nc" id="L514">            battleTracker.removeBattle(battle);</span>
+          }
+<span class="nc" id="L516">          continue;</span>
+        }
+        // Check for ignored units
+<span class="pc bpc" id="L519" title="1 of 4 branches missed.">        if (ignoreTransports || ignoreSubs) {</span>
+          // TODO check if incoming units can attack before asking
+          // if only enemy transports... attack them?
+<span class="pc bpc" id="L522" title="1 of 4 branches missed.">          if (ignoreTransports &amp;&amp; Match.allMatch(enemyUnits, seaTransports)) {</span>
+<span class="pc bpc" id="L523" title="1 of 2 branches missed.">            if (!remotePlayer.selectAttackTransports(territory)) {</span>
+<span class="fc" id="L524">              final BattleResults results = new BattleResults(battle, WhoWon.NOTFINISHED, data);</span>
+<span class="fc" id="L525">              battleTracker.getBattleRecords().addResultToBattle(player, battle.getBattleID(), null, 0, 0,</span>
+<span class="fc" id="L526">                  BattleRecord.BattleResultDescription.NO_BATTLE, results);</span>
+<span class="fc" id="L527">              battle.cancelBattle(aBridge);</span>
+<span class="fc" id="L528">              battleTracker.removeBattle(battle);</span>
+            }
+<span class="fc" id="L530">            continue;</span>
+          }
+          // if only enemy subs... attack them?
+<span class="pc bpc" id="L533" title="1 of 4 branches missed.">          if (ignoreSubs &amp;&amp; Match.allMatch(enemyUnits, Matches.UnitIsSub)) {</span>
+<span class="pc bpc" id="L534" title="1 of 2 branches missed.">            if (!remotePlayer.selectAttackSubs(territory)) {</span>
+<span class="nc" id="L535">              final BattleResults results = new BattleResults(battle, WhoWon.NOTFINISHED, data);</span>
+<span class="nc" id="L536">              battleTracker.getBattleRecords().addResultToBattle(player, battle.getBattleID(), null, 0, 0,</span>
+<span class="nc" id="L537">                  BattleRecord.BattleResultDescription.NO_BATTLE, results);</span>
+<span class="nc" id="L538">              battle.cancelBattle(aBridge);</span>
+<span class="nc" id="L539">              battleTracker.removeBattle(battle);</span>
+            }
+<span class="nc" id="L541">            continue;</span>
+          }
+          // if only enemy transports and subs... attack them?
+<span class="pc bpc" id="L544" title="3 of 6 branches missed.">          if (ignoreSubs &amp;&amp; ignoreTransports &amp;&amp; Match.allMatch(enemyUnits, seaTranportsOrSubs)) {</span>
+<span class="nc bnc" id="L545" title="All 2 branches missed.">            if (!remotePlayer.selectAttackUnits(territory)) {</span>
+<span class="nc" id="L546">              final BattleResults results = new BattleResults(battle, WhoWon.NOTFINISHED, data);</span>
+<span class="nc" id="L547">              battleTracker.getBattleRecords().addResultToBattle(player, battle.getBattleID(), null, 0, 0,</span>
+<span class="nc" id="L548">                  BattleRecord.BattleResultDescription.NO_BATTLE, results);</span>
+<span class="nc" id="L549">              battle.cancelBattle(aBridge);</span>
+<span class="nc" id="L550">              battleTracker.removeBattle(battle);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="fc" id="L556">  }</span>
+
+  /**
+   * Setup the battles where we have abandoned a contested territory during combat move to the enemy.
+   * The enemy then takes over the territory in question.
+   */
+  private static void setupTerritoriesAbandonedToTheEnemy(final BattleTracker battleTracker,
+      final IDelegateBridge aBridge) {
+<span class="fc" id="L564">    final GameData data = aBridge.getData();</span>
+<span class="pc bpc" id="L565" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getAbandonedTerritoriesMayBeTakenOverImmediately(data)) {</span>
+<span class="fc" id="L566">      return;</span>
+    }
+<span class="nc" id="L568">    final PlayerID player = aBridge.getPlayerID();</span>
+<span class="nc" id="L569">    final Iterator&lt;Territory&gt; battleTerritories = Match.getMatches(data.getMap().getTerritories(), Matches</span>
+<span class="nc" id="L570">        .territoryHasEnemyUnitsThatCanCaptureTerritoryAndTerritoryOwnedByTheirEnemyAndIsNotUnownedWater(player, data))</span>
+<span class="nc" id="L571">        .iterator();</span>
+    // all territories that contain enemy units, where the territory is owned by an enemy of these units
+<span class="nc bnc" id="L573" title="All 2 branches missed.">    while (battleTerritories.hasNext()) {</span>
+<span class="nc" id="L574">      final Territory territory = battleTerritories.next();</span>
+<span class="nc" id="L575">      final List&lt;Unit&gt; abandonedToUnits = territory.getUnits().getMatches(Matches.enemyUnit(player, data));</span>
+<span class="nc" id="L576">      final PlayerID abandonedToPlayer = AbstractBattle.findPlayerWithMostUnits(abandonedToUnits);</span>
+      {
+        // now make sure to add any units that must move with these units, so that they get included as dependencies
+<span class="nc" id="L579">        final Map&lt;Unit, Collection&lt;Unit&gt;&gt; transportMap = TransportTracker.transporting(territory.getUnits().getUnits());</span>
+<span class="nc" id="L580">        final HashSet&lt;Unit&gt; dependants = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L581" title="All 2 branches missed.">        for (final Entry&lt;Unit, Collection&lt;Unit&gt;&gt; entry : transportMap.entrySet()) {</span>
+          // only consider those transports that are part of our group
+<span class="nc bnc" id="L583" title="All 2 branches missed.">          if (abandonedToUnits.contains(entry.getKey())) {</span>
+<span class="nc" id="L584">            dependants.addAll(entry.getValue());</span>
+          }
+        }
+        // no duplicates
+<span class="nc" id="L588">        dependants.removeAll(abandonedToUnits);</span>
+        // add the dependants to the attacking list
+<span class="nc" id="L590">        abandonedToUnits.addAll(dependants);</span>
+      }
+      // either we have abandoned the territory (so there are no more units that are enemy units of our enemy units)
+      // or we are possibly bombing the territory (so we may have units there still)
+<span class="nc" id="L594">      final Set&lt;Unit&gt; enemyUnitsOfAbandonedToUnits = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L595">      final Set&lt;PlayerID&gt; enemyPlayers = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L596" title="All 2 branches missed.">      for (final Unit u : abandonedToUnits) {</span>
+<span class="nc" id="L597">        enemyPlayers.add(u.getOwner());</span>
+      }
+<span class="nc bnc" id="L599" title="All 2 branches missed.">      for (final PlayerID p : enemyPlayers) {</span>
+<span class="nc" id="L600">        final CompositeMatchAnd&lt;Unit&gt; canPreventCapture = new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, p),</span>
+<span class="nc" id="L601">            Matches.UnitIsNotAir, Matches.UnitIsNotInfrastructure);</span>
+<span class="nc" id="L602">        enemyUnitsOfAbandonedToUnits.addAll(territory.getUnits().getMatches(canPreventCapture));</span>
+      }
+      // only look at bombing battles, because otherwise the normal attack will determine the ownership of the territory
+<span class="nc" id="L605">      final IBattle bombingBattle = battleTracker.getPendingBattle(territory, true, null);</span>
+<span class="nc bnc" id="L606" title="All 2 branches missed.">      if (bombingBattle != null) {</span>
+<span class="nc" id="L607">        enemyUnitsOfAbandonedToUnits.removeAll(bombingBattle.getAttackingUnits());</span>
+      }
+<span class="nc bnc" id="L609" title="All 2 branches missed.">      if (!enemyUnitsOfAbandonedToUnits.isEmpty()) {</span>
+<span class="nc" id="L610">        continue;</span>
+      }
+<span class="nc" id="L612">      final IBattle nonFightingBattle = battleTracker.getPendingBattle(territory, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L613" title="All 2 branches missed.">      if (nonFightingBattle != null) {</span>
+<span class="nc" id="L614">        throw new IllegalStateException(&quot;Should not be possible to have a normal battle in: &quot; + territory.getName()</span>
+<span class="nc" id="L615">            + &quot; and have abandoned or only bombing there too.&quot;);</span>
+      }
+<span class="nc" id="L617">      aBridge.getHistoryWriter().startEvent(</span>
+<span class="nc" id="L618">          player.getName() + &quot; has abandoned &quot; + territory.getName() + &quot; to &quot; + abandonedToPlayer.getName(),</span>
+<span class="nc" id="L619">          abandonedToUnits);</span>
+<span class="nc" id="L620">      battleTracker.takeOver(territory, abandonedToPlayer, aBridge, null, abandonedToUnits);</span>
+      // TODO: if there are multiple defending unit owners, allow picking which one takes over the territory
+    }
+<span class="nc" id="L623">  }</span>
+
+  private void doScrambling() {
+    // first, figure out all the territories where scrambling units could scramble to
+    // then ask the defending player if they wish to scramble units there, and actually move the units there
+<span class="fc" id="L628">    final GameData data = getData();</span>
+<span class="pc bpc" id="L629" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getScramble_Rules_In_Effect(data)) {</span>
+<span class="fc" id="L630">      return;</span>
+    }
+<span class="nc" id="L632">    final boolean fromIslandOnly = games.strategy.triplea.Properties.getScramble_From_Island_Only(data);</span>
+<span class="nc" id="L633">    final boolean toSeaOnly = games.strategy.triplea.Properties.getScramble_To_Sea_Only(data);</span>
+<span class="nc" id="L634">    final boolean toAnyAmphibious = games.strategy.triplea.Properties.getScrambleToAnyAmphibiousAssault(data);</span>
+<span class="nc" id="L635">    final boolean toSBR = games.strategy.triplea.Properties.getCanScrambleIntoAirBattles(data);</span>
+<span class="nc" id="L636">    int maxScrambleDistance = 0;</span>
+<span class="nc" id="L637">    final Iterator&lt;UnitType&gt; utIter = data.getUnitTypeList().iterator();</span>
+<span class="nc bnc" id="L638" title="All 2 branches missed.">    while (utIter.hasNext()) {</span>
+<span class="nc" id="L639">      final UnitAttachment ua = UnitAttachment.get(utIter.next());</span>
+<span class="nc bnc" id="L640" title="All 4 branches missed.">      if (ua.getCanScramble() &amp;&amp; maxScrambleDistance &lt; ua.getMaxScrambleDistance()) {</span>
+<span class="nc" id="L641">        maxScrambleDistance = ua.getMaxScrambleDistance();</span>
+      }
+    }
+<span class="nc" id="L644">    final Match&lt;Unit&gt; airbasesCanScramble = new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, m_player),</span>
+<span class="nc" id="L645">        Matches.UnitIsAirBase, Matches.UnitIsNotDisabled, Matches.unitIsBeingTransported().invert());</span>
+<span class="nc" id="L646">    final CompositeMatchAnd&lt;Territory&gt; canScramble = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L647">        new CompositeMatchOr&lt;Territory&gt;(Matches.TerritoryIsWater, Matches.isTerritoryEnemy(m_player, data)),</span>
+<span class="nc" id="L648">        Matches.territoryHasUnitsThatMatch(new CompositeMatchAnd&lt;&gt;(Matches.UnitCanScramble,</span>
+<span class="nc" id="L649">            Matches.unitIsEnemyOf(data, m_player), Matches.UnitIsNotDisabled)),</span>
+<span class="nc" id="L650">        Matches.territoryHasUnitsThatMatch(airbasesCanScramble));</span>
+<span class="nc bnc" id="L651" title="All 2 branches missed.">    if (fromIslandOnly) {</span>
+<span class="nc" id="L652">      canScramble.add(Matches.TerritoryIsIsland);</span>
+    }
+<span class="nc" id="L654">    final HashMap&lt;Territory, HashSet&lt;Territory&gt;&gt; scrambleTerrs = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L655">    final Set&lt;Territory&gt; territoriesWithBattles =</span>
+<span class="nc" id="L656">        m_battleTracker.getPendingBattleSites().getNormalBattlesIncludingAirBattles();</span>
+<span class="nc bnc" id="L657" title="All 2 branches missed.">    if (toSBR) {</span>
+<span class="nc" id="L658">      territoriesWithBattles</span>
+<span class="nc" id="L659">          .addAll(m_battleTracker.getPendingBattleSites().getStrategicBombingRaidsIncludingAirBattles());</span>
+    }
+<span class="nc" id="L661">    final Set&lt;Territory&gt; territoriesWithBattlesWater = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L662">    final Set&lt;Territory&gt; territoriesWithBattlesLand = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L663">    territoriesWithBattlesWater.addAll(Match.getMatches(territoriesWithBattles, Matches.TerritoryIsWater));</span>
+<span class="nc" id="L664">    territoriesWithBattlesLand.addAll(Match.getMatches(territoriesWithBattles, Matches.TerritoryIsLand));</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">    for (final Territory battleTerr : territoriesWithBattlesWater) {</span>
+<span class="nc" id="L666">      final HashSet&lt;Territory&gt; canScrambleFrom = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L667">          Match.getMatches(data.getMap().getNeighbors(battleTerr, maxScrambleDistance), canScramble));</span>
+<span class="nc bnc" id="L668" title="All 2 branches missed.">      if (!canScrambleFrom.isEmpty()) {</span>
+<span class="nc" id="L669">        scrambleTerrs.put(battleTerr, canScrambleFrom);</span>
+      }
+    }
+<span class="nc bnc" id="L672" title="All 2 branches missed.">    for (final Territory battleTerr : territoriesWithBattlesLand) {</span>
+<span class="nc bnc" id="L673" title="All 2 branches missed.">      if (!toSeaOnly) {</span>
+<span class="nc" id="L674">        final HashSet&lt;Territory&gt; canScrambleFrom = new HashSet&lt;&gt;(</span>
+<span class="nc" id="L675">            Match.getMatches(data.getMap().getNeighbors(battleTerr, maxScrambleDistance), canScramble));</span>
+<span class="nc bnc" id="L676" title="All 2 branches missed.">        if (!canScrambleFrom.isEmpty()) {</span>
+<span class="nc" id="L677">          scrambleTerrs.put(battleTerr, canScrambleFrom);</span>
+        }
+      }
+<span class="nc" id="L680">      final IBattle battle = m_battleTracker.getPendingBattle(battleTerr, false, BattleType.NORMAL);</span>
+      // do not forget we may already have the territory in the list, so we need to add to the collection, not overwrite
+      // it.
+<span class="nc bnc" id="L683" title="All 4 branches missed.">      if (battle != null &amp;&amp; battle.isAmphibious()) {</span>
+<span class="nc bnc" id="L684" title="All 2 branches missed.">        if (battle instanceof MustFightBattle) {</span>
+<span class="nc" id="L685">          final MustFightBattle mfb = (MustFightBattle) battle;</span>
+<span class="nc" id="L686">          final Collection&lt;Territory&gt; amphibFromTerrs = mfb.getAmphibiousAttackTerritories();</span>
+<span class="nc" id="L687">          amphibFromTerrs.removeAll(territoriesWithBattlesWater);</span>
+<span class="nc bnc" id="L688" title="All 2 branches missed.">          for (final Territory amphibFrom : amphibFromTerrs) {</span>
+<span class="nc" id="L689">            HashSet&lt;Territory&gt; canScrambleFrom = scrambleTerrs.get(amphibFrom);</span>
+<span class="nc bnc" id="L690" title="All 2 branches missed.">            if (canScrambleFrom == null) {</span>
+<span class="nc" id="L691">              canScrambleFrom = new HashSet&lt;&gt;();</span>
+            }
+<span class="nc bnc" id="L693" title="All 2 branches missed.">            if (toAnyAmphibious) {</span>
+<span class="nc" id="L694">              canScrambleFrom</span>
+<span class="nc" id="L695">                  .addAll(Match.getMatches(data.getMap().getNeighbors(amphibFrom, maxScrambleDistance), canScramble));</span>
+<span class="nc bnc" id="L696" title="All 2 branches missed.">            } else if (canScramble.match(battleTerr)) {</span>
+<span class="nc" id="L697">              canScrambleFrom.add(battleTerr);</span>
+            }
+<span class="nc bnc" id="L699" title="All 2 branches missed.">            if (!canScrambleFrom.isEmpty()) {</span>
+<span class="nc" id="L700">              scrambleTerrs.put(amphibFrom, canScrambleFrom);</span>
+            }
+          }
+        }
+<span class="nc bnc" id="L704" title="All 2 branches missed.">        if (battle instanceof NonFightingBattle) {</span>
+<span class="nc" id="L705">          final NonFightingBattle nfb = (NonFightingBattle) battle;</span>
+<span class="nc" id="L706">          final Collection&lt;Territory&gt; amphibFromTerrs = nfb.getAmphibiousAttackTerritories();</span>
+<span class="nc" id="L707">          amphibFromTerrs.removeAll(territoriesWithBattlesWater);</span>
+<span class="nc bnc" id="L708" title="All 2 branches missed.">          for (final Territory amphibFrom : amphibFromTerrs) {</span>
+<span class="nc" id="L709">            HashSet&lt;Territory&gt; canScrambleFrom = scrambleTerrs.get(amphibFrom);</span>
+<span class="nc bnc" id="L710" title="All 2 branches missed.">            if (canScrambleFrom == null) {</span>
+<span class="nc" id="L711">              canScrambleFrom = new HashSet&lt;&gt;();</span>
+            }
+<span class="nc bnc" id="L713" title="All 2 branches missed.">            if (toAnyAmphibious) {</span>
+<span class="nc" id="L714">              canScrambleFrom</span>
+<span class="nc" id="L715">                  .addAll(Match.getMatches(data.getMap().getNeighbors(amphibFrom, maxScrambleDistance), canScramble));</span>
+<span class="nc bnc" id="L716" title="All 2 branches missed.">            } else if (canScramble.match(battleTerr)) {</span>
+<span class="nc" id="L717">              canScrambleFrom.add(battleTerr);</span>
+            }
+<span class="nc bnc" id="L719" title="All 2 branches missed.">            if (!canScrambleFrom.isEmpty()) {</span>
+<span class="nc" id="L720">              scrambleTerrs.put(amphibFrom, canScrambleFrom);</span>
+            }
+          }
+        }
+      }
+    }
+    // now scrambleTerrs is a list of places we can scramble from
+<span class="nc bnc" id="L727" title="All 2 branches missed.">    if (scrambleTerrs.isEmpty()) {</span>
+<span class="nc" id="L728">      return;</span>
+    }
+<span class="nc" id="L730">    final HashMap&lt;Tuple&lt;Territory, PlayerID&gt;, Collection&lt;HashMap&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt;&gt;&gt; scramblersByTerritoryPlayer =</span>
+<span class="nc" id="L731">        new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L732" title="All 2 branches missed.">    for (final Territory to : scrambleTerrs.keySet()) {</span>
+<span class="nc" id="L733">      final HashMap&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; scramblers =</span>
+<span class="nc" id="L734">          new HashMap&lt;&gt;();</span>
+      // find who we should ask
+<span class="nc" id="L736">      PlayerID defender = null;</span>
+<span class="nc bnc" id="L737" title="All 2 branches missed.">      if (m_battleTracker.hasPendingBattle(to, false)) {</span>
+<span class="nc" id="L738">        defender = AbstractBattle.findDefender(to, m_player, data);</span>
+      }
+<span class="nc bnc" id="L740" title="All 2 branches missed.">      for (final Territory from : scrambleTerrs.get(to)) {</span>
+<span class="nc bnc" id="L741" title="All 2 branches missed.">        if (defender == null) {</span>
+<span class="nc" id="L742">          defender = AbstractBattle.findDefender(from, m_player, data);</span>
+        }
+        // find how many is the max this territory can scramble
+<span class="nc" id="L745">        final Collection&lt;Unit&gt; airbases = from.getUnits().getMatches(airbasesCanScramble);</span>
+<span class="nc" id="L746">        final int maxCanScramble = getMaxScrambleCount(airbases);</span>
+<span class="nc" id="L747">        final Route toBattleRoute = data.getMap().getRoute_IgnoreEnd(from, to, Matches.TerritoryIsNotImpassable);</span>
+<span class="nc" id="L748">        final Collection&lt;Unit&gt; canScrambleAir = from.getUnits()</span>
+<span class="nc" id="L749">            .getMatches(new CompositeMatchAnd&lt;&gt;(Matches.unitIsEnemyOf(data, m_player), Matches.UnitCanScramble,</span>
+<span class="nc" id="L750">                Matches.UnitIsNotDisabled, Matches.UnitWasScrambled.invert(),</span>
+<span class="nc" id="L751">                Matches.unitCanScrambleOnRouteDistance(toBattleRoute)));</span>
+<span class="nc bnc" id="L752" title="All 4 branches missed.">        if (maxCanScramble &gt; 0 &amp;&amp; !canScrambleAir.isEmpty()) {</span>
+<span class="nc" id="L753">          scramblers.put(from, Tuple.of(airbases, canScrambleAir));</span>
+        }
+      }
+<span class="nc bnc" id="L756" title="All 4 branches missed.">      if (defender == null || scramblers.isEmpty()) {</span>
+<span class="nc" id="L757">        continue;</span>
+      }
+<span class="nc" id="L759">      final Tuple&lt;Territory, PlayerID&gt; terrPlayer = Tuple.of(to, defender);</span>
+<span class="nc" id="L760">      Collection&lt;HashMap&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt;&gt; tempScrambleList =</span>
+<span class="nc" id="L761">          scramblersByTerritoryPlayer.get(terrPlayer);</span>
+<span class="nc bnc" id="L762" title="All 2 branches missed.">      if (tempScrambleList == null) {</span>
+<span class="nc" id="L763">        tempScrambleList = new ArrayList&lt;&gt;();</span>
+      }
+<span class="nc" id="L765">      tempScrambleList.add(scramblers);</span>
+<span class="nc" id="L766">      scramblersByTerritoryPlayer.put(terrPlayer, tempScrambleList);</span>
+    }
+    // now scramble them
+<span class="nc bnc" id="L769" title="All 2 branches missed.">    for (final Tuple&lt;Territory, PlayerID&gt; terrPlayer : scramblersByTerritoryPlayer.keySet()) {</span>
+<span class="nc" id="L770">      final Territory to = terrPlayer.getFirst();</span>
+<span class="nc" id="L771">      final PlayerID defender = terrPlayer.getSecond();</span>
+<span class="nc bnc" id="L772" title="All 4 branches missed.">      if (defender == null || defender.isNull()) {</span>
+<span class="nc" id="L773">        continue;</span>
+      }
+<span class="nc" id="L775">      boolean scrambledHere = false;</span>
+<span class="nc bnc" id="L776" title="All 2 branches missed.">      for (final HashMap&lt;Territory, Tuple&lt;Collection&lt;Unit&gt;, Collection&lt;Unit&gt;&gt;&gt; scramblers : scramblersByTerritoryPlayer</span>
+<span class="nc" id="L777">          .get(terrPlayer)) {</span>
+        // verify that we didn't already scramble any of these units
+<span class="nc" id="L779">        final Iterator&lt;Territory&gt; tIter = scramblers.keySet().iterator();</span>
+<span class="nc bnc" id="L780" title="All 2 branches missed.">        while (tIter.hasNext()) {</span>
+<span class="nc" id="L781">          final Territory t = tIter.next();</span>
+<span class="nc" id="L782">          scramblers.get(t).getSecond().retainAll(t.getUnits().getUnits());</span>
+<span class="nc bnc" id="L783" title="All 2 branches missed.">          if (scramblers.get(t).getSecond().isEmpty()) {</span>
+<span class="nc" id="L784">            tIter.remove();</span>
+          }
+        }
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        if (scramblers.isEmpty()) {</span>
+<span class="nc" id="L788">          continue;</span>
+        }
+<span class="nc" id="L790">        final HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; toScramble =</span>
+<span class="nc" id="L791">            getRemotePlayer(defender).scrambleUnitsQuery(to, scramblers);</span>
+<span class="nc bnc" id="L792" title="All 2 branches missed.">        if (toScramble == null) {</span>
+<span class="nc" id="L793">          continue;</span>
+        }
+        // verify max allowed
+<span class="nc bnc" id="L796" title="All 2 branches missed.">        if (!scramblers.keySet().containsAll(toScramble.keySet())) {</span>
+<span class="nc" id="L797">          throw new IllegalStateException(&quot;Trying to scramble from illegal territory&quot;);</span>
+        }
+<span class="nc bnc" id="L799" title="All 2 branches missed.">        for (final Territory t : scramblers.keySet()) {</span>
+<span class="nc bnc" id="L800" title="All 2 branches missed.">          if (toScramble.get(t) == null) {</span>
+<span class="nc" id="L801">            continue;</span>
+          }
+<span class="nc bnc" id="L803" title="All 2 branches missed.">          if (toScramble.get(t).size() &gt; getMaxScrambleCount(scramblers.get(t).getFirst())) {</span>
+<span class="nc" id="L804">            throw new IllegalStateException(&quot;Trying to scramble &quot; + toScramble.get(t).size() + &quot; out of &quot; + t.getName()</span>
+<span class="nc" id="L805">                + &quot;, but max allowed is &quot; + scramblers.get(t).getFirst());</span>
+          }
+        }
+<span class="nc" id="L808">        final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L809" title="All 2 branches missed.">        for (final Territory t : toScramble.keySet()) {</span>
+<span class="nc" id="L810">          final Collection&lt;Unit&gt; scrambling = toScramble.get(t);</span>
+<span class="nc bnc" id="L811" title="All 4 branches missed.">          if (scrambling == null || scrambling.isEmpty()) {</span>
+<span class="nc" id="L812">            continue;</span>
+          }
+<span class="nc" id="L814">          int numberScrambled = scrambling.size();</span>
+<span class="nc" id="L815">          final Collection&lt;Unit&gt; airbases = t.getUnits().getMatches(airbasesCanScramble);</span>
+<span class="nc" id="L816">          final int maxCanScramble = getMaxScrambleCount(airbases);</span>
+<span class="nc bnc" id="L817" title="All 2 branches missed.">          if (maxCanScramble != Integer.MAX_VALUE) {</span>
+            // TODO: maybe sort from biggest to smallest first?
+<span class="nc bnc" id="L819" title="All 2 branches missed.">            for (final Unit airbase : airbases) {</span>
+<span class="nc" id="L820">              final int allowedScramble = ((TripleAUnit) airbase).getMaxScrambleCount();</span>
+<span class="nc" id="L821">              int newAllowed = allowedScramble;</span>
+<span class="nc bnc" id="L822" title="All 2 branches missed.">              if (allowedScramble &gt; 0) {</span>
+<span class="nc bnc" id="L823" title="All 2 branches missed.">                if (allowedScramble &gt;= numberScrambled) {</span>
+<span class="nc" id="L824">                  newAllowed = allowedScramble - numberScrambled;</span>
+<span class="nc" id="L825">                  numberScrambled = 0;</span>
+<span class="nc" id="L826">                } else {</span>
+<span class="nc" id="L827">                  newAllowed = 0;</span>
+<span class="nc" id="L828">                  numberScrambled -= allowedScramble;</span>
+                }
+<span class="nc" id="L830">                change.add(ChangeFactory.unitPropertyChange(airbase, newAllowed, TripleAUnit.MAX_SCRAMBLE_COUNT));</span>
+              }
+<span class="nc bnc" id="L832" title="All 2 branches missed.">              if (numberScrambled &lt;= 0) {</span>
+<span class="nc" id="L833">                break;</span>
+              }
+            }
+          }
+<span class="nc bnc" id="L837" title="All 2 branches missed.">          for (final Unit u : scrambling) {</span>
+<span class="nc" id="L838">            change.add(ChangeFactory.unitPropertyChange(u, t, TripleAUnit.ORIGINATED_FROM));</span>
+<span class="nc" id="L839">            change.add(ChangeFactory.unitPropertyChange(u, true, TripleAUnit.WAS_SCRAMBLED));</span>
+          }
+          // should we mark combat, or call setupUnitsInSameTerritoryBattles again?
+<span class="nc" id="L842">          change.add(ChangeFactory.moveUnits(t, to, scrambling));</span>
+<span class="nc" id="L843">          m_bridge.getHistoryWriter().startEvent(defender.getName() + &quot; scrambles &quot; + scrambling.size()</span>
+<span class="nc" id="L844">              + &quot; units out of &quot; + t.getName() + &quot; to defend against the attack in &quot; + to.getName(), scrambling);</span>
+<span class="nc" id="L845">          scrambledHere = true;</span>
+        }
+<span class="nc bnc" id="L847" title="All 2 branches missed.">        if (!change.isEmpty()) {</span>
+<span class="nc" id="L848">          m_bridge.addChange(change);</span>
+        }
+      }
+<span class="nc bnc" id="L851" title="All 2 branches missed.">      if (!scrambledHere) {</span>
+<span class="nc" id="L852">        continue;</span>
+      }
+      // make sure the units join the battle, or create a new battle.
+<span class="nc" id="L855">      final IBattle bombing = m_battleTracker.getPendingBattle(to, true, null);</span>
+<span class="nc" id="L856">      IBattle battle = m_battleTracker.getPendingBattle(to, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L857" title="All 2 branches missed.">      if (battle == null) {</span>
+<span class="nc" id="L858">        final List&lt;Unit&gt; attackingUnits = to.getUnits().getMatches(Matches.unitIsOwnedBy(m_player));</span>
+<span class="nc bnc" id="L859" title="All 2 branches missed.">        if (bombing != null) {</span>
+<span class="nc" id="L860">          attackingUnits.removeAll(bombing.getAttackingUnits());</span>
+        }
+        // no need to create a &quot;bombing&quot; battle or air battle, because those are set up automatically whenever the map
+        // allows scrambling
+        // into an air battle / air raid
+<span class="nc bnc" id="L865" title="All 2 branches missed.">        if (attackingUnits.isEmpty()) {</span>
+<span class="nc" id="L866">          continue;</span>
+        }
+<span class="nc" id="L868">        m_bridge.getHistoryWriter()</span>
+<span class="nc" id="L869">            .startEvent(defender.getName() + &quot; scrambles to create a battle in territory &quot; + to.getName());</span>
+        // TODO: the attacking sea units do not remember where they came from, so they cannot retreat anywhere. Need to
+        // fix.
+<span class="nc" id="L872">        m_battleTracker.addBattle(new RouteScripted(to), attackingUnits, false, m_player, m_bridge, null, null);</span>
+<span class="nc" id="L873">        battle = m_battleTracker.getPendingBattle(to, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L874" title="All 2 branches missed.">        if (battle instanceof MustFightBattle) {</span>
+          // this is an ugly mess of hacks, but will have to stay here till all transport related code is gutted and
+          // refactored.
+<span class="nc" id="L877">          final MustFightBattle mfb = (MustFightBattle) battle;</span>
+<span class="nc" id="L878">          final Collection&lt;Territory&gt; neighborsLand = data.getMap().getNeighbors(to, Matches.TerritoryIsLand);</span>
+<span class="nc bnc" id="L879" title="All 2 branches missed.">          if (Match.someMatch(attackingUnits, Matches.UnitIsTransport)) {</span>
+            // first, we have to reset the &quot;transportedBy&quot; setting for all the land units that were offloaded
+<span class="nc" id="L881">            final CompositeChange change1 = new CompositeChange();</span>
+<span class="nc" id="L882">            mfb.reLoadTransports(attackingUnits, change1);</span>
+<span class="nc bnc" id="L883" title="All 2 branches missed.">            if (!change1.isEmpty()) {</span>
+<span class="nc" id="L884">              m_bridge.addChange(change1);</span>
+            }
+            // after that is applied, we have to make a map of all dependencies
+<span class="nc" id="L887">            final Map&lt;Territory, Map&lt;Unit, Collection&lt;Unit&gt;&gt;&gt; dependencies =</span>
+<span class="nc" id="L888">                new HashMap&lt;&gt;();</span>
+<span class="nc" id="L889">            final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependenciesForMFB =</span>
+<span class="nc" id="L890">                TransportTracker.transporting(attackingUnits, attackingUnits);</span>
+<span class="nc bnc" id="L891" title="All 2 branches missed.">            for (final Unit transport : Match.getMatches(attackingUnits, Matches.UnitIsTransport)) {</span>
+              // however, the map we add to the newly created battle, cannot hold any units that are NOT in this
+              // territory.
+              // BUT it must still hold all transports
+<span class="nc bnc" id="L895" title="All 2 branches missed.">              if (!dependenciesForMFB.containsKey(transport)) {</span>
+<span class="nc" id="L896">                dependenciesForMFB.put(transport, new ArrayList&lt;&gt;());</span>
+              }
+            }
+<span class="nc" id="L899">            dependencies.put(to, dependenciesForMFB);</span>
+<span class="nc bnc" id="L900" title="All 2 branches missed.">            for (final Territory t : neighborsLand) {</span>
+              // All other maps, must hold only the transported units that in their territory
+<span class="nc" id="L902">              final Collection&lt;Unit&gt; allNeighborUnits =</span>
+<span class="nc" id="L903">                  new ArrayList&lt;&gt;(Match.getMatches(attackingUnits, Matches.UnitIsTransport));</span>
+<span class="nc" id="L904">              allNeighborUnits.addAll(t.getUnits().getMatches(Matches.unitIsLandAndOwnedBy(m_player)));</span>
+<span class="nc" id="L905">              final Map&lt;Unit, Collection&lt;Unit&gt;&gt; dependenciesForNeighbors =</span>
+<span class="nc" id="L906">                  TransportTracker.transporting(Match.getMatches(allNeighborUnits, Matches.UnitIsTransport),</span>
+<span class="nc" id="L907">                      Match.getMatches(allNeighborUnits, Matches.UnitIsTransport.invert()));</span>
+<span class="nc" id="L908">              dependencies.put(t, dependenciesForNeighbors);</span>
+            }
+<span class="nc" id="L910">            mfb.addDependentUnits(dependencies.get(to));</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">            for (final Territory territoryNeighborToNewBattle : neighborsLand) {</span>
+<span class="nc" id="L912">              final IBattle battleInTerritoryNeighborToNewBattle =</span>
+<span class="nc" id="L913">                  m_battleTracker.getPendingBattle(territoryNeighborToNewBattle, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L914" title="All 2 branches missed.">              if (battleInTerritoryNeighborToNewBattle != null</span>
+<span class="nc bnc" id="L915" title="All 2 branches missed.">                  &amp;&amp; battleInTerritoryNeighborToNewBattle instanceof MustFightBattle) {</span>
+<span class="nc" id="L916">                final MustFightBattle mfbattleInTerritoryNeighborToNewBattle =</span>
+<span class="nc" id="L917">                    (MustFightBattle) battleInTerritoryNeighborToNewBattle;</span>
+<span class="nc" id="L918">                mfbattleInTerritoryNeighborToNewBattle</span>
+<span class="nc" id="L919">                    .addDependentUnits(dependencies.get(territoryNeighborToNewBattle));</span>
+<span class="nc bnc" id="L920" title="All 2 branches missed.">              } else if (battleInTerritoryNeighborToNewBattle != null</span>
+<span class="nc bnc" id="L921" title="All 2 branches missed.">                  &amp;&amp; battleInTerritoryNeighborToNewBattle instanceof NonFightingBattle) {</span>
+<span class="nc" id="L922">                final NonFightingBattle nfbattleInTerritoryNeighborToNewBattle =</span>
+<span class="nc" id="L923">                    (NonFightingBattle) battleInTerritoryNeighborToNewBattle;</span>
+<span class="nc" id="L924">                nfbattleInTerritoryNeighborToNewBattle</span>
+<span class="nc" id="L925">                    .addDependentUnits(dependencies.get(territoryNeighborToNewBattle));</span>
+              }
+            }
+          }
+<span class="nc bnc" id="L929" title="All 2 branches missed.">          if (Match.someMatch(attackingUnits, Matches.UnitIsAir.invert())) {</span>
+            // TODO: for now, we will hack and say that the attackers came from Everywhere, and hope the user will
+            // choose the correct place
+            // to retreat to! (TODO: Fix this)
+<span class="nc" id="L933">            final Map&lt;Territory, Collection&lt;Unit&gt;&gt; attackingFromMap = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L934">            final Collection&lt;Territory&gt; neighbors = data.getMap().getNeighbors(to,</span>
+<span class="nc bnc" id="L935" title="All 2 branches missed.">                (Matches.TerritoryIsLand.match(to) ? Matches.TerritoryIsLand : Matches.TerritoryIsWater));</span>
+            // neighbors.removeAll(territoriesWithBattles);
+            // neighbors.removeAll(Match.getMatches(neighbors, Matches.territoryHasEnemyUnits(m_player, data)));
+<span class="nc bnc" id="L938" title="All 2 branches missed.">            for (final Territory t : neighbors) {</span>
+<span class="nc" id="L939">              attackingFromMap.put(t, attackingUnits);</span>
+            }
+<span class="nc" id="L941">            mfb.setAttackingFromAndMap(attackingFromMap);</span>
+          }
+        }
+<span class="nc bnc" id="L944" title="All 2 branches missed.">      } else if (battle instanceof MustFightBattle) {</span>
+<span class="nc" id="L945">        ((MustFightBattle) battle).resetDefendingUnits(m_player, data);</span>
+      }
+      // now make sure any amphibious battles that are dependent on this 'new' sea battle have their dependencies set.
+<span class="nc bnc" id="L948" title="All 2 branches missed.">      if (to.isWater()) {</span>
+<span class="nc bnc" id="L949" title="All 2 branches missed.">        for (final Territory t : data.getMap().getNeighbors(to, Matches.TerritoryIsLand)) {</span>
+<span class="nc" id="L950">          final IBattle battleAmphib = m_battleTracker.getPendingBattle(t, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L951" title="All 2 branches missed.">          if (battleAmphib != null) {</span>
+<span class="nc bnc" id="L952" title="All 2 branches missed.">            if (!m_battleTracker.getDependentOn(battle).contains(battleAmphib)) {</span>
+<span class="nc" id="L953">              m_battleTracker.addDependency(battleAmphib, battle);</span>
+            }
+<span class="nc bnc" id="L955" title="All 2 branches missed.">            if (battleAmphib instanceof MustFightBattle) {</span>
+              // and we want to reset the defenders if the scrambling air has left that battle
+<span class="nc" id="L957">              ((MustFightBattle) battleAmphib).resetDefendingUnits(m_player, data);</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc" id="L963">  }</span>
+
+  public static int getMaxScrambleCount(final Collection&lt;Unit&gt; airbases) {
+<span class="nc bnc" id="L966" title="All 2 branches missed.">    if (!Match.allMatch(airbases, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAirBase, Matches.UnitIsNotDisabled))) {</span>
+<span class="nc" id="L967">      throw new IllegalStateException(&quot;All units must be viable airbases&quot;);</span>
+    }
+    // find how many is the max this territory can scramble
+<span class="nc" id="L970">    int maxScrambled = 0;</span>
+<span class="nc bnc" id="L971" title="All 2 branches missed.">    for (final Unit base : airbases) {</span>
+<span class="nc" id="L972">      final int baseMax = ((TripleAUnit) base).getMaxScrambleCount();</span>
+<span class="nc bnc" id="L973" title="All 2 branches missed.">      if (baseMax == -1) {</span>
+<span class="nc" id="L974">        return Integer.MAX_VALUE;</span>
+      }
+<span class="nc" id="L976">      maxScrambled += baseMax;</span>
+    }
+<span class="nc" id="L978">    return maxScrambled;</span>
+  }
+
+  private void scramblingCleanup() {
+    // return scrambled units to their original territories, or let them move 1 or x to a new territory.
+<span class="fc" id="L983">    final GameData data = getData();</span>
+<span class="pc bpc" id="L984" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getScramble_Rules_In_Effect(data)) {</span>
+<span class="fc" id="L985">      return;</span>
+    }
+<span class="nc" id="L987">    final boolean mustReturnToBase = games.strategy.triplea.Properties.getScrambled_Units_Return_To_Base(data);</span>
+<span class="nc bnc" id="L988" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L989">      int carrierCostOfCurrentTerr = 0;</span>
+<span class="nc" id="L990">      final Collection&lt;Unit&gt; wasScrambled = t.getUnits().getMatches(Matches.UnitWasScrambled);</span>
+<span class="nc bnc" id="L991" title="All 2 branches missed.">      for (final Unit u : wasScrambled) {</span>
+<span class="nc" id="L992">        final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L993">        final Territory originatedFrom = TripleAUnit.get(u).getOriginatedFrom();</span>
+<span class="nc" id="L994">        Territory landingTerr = null;</span>
+<span class="nc" id="L995">        String historyText = &quot;&quot;;</span>
+<span class="nc bnc" id="L996" title="All 4 branches missed.">        if (!mustReturnToBase || !Matches.isTerritoryAllied(u.getOwner(), data).match(originatedFrom)) {</span>
+<span class="nc" id="L997">          final Collection&lt;Territory&gt; possible = whereCanAirLand(Collections.singletonList(u), t, u.getOwner(), data,</span>
+<span class="nc bnc" id="L998" title="All 2 branches missed.">              m_battleTracker, carrierCostOfCurrentTerr, 1, true, !mustReturnToBase, true);</span>
+<span class="nc bnc" id="L999" title="All 2 branches missed.">          if (possible.size() &gt; 1) {</span>
+<span class="nc" id="L1000">            landingTerr = getRemotePlayer(u.getOwner()).selectTerritoryForAirToLand(possible, t,</span>
+<span class="nc" id="L1001">                &quot;Select territory for air units to land. (Current territory is &quot; + t.getName() + &quot;): &quot;</span>
+<span class="nc" id="L1002">                    + MyFormatter.unitsToText(Collections.singletonList(u)));</span>
+<span class="nc bnc" id="L1003" title="All 2 branches missed.">          } else if (possible.size() == 1) {</span>
+<span class="nc" id="L1004">            landingTerr = possible.iterator().next();</span>
+          }
+<span class="nc bnc" id="L1006" title="All 4 branches missed.">          if (landingTerr == null || landingTerr.equals(t)) {</span>
+<span class="nc" id="L1007">            carrierCostOfCurrentTerr += AirMovementValidator.carrierCost(Collections.singletonList(u));</span>
+<span class="nc" id="L1008">            historyText = &quot;Scrambled unit stays in territory &quot; + t.getName();</span>
+<span class="nc" id="L1009">          } else {</span>
+<span class="nc" id="L1010">            historyText = &quot;Moving scrambled unit from &quot; + t.getName() + &quot; to &quot; + landingTerr.getName();</span>
+          }
+<span class="nc" id="L1012">        } else {</span>
+<span class="nc" id="L1013">          landingTerr = originatedFrom;</span>
+<span class="nc" id="L1014">          historyText =</span>
+<span class="nc" id="L1015">              &quot;Moving scrambled unit from &quot; + t.getName() + &quot; back to originating territory: &quot; + landingTerr.getName();</span>
+        }
+        // if null, we leave it to die
+<span class="nc bnc" id="L1018" title="All 2 branches missed.">        if (landingTerr != null) {</span>
+<span class="nc" id="L1019">          change.add(ChangeFactory.moveUnits(t, landingTerr, Collections.singletonList(u)));</span>
+        }
+<span class="nc" id="L1021">        change.add(ChangeFactory.unitPropertyChange(u, null, TripleAUnit.ORIGINATED_FROM));</span>
+<span class="nc" id="L1022">        change.add(ChangeFactory.unitPropertyChange(u, false, TripleAUnit.WAS_SCRAMBLED));</span>
+<span class="nc bnc" id="L1023" title="All 2 branches missed.">        if (!change.isEmpty()) {</span>
+<span class="nc" id="L1024">          m_bridge.getHistoryWriter().startEvent(historyText, u);</span>
+<span class="nc" id="L1025">          m_bridge.addChange(change);</span>
+        }
+      }
+    }
+<span class="nc" id="L1029">  }</span>
+
+  private static void resetMaxScrambleCount(final IDelegateBridge aBridge) {
+    // reset the tripleaUnit property for all airbases that were used
+<span class="fc" id="L1033">    final GameData data = aBridge.getData();</span>
+<span class="pc bpc" id="L1034" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getScramble_Rules_In_Effect(data)) {</span>
+<span class="fc" id="L1035">      return;</span>
+    }
+<span class="nc" id="L1037">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L1038" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L1039">      final Collection&lt;Unit&gt; airbases = t.getUnits().getMatches(Matches.UnitIsAirBase);</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">      for (final Unit u : airbases) {</span>
+<span class="nc" id="L1041">        final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L1042">        final int currentMax = ((TripleAUnit) u).getMaxScrambleCount();</span>
+<span class="nc" id="L1043">        final int allowedMax = ua.getMaxScrambleCount();</span>
+<span class="nc bnc" id="L1044" title="All 2 branches missed.">        if (currentMax != allowedMax) {</span>
+<span class="nc" id="L1045">          change.add(ChangeFactory.unitPropertyChange(u, allowedMax, TripleAUnit.MAX_SCRAMBLE_COUNT));</span>
+        }
+      }
+    }
+<span class="nc bnc" id="L1049" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1050">      aBridge.getHistoryWriter().startEvent(&quot;Preparing Airbases for Possible Scrambling&quot;);</span>
+<span class="nc" id="L1051">      aBridge.addChange(change);</span>
+    }
+<span class="nc" id="L1053">  }</span>
+
+  private void airBattleCleanup() {
+<span class="fc" id="L1056">    final GameData data = getData();</span>
+<span class="pc bpc" id="L1057" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getRaidsMayBePreceededByAirBattles(data)) {</span>
+<span class="fc" id="L1058">      return;</span>
+    }
+<span class="nc" id="L1060">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc bnc" id="L1061" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc bnc" id="L1062" title="All 2 branches missed.">      for (final Unit u : t.getUnits().getMatches(Matches.UnitWasInAirBattle)) {</span>
+<span class="nc" id="L1063">        change.add(ChangeFactory.unitPropertyChange(u, false, TripleAUnit.WAS_IN_AIR_BATTLE));</span>
+      }
+    }
+<span class="nc bnc" id="L1066" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1067">      m_bridge.getHistoryWriter().startEvent(&quot;Cleaning up after air battles&quot;);</span>
+<span class="nc" id="L1068">      m_bridge.addChange(change);</span>
+    }
+<span class="nc" id="L1070">  }</span>
+
+  private void checkDefendingPlanesCanLand() {
+<span class="fc" id="L1073">    final GameData data = getData();</span>
+<span class="fc" id="L1074">    final Map&lt;Territory, Collection&lt;Unit&gt;&gt; defendingAirThatCanNotLand = m_battleTracker.getDefendingAirThatCanNotLand();</span>
+<span class="pc bpc" id="L1075" title="1 of 2 branches missed.">    final boolean isWW2v2orIsSurvivingAirMoveToLand = games.strategy.triplea.Properties.getWW2V2(data)</span>
+<span class="nc bnc" id="L1076" title="All 2 branches missed.">        || games.strategy.triplea.Properties.getSurvivingAirMoveToLand(data);</span>
+<span class="fc" id="L1077">    final CompositeMatch&lt;Unit&gt; alliedDefendingAir =</span>
+<span class="fc" id="L1078">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAir, Matches.UnitWasScrambled.invert());</span>
+<span class="fc bfc" id="L1079" title="All 2 branches covered.">    for (final Entry&lt;Territory, Collection&lt;Unit&gt;&gt; entry : defendingAirThatCanNotLand.entrySet()) {</span>
+<span class="fc" id="L1080">      final Territory battleSite = entry.getKey();</span>
+<span class="fc" id="L1081">      final Collection&lt;Unit&gt; defendingAir = entry.getValue();</span>
+<span class="pc bpc" id="L1082" title="2 of 4 branches missed.">      if (defendingAir == null || defendingAir.isEmpty()) {</span>
+<span class="nc" id="L1083">        continue;</span>
+      }
+<span class="fc" id="L1085">      defendingAir.retainAll(battleSite.getUnits().getUnits());</span>
+<span class="pc bpc" id="L1086" title="1 of 2 branches missed.">      if (defendingAir.isEmpty()) {</span>
+<span class="nc" id="L1087">        continue;</span>
+      }
+<span class="fc" id="L1089">      final PlayerID defender = AbstractBattle.findDefender(battleSite, m_player, data);</span>
+      // Get all land territories where we can land
+<span class="fc" id="L1091">      final Set&lt;Territory&gt; neighbors = data.getMap().getNeighbors(battleSite);</span>
+<span class="fc" id="L1092">      final CompositeMatch&lt;Territory&gt; alliedLandTerritories =</span>
+<span class="fc" id="L1093">          new CompositeMatchAnd&lt;&gt;(Matches.airCanLandOnThisAlliedNonConqueredLandTerritory(defender, data));</span>
+      // Get those that are neighbors
+<span class="fc" id="L1095">      final Collection&lt;Territory&gt; canLandHere = Match.getMatches(neighbors, alliedLandTerritories);</span>
+      // Get all sea territories where there are allies
+<span class="fc" id="L1097">      final CompositeMatch&lt;Territory&gt; neighboringSeaZonesWithAlliedUnits =</span>
+<span class="fc" id="L1098">          new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsWater, Matches.territoryHasAlliedUnits(defender, data));</span>
+      // Get those that are neighbors
+<span class="fc" id="L1100">      final Collection&lt;Territory&gt; areSeaNeighbors = Match.getMatches(neighbors, neighboringSeaZonesWithAlliedUnits);</span>
+      // Set up match criteria for allied carriers
+<span class="fc" id="L1102">      final CompositeMatch&lt;Unit&gt; alliedCarrier = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="fc" id="L1103">      alliedCarrier.add(Matches.UnitIsCarrier);</span>
+<span class="fc" id="L1104">      alliedCarrier.add(Matches.alliedUnit(defender, data));</span>
+      // Set up match criteria for allied planes
+<span class="fc" id="L1106">      final CompositeMatch&lt;Unit&gt; alliedPlane = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="fc" id="L1107">      alliedPlane.add(Matches.UnitIsAir);</span>
+<span class="fc" id="L1108">      alliedPlane.add(Matches.alliedUnit(defender, data));</span>
+      // See if neighboring carriers have any capacity available
+<span class="fc bfc" id="L1110" title="All 2 branches covered.">      for (final Territory currentTerritory : areSeaNeighbors) {</span>
+        // get the capacity of the carriers and cost of fighters
+<span class="fc" id="L1112">        final Collection&lt;Unit&gt; alliedCarriers = currentTerritory.getUnits().getMatches(alliedCarrier);</span>
+<span class="fc" id="L1113">        final Collection&lt;Unit&gt; alliedPlanes = currentTerritory.getUnits().getMatches(alliedPlane);</span>
+<span class="fc" id="L1114">        final int alliedCarrierCapacity = AirMovementValidator.carrierCapacity(alliedCarriers, currentTerritory);</span>
+<span class="fc" id="L1115">        final int alliedPlaneCost = AirMovementValidator.carrierCost(alliedPlanes);</span>
+        // if there is free capacity, add the territory to landing possibilities
+<span class="fc bfc" id="L1117" title="All 2 branches covered.">        if (alliedCarrierCapacity - alliedPlaneCost &gt;= 1) {</span>
+<span class="fc" id="L1118">          canLandHere.add(currentTerritory);</span>
+        }
+      }
+<span class="pc bpc" id="L1121" title="1 of 2 branches missed.">      if (isWW2v2orIsSurvivingAirMoveToLand) {</span>
+<span class="fc" id="L1122">        Territory territory = null;</span>
+<span class="pc bpc" id="L1123" title="1 of 4 branches missed.">        while (canLandHere.size() &gt; 1 &amp;&amp; defendingAir.size() &gt; 0) {</span>
+<span class="fc" id="L1124">          territory = getRemotePlayer(defender).selectTerritoryForAirToLand(canLandHere, battleSite,</span>
+<span class="fc" id="L1125">              &quot;Select territory for air units to land. (Current territory is &quot; + battleSite.getName() + &quot;): &quot;</span>
+<span class="fc" id="L1126">                  + MyFormatter.unitsToText(defendingAir));</span>
+          // added for test script
+<span class="pc bpc" id="L1128" title="1 of 2 branches missed.">          if (territory == null) {</span>
+<span class="fc" id="L1129">            territory = canLandHere.iterator().next();</span>
+          }
+<span class="pc bpc" id="L1131" title="1 of 2 branches missed.">          if (territory.isWater()) {</span>
+<span class="fc" id="L1132">            landPlanesOnCarriers(m_bridge, alliedDefendingAir, defendingAir, canLandHere, alliedCarrier, alliedPlane,</span>
+<span class="fc" id="L1133">                territory, battleSite);</span>
+<span class="fc" id="L1134">          } else {</span>
+<span class="nc" id="L1135">            moveAirAndLand(m_bridge, defendingAir, defendingAir, territory, battleSite);</span>
+<span class="nc" id="L1136">            continue;</span>
+          }
+          // remove the territory from those available
+<span class="fc" id="L1139">          canLandHere.remove(territory);</span>
+        }
+        // Land in the last remaining territory
+<span class="pc bpc" id="L1142" title="2 of 4 branches missed.">        if (canLandHere.size() &gt; 0 &amp;&amp; defendingAir.size() &gt; 0) {</span>
+<span class="fc" id="L1143">          territory = canLandHere.iterator().next();</span>
+<span class="fc bfc" id="L1144" title="All 2 branches covered.">          if (territory.isWater()) {</span>
+<span class="fc" id="L1145">            landPlanesOnCarriers(m_bridge, alliedDefendingAir, defendingAir, canLandHere, alliedCarrier, alliedPlane,</span>
+<span class="fc" id="L1146">                territory, battleSite);</span>
+<span class="fc" id="L1147">          } else {</span>
+<span class="fc" id="L1148">            moveAirAndLand(m_bridge, defendingAir, defendingAir, territory, battleSite);</span>
+<span class="fc" id="L1149">            continue;</span>
+          }
+        }
+<span class="nc bnc" id="L1152" title="All 2 branches missed.">      } else if (canLandHere.size() &gt; 0) {</span>
+        // now defending air has what cant stay, is there a place we can go?
+        // check for an island in this sea zone
+<span class="nc bnc" id="L1155" title="All 2 branches missed.">        for (final Territory currentTerritory : canLandHere) {</span>
+          // only one neighbor, its an island.
+<span class="nc bnc" id="L1157" title="All 2 branches missed.">          if (data.getMap().getNeighbors(currentTerritory).size() == 1) {</span>
+<span class="nc" id="L1158">            moveAirAndLand(m_bridge, defendingAir, defendingAir, currentTerritory, battleSite);</span>
+          }
+        }
+      }
+<span class="pc bpc" id="L1162" title="1 of 2 branches missed.">      if (defendingAir.size() &gt; 0) {</span>
+        // no where to go, they must die
+<span class="nc" id="L1164">        m_bridge.getHistoryWriter().addChildToEvent(</span>
+<span class="nc" id="L1165">            MyFormatter.unitsToText(defendingAir) + &quot; could not land and were killed&quot;,</span>
+<span class="nc" id="L1166">            new ArrayList&lt;&gt;(defendingAir));</span>
+<span class="nc" id="L1167">        final Change change = ChangeFactory.removeUnits(battleSite, defendingAir);</span>
+<span class="nc" id="L1168">        m_bridge.addChange(change);</span>
+      }
+    }
+<span class="fc" id="L1171">  }</span>
+
+  private static void landPlanesOnCarriers(final IDelegateBridge bridge, final CompositeMatch&lt;Unit&gt; alliedDefendingAir,
+      final Collection&lt;Unit&gt; defendingAir, final Collection&lt;Territory&gt; canLandHere,
+      final CompositeMatch&lt;Unit&gt; alliedCarrier, final CompositeMatch&lt;Unit&gt; alliedPlane, final Territory newTerritory,
+      final Territory battleSite) {
+    // Get the capacity of the carriers in the selected zone
+<span class="fc" id="L1178">    final Collection&lt;Unit&gt; alliedCarriersSelected = newTerritory.getUnits().getMatches(alliedCarrier);</span>
+<span class="fc" id="L1179">    final Collection&lt;Unit&gt; alliedPlanesSelected = newTerritory.getUnits().getMatches(alliedPlane);</span>
+<span class="fc" id="L1180">    final int alliedCarrierCapacitySelected =</span>
+<span class="fc" id="L1181">        AirMovementValidator.carrierCapacity(alliedCarriersSelected, newTerritory);</span>
+<span class="fc" id="L1182">    final int alliedPlaneCostSelected = AirMovementValidator.carrierCost(alliedPlanesSelected);</span>
+    // Find the available capacity of the carriers in that territory
+<span class="fc" id="L1184">    final int territoryCapacity = alliedCarrierCapacitySelected - alliedPlaneCostSelected;</span>
+<span class="pc bpc" id="L1185" title="1 of 2 branches missed.">    if (territoryCapacity &gt; 0) {</span>
+      // move that number of planes from the battlezone
+      // TODO: this seems to assume that the air units all have 1 carrier cost!! fixme
+<span class="fc" id="L1188">      final Collection&lt;Unit&gt; movingAir = Match.getNMatches(defendingAir, territoryCapacity, alliedDefendingAir);</span>
+<span class="fc" id="L1189">      moveAirAndLand(bridge, movingAir, defendingAir, newTerritory, battleSite);</span>
+    }
+<span class="fc" id="L1191">  }</span>
+
+  private static void moveAirAndLand(final IDelegateBridge bridge, final Collection&lt;Unit&gt; defendingAirBeingMoved,
+      final Collection&lt;Unit&gt; defendingAirTotal, final Territory newTerritory, final Territory battleSite) {
+<span class="fc" id="L1195">    bridge.getHistoryWriter().addChildToEvent(</span>
+<span class="fc" id="L1196">        MyFormatter.unitsToText(defendingAirBeingMoved) + &quot; forced to land in &quot; + newTerritory.getName(),</span>
+<span class="fc" id="L1197">        new ArrayList&lt;&gt;(defendingAirBeingMoved));</span>
+<span class="fc" id="L1198">    final Change change = ChangeFactory.moveUnits(battleSite, newTerritory, defendingAirBeingMoved);</span>
+<span class="fc" id="L1199">    bridge.addChange(change);</span>
+    // remove those that landed in case it was a carrier
+<span class="fc" id="L1201">    defendingAirTotal.removeAll(defendingAirBeingMoved);</span>
+<span class="fc" id="L1202">  }</span>
+
+  /**
+   * KamikazeSuicideAttacks are attacks that are made during an Opponent's turn, using Resources that you own that have
+   * been designated.
+   * The resources are designated in PlayerAttachment, and hold information like the attack power of the resource.
+   * KamikazeSuicideAttacks are done in any territory that is a kamikazeZone, and the attacks are done by the original
+   * owner of that
+   * territory.
+   * The user has the option not to do any attacks, and they make target any number of units with any number of resource
+   * tokens.
+   * The units are then attacked individually by each resource token (meaning that casualties do not get selected
+   * because the attacks are
+   * targeted).
+   * The enemies of current player should decide all their attacks before the attacks are rolled.
+   */
+  private void doKamikazeSuicideAttacks() {
+<span class="fc" id="L1219">    final GameData data = getData();</span>
+<span class="pc bpc" id="L1220" title="1 of 2 branches missed.">    if (!games.strategy.triplea.Properties.getUseKamikazeSuicideAttacks(data)) {</span>
+<span class="fc" id="L1221">      return;</span>
+    }
+    // the current player is not the one who is doing these attacks, it is the all the enemies of this player who will
+    // do attacks
+<span class="nc" id="L1225">    final Collection&lt;PlayerID&gt; enemies =</span>
+<span class="nc" id="L1226">        Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAtWar(m_player, data));</span>
+<span class="nc bnc" id="L1227" title="All 2 branches missed.">    if (enemies.isEmpty()) {</span>
+<span class="nc" id="L1228">      return;</span>
+    }
+<span class="nc" id="L1230">    final Match&lt;Unit&gt; canBeAttackedDefault = new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(m_player),</span>
+<span class="nc" id="L1231">        Matches.UnitIsSea, Matches.UnitIsNotTransportButCouldBeCombatTransport, Matches.UnitIsNotSub);</span>
+<span class="nc" id="L1232">    final boolean onlyWhereThereAreBattlesOrAmphibious =</span>
+<span class="nc" id="L1233">        games.strategy.triplea.Properties.getKamikazeSuicideAttacksOnlyWhereBattlesAre(data);</span>
+<span class="nc" id="L1234">    final Collection&lt;Territory&gt; pendingBattles = m_battleTracker.getPendingBattleSites(false);</span>
+    // create a list of all kamikaze zones, listed by enemy
+<span class="nc" id="L1236">    final HashMap&lt;PlayerID, Collection&lt;Territory&gt;&gt; kamikazeZonesByEnemy =</span>
+<span class="nc" id="L1237">        new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1238" title="All 2 branches missed.">    for (final Territory t : data.getMap().getTerritories()) {</span>
+<span class="nc" id="L1239">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L1240" title="All 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L1241">        continue;</span>
+      }
+<span class="nc bnc" id="L1243" title="All 2 branches missed.">      if (!ta.getKamikazeZone()) {</span>
+<span class="nc" id="L1244">        continue;</span>
+      }
+      final PlayerID owner;
+<span class="nc bnc" id="L1247" title="All 2 branches missed.">      if (!games.strategy.triplea.Properties.getKamikazeSuicideAttacksDoneByCurrentTerritoryOwner(data)) {</span>
+<span class="nc" id="L1248">        owner = ta.getOriginalOwner();</span>
+<span class="nc bnc" id="L1249" title="All 2 branches missed.">        if (owner == null) {</span>
+<span class="nc" id="L1250">          continue;</span>
+        }
+      } else {
+<span class="nc" id="L1253">        owner = t.getOwner();</span>
+<span class="nc bnc" id="L1254" title="All 2 branches missed.">        if (owner == null) {</span>
+<span class="nc" id="L1255">          continue;</span>
+        }
+      }
+<span class="nc bnc" id="L1258" title="All 2 branches missed.">      if (enemies.contains(owner)) {</span>
+<span class="nc bnc" id="L1259" title="All 2 branches missed.">        if (Match.noneMatch(t.getUnits().getUnits(), Matches.unitIsOwnedBy(m_player))) {</span>
+<span class="nc" id="L1260">          continue;</span>
+        }
+<span class="nc bnc" id="L1262" title="All 2 branches missed.">        if (onlyWhereThereAreBattlesOrAmphibious) {</span>
+          // if no battle or amphibious from here, ignore it
+<span class="nc bnc" id="L1264" title="All 2 branches missed.">          if (!pendingBattles.contains(t)) {</span>
+<span class="nc bnc" id="L1265" title="All 2 branches missed.">            if (!Matches.TerritoryIsWater.match(t)) {</span>
+<span class="nc" id="L1266">              continue;</span>
+            }
+<span class="nc" id="L1268">            boolean amphib = false;</span>
+<span class="nc" id="L1269">            final Collection&lt;Territory&gt; landNeighbors = data.getMap().getNeighbors(t, Matches.TerritoryIsLand);</span>
+<span class="nc bnc" id="L1270" title="All 2 branches missed.">            for (final Territory neighbor : landNeighbors) {</span>
+<span class="nc" id="L1271">              final IBattle battle = m_battleTracker.getPendingBattle(neighbor, false, BattleType.NORMAL);</span>
+<span class="nc bnc" id="L1272" title="All 2 branches missed.">              if (battle == null) {</span>
+<span class="nc" id="L1273">                final Map&lt;Territory, Collection&lt;Unit&gt;&gt; whereFrom =</span>
+<span class="nc" id="L1274">                    m_battleTracker.getFinishedBattlesUnitAttackFromMap().get(neighbor);</span>
+<span class="nc bnc" id="L1275" title="All 4 branches missed.">                if (whereFrom != null &amp;&amp; whereFrom.containsKey(t)) {</span>
+<span class="nc" id="L1276">                  amphib = true;</span>
+<span class="nc" id="L1277">                  break;</span>
+                }
+                continue;
+              }
+<span class="nc bnc" id="L1281" title="All 4 branches missed.">              if (battle.isAmphibious() &amp;&amp; ((battle instanceof MustFightBattle</span>
+<span class="nc bnc" id="L1282" title="All 2 branches missed.">                  &amp;&amp; ((MustFightBattle) battle).getAmphibiousAttackTerritories().contains(t))</span>
+<span class="nc bnc" id="L1283" title="All 2 branches missed.">                  || (battle instanceof NonFightingBattle</span>
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">                      &amp;&amp; ((NonFightingBattle) battle).getAmphibiousAttackTerritories().contains(t)))) {</span>
+<span class="nc" id="L1285">                amphib = true;</span>
+<span class="nc" id="L1286">                break;</span>
+              }
+            }
+<span class="nc bnc" id="L1289" title="All 2 branches missed.">            if (amphib == false) {</span>
+<span class="nc" id="L1290">              continue;</span>
+            }
+          }
+        }
+<span class="nc" id="L1294">        Collection&lt;Territory&gt; currentTerrs = kamikazeZonesByEnemy.get(owner);</span>
+<span class="nc bnc" id="L1295" title="All 2 branches missed.">        if (currentTerrs == null) {</span>
+<span class="nc" id="L1296">          currentTerrs = new ArrayList&lt;&gt;();</span>
+        }
+<span class="nc" id="L1298">        currentTerrs.add(t);</span>
+<span class="nc" id="L1299">        kamikazeZonesByEnemy.put(owner, currentTerrs);</span>
+      }
+    }
+<span class="nc bnc" id="L1302" title="All 2 branches missed.">    if (kamikazeZonesByEnemy.isEmpty()) {</span>
+<span class="nc" id="L1303">      return;</span>
+    }
+<span class="nc bnc" id="L1305" title="All 2 branches missed.">    for (final Entry&lt;PlayerID, Collection&lt;Territory&gt;&gt; entry : kamikazeZonesByEnemy.entrySet()) {</span>
+<span class="nc" id="L1306">      final PlayerID currentEnemy = entry.getKey();</span>
+<span class="nc" id="L1307">      final PlayerAttachment pa = PlayerAttachment.get(currentEnemy);</span>
+<span class="nc bnc" id="L1308" title="All 2 branches missed.">      if (pa == null) {</span>
+<span class="nc" id="L1309">        continue;</span>
+      }
+<span class="nc" id="L1311">      Match&lt;Unit&gt; canBeAttacked = canBeAttackedDefault;</span>
+<span class="nc" id="L1312">      final Set&lt;UnitType&gt; suicideAttackTargets = pa.getSuicideAttackTargets();</span>
+<span class="nc bnc" id="L1313" title="All 2 branches missed.">      if (suicideAttackTargets != null) {</span>
+<span class="nc" id="L1314">        canBeAttacked =</span>
+<span class="nc" id="L1315">            new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(m_player), Matches.unitIsOfTypes(suicideAttackTargets));</span>
+      }
+      // See if the player has any attack tokens
+<span class="nc" id="L1318">      final IntegerMap&lt;Resource&gt; resourcesAndAttackValues = pa.getSuicideAttackResources();</span>
+<span class="nc bnc" id="L1319" title="All 2 branches missed.">      if (resourcesAndAttackValues.size() &lt;= 0) {</span>
+<span class="nc" id="L1320">        continue;</span>
+      }
+<span class="nc" id="L1322">      final IntegerMap&lt;Resource&gt; playerResourceCollection = currentEnemy.getResources().getResourcesCopy();</span>
+<span class="nc" id="L1323">      final IntegerMap&lt;Resource&gt; attackTokens = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1324" title="All 2 branches missed.">      for (final Resource possible : resourcesAndAttackValues.keySet()) {</span>
+<span class="nc" id="L1325">        final int amount = playerResourceCollection.getInt(possible);</span>
+<span class="nc bnc" id="L1326" title="All 2 branches missed.">        if (amount &gt; 0) {</span>
+<span class="nc" id="L1327">          attackTokens.put(possible, amount);</span>
+        }
+      }
+<span class="nc bnc" id="L1330" title="All 2 branches missed.">      if (attackTokens.size() &lt;= 0) {</span>
+<span class="nc" id="L1331">        continue;</span>
+      }
+      // now let the enemy decide if they will do attacks
+<span class="nc" id="L1334">      final Collection&lt;Territory&gt; kamikazeZones = entry.getValue();</span>
+<span class="nc" id="L1335">      final HashMap&lt;Territory, Collection&lt;Unit&gt;&gt; possibleUnitsToAttack = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1336" title="All 2 branches missed.">      for (final Territory t : kamikazeZones) {</span>
+<span class="nc" id="L1337">        final List&lt;Unit&gt; validTargets = t.getUnits().getMatches(canBeAttacked);</span>
+<span class="nc bnc" id="L1338" title="All 2 branches missed.">        if (!validTargets.isEmpty()) {</span>
+<span class="nc" id="L1339">          possibleUnitsToAttack.put(t, validTargets);</span>
+        }
+      }
+<span class="nc" id="L1342">      final HashMap&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; attacks =</span>
+<span class="nc" id="L1343">          getRemotePlayer(currentEnemy).selectKamikazeSuicideAttacks(possibleUnitsToAttack);</span>
+<span class="nc bnc" id="L1344" title="All 4 branches missed.">      if (attacks == null || attacks.isEmpty()) {</span>
+<span class="nc" id="L1345">        continue;</span>
+      }
+      // now validate that we have the resources and those units are valid targets
+<span class="nc bnc" id="L1348" title="All 2 branches missed.">      for (final Entry&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; territoryEntry : attacks.entrySet()) {</span>
+<span class="nc" id="L1349">        final Territory t = territoryEntry.getKey();</span>
+<span class="nc" id="L1350">        final Collection&lt;Unit&gt; possibleUnits = possibleUnitsToAttack.get(t);</span>
+<span class="nc bnc" id="L1351" title="All 4 branches missed.">        if (possibleUnits == null || !possibleUnits.containsAll(territoryEntry.getValue().keySet())) {</span>
+<span class="nc" id="L1352">          throw new IllegalStateException(&quot;Player has chosen illegal units during Kamikaze Suicide Attacks&quot;);</span>
+        }
+<span class="nc bnc" id="L1354" title="All 2 branches missed.">        for (final IntegerMap&lt;Resource&gt; rMap : territoryEntry.getValue().values()) {</span>
+<span class="nc" id="L1355">          attackTokens.subtract(rMap);</span>
+        }
+      }
+<span class="nc bnc" id="L1358" title="All 2 branches missed.">      if (!attackTokens.isPositive()) {</span>
+<span class="nc" id="L1359">        throw new IllegalStateException(&quot;Player has chosen illegal resource during Kamikaze Suicide Attacks&quot;);</span>
+      }
+<span class="nc bnc" id="L1361" title="All 2 branches missed.">      for (final Entry&lt;Territory, HashMap&lt;Unit, IntegerMap&lt;Resource&gt;&gt;&gt; territoryEntry : attacks.entrySet()) {</span>
+<span class="nc" id="L1362">        final Territory location = territoryEntry.getKey();</span>
+<span class="nc bnc" id="L1363" title="All 2 branches missed.">        for (final Entry&lt;Unit, IntegerMap&lt;Resource&gt;&gt; unitEntry : territoryEntry.getValue().entrySet()) {</span>
+<span class="nc" id="L1364">          final Unit unitUnderFire = unitEntry.getKey();</span>
+<span class="nc" id="L1365">          final IntegerMap&lt;Resource&gt; numberOfAttacks = unitEntry.getValue();</span>
+<span class="nc bnc" id="L1366" title="All 6 branches missed.">          if (numberOfAttacks != null &amp;&amp; numberOfAttacks.size() &gt; 0 &amp;&amp; numberOfAttacks.totalValues() &gt; 0) {</span>
+<span class="nc" id="L1367">            fireKamikazeSuicideAttacks(unitUnderFire, numberOfAttacks, resourcesAndAttackValues, currentEnemy,</span>
+<span class="nc" id="L1368">                location);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L1373">  }</span>
+
+  /**
+   * This rolls the dice and validates them to see if units died or not.
+   * It will use LowLuck or normal dice.
+   * If any units die, we remove them from the game, and if units take damage but live, we also do that here.
+   *
+   * @param unitUnderFire
+   * @param numberOfAttacks
+   * @param resourcesAndAttackValues
+   * @param firingEnemy
+   * @param location
+   */
+  private void fireKamikazeSuicideAttacks(final Unit unitUnderFire, final IntegerMap&lt;Resource&gt; numberOfAttacks,
+      final IntegerMap&lt;Resource&gt; resourcesAndAttackValues, final PlayerID firingEnemy, final Territory location) {
+    // TODO: find a way to autosave after each dice roll.
+<span class="nc" id="L1389">    final GameData data = getData();</span>
+<span class="nc" id="L1390">    final int diceSides = data.getDiceSides();</span>
+<span class="nc" id="L1391">    final CompositeChange change = new CompositeChange();</span>
+<span class="nc" id="L1392">    int hits = 0;</span>
+<span class="nc" id="L1393">    int[] rolls = null;</span>
+<span class="nc bnc" id="L1394" title="All 2 branches missed.">    if (games.strategy.triplea.Properties.getLow_Luck(data)) {</span>
+<span class="nc" id="L1395">      int power = 0;</span>
+<span class="nc bnc" id="L1396" title="All 2 branches missed.">      for (final Entry&lt;Resource, Integer&gt; entry : numberOfAttacks.entrySet()) {</span>
+<span class="nc" id="L1397">        final Resource r = entry.getKey();</span>
+<span class="nc" id="L1398">        final int num = entry.getValue();</span>
+<span class="nc" id="L1399">        change.add(ChangeFactory.changeResourcesChange(firingEnemy, r, -num));</span>
+<span class="nc" id="L1400">        power += num * resourcesAndAttackValues.getInt(r);</span>
+      }
+<span class="nc bnc" id="L1402" title="All 2 branches missed.">      if (power &gt; 0) {</span>
+<span class="nc" id="L1403">        hits = power / diceSides;</span>
+<span class="nc" id="L1404">        final int remainder = power % diceSides;</span>
+<span class="nc bnc" id="L1405" title="All 2 branches missed.">        if (remainder &gt; 0) {</span>
+<span class="nc" id="L1406">          rolls = m_bridge.getRandom(diceSides, 1, firingEnemy, DiceType.COMBAT,</span>
+<span class="nc" id="L1407">              &quot;Rolling for remainder in Kamikaze Suicide Attack on unit: &quot; + unitUnderFire.getType().getName());</span>
+<span class="nc bnc" id="L1408" title="All 2 branches missed.">          if (remainder &gt; rolls[0]) {</span>
+<span class="nc" id="L1409">            hits++;</span>
+          }
+        }
+      }
+<span class="nc" id="L1413">    } else {</span>
+      // avoid multiple calls of getRandom, so just do it once at the beginning
+<span class="nc" id="L1415">      final int numTokens = numberOfAttacks.totalValues();</span>
+<span class="nc" id="L1416">      rolls = m_bridge.getRandom(diceSides, numTokens, firingEnemy, DiceType.COMBAT,</span>
+<span class="nc" id="L1417">          &quot;Rolling for Kamikaze Suicide Attack on unit: &quot; + unitUnderFire.getType().getName());</span>
+<span class="nc" id="L1418">      final int[] powerOfTokens = new int[numTokens];</span>
+<span class="nc" id="L1419">      int j = 0;</span>
+<span class="nc bnc" id="L1420" title="All 2 branches missed.">      for (final Entry&lt;Resource, Integer&gt; entry : numberOfAttacks.entrySet()) {</span>
+<span class="nc" id="L1421">        final Resource r = entry.getKey();</span>
+<span class="nc" id="L1422">        int num = entry.getValue();</span>
+<span class="nc" id="L1423">        change.add(ChangeFactory.changeResourcesChange(firingEnemy, r, -num));</span>
+<span class="nc" id="L1424">        final int power = resourcesAndAttackValues.getInt(r);</span>
+<span class="nc bnc" id="L1425" title="All 2 branches missed.">        while (num &gt; 0) {</span>
+<span class="nc" id="L1426">          powerOfTokens[j] = power;</span>
+<span class="nc" id="L1427">          j++;</span>
+<span class="nc" id="L1428">          num--;</span>
+        }
+      }
+<span class="nc bnc" id="L1431" title="All 2 branches missed.">      for (int i = 0; i &lt; rolls.length; i++) {</span>
+<span class="nc bnc" id="L1432" title="All 2 branches missed.">        if (powerOfTokens[i] &gt; rolls[i]) {</span>
+<span class="nc" id="L1433">          hits++;</span>
+        }
+      }
+    }
+<span class="nc" id="L1437">    final String title =</span>
+<span class="nc" id="L1438">        &quot;Kamikaze Suicide Attack attacks &quot; + MyFormatter.unitsToText(Collections.singleton(unitUnderFire));</span>
+<span class="nc" id="L1439">    final String dice = &quot; scoring &quot; + hits + &quot; hits.  Rolls: &quot; + MyFormatter.asDice(rolls);</span>
+<span class="nc" id="L1440">    m_bridge.getHistoryWriter().startEvent(title + dice, unitUnderFire);</span>
+<span class="nc bnc" id="L1441" title="All 2 branches missed.">    if (hits &gt; 0) {</span>
+<span class="nc" id="L1442">      final UnitAttachment ua = UnitAttachment.get(unitUnderFire.getType());</span>
+<span class="nc" id="L1443">      final int currentHits = unitUnderFire.getHits();</span>
+<span class="nc bnc" id="L1444" title="All 2 branches missed.">      if (ua.getHitPoints() &lt;= currentHits + hits) {</span>
+        // TODO: kill dependents
+<span class="nc" id="L1446">        change.add(ChangeFactory.removeUnits(location, Collections.singleton(unitUnderFire)));</span>
+<span class="nc" id="L1447">      } else {</span>
+<span class="nc" id="L1448">        final IntegerMap&lt;Unit&gt; hitMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L1449">        hitMap.put(unitUnderFire, hits + unitUnderFire.getHits());</span>
+<span class="nc" id="L1450">        change.add(ChangeFactory.unitsHit(hitMap));</span>
+<span class="nc" id="L1451">        m_bridge.getHistoryWriter().addChildToEvent(</span>
+<span class="nc" id="L1452">            &quot;Units damaged: &quot; + MyFormatter.unitsToText(Collections.singleton(unitUnderFire)), unitUnderFire);</span>
+      }
+    }
+<span class="nc bnc" id="L1455" title="All 2 branches missed.">    if (!change.isEmpty()) {</span>
+<span class="nc" id="L1456">      m_bridge.addChange(change);</span>
+    }
+    // kamikaze suicide attacks, even if unsuccessful, deny the ability to bombard from this sea zone
+<span class="nc" id="L1459">    m_battleTracker.addNoBombardAllowedFromHere(location);</span>
+    // TODO: display this as actual dice for both players
+<span class="nc" id="L1461">    final Collection&lt;PlayerID&gt; playersInvolved = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L1462">    playersInvolved.add(m_player);</span>
+<span class="nc" id="L1463">    playersInvolved.add(firingEnemy);</span>
+<span class="nc" id="L1464">    this.getDisplay().reportMessageToPlayers(playersInvolved, null, title + dice, title);</span>
+<span class="nc" id="L1465">  }</span>
+
+  public static void markDamaged(final Collection&lt;Unit&gt; damaged, final IDelegateBridge bridge,
+      final boolean addPreviousHits) {
+<span class="pc bpc" id="L1469" title="1 of 2 branches missed.">    if (damaged.size() == 0) {</span>
+<span class="fc" id="L1470">      return;</span>
+    }
+<span class="nc" id="L1472">    final IntegerMap&lt;Unit&gt; damagedMap = new IntegerMap&lt;&gt;();</span>
+<span class="nc bnc" id="L1473" title="All 2 branches missed.">    for (final Unit u : damaged) {</span>
+<span class="nc" id="L1474">      damagedMap.add(u, 1);</span>
+    }
+<span class="nc" id="L1476">    markDamaged(damagedMap, bridge, addPreviousHits);</span>
+<span class="nc" id="L1477">  }</span>
+
+  public static void markDamaged(final IntegerMap&lt;Unit&gt; damagedMap, final IDelegateBridge bridge,
+      final boolean addPreviousHits) {
+<span class="nc" id="L1481">    final Set&lt;Unit&gt; units = new HashSet&lt;&gt;(damagedMap.keySet());</span>
+<span class="nc bnc" id="L1482" title="All 2 branches missed.">    if (addPreviousHits) {</span>
+<span class="nc bnc" id="L1483" title="All 2 branches missed.">      for (final Unit u : units) {</span>
+<span class="nc" id="L1484">        damagedMap.add(u, u.getHits());</span>
+      }
+    }
+<span class="nc" id="L1487">    final Change damagedChange = ChangeFactory.unitsHit(damagedMap);</span>
+<span class="nc" id="L1488">    bridge.getHistoryWriter().addChildToEvent(&quot;Units damaged: &quot; + MyFormatter.unitsToText(units), units);</span>
+<span class="nc" id="L1489">    bridge.addChange(damagedChange);</span>
+<span class="nc" id="L1490">  }</span>
+
+  private static Collection&lt;Territory&gt; whereCanAirLand(final Collection&lt;Unit&gt; strandedAir, final Territory currentTerr,
+      final PlayerID alliedPlayer, final GameData data, final BattleTracker battleTracker,
+      final int carrierCostForCurrentTerr, final int allowedMovement, final boolean byMovementCost,
+      final boolean useMaxScrambleDistance, final boolean landInConquered) {
+<span class="nc" id="L1496">    final HashSet&lt;Territory&gt; whereCanLand = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1497">    int maxDistance = allowedMovement;</span>
+<span class="nc bnc" id="L1498" title="All 6 branches missed.">    if ((byMovementCost &amp;&amp; maxDistance &gt; 1) || useMaxScrambleDistance) {</span>
+<span class="nc" id="L1499">      UnitType ut = null;</span>
+<span class="nc bnc" id="L1500" title="All 2 branches missed.">      for (final Unit u : strandedAir) {</span>
+<span class="nc bnc" id="L1501" title="All 2 branches missed.">        if (ut == null) {</span>
+<span class="nc" id="L1502">          ut = u.getType();</span>
+<span class="nc bnc" id="L1503" title="All 2 branches missed.">        } else if (!ut.equals(u.getType())) {</span>
+<span class="nc" id="L1504">          throw new IllegalStateException(</span>
+<span class="nc" id="L1505">              &quot;whereCanAirLand can only accept 1 UnitType if byMovementCost or scrambled is true&quot;);</span>
+        }
+      }
+<span class="nc bnc" id="L1508" title="All 2 branches missed.">      if (useMaxScrambleDistance) {</span>
+<span class="nc" id="L1509">        maxDistance = UnitAttachment.get(ut).getMaxScrambleDistance();</span>
+      }
+    }
+<span class="nc bnc" id="L1512" title="All 6 branches missed.">    if (maxDistance &lt; 1 || strandedAir == null || strandedAir.isEmpty()) {</span>
+<span class="nc" id="L1513">      return Collections.singletonList(currentTerr);</span>
+    }
+<span class="nc bnc" id="L1515" title="All 2 branches missed.">    final boolean areNeutralsPassableByAir = (games.strategy.triplea.Properties.getNeutralFlyoverAllowed(data)</span>
+<span class="nc bnc" id="L1516" title="All 2 branches missed.">        &amp;&amp; !games.strategy.triplea.Properties.getNeutralsImpassable(data));</span>
+<span class="nc" id="L1517">    final HashSet&lt;Territory&gt; canNotLand = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1518">    canNotLand.addAll(battleTracker.getPendingBattleSites(false));</span>
+<span class="nc" id="L1519">    canNotLand</span>
+<span class="nc" id="L1520">        .addAll(Match.getMatches(data.getMap().getTerritories(), Matches.territoryHasEnemyUnits(alliedPlayer, data)));</span>
+<span class="nc bnc" id="L1521" title="All 2 branches missed.">    if (!landInConquered) {</span>
+<span class="nc" id="L1522">      canNotLand.addAll(battleTracker.getConquered());</span>
+    }
+<span class="nc" id="L1524">    final Collection&lt;Territory&gt; possibleTerrs =</span>
+<span class="nc" id="L1525">        new ArrayList&lt;&gt;(data.getMap().getNeighbors(currentTerr, maxDistance));</span>
+<span class="nc bnc" id="L1526" title="All 4 branches missed.">    if (byMovementCost &amp;&amp; maxDistance &gt; 1) {</span>
+<span class="nc" id="L1527">      final Iterator&lt;Territory&gt; possibleIter = possibleTerrs.iterator();</span>
+<span class="nc bnc" id="L1528" title="All 2 branches missed.">      while (possibleIter.hasNext()) {</span>
+<span class="nc" id="L1529">        final Route route = data.getMap().getRoute(currentTerr, possibleIter.next(),</span>
+<span class="nc" id="L1530">            Matches.airCanFlyOver(alliedPlayer, data, areNeutralsPassableByAir));</span>
+<span class="nc bnc" id="L1531" title="All 4 branches missed.">        if (route == null || route.getMovementCost(strandedAir.iterator().next()) &gt; maxDistance) {</span>
+<span class="nc" id="L1532">          possibleIter.remove();</span>
+        }
+      }
+    }
+<span class="nc" id="L1536">    possibleTerrs.add(currentTerr);</span>
+<span class="nc" id="L1537">    final HashSet&lt;Territory&gt; availableLand = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1538">    availableLand.addAll(Match.getMatches(possibleTerrs,</span>
+<span class="nc" id="L1539">        new CompositeMatchAnd&lt;&gt;(Matches.isTerritoryAllied(alliedPlayer, data), Matches.TerritoryIsLand)));</span>
+<span class="nc" id="L1540">    availableLand.removeAll(canNotLand);</span>
+<span class="nc" id="L1541">    whereCanLand.addAll(availableLand);</span>
+    // now for carrier-air-landing validation
+<span class="nc bnc" id="L1543" title="All 2 branches missed.">    if (Match.allMatch(strandedAir, Matches.UnitCanLandOnCarrier)) {</span>
+<span class="nc" id="L1544">      final HashSet&lt;Territory&gt; availableWater = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L1545">      availableWater.addAll(Match.getMatches(possibleTerrs,</span>
+<span class="nc" id="L1546">          new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L1547">              Matches.territoryHasUnitsThatMatch(Matches.UnitIsAlliedCarrier(alliedPlayer, data)),</span>
+<span class="nc" id="L1548">              Matches.TerritoryIsWater)));</span>
+<span class="nc" id="L1549">      availableWater.removeAll(battleTracker.getPendingBattleSites(false));</span>
+      // a rather simple calculation, either we can take all the air, or we can't, nothing in the middle
+<span class="nc" id="L1551">      final int carrierCost = AirMovementValidator.carrierCost(strandedAir);</span>
+<span class="nc" id="L1552">      final Iterator&lt;Territory&gt; waterIter = availableWater.iterator();</span>
+<span class="nc bnc" id="L1553" title="All 2 branches missed.">      while (waterIter.hasNext()) {</span>
+<span class="nc" id="L1554">        final Territory t = waterIter.next();</span>
+<span class="nc" id="L1555">        int carrierCapacity = AirMovementValidator</span>
+<span class="nc" id="L1556">            .carrierCapacity(t.getUnits().getMatches(Matches.UnitIsAlliedCarrier(alliedPlayer, data)), t);</span>
+<span class="nc bnc" id="L1557" title="All 2 branches missed.">        if (!t.equals(currentTerr)) {</span>
+<span class="nc" id="L1558">          carrierCapacity -= AirMovementValidator.carrierCost(t.getUnits().getMatches(</span>
+<span class="nc" id="L1559">              new CompositeMatchAnd&lt;&gt;(Matches.UnitCanLandOnCarrier, Matches.alliedUnit(alliedPlayer, data))));</span>
+<span class="nc" id="L1560">        } else {</span>
+<span class="nc" id="L1561">          carrierCapacity -= carrierCostForCurrentTerr;</span>
+        }
+<span class="nc bnc" id="L1563" title="All 2 branches missed.">        if (carrierCapacity &lt; carrierCost) {</span>
+<span class="nc" id="L1564">          waterIter.remove();</span>
+        }
+      }
+<span class="nc" id="L1567">      whereCanLand.addAll(availableWater);</span>
+    }
+<span class="nc" id="L1569">    return whereCanLand;</span>
+  }
+
+  private static boolean isIgnoreTransportInMovement(final GameData data) {
+<span class="fc" id="L1573">    return games.strategy.triplea.Properties.getIgnoreTransportInMovement(data);</span>
+  }
+
+  private static boolean isIgnoreSubInMovement(final GameData data) {
+<span class="fc" id="L1577">    return games.strategy.triplea.Properties.getIgnoreSubInMovement(data);</span>
+  }
+
+  @Override
+  public Class&lt;? extends IRemote&gt; getRemoteType() {
+<span class="nc" id="L1582">    return IBattleDelegate.class;</span>
+  }
+
+  @Override
+  public Territory getCurrentBattleTerritory() {
+<span class="nc" id="L1587">    final IBattle b = m_currentBattle;</span>
+<span class="nc bnc" id="L1588" title="All 2 branches missed.">    if (b != null) {</span>
+<span class="nc" id="L1589">      return b.getTerritory();</span>
+    } else {
+<span class="nc" id="L1591">      return null;</span>
+    }
+  }
+
+  @Override
+  public IBattle getCurrentBattle() {
+<span class="nc" id="L1597">    return m_currentBattle;</span>
+  }
+}
+
+
+<span class="nc" id="L1602">class BattleExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = 7899007486408723505L;
+  Serializable superState;
+  // add other variables here:
+<span class="nc" id="L1606">  public BattleTracker m_battleTracker = new BattleTracker();</span>
+  // public OriginalOwnerTracker m_originalOwnerTracker = new OriginalOwnerTracker();
+  public boolean m_needToInitialize;
+  public boolean m_needToScramble;
+  public boolean m_needToKamikazeSuicideAttacks;
+  public boolean m_needToClearEmptyAirBattleAttacks;
+  public boolean m_needToAddBombardmentSources;
+  public boolean m_needToRecordBattleStatistics;
+  public boolean m_needToCheckDefendingPlanesCanLand;
+  public boolean m_needToCleanup;
+  public IBattle m_currentBattle;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

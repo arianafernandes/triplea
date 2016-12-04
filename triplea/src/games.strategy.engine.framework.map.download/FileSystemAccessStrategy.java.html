@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>FileSystemAccessStrategy.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.framework.map.download</a> &gt; <span class="el_source">FileSystemAccessStrategy.java</span></div><h1>FileSystemAccessStrategy.java</h1><pre class="source lang-java linenums">package games.strategy.engine.framework.map.download;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
+
+import javax.swing.DefaultListModel;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.ui.SwingComponents;
+import games.strategy.util.Version;
+
+public class FileSystemAccessStrategy {
+
+<span class="fc" id="L19">  public FileSystemAccessStrategy() {}</span>
+
+  public Optional&lt;Version&gt; getMapVersion(final String mapName) {
+<span class="fc" id="L22">    final File potentialFile = new File(mapName);</span>
+
+<span class="fc bfc" id="L24" title="All 2 branches covered.">    if (!potentialFile.exists()) {</span>
+<span class="fc" id="L25">      return Optional.empty();</span>
+    } else {
+<span class="fc" id="L27">      final DownloadFileProperties props = DownloadFileProperties.loadForZip(potentialFile);</span>
+<span class="pc bpc" id="L28" title="1 of 2 branches missed.">      if (props.getVersion() == null) {</span>
+<span class="nc" id="L29">        return Optional.empty();</span>
+      } else {
+<span class="fc" id="L31">        return Optional.of(props.getVersion());</span>
+      }
+    }
+  }
+
+  public static void remove(final List&lt;DownloadFileDescription&gt; toRemove, final DefaultListModel&lt;String&gt; listModel) {
+<span class="nc" id="L37">    SwingComponents.promptUser(&quot;Remove Maps?&quot;,</span>
+<span class="nc" id="L38">        &quot;&lt;html&gt;Will remove &quot; + toRemove.size() + &quot; maps, are you sure? &lt;br/&gt;&quot;</span>
+<span class="nc" id="L39">            + formatMapList(toRemove, map -&gt; map.getMapName()) + &quot;&lt;/html&gt;&quot;,</span>
+<span class="nc" id="L40">        createRemoveMapAction(toRemove, listModel));</span>
+<span class="nc" id="L41">  }</span>
+
+  private static Runnable createRemoveMapAction(final List&lt;DownloadFileDescription&gt; maps,
+      final DefaultListModel&lt;String&gt; listModel) {
+<span class="nc" id="L45">    return () -&gt; {</span>
+<span class="nc" id="L46">      final List&lt;DownloadFileDescription&gt; fails = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L47">      final List&lt;DownloadFileDescription&gt; deletes = new ArrayList&lt;&gt;();</span>
+
+      // delete the map files
+<span class="nc bnc" id="L50" title="All 2 branches missed.">      for (final DownloadFileDescription map : maps) {</span>
+        try {
+<span class="nc" id="L52">          Files.delete(map.getInstallLocation().toPath());</span>
+<span class="nc" id="L53">        } catch (final IOException e) {</span>
+<span class="nc" id="L54">          ClientLogger.logQuietly(e);</span>
+        }
+<span class="nc" id="L56">        map.getInstallLocation().delete();</span>
+      }
+
+      // now sleep a short while before we check our work
+      try {
+<span class="nc" id="L61">        Thread.sleep(10);</span>
+<span class="nc" id="L62">      } catch (final InterruptedException e) {</span>
+      }
+
+      // check our work, see if we actuall deleted stuff
+<span class="nc bnc" id="L66" title="All 2 branches missed.">      for (final DownloadFileDescription map : maps) {</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">        if (map.getInstallLocation().exists()) {</span>
+<span class="nc" id="L68">          fails.add(map);</span>
+<span class="nc" id="L69">        } else {</span>
+<span class="nc" id="L70">          deletes.add(map);</span>
+        }
+      }
+
+
+<span class="nc bnc" id="L75" title="All 2 branches missed.">      if (!deletes.isEmpty()) {</span>
+<span class="nc" id="L76">        showRemoveSuccessDialog(&quot;Successfully removed.&quot;, deletes);</span>
+        // only once we know for sure we deleted things, then delete the &quot;.properties&quot; file
+<span class="nc" id="L78">        deletes.forEach(dl -&gt; (new File(dl.getInstallLocation() + &quot;.properties&quot;)).delete());</span>
+<span class="nc" id="L79">        deletes.forEach(m -&gt; listModel.removeElement(m.getMapName()));</span>
+      }
+
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      if (!fails.isEmpty()) {</span>
+<span class="nc" id="L83">        showRemoveFailDialog(&quot;Unable to delete some of the maps files.&lt;br /&gt;&quot;</span>
+<span class="nc" id="L84">            + &quot;Manual removal of the files may be necessary:&quot;, fails);</span>
+<span class="nc" id="L85">        fails.forEach(m -&gt; m.getInstallLocation().deleteOnExit());</span>
+      }
+<span class="nc" id="L87">    };</span>
+  }
+
+  private static void showRemoveFailDialog(final String failMessage, final List&lt;DownloadFileDescription&gt; mapList) {
+<span class="nc" id="L91">    final String message = createDialogMessage(failMessage, mapList);</span>
+<span class="nc" id="L92">    showDialog(message, mapList, (map) -&gt; map.getInstallLocation().getAbsolutePath());</span>
+<span class="nc" id="L93">  }</span>
+
+  private static void showRemoveSuccessDialog(final String successMessage,
+      final List&lt;DownloadFileDescription&gt; mapList) {
+<span class="nc" id="L97">    final String message = createDialogMessage(successMessage, mapList);</span>
+<span class="nc" id="L98">    showDialog(message, mapList, (map) -&gt; map.getMapName());</span>
+<span class="nc" id="L99">  }</span>
+
+  private static void showDialog(final String message, final List&lt;DownloadFileDescription&gt; mapList,
+      final Function&lt;DownloadFileDescription, String&gt; outputFunction) {
+<span class="nc" id="L103">    final StringBuilder sb = new StringBuilder(&quot;&lt;html&gt;&quot; + message + &quot;&lt;br /&gt; &quot; + formatMapList(mapList, outputFunction));</span>
+<span class="nc" id="L104">    sb.append(&quot;&lt;/html&gt;&quot;);</span>
+
+<span class="nc" id="L106">    SwingComponents.newMessageDialog(sb.toString());</span>
+<span class="nc" id="L107">  }</span>
+
+  private static String createDialogMessage(final String message, final List&lt;DownloadFileDescription&gt; mapList) {
+<span class="nc bnc" id="L110" title="All 2 branches missed.">    final String plural = mapList.size() &gt; 0 ? &quot;s&quot; : &quot;&quot;;</span>
+<span class="nc" id="L111">    return message + &quot; &quot; + mapList.size() + &quot; map&quot; + plural;</span>
+  }
+
+  private static String formatMapList(final List&lt;DownloadFileDescription&gt; mapList,
+      final Function&lt;DownloadFileDescription, String&gt; outputFunction) {
+<span class="nc" id="L116">    final int MAX_MAPS_TO_LIST = 6;</span>
+<span class="nc" id="L117">    final StringBuilder sb = new StringBuilder(&quot;&lt;ul&gt;&quot;);</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">    for (int i = 0; i &lt; mapList.size(); i++) {</span>
+<span class="nc bnc" id="L119" title="All 2 branches missed.">      if (i &gt; MAX_MAPS_TO_LIST) {</span>
+<span class="nc" id="L120">        sb.append(&quot;&lt;li&gt;...&lt;/li&gt;&quot;);</span>
+<span class="nc" id="L121">        break;</span>
+      } else {
+<span class="nc" id="L123">        sb.append(&quot;&lt;li&gt;&quot;).append(outputFunction.apply(mapList.get(i))).append(&quot;&lt;/li&gt;&quot;);</span>
+      }
+    }
+<span class="nc" id="L126">    return sb.toString();</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

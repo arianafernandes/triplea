@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>CommentPanel.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui</a> &gt; <span class="el_source">CommentPanel.java</span></div><h1>CommentPanel.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.triplea.ui;</span>
+
+import java.awt.BorderLayout;
+import java.awt.Container;
+import java.awt.Insets;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.swing.Action;
+import javax.swing.BoundedRangeModel;
+import javax.swing.Icon;
+import javax.swing.ImageIcon;
+import javax.swing.InputMap;
+import javax.swing.JButton;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.JTextPane;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import javax.swing.event.TreeModelEvent;
+import javax.swing.event.TreeModelListener;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+import javax.swing.tree.TreeNode;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.history.Event;
+import games.strategy.engine.history.HistoryNode;
+import games.strategy.engine.history.Round;
+import games.strategy.engine.history.Step;
+import games.strategy.triplea.delegate.remote.IEditDelegate;
+import games.strategy.ui.SwingAction;
+
+public class CommentPanel extends JPanel {
+  private static final long serialVersionUID = -9122162393288045888L;
+  private JTextPane m_text;
+  private JScrollPane m_scrollPane;
+  private JTextField m_nextMessage;
+  private JButton m_save;
+  private final GameData m_data;
+  private final TripleAFrame m_frame;
+  private Map&lt;PlayerID, Icon&gt; m_iconMap;
+<span class="nc" id="L51">  private final SimpleAttributeSet bold = new SimpleAttributeSet();</span>
+<span class="nc" id="L52">  private final SimpleAttributeSet italic = new SimpleAttributeSet();</span>
+<span class="nc" id="L53">  private final SimpleAttributeSet normal = new SimpleAttributeSet();</span>
+
+<span class="nc" id="L55">  public CommentPanel(final TripleAFrame frame, final GameData data) {</span>
+<span class="nc" id="L56">    m_frame = frame;</span>
+<span class="nc" id="L57">    m_data = data;</span>
+<span class="nc" id="L58">    init();</span>
+<span class="nc" id="L59">  }</span>
+
+  private void init() {
+<span class="nc" id="L62">    createComponents();</span>
+<span class="nc" id="L63">    layoutComponents();</span>
+<span class="nc" id="L64">    setupKeyMap();</span>
+<span class="nc" id="L65">    StyleConstants.setBold(bold, true);</span>
+<span class="nc" id="L66">    StyleConstants.setItalic(italic, true);</span>
+<span class="nc" id="L67">    setSize(300, 200);</span>
+<span class="nc" id="L68">    loadHistory();</span>
+<span class="nc" id="L69">    setupListeners();</span>
+<span class="nc" id="L70">  }</span>
+
+  private void layoutComponents() {
+<span class="nc" id="L73">    final Container content = this;</span>
+<span class="nc" id="L74">    content.setLayout(new BorderLayout());</span>
+<span class="nc" id="L75">    m_scrollPane = new JScrollPane(m_text);</span>
+<span class="nc" id="L76">    content.add(m_scrollPane, BorderLayout.CENTER);</span>
+<span class="nc" id="L77">    content.add(m_scrollPane, BorderLayout.CENTER);</span>
+<span class="nc" id="L78">    final JPanel savePanel = new JPanel();</span>
+<span class="nc" id="L79">    savePanel.setLayout(new BorderLayout());</span>
+<span class="nc" id="L80">    savePanel.add(m_nextMessage, BorderLayout.CENTER);</span>
+<span class="nc" id="L81">    savePanel.add(m_save, BorderLayout.WEST);</span>
+<span class="nc" id="L82">    content.add(savePanel, BorderLayout.SOUTH);</span>
+<span class="nc" id="L83">  }</span>
+
+  private void createComponents() {
+<span class="nc" id="L86">    m_text = new JTextPane();</span>
+<span class="nc" id="L87">    m_text.setEditable(false);</span>
+<span class="nc" id="L88">    m_text.setFocusable(false);</span>
+<span class="nc" id="L89">    m_nextMessage = new JTextField(10);</span>
+    // when enter is pressed, send the message
+<span class="nc" id="L91">    final Insets inset = new Insets(3, 3, 3, 3);</span>
+<span class="nc" id="L92">    m_save = new JButton(m_saveAction);</span>
+<span class="nc" id="L93">    m_save.setMargin(inset);</span>
+<span class="nc" id="L94">    m_save.setFocusable(false);</span>
+    // create icon map
+<span class="nc" id="L96">    m_iconMap = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">    for (final PlayerID playerId : m_data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L98">      m_iconMap.put(playerId, new ImageIcon(m_frame.getUIContext().getFlagImageFactory().getSmallFlag(playerId)));</span>
+    }
+<span class="nc" id="L100">  }</span>
+
+  private void setupListeners() {
+<span class="nc" id="L103">    m_data.getHistory().addTreeModelListener(new TreeModelListener() {</span>
+      @Override
+<span class="nc" id="L105">      public void treeNodesChanged(final TreeModelEvent e) {}</span>
+
+      @Override
+      public void treeNodesInserted(final TreeModelEvent e) {
+<span class="nc" id="L109">        readHistoryTreeEvent(e);</span>
+<span class="nc" id="L110">      }</span>
+
+      @Override
+<span class="nc" id="L113">      public void treeNodesRemoved(final TreeModelEvent e) {}</span>
+
+      @Override
+      public void treeStructureChanged(final TreeModelEvent e) {
+<span class="nc" id="L117">        readHistoryTreeEvent(e);</span>
+<span class="nc" id="L118">      }</span>
+    });
+<span class="nc" id="L120">  }</span>
+
+  private void readHistoryTreeEvent(final TreeModelEvent e) {
+<span class="nc" id="L123">    final TreeModelEvent tme = e;</span>
+<span class="nc" id="L124">    final Runnable runner = () -&gt; {</span>
+<span class="nc" id="L125">      m_data.acquireReadLock();</span>
+      try {
+<span class="nc" id="L127">        final Document doc = m_text.getDocument();</span>
+<span class="nc" id="L128">        final HistoryNode node = (HistoryNode) (tme.getTreePath().getLastPathComponent());</span>
+<span class="nc bnc" id="L129" title="All 4 branches missed.">        final TreeNode child = node == null ? null : (node.getChildCount() &gt; 0 ? node.getLastChild() : null);</span>
+<span class="nc" id="L130">        final String title =</span>
+<span class="nc bnc" id="L131" title="All 4 branches missed.">            child != null ? (child instanceof Event ? ((Event) child).getDescription() : child.toString())</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">                : (node != null ? node.getTitle() : &quot;&quot;);</span>
+<span class="nc" id="L133">        final Pattern p = Pattern.compile(&quot;^COMMENT: (.*)&quot;);</span>
+<span class="nc" id="L134">        final Matcher m = p.matcher(title);</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        if (m.matches()) {</span>
+<span class="nc" id="L136">          final PlayerID playerId = m_data.getSequence().getStep().getPlayerID();</span>
+<span class="nc" id="L137">          final int round = m_data.getSequence().getRound();</span>
+<span class="nc" id="L138">          final String player = playerId.getName();</span>
+<span class="nc" id="L139">          final Icon icon = m_iconMap.get(playerId);</span>
+          try {
+            // insert into ui document
+<span class="nc" id="L142">            final String prefix = &quot; &quot; + player + &quot;(&quot; + round + &quot;) : &quot;;</span>
+<span class="nc" id="L143">            m_text.insertIcon(icon);</span>
+<span class="nc" id="L144">            doc.insertString(doc.getLength(), prefix, bold);</span>
+<span class="nc" id="L145">            doc.insertString(doc.getLength(), m.group(1) + &quot;\n&quot;, normal);</span>
+<span class="nc" id="L146">          } catch (final BadLocationException e1) {</span>
+<span class="nc" id="L147">            ClientLogger.logQuietly(e1);</span>
+          }
+        }
+<span class="nc" id="L150">      } finally {</span>
+<span class="nc" id="L151">        m_data.releaseReadLock();</span>
+<span class="nc" id="L152">      }</span>
+<span class="nc" id="L153">    };</span>
+    // invoke in the swing event thread
+<span class="nc bnc" id="L155" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L156">      runner.run();</span>
+<span class="nc" id="L157">    } else {</span>
+<span class="nc" id="L158">      SwingUtilities.invokeLater(runner);</span>
+    }
+<span class="nc" id="L160">  }</span>
+
+  private void setupKeyMap() {
+<span class="nc" id="L163">    final InputMap nextMessageKeymap = m_nextMessage.getInputMap();</span>
+<span class="nc" id="L164">    nextMessageKeymap.put(KeyStroke.getKeyStroke('\n'), m_saveAction);</span>
+<span class="nc" id="L165">  }</span>
+
+  private void loadHistory() {
+<span class="nc" id="L168">    final Document doc = m_text.getDocument();</span>
+<span class="nc" id="L169">    final HistoryNode rootNode = (HistoryNode) m_data.getHistory().getRoot();</span>
+    @SuppressWarnings(&quot;unchecked&quot;)
+<span class="nc" id="L171">    final Enumeration&lt;HistoryNode&gt; nodeEnum = rootNode.preorderEnumeration();</span>
+<span class="nc" id="L172">    final Pattern p = Pattern.compile(&quot;^COMMENT: (.*)&quot;);</span>
+<span class="nc" id="L173">    String player = &quot;&quot;;</span>
+<span class="nc" id="L174">    int round = 0;</span>
+<span class="nc" id="L175">    Icon icon = null;</span>
+<span class="nc bnc" id="L176" title="All 2 branches missed.">    while (nodeEnum.hasMoreElements()) {</span>
+<span class="nc" id="L177">      final HistoryNode node = nodeEnum.nextElement();</span>
+<span class="nc bnc" id="L178" title="All 2 branches missed.">      if (node instanceof Round) {</span>
+<span class="nc" id="L179">        round++;</span>
+<span class="nc bnc" id="L180" title="All 2 branches missed.">      } else if (node instanceof Step) {</span>
+<span class="nc" id="L181">        final PlayerID playerId = ((Step) node).getPlayerID();</span>
+<span class="nc bnc" id="L182" title="All 2 branches missed.">        if (playerId != null) {</span>
+<span class="nc" id="L183">          player = playerId.getName();</span>
+<span class="nc" id="L184">          icon = m_iconMap.get(playerId);</span>
+        }
+<span class="nc" id="L186">      } else {</span>
+<span class="nc" id="L187">        final String title = node.getTitle();</span>
+<span class="nc" id="L188">        final Matcher m = p.matcher(title);</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        if (m.matches()) {</span>
+          try {
+            // insert into ui document
+<span class="nc" id="L192">            final String prefix = &quot; &quot; + player + &quot;(&quot; + round + &quot;) : &quot;;</span>
+<span class="nc" id="L193">            m_text.insertIcon(icon);</span>
+<span class="nc" id="L194">            doc.insertString(doc.getLength(), prefix, bold);</span>
+<span class="nc" id="L195">            doc.insertString(doc.getLength(), m.group(1) + &quot;\n&quot;, normal);</span>
+<span class="nc" id="L196">          } catch (final BadLocationException e) {</span>
+<span class="nc" id="L197">            ClientLogger.logQuietly(e);</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L202">  }</span>
+
+  /** thread safe */
+  public void addMessage(final String message) {
+<span class="nc" id="L206">    final Runnable runner = () -&gt; {</span>
+      try {
+<span class="nc" id="L208">        final Document doc = m_text.getDocument();</span>
+        // save history entry
+<span class="nc" id="L210">        final IEditDelegate delegate = m_frame.getEditDelegate();</span>
+        String error;
+<span class="nc bnc" id="L212" title="All 2 branches missed.">        if (delegate == null) {</span>
+<span class="nc" id="L213">          error = &quot;You can only add comments during your turn&quot;;</span>
+<span class="nc" id="L214">        } else {</span>
+<span class="nc" id="L215">          error = delegate.addComment(message);</span>
+        }
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        if (error != null) {</span>
+<span class="nc" id="L218">          doc.insertString(doc.getLength(), error + &quot;\n&quot;, italic);</span>
+        }
+<span class="nc" id="L220">      } catch (final BadLocationException e) {</span>
+<span class="nc" id="L221">        ClientLogger.logQuietly(e);</span>
+      }
+<span class="nc" id="L223">      final BoundedRangeModel scrollModel = m_scrollPane.getVerticalScrollBar().getModel();</span>
+<span class="nc" id="L224">      scrollModel.setValue(scrollModel.getMaximum());</span>
+<span class="nc" id="L225">    };</span>
+    // invoke in the swing event thread
+<span class="nc bnc" id="L227" title="All 2 branches missed.">    if (SwingUtilities.isEventDispatchThread()) {</span>
+<span class="nc" id="L228">      runner.run();</span>
+<span class="nc" id="L229">    } else {</span>
+<span class="nc" id="L230">      SwingUtilities.invokeLater(runner);</span>
+    }
+<span class="nc" id="L232">  }</span>
+
+  /**
+   * Show only the first n lines
+   */
+  public static void trimLines(final Document doc, final int lineCount) {
+<span class="nc bnc" id="L238" title="All 2 branches missed.">    if (doc.getLength() &lt; lineCount) {</span>
+<span class="nc" id="L239">      return;</span>
+    }
+    try {
+<span class="nc" id="L242">      final String text = doc.getText(0, doc.getLength());</span>
+<span class="nc" id="L243">      int returnsFound = 0;</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">      for (int i = text.length() - 1; i &gt;= 0; i--) {</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">        if (text.charAt(i) == '\n') {</span>
+<span class="nc" id="L246">          returnsFound++;</span>
+        }
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        if (returnsFound == lineCount) {</span>
+<span class="nc" id="L249">          doc.remove(0, i);</span>
+<span class="nc" id="L250">          return;</span>
+        }
+      }
+<span class="nc" id="L253">    } catch (final BadLocationException e) {</span>
+<span class="nc" id="L254">      ClientLogger.logQuietly(e);</span>
+    }
+<span class="nc" id="L256">  }</span>
+
+<span class="nc" id="L258">  private final Action m_saveAction = SwingAction.of(&quot;Add Comment&quot;, e -&gt; {</span>
+<span class="nc bnc" id="L259" title="All 2 branches missed.">    if (m_nextMessage.getText().trim().length() == 0) {</span>
+<span class="nc" id="L260">      return;</span>
+    }
+<span class="nc" id="L262">    addMessage(m_nextMessage.getText());</span>
+<span class="nc" id="L263">    m_nextMessage.setText(&quot;&quot;);</span>
+<span class="nc" id="L264">  });</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

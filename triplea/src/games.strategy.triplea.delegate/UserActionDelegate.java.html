@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>UserActionDelegate.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">UserActionDelegate.java</span></div><h1>UserActionDelegate.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.delegate;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+
+import games.strategy.engine.data.Change;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.changefactory.ChangeFactory;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.sound.SoundPath;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.attachments.AbstractConditionsAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.UserActionAttachment;
+import games.strategy.triplea.delegate.remote.IUserActionDelegate;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.ui.UserActionText;
+
+@MapSupport
+public class UserActionDelegate extends BaseTripleADelegate implements IUserActionDelegate {
+<span class="nc" id="L27">  public UserActionDelegate() {}</span>
+
+  /**
+   * Called before the delegate will run.
+   */
+  @Override
+  public void start() {
+<span class="nc" id="L34">    super.start();</span>
+<span class="nc" id="L35">  }</span>
+
+  @Override
+  public void end() {
+<span class="nc" id="L39">    super.end();</span>
+<span class="nc" id="L40">    resetAttempts();</span>
+<span class="nc" id="L41">  }</span>
+
+  @Override
+  public Serializable saveState() {
+<span class="nc" id="L45">    final UserActionExtendedDelegateState state = new UserActionExtendedDelegateState();</span>
+<span class="nc" id="L46">    state.superState = super.saveState();</span>
+    // state.m_testedConditions = m_testedConditions;
+    // add other variables to state here:
+<span class="nc" id="L49">    return state;</span>
+  }
+
+  @Override
+  public void loadState(final Serializable state) {
+<span class="nc" id="L54">    final UserActionExtendedDelegateState s = (UserActionExtendedDelegateState) state;</span>
+<span class="nc" id="L55">    super.loadState(s.superState);</span>
+<span class="nc" id="L56">  }</span>
+
+  @Override
+  public boolean delegateCurrentlyRequiresUserInput() {
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    return !getValidActions().isEmpty();</span>
+  }
+
+  public HashMap&lt;ICondition, Boolean&gt; getTestedConditions() {
+<span class="nc" id="L64">    final HashSet&lt;ICondition&gt; allConditionsNeeded = AbstractConditionsAttachment.getAllConditionsRecursive(</span>
+<span class="nc" id="L65">        new HashSet&lt;&gt;(UserActionAttachment.getUserActionAttachments(m_player)), null);</span>
+<span class="nc" id="L66">    return AbstractConditionsAttachment.testAllConditionsRecursive(allConditionsNeeded, null, m_bridge);</span>
+  }
+
+  @Override
+  public Collection&lt;UserActionAttachment&gt; getValidActions() {
+<span class="nc" id="L71">    final GameData data = m_bridge.getData();</span>
+    final HashMap&lt;ICondition, Boolean&gt; testedConditions;
+<span class="nc" id="L73">    data.acquireReadLock();</span>
+    try {
+<span class="nc" id="L75">      testedConditions = getTestedConditions();</span>
+<span class="nc" id="L76">    } finally {</span>
+<span class="nc" id="L77">      data.releaseReadLock();</span>
+<span class="nc" id="L78">    }</span>
+<span class="nc" id="L79">    return UserActionAttachment.getValidActions(m_player, testedConditions, data);</span>
+  }
+
+  @Override
+  public void attemptAction(final UserActionAttachment actionChoice) {
+<span class="nc bnc" id="L84" title="All 2 branches missed.">    if (actionChoice.canPerform(getTestedConditions())) {</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">      if (checkEnoughMoney(actionChoice)) { // See if the player has got enough money to pay for the action</span>
+        // Charge for attempting the action
+<span class="nc" id="L87">        chargeForAction(actionChoice);</span>
+        // take one of the uses this round
+<span class="nc" id="L89">        actionChoice.useAttempt(getBridge());</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">        if (actionRollSucceeds(actionChoice)) { // See if the action is successful</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">          if (actionIsAccepted(actionChoice)) {</span>
+            // activate the triggers
+<span class="nc" id="L93">            activateTriggers(actionChoice);</span>
+            // notify the players
+<span class="nc" id="L95">            notifySuccess(actionChoice);</span>
+<span class="nc" id="L96">          } else {</span>
+            // notify the players of the failed attempt
+<span class="nc" id="L98">            notifyFailure(actionChoice);</span>
+          }
+<span class="nc" id="L100">        } else {</span>
+          // notify the players of the failed attempt
+<span class="nc" id="L102">          notifyFailure(actionChoice);</span>
+        }
+<span class="nc" id="L104">      } else {</span>
+        // notify the player he hasn't got enough money;
+<span class="nc" id="L106">        notifyMoney(actionChoice);</span>
+      }
+<span class="nc" id="L108">    } else {</span>
+      // notify the player the action isn't valid anymore (shouldn't happen)
+<span class="nc" id="L110">      notifyNoValidAction(actionChoice);</span>
+    }
+<span class="nc" id="L112">  }</span>
+
+  /**
+   * @param uaa
+   *        The UserActionAttachment the player should be charged for
+   * @return false if the player can't afford the action
+   */
+  private boolean checkEnoughMoney(final UserActionAttachment uaa) {
+<span class="nc" id="L120">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L121">    final int cost = uaa.getCostPU();</span>
+<span class="nc" id="L122">    final int has = m_bridge.getPlayerID().getResources().getQuantity(PUs);</span>
+<span class="nc bnc" id="L123" title="All 2 branches missed.">    return has &gt;= cost;</span>
+  }
+
+  /**
+   * Subtract money from the players wallet
+   *
+   * @param uaa
+   *        the UserActionAttachment this the money is charged for.
+   */
+  private void chargeForAction(final UserActionAttachment uaa) {
+<span class="nc" id="L133">    final Resource PUs = getData().getResourceList().getResource(Constants.PUS);</span>
+<span class="nc" id="L134">    final int cost = uaa.getCostPU();</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">    if (cost &gt; 0) {</span>
+      // don't notify user of spending money anymore
+      // notifyMoney(uaa, true);
+<span class="nc" id="L138">      final String transcriptText = m_bridge.getPlayerID().getName() + &quot; spend &quot; + cost + &quot; PU on User Action: &quot;</span>
+<span class="nc" id="L139">          + MyFormatter.attachmentNameToText(uaa.getName());</span>
+<span class="nc" id="L140">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+<span class="nc" id="L141">      final Change charge = ChangeFactory.changeResourcesChange(m_bridge.getPlayerID(), PUs, -cost);</span>
+<span class="nc" id="L142">      m_bridge.addChange(charge);</span>
+<span class="nc" id="L143">    } else {</span>
+<span class="nc" id="L144">      final String transcriptText =</span>
+<span class="nc" id="L145">          m_bridge.getPlayerID().getName() + &quot; takes action: &quot; + MyFormatter.attachmentNameToText(uaa.getName());</span>
+      // we must start an event anyway
+<span class="nc" id="L147">      m_bridge.getHistoryWriter().startEvent(transcriptText);</span>
+    }
+<span class="nc" id="L149">  }</span>
+
+  /**
+   * @param uaa
+   *        the action to check if it succeeds
+   * @return true if the action succeeds, usually because the die-roll succeeded.
+   */
+  private boolean actionRollSucceeds(final UserActionAttachment uaa) {
+<span class="nc" id="L157">    final int hitTarget = uaa.getChanceToHit();</span>
+<span class="nc" id="L158">    final int diceSides = uaa.getChanceDiceSides();</span>
+<span class="nc bnc" id="L159" title="All 4 branches missed.">    if (diceSides &lt;= 0 || hitTarget &gt;= diceSides) {</span>
+<span class="nc" id="L160">      uaa.changeChanceDecrementOrIncrementOnSuccessOrFailure(m_bridge, true, true);</span>
+<span class="nc" id="L161">      return true;</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">    } else if (hitTarget &lt;= 0) {</span>
+<span class="nc" id="L163">      uaa.changeChanceDecrementOrIncrementOnSuccessOrFailure(m_bridge, false, true);</span>
+<span class="nc" id="L164">      return false;</span>
+    }
+<span class="nc" id="L166">    final int rollResult = m_bridge.getRandom(diceSides, m_player, DiceType.NONCOMBAT,</span>
+<span class="nc" id="L167">        &quot;Attempting the User Action: &quot; + MyFormatter.attachmentNameToText(uaa.getName())) + 1;</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">    final boolean success = rollResult &lt;= hitTarget;</span>
+<span class="nc" id="L169">    final String notificationMessage = &quot;rolling (&quot; + hitTarget + &quot; out of &quot; + diceSides + &quot;) result: &quot; + rollResult</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">        + &quot; = &quot; + (success ? &quot;Success!&quot; : &quot;Failure!&quot;);</span>
+<span class="nc" id="L171">    m_bridge.getHistoryWriter()</span>
+<span class="nc" id="L172">        .addChildToEvent(MyFormatter.attachmentNameToText(uaa.getName()) + &quot; : &quot; + notificationMessage);</span>
+<span class="nc" id="L173">    uaa.changeChanceDecrementOrIncrementOnSuccessOrFailure(m_bridge, success, true);</span>
+<span class="nc" id="L174">    sendNotification(notificationMessage);</span>
+<span class="nc" id="L175">    return success;</span>
+  }
+
+  /**
+   * Get a list of players that should accept this action and then ask each
+   * player if it accepts this action.
+   *
+   * @param uaa
+   *        the UserActionAttachment that should be accepted
+   */
+  private boolean actionIsAccepted(final UserActionAttachment uaa) {
+<span class="nc bnc" id="L186" title="All 2 branches missed.">    for (final PlayerID player : uaa.getActionAccept()) {</span>
+<span class="nc" id="L187">      if (!(getRemotePlayer(player)).acceptAction(m_player,</span>
+<span class="nc bnc" id="L188" title="All 2 branches missed.">          UserActionText.getInstance().getAcceptanceQuestion(uaa.getText()), false)) {</span>
+<span class="nc" id="L189">        return false;</span>
+      }
+    }
+<span class="nc" id="L192">    return true;</span>
+  }
+
+  /**
+   * Fire triggers
+   *
+   * @param uaa
+   *        the UserActionAttachment to activate triggers for
+   */
+  private void activateTriggers(final UserActionAttachment uaa) {
+<span class="nc" id="L202">    UserActionAttachment.fireTriggers(uaa, getTestedConditions(), m_bridge);</span>
+<span class="nc" id="L203">  }</span>
+
+  /**
+   * Let all players involved in this action know the action was successful
+   *
+   * @param uaa
+   *        the UserActionAttachment that just succeeded.
+   */
+  private void notifySuccess(final UserActionAttachment uaa) {
+    // play a sound
+<span class="nc" id="L213">    getSoundChannel().playSoundForAll(SoundPath.CLIP_USER_ACTION_SUCCESSFUL, m_player);</span>
+<span class="nc" id="L214">    sendNotification(UserActionText.getInstance().getNotificationSucccess(uaa.getText()));</span>
+<span class="nc" id="L215">    notifyOtherPlayers(uaa, UserActionText.getInstance().getNotificationSuccessOthers(uaa.getText()));</span>
+<span class="nc" id="L216">  }</span>
+
+  /**
+   * Send a notification to the current player
+   *
+   * @param text
+   *        if NONE don't send a notification
+   */
+  private void sendNotification(final String text) {
+<span class="nc bnc" id="L225" title="All 2 branches missed.">    if (!&quot;NONE&quot;.equals(text)) {</span>
+      // &quot;To &quot; + m_player.getName() + &quot;: &quot; +
+<span class="nc" id="L227">      this.getRemotePlayer().reportMessage(text, text);</span>
+    }
+<span class="nc" id="L229">  }</span>
+
+  /**
+   * Send a notification to the other players involved in this action (all
+   * players except the player starting the action)
+   *
+   * @param uaa
+   * @param notification
+   */
+  private void notifyOtherPlayers(final UserActionAttachment uaa, final String notification) {
+<span class="nc bnc" id="L239" title="All 2 branches missed.">    if (!&quot;NONE&quot;.equals(notification)) {</span>
+      // we can send it to just uaa.getOtherPlayers(), or we can send it to all players. both are good options.
+<span class="nc" id="L241">      final Collection&lt;PlayerID&gt; currentPlayer = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L242">      currentPlayer.add(m_player);</span>
+<span class="nc" id="L243">      final Collection&lt;PlayerID&gt; otherPlayers = getData().getPlayerList().getPlayers();</span>
+<span class="nc" id="L244">      otherPlayers.removeAll(currentPlayer);</span>
+<span class="nc" id="L245">      this.getDisplay().reportMessageToPlayers(otherPlayers, currentPlayer, notification, notification);</span>
+    }
+<span class="nc" id="L247">  }</span>
+
+  /**
+   * Let all players involved in this action know the action has failed.
+   *
+   * @param uaa
+   *        the UserActionAttachment that just failed.
+   */
+  private void notifyFailure(final UserActionAttachment uaa) {
+    // play a sound
+<span class="nc" id="L257">    getSoundChannel().playSoundForAll(SoundPath.CLIP_USER_ACTION_FAILURE, m_player);</span>
+<span class="nc" id="L258">    final String transcriptText =</span>
+<span class="nc" id="L259">        m_bridge.getPlayerID().getName() + &quot; fails on action: &quot; + MyFormatter.attachmentNameToText(uaa.getName());</span>
+<span class="nc" id="L260">    m_bridge.getHistoryWriter().addChildToEvent(transcriptText);</span>
+<span class="nc" id="L261">    sendNotification(UserActionText.getInstance().getNotificationFailure(uaa.getText()));</span>
+<span class="nc" id="L262">    notifyOtherPlayers(uaa, UserActionText.getInstance().getNotificationFailureOthers(uaa.getText()));</span>
+<span class="nc" id="L263">  }</span>
+
+  /**
+   * Let the player know he is being charged for money or that he hasn't got
+   * enough money
+   * 
+   * @param uaa
+   *        the UserActionAttachment the player is notified about
+   *
+   */
+  private void notifyMoney(final UserActionAttachment uaa) {
+<span class="nc" id="L274">    sendNotification(&quot;You don't have enough money, you need &quot; + uaa.getCostPU() + &quot; PU's to perform this action&quot;);</span>
+<span class="nc" id="L275">  }</span>
+
+  /**
+   * Let the player know this action isn't valid anymore, this shouldn't
+   * happen as the player shouldn't get an option to push the button on
+   * non-valid actions.
+   *
+   * @param uaa
+   */
+  private void notifyNoValidAction(final UserActionAttachment uaa) {
+<span class="nc" id="L285">    sendNotification(&quot;This action isn't available anymore (this shouldn't happen!?!)&quot;);</span>
+<span class="nc" id="L286">  }</span>
+
+  /**
+   * Reset the attempts-counter for this action, so next round the player can
+   * try again for a number of attempts.
+   */
+  private void resetAttempts() {
+<span class="nc bnc" id="L293" title="All 2 branches missed.">    for (final UserActionAttachment uaa : UserActionAttachment.getUserActionAttachments(m_player)) {</span>
+<span class="nc" id="L294">      uaa.resetAttempts(getBridge());</span>
+    }
+<span class="nc" id="L296">  }</span>
+
+  @Override
+  public Class&lt;IUserActionDelegate&gt; getRemoteType() {
+<span class="nc" id="L300">    return IUserActionDelegate.class;</span>
+  }
+}
+
+
+<span class="nc" id="L305">class UserActionExtendedDelegateState implements Serializable {</span>
+  private static final long serialVersionUID = -7521031770074984272L;
+  Serializable superState;
+  // add other variables here:
+  // public HashMap&lt;ICondition, Boolean&gt; m_testedConditions = null;
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

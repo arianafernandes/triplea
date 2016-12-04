@@ -1,0 +1,787 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>MapData.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.ui.mapdata</a> &gt; <span class="el_source">MapData.java</span></div><h1>MapData.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.ui.mapdata;
+
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Image;
+import java.awt.Point;
+import java.awt.Polygon;
+import java.awt.Rectangle;
+import java.io.Closeable;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+
+import javax.imageio.ImageIO;
+
+import games.strategy.debug.ClientLogger;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.Territory;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.ResourceLoader;
+import games.strategy.triplea.image.UnitImageFactory;
+import games.strategy.ui.Util;
+import games.strategy.util.PointFileReaderWriter;
+import games.strategy.util.UrlStreams;
+
+/**
+ * contains data about the territories useful for drawing
+ */
+public class MapData implements Closeable {
+  public static final String PROPERTY_UNITS_SCALE = &quot;units.scale&quot;;
+  public static final String PROPERTY_UNITS_WIDTH = &quot;units.width&quot;;
+  public static final String PROPERTY_UNITS_HEIGHT = &quot;units.height&quot;;
+  public static final String PROPERTY_SCREENSHOT_TITLE_ENABLED = &quot;screenshot.title.enabled&quot;;
+  public static final String PROPERTY_SCREENSHOT_TITLE_X = &quot;screenshot.title.x&quot;;
+  public static final String PROPERTY_SCREENSHOT_TITLE_Y = &quot;screenshot.title.y&quot;;
+  public static final String PROPERTY_SCREENSHOT_TITLE_COLOR = &quot;screenshot.title.color&quot;;
+  public static final String PROPERTY_SCREENSHOT_TITLE_FONT_SIZE = &quot;screenshot.title.font.size&quot;;
+  private static final String PROPERTY_COLOR_PREFIX = &quot;color.&quot;;
+  private static final String PROPERTY_UNITS_COUNTER_OFFSET_WIDTH = &quot;units.counter.offset.width&quot;;
+  private static final String PROPERTY_UNITS_COUNTER_OFFSET_HEIGHT = &quot;units.counter.offset.height&quot;;
+  private static final String PROPERTY_UNITS_STACK_SIZE = &quot;units.stack.size&quot;;
+  private static final String PROPERTY_MAP_WIDTH = &quot;map.width&quot;;
+  private static final String PROPERTY_MAP_HEIGHT = &quot;map.height&quot;;
+  private static final String PROPERTY_MAP_SCROLLWRAPX = &quot;map.scrollWrapX&quot;;
+  private static final String PROPERTY_MAP_SCROLLWRAPY = &quot;map.scrollWrapY&quot;;
+  private static final String PROPERTY_MAP_HASRELIEF = &quot;map.hasRelief&quot;;
+  private static final String PROPERTY_MAP_CURSOR_HOTSPOT_X = &quot;map.cursor.hotspot.x&quot;;
+  private static final String PROPERTY_MAP_CURSOR_HOTSPOT_Y = &quot;map.cursor.hotspot.y&quot;;
+  private static final String PROPERTY_MAP_SHOWCAPITOLMARKERS = &quot;map.showCapitolMarkers&quot;;
+  private static final String PROPERTY_MAP_USETERRITORYEFFECTMARKERS = &quot;map.useTerritoryEffectMarkers&quot;;
+  private static final String PROPERTY_MAP_SHOWTERRITORYNAMES = &quot;map.showTerritoryNames&quot;;
+  private static final String PROPERTY_MAP_SHOWRESOURCES = &quot;map.showResources&quot;;
+  private static final String PROPERTY_MAP_SHOWCOMMENTS = &quot;map.showComments&quot;;
+  private static final String PROPERTY_MAP_SHOWSEAZONENAMES = &quot;map.showSeaZoneNames&quot;;
+  private static final String PROPERTY_MAP_DRAWNAMESFROMTOPLEFT = &quot;map.drawNamesFromTopLeft&quot;;
+  private static final String PROPERTY_MAP_USENATION_CONVOYFLAGS = &quot;map.useNation_convoyFlags&quot;;
+  private static final String PROPERTY_DONT_DRAW_TERRITORY_NAMES = &quot;dont_draw_territory_names&quot;;
+  private static final String PROPERTY_MAP_MAPBLENDS = &quot;map.mapBlends&quot;;
+  private static final String PROPERTY_MAP_MAPBLENDMODE = &quot;map.mapBlendMode&quot;;
+  private static final String PROPERTY_MAP_MAPBLENDALPHA = &quot;map.mapBlendAlpha&quot;;
+
+  private static final String CENTERS_FILE = &quot;centers.txt&quot;;
+  private static final String POLYGON_FILE = &quot;polygons.txt&quot;;
+  private static final String PLACEMENT_FILE = &quot;place.txt&quot;;
+  private static final String TERRITORY_EFFECT_FILE = &quot;territory_effects.txt&quot;;
+  private static final String MAP_PROPERTIES = &quot;map.properties&quot;;
+  private static final String CAPITAL_MARKERS = &quot;capitols.txt&quot;;
+  private static final String CONVOY_MARKERS = &quot;convoy.txt&quot;;
+  private static final String COMMENT_MARKERS = &quot;comments.txt&quot;;
+  private static final String VC_MARKERS = &quot;vc.txt&quot;;
+  private static final String BLOCKADE_MARKERS = &quot;blockade.txt&quot;;
+  private static final String PU_PLACE_FILE = &quot;pu_place.txt&quot;;
+  private static final String TERRITORY_NAME_PLACE_FILE = &quot;name_place.txt&quot;;
+  private static final String KAMIKAZE_FILE = &quot;kamikaze_place.txt&quot;;
+  private static final String DECORATIONS_FILE = &quot;decorations.txt&quot;;
+  // default colour if none is defined.
+<span class="nc" id="L89">  private final List&lt;Color&gt; m_defaultColours = Arrays.asList(Color.RED, Color.MAGENTA, Color.YELLOW, Color.ORANGE,</span>
+<span class="nc" id="L90">      Color.CYAN, Color.GREEN, Color.PINK, Color.GRAY);</span>
+  // maps PlayerName as String to Color
+<span class="nc" id="L92">  private final Map&lt;String, Color&gt; m_playerColors = new HashMap&lt;&gt;();</span>
+  // maps String -&gt; List of points
+  private Map&lt;String, List&lt;Point&gt;&gt; m_place;
+  // maps String -&gt; Collection of Polygons
+  private Map&lt;String, List&lt;Polygon&gt;&gt; m_polys;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_centers;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_vcPlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_blockadePlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_convoyPlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_commentPlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_PUPlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_namePlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_kamikazePlace;
+  // maps String -&gt; Point
+  private Map&lt;String, Point&gt; m_capitolPlace;
+  // maps String -&gt; List of String
+  private Map&lt;String, List&lt;String&gt;&gt; m_contains;
+  private Properties m_mapProperties;
+  private Map&lt;String, List&lt;Point&gt;&gt; m_territoryEffects;
+  // we shouldnt draw the names to these territories
+  private Set&lt;String&gt; m_undrawnTerritoriesNames;
+  private Map&lt;Image, List&lt;Point&gt;&gt; m_decorations;
+  private Map&lt;String, Image&gt; m_territoryNameImages;
+<span class="nc" id="L123">  private final Map&lt;String, Image&gt; m_effectImages = new HashMap&lt;&gt;();</span>
+  private final ResourceLoader m_resourceLoader;
+
+  public boolean scrollWrapX() {
+<span class="nc" id="L127">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SCROLLWRAPX, &quot;true&quot;));</span>
+  }
+
+  public boolean scrollWrapY() {
+<span class="nc" id="L131">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SCROLLWRAPY, &quot;false&quot;));</span>
+  }
+
+  public MapData(final String mapNameDir) {
+<span class="nc" id="L135">    this(ResourceLoader.getMapResourceLoader(mapNameDir));</span>
+<span class="nc" id="L136">  }</span>
+
+  /**
+   * Constructor TerritoryData(java.lang.String)
+   * Sets the map directory for this instance of TerritoryData
+   *
+   * @param loader
+   *        .lang.String
+   *        mapNameDir the given map directory
+   */
+<span class="nc" id="L146">  public MapData(final ResourceLoader loader) {</span>
+<span class="nc" id="L147">    m_resourceLoader = loader;</span>
+    try {
+<span class="nc" id="L149">      final String prefix = &quot;&quot;;</span>
+<span class="nc" id="L150">      m_place = PointFileReaderWriter.readOneToMany(loader.getResourceAsStream(prefix + PLACEMENT_FILE));</span>
+<span class="nc" id="L151">      m_territoryEffects =</span>
+<span class="nc" id="L152">          PointFileReaderWriter.readOneToMany(loader.getResourceAsStream(prefix + TERRITORY_EFFECT_FILE));</span>
+
+<span class="nc bnc" id="L154" title="All 2 branches missed.">      if (loader.getResourceAsStream(prefix + POLYGON_FILE) == null) {</span>
+<span class="nc" id="L155">        throw new IllegalStateException(</span>
+<span class="nc" id="L156">            &quot;Error in resource loading. Unable to load expected resource: &quot; + prefix + POLYGON_FILE + &quot;, the error&quot;</span>
+                + &quot; is that either we did not find the correct path to load. Check the resource loader to make&quot;
+                + &quot; sure the map zip or dir was added. Failing that, the path in this error message should be available&quot;
+                + &quot; relative to the map folder, or relative to the root of the map zip&quot;);
+      }
+      
+<span class="nc" id="L162">      m_polys = PointFileReaderWriter.readOneToManyPolygons(loader.getResourceAsStream(prefix + POLYGON_FILE));</span>
+<span class="nc" id="L163">      m_centers = PointFileReaderWriter.readOneToOneCenters(loader.getResourceAsStream(prefix + CENTERS_FILE));</span>
+<span class="nc" id="L164">      m_vcPlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + VC_MARKERS));</span>
+<span class="nc" id="L165">      m_convoyPlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + CONVOY_MARKERS));</span>
+<span class="nc" id="L166">      m_commentPlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + COMMENT_MARKERS));</span>
+<span class="nc" id="L167">      m_blockadePlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + BLOCKADE_MARKERS));</span>
+<span class="nc" id="L168">      m_capitolPlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + CAPITAL_MARKERS));</span>
+<span class="nc" id="L169">      m_PUPlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + PU_PLACE_FILE));</span>
+<span class="nc" id="L170">      m_namePlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + TERRITORY_NAME_PLACE_FILE));</span>
+<span class="nc" id="L171">      m_kamikazePlace = PointFileReaderWriter.readOneToOne(loader.getResourceAsStream(prefix + KAMIKAZE_FILE));</span>
+<span class="nc" id="L172">      m_mapProperties = new Properties();</span>
+<span class="nc" id="L173">      m_decorations = loadDecorations();</span>
+<span class="nc" id="L174">      m_territoryNameImages = territoryNameImages();</span>
+      try {
+<span class="nc" id="L176">        final URL url = loader.getResource(prefix + MAP_PROPERTIES);</span>
+<span class="nc bnc" id="L177" title="All 2 branches missed.">        if (url == null) {</span>
+<span class="nc" id="L178">          throw new IllegalStateException(&quot;No map.properties file defined&quot;);</span>
+        }
+<span class="nc" id="L180">        final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(url);</span>
+<span class="nc bnc" id="L181" title="All 2 branches missed.">        if (inputStream.isPresent()) {</span>
+<span class="nc" id="L182">          m_mapProperties.load(inputStream.get());</span>
+        }
+<span class="nc" id="L184">      } catch (final Exception e) {</span>
+<span class="nc" id="L185">        System.out.println(&quot;Error reading map.properties:&quot; + e);</span>
+      }
+<span class="nc" id="L187">      initializeContains();</span>
+<span class="nc" id="L188">    } catch (final IOException ex) {</span>
+<span class="nc" id="L189">      ClientLogger.logQuietly(ex);</span>
+    }
+<span class="nc" id="L191">  }</span>
+
+  @Override
+  public void close() {
+<span class="nc" id="L195">    m_resourceLoader.close();</span>
+<span class="nc" id="L196">  }</span>
+
+  private Map&lt;String, Image&gt; territoryNameImages() {
+<span class="nc bnc" id="L199" title="All 2 branches missed.">    if (!m_resourceLoader.hasPath(&quot;territoryNames/&quot;)) {</span>
+<span class="nc" id="L200">      return new HashMap&lt;&gt;();</span>
+    }
+
+<span class="nc" id="L203">    final Map&lt;String, Image&gt; territoryNameImages = new HashMap&lt;&gt;();</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">    for (final String name : m_centers.keySet()) {</span>
+<span class="nc" id="L205">      final Optional&lt;Image&gt; territoryNameImage = loadTerritoryNameImage(name);</span>
+
+<span class="nc bnc" id="L207" title="All 2 branches missed.">      if (territoryNameImage.isPresent()) {</span>
+<span class="nc" id="L208">        territoryNameImages.put(name, territoryNameImage.get());</span>
+      }
+    }
+<span class="nc" id="L211">    return territoryNameImages;</span>
+  }
+
+  private Optional&lt;Image&gt; loadTerritoryNameImage(final String imageName) {
+    Optional&lt;Image&gt; img;
+    try {
+      // try first file names that have underscores instead of spaces
+<span class="nc" id="L218">      final String normalizedName = imageName.replace(' ', '_');</span>
+<span class="nc" id="L219">      img = loadImage(constructTerritoryNameImagePath(normalizedName));</span>
+<span class="nc bnc" id="L220" title="All 2 branches missed.">      if (!img.isPresent()) {</span>
+<span class="nc" id="L221">        img = loadImage(constructTerritoryNameImagePath(imageName));</span>
+      }
+<span class="nc" id="L223">      return img;</span>
+<span class="nc" id="L224">    } catch (final Exception e) {</span>
+      // TODO: this is checking for IllegalStateException - we should bubble up the Optional image load and just
+      // check instead if the optional is empty.
+<span class="nc" id="L227">      ClientLogger.logQuietly(&quot;Image loading failed: &quot; + imageName, e);</span>
+<span class="nc" id="L228">      return Optional.empty();</span>
+    }
+  }
+
+
+  private String constructTerritoryNameImagePath(final String baseName) {
+<span class="nc" id="L234">    return &quot;territoryNames/&quot; + baseName + &quot;.png&quot;;</span>
+  }
+
+
+  private Map&lt;Image, List&lt;Point&gt;&gt; loadDecorations() {
+<span class="nc" id="L239">    final URL decorationsFileUrl = m_resourceLoader.getResource(DECORATIONS_FILE);</span>
+<span class="nc bnc" id="L240" title="All 2 branches missed.">    if (decorationsFileUrl == null) {</span>
+<span class="nc" id="L241">      return Collections.emptyMap();</span>
+    }
+<span class="nc" id="L243">    final Map&lt;Image, List&lt;Point&gt;&gt; decorations = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L244">    final Optional&lt;InputStream&gt; inputStream = UrlStreams.openStream(decorationsFileUrl);</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">    if (inputStream.isPresent()) {</span>
+<span class="nc" id="L246">      final Map&lt;String, List&lt;Point&gt;&gt; points = PointFileReaderWriter.readOneToMany(inputStream.get());</span>
+<span class="nc bnc" id="L247" title="All 2 branches missed.">      for (final String name : points.keySet()) {</span>
+<span class="nc" id="L248">        final Optional&lt;Image&gt; img = loadImage(&quot;misc/&quot; + name);</span>
+<span class="nc bnc" id="L249" title="All 2 branches missed.">        if (img.isPresent()) {</span>
+<span class="nc" id="L250">          decorations.put(img.get(), points.get(name));</span>
+        }
+      }
+    }
+<span class="nc" id="L254">    return decorations;</span>
+  }
+
+  public double getDefaultUnitScale() {
+<span class="nc bnc" id="L258" title="All 2 branches missed.">    if (m_mapProperties.getProperty(PROPERTY_UNITS_SCALE) == null) {</span>
+<span class="nc" id="L259">      return 1.0;</span>
+    }
+    try {
+<span class="nc" id="L262">      return Double.parseDouble(m_mapProperties.getProperty(PROPERTY_UNITS_SCALE));</span>
+<span class="nc" id="L263">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L264">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L265">      return 1.0;</span>
+    }
+  }
+
+  /**
+   * Does not take account of any scaling.
+   */
+  public int getDefaultUnitWidth() {
+<span class="nc bnc" id="L273" title="All 2 branches missed.">    if (m_mapProperties.getProperty(PROPERTY_UNITS_WIDTH) == null) {</span>
+<span class="nc" id="L274">      return UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+    }
+    try {
+<span class="nc" id="L277">      return Integer.parseInt(m_mapProperties.getProperty(PROPERTY_UNITS_WIDTH));</span>
+<span class="nc" id="L278">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L279">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L280">      return UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+    }
+  }
+
+  /**
+   * Does not take account of any scaling.
+   */
+  public int getDefaultUnitHeight() {
+<span class="nc bnc" id="L288" title="All 2 branches missed.">    if (m_mapProperties.getProperty(PROPERTY_UNITS_HEIGHT) == null) {</span>
+<span class="nc" id="L289">      return UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+    }
+    try {
+<span class="nc" id="L292">      return Integer.parseInt(m_mapProperties.getProperty(PROPERTY_UNITS_HEIGHT));</span>
+<span class="nc" id="L293">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L294">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L295">      return UnitImageFactory.DEFAULT_UNIT_ICON_SIZE;</span>
+    }
+  }
+
+  /**
+   * Does not take account of any scaling.
+   */
+  public int getDefaultUnitCounterOffsetWidth() {
+    // if it is not set, divide by 4 so that it is roughly centered
+<span class="nc bnc" id="L304" title="All 2 branches missed.">    if (m_mapProperties.getProperty(PROPERTY_UNITS_COUNTER_OFFSET_WIDTH) == null) {</span>
+<span class="nc" id="L305">      return getDefaultUnitWidth() / 4;</span>
+    }
+    try {
+<span class="nc" id="L308">      return Integer.parseInt(m_mapProperties.getProperty(PROPERTY_UNITS_COUNTER_OFFSET_WIDTH));</span>
+<span class="nc" id="L309">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L310">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L311">      return getDefaultUnitWidth() / 4;</span>
+    }
+  }
+
+  /**
+   * Does not take account of any scaling.
+   */
+  public int getDefaultUnitCounterOffsetHeight() {
+    // put at bottom of unit, if not set
+<span class="nc bnc" id="L320" title="All 2 branches missed.">    if (m_mapProperties.getProperty(PROPERTY_UNITS_COUNTER_OFFSET_HEIGHT) == null) {</span>
+<span class="nc" id="L321">      return getDefaultUnitHeight();</span>
+    }
+    try {
+<span class="nc" id="L324">      return Integer.parseInt(m_mapProperties.getProperty(PROPERTY_UNITS_COUNTER_OFFSET_HEIGHT));</span>
+<span class="nc" id="L325">    } catch (final NumberFormatException e) {</span>
+<span class="nc" id="L326">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L327">      return getDefaultUnitHeight();</span>
+    }
+  }
+
+  public int getDefaultUnitsStackSize() {
+    // zero = normal behavior
+<span class="nc" id="L333">    final String stack = m_mapProperties.getProperty(PROPERTY_UNITS_STACK_SIZE, &quot;0&quot;);</span>
+<span class="nc" id="L334">    return Math.max(0, Integer.parseInt(stack));</span>
+  }
+
+  public boolean shouldDrawTerritoryName(final String territoryName) {
+<span class="nc bnc" id="L338" title="All 2 branches missed.">    if (m_undrawnTerritoriesNames == null) {</span>
+<span class="nc" id="L339">      final String property = m_mapProperties.getProperty(PROPERTY_DONT_DRAW_TERRITORY_NAMES, &quot;&quot;);</span>
+<span class="nc" id="L340">      m_undrawnTerritoriesNames = new HashSet&lt;&gt;(Arrays.asList(property.split(&quot;,&quot;)));</span>
+    }
+<span class="nc bnc" id="L342" title="All 2 branches missed.">    return !m_undrawnTerritoriesNames.contains(territoryName);</span>
+  }
+
+  public boolean getHasRelief() {
+<span class="nc" id="L346">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_HASRELIEF, &quot;true&quot;));</span>
+  }
+
+  public int getMapCursorHotspotX() {
+<span class="nc" id="L350">    return Math.max(0,</span>
+<span class="nc" id="L351">        Math.min(256, Integer.parseInt(m_mapProperties.getProperty(PROPERTY_MAP_CURSOR_HOTSPOT_X, &quot;0&quot;))));</span>
+  }
+
+  public int getMapCursorHotspotY() {
+<span class="nc" id="L355">    return Math.max(0,</span>
+<span class="nc" id="L356">        Math.min(256, Integer.parseInt(m_mapProperties.getProperty(PROPERTY_MAP_CURSOR_HOTSPOT_Y, &quot;0&quot;))));</span>
+  }
+
+  public boolean getHasMapBlends() {
+<span class="nc" id="L360">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_MAPBLENDS, &quot;false&quot;));</span>
+  }
+
+  public String getMapBlendMode() {
+<span class="nc" id="L364">    return String.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_MAPBLENDMODE, &quot;normal&quot;));</span>
+  }
+
+  public float getMapBlendAlpha() {
+<span class="nc" id="L368">    return Float.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_MAPBLENDALPHA, &quot;0.5f&quot;));</span>
+  }
+
+  public boolean drawCapitolMarkers() {
+<span class="nc" id="L372">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SHOWCAPITOLMARKERS, &quot;true&quot;));</span>
+  }
+
+  public boolean drawTerritoryNames() {
+<span class="nc" id="L376">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SHOWTERRITORYNAMES, &quot;true&quot;));</span>
+  }
+
+  public boolean drawResources() {
+<span class="nc" id="L380">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SHOWRESOURCES, &quot;true&quot;));</span>
+  }
+
+  public boolean drawComments() {
+<span class="nc" id="L384">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SHOWCOMMENTS, &quot;true&quot;));</span>
+  }
+
+  public boolean drawSeaZoneNames() {
+<span class="nc" id="L388">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_SHOWSEAZONENAMES, &quot;false&quot;));</span>
+  }
+
+  public boolean drawNamesFromTopLeft() {
+<span class="nc" id="L392">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_DRAWNAMESFROMTOPLEFT, &quot;false&quot;));</span>
+  }
+
+  public boolean useNation_convoyFlags() {
+<span class="nc" id="L396">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_USENATION_CONVOYFLAGS, &quot;false&quot;));</span>
+  }
+
+  public boolean useTerritoryEffectMarkers() {
+<span class="nc" id="L400">    return Boolean.valueOf(m_mapProperties.getProperty(PROPERTY_MAP_USETERRITORYEFFECTMARKERS, &quot;false&quot;));</span>
+  }
+
+  private void initializeContains() {
+<span class="nc" id="L404">    m_contains = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L405">    final Iterator&lt;String&gt; seaIter = getTerritories().iterator();</span>
+<span class="nc bnc" id="L406" title="All 2 branches missed.">    while (seaIter.hasNext()) {</span>
+<span class="nc" id="L407">      final List&lt;String&gt; contained = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L408">      final String seaTerritory = seaIter.next();</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">      if (!Util.isTerritoryNameIndicatingWater(seaTerritory)) {</span>
+<span class="nc" id="L410">        continue;</span>
+      }
+<span class="nc" id="L412">      final Iterator&lt;String&gt; landIter = getTerritories().iterator();</span>
+<span class="nc bnc" id="L413" title="All 2 branches missed.">      while (landIter.hasNext()) {</span>
+<span class="nc" id="L414">        final String landTerritory = landIter.next();</span>
+<span class="nc bnc" id="L415" title="All 2 branches missed.">        if (Util.isTerritoryNameIndicatingWater(landTerritory)) {</span>
+<span class="nc" id="L416">          continue;</span>
+        }
+<span class="nc" id="L418">        final Polygon landPoly = getPolygons(landTerritory).iterator().next();</span>
+<span class="nc" id="L419">        final Polygon seaPoly = getPolygons(seaTerritory).iterator().next();</span>
+<span class="nc bnc" id="L420" title="All 2 branches missed.">        if (seaPoly.contains(landPoly.getBounds())) {</span>
+<span class="nc" id="L421">          contained.add(landTerritory);</span>
+        }
+      }
+<span class="nc bnc" id="L424" title="All 2 branches missed.">      if (!contained.isEmpty()) {</span>
+<span class="nc" id="L425">        m_contains.put(seaTerritory, contained);</span>
+      }
+    }
+<span class="nc" id="L428">  }</span>
+
+  public boolean getBooleanProperty(final String propertiesKey) {
+<span class="nc" id="L431">    return Boolean.valueOf(m_mapProperties.getProperty(propertiesKey, &quot;true&quot;));</span>
+  }
+
+  public Color getColorProperty(final String propertiesKey) throws IllegalStateException {
+    String colorString;
+<span class="nc bnc" id="L436" title="All 2 branches missed.">    if (m_mapProperties.getProperty(propertiesKey) != null) {</span>
+<span class="nc" id="L437">      colorString = m_mapProperties.getProperty(propertiesKey);</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">      if (colorString.length() != 6) {</span>
+<span class="nc" id="L439">        throw new IllegalStateException(&quot;Colors must be a 6 digit hex number, eg FF0011, not:&quot; + colorString);</span>
+      }
+      try {
+<span class="nc" id="L442">        return new Color(Integer.decode(&quot;0x&quot; + colorString));</span>
+<span class="nc" id="L443">      } catch (final NumberFormatException nfe) {</span>
+<span class="nc" id="L444">        throw new IllegalStateException(&quot;Player colors must be a 6 digit hex number, eg FF0011&quot;);</span>
+      }
+    }
+<span class="nc" id="L447">    return null;</span>
+  }
+
+  public Color getPlayerColor(final String playerName) {
+    // already loaded, just return
+<span class="nc bnc" id="L452" title="All 2 branches missed.">    if (m_playerColors.containsKey(playerName)) {</span>
+<span class="nc" id="L453">      return m_playerColors.get(playerName);</span>
+    }
+    // look in map.properties
+<span class="nc" id="L456">    final String propertiesKey = PROPERTY_COLOR_PREFIX + playerName;</span>
+<span class="nc" id="L457">    Color color = null;</span>
+    try {
+<span class="nc" id="L459">      color = getColorProperty(propertiesKey);</span>
+<span class="nc" id="L460">    } catch (final Exception e) {</span>
+<span class="nc" id="L461">      throw new IllegalStateException(&quot;Player colors must be a 6 digit hex number, eg FF0011&quot;);</span>
+    }
+<span class="nc bnc" id="L463" title="All 2 branches missed.">    if (color == null) {</span>
+<span class="nc" id="L464">      System.out.println(&quot;No color defined for &quot; + playerName + &quot;.  Edit map.properties in the map folder to set it&quot;);</span>
+<span class="nc" id="L465">      color = m_defaultColours.remove(0);</span>
+    }
+    // dont crash, use one of our default colors
+    // its ugly, but usable
+<span class="nc" id="L469">    m_playerColors.put(playerName, color);</span>
+<span class="nc" id="L470">    return color;</span>
+  }
+
+  /**
+   * returns the named property, or null
+   */
+  public String getProperty(final String propertiesKey) {
+<span class="nc" id="L477">    return m_mapProperties.getProperty(propertiesKey);</span>
+  }
+
+  /**
+   * returns the color for impassable territories
+   */
+  public Color impassableColor() {
+    // just use getPlayerColor, since it parses the properties
+<span class="nc" id="L485">    return getPlayerColor(Constants.PLAYER_NAME_IMPASSABLE);</span>
+  }
+
+  /**
+   * @return a Set of territory names as Strings. generally this shouldnt be
+   *         used, instead you should use aGameData.getMap().getTerritories()
+   */
+  public Set&lt;String&gt; getTerritories() {
+<span class="nc" id="L493">    return m_polys.keySet();</span>
+  }
+
+  /**
+   * Does this territory have any territories contained within it
+   */
+  public boolean hasContainedTerritory(final String territoryName) {
+<span class="nc" id="L500">    return m_contains.containsKey(territoryName);</span>
+  }
+
+  /**
+   * returns the name of the territory contained in the given territory. This
+   * applies to islands within sea zones.
+   *
+   * @return possiblly null
+   */
+  public List&lt;String&gt; getContainedTerritory(final String territoryName) {
+<span class="nc" id="L510">    return m_contains.get(territoryName);</span>
+  }
+
+  public void verify(final GameData data) {
+<span class="nc" id="L514">    verifyKeys(data, m_centers, &quot;centers&quot;);</span>
+<span class="nc" id="L515">    verifyKeys(data, m_polys, &quot;polygons&quot;);</span>
+<span class="nc" id="L516">    verifyKeys(data, m_place, &quot;place&quot;);</span>
+<span class="nc" id="L517">  }</span>
+
+  private void verifyKeys(final GameData data, final Map&lt;String, ?&gt; aMap, final String dataTypeForErrorMessage)
+      throws IllegalStateException {
+<span class="nc" id="L521">    final StringBuilder errors = new StringBuilder();</span>
+<span class="nc" id="L522">    final Iterator&lt;String&gt; iter = aMap.keySet().iterator();</span>
+<span class="nc bnc" id="L523" title="All 2 branches missed.">    while (iter.hasNext()) {</span>
+<span class="nc" id="L524">      final String name = iter.next();</span>
+<span class="nc" id="L525">      final Territory terr = data.getMap().getTerritory(name);</span>
+      // allow loading saved games with missing territories; just ignore them
+<span class="nc bnc" id="L527" title="All 2 branches missed.">      if (terr == null) {</span>
+<span class="nc" id="L528">        iter.remove();</span>
+      }
+    }
+<span class="nc" id="L531">    final Iterator&lt;Territory&gt; territories = data.getMap().getTerritories().iterator();</span>
+<span class="nc" id="L532">    final Set&lt;String&gt; keySet = aMap.keySet();</span>
+<span class="nc bnc" id="L533" title="All 2 branches missed.">    while (territories.hasNext()) {</span>
+<span class="nc" id="L534">      final Territory terr = territories.next();</span>
+<span class="nc bnc" id="L535" title="All 2 branches missed.">      if (!keySet.contains(terr.getName())) {</span>
+<span class="nc" id="L536">        errors.append(&quot;No data of type &quot;).append(dataTypeForErrorMessage).append(&quot; for territory:&quot;)</span>
+<span class="nc" id="L537">            .append(terr.getName()).append(&quot;\n&quot;);</span>
+      }
+    }
+<span class="nc bnc" id="L540" title="All 2 branches missed.">    if (errors.length() &gt; 0) {</span>
+<span class="nc" id="L541">      throw new IllegalStateException(errors.toString());</span>
+    }
+<span class="nc" id="L543">  }</span>
+
+  public List&lt;Point&gt; getPlacementPoints(final Territory terr) {
+<span class="nc" id="L546">    return m_place.get(terr.getName());</span>
+  }
+
+  public List&lt;Polygon&gt; getPolygons(final String terr) {
+<span class="nc" id="L550">    return m_polys.get(terr);</span>
+  }
+
+  public List&lt;Polygon&gt; getPolygons(final Territory terr) {
+<span class="nc" id="L554">    return getPolygons(terr.getName());</span>
+  }
+
+  public Point getCenter(final String terr) {
+<span class="nc bnc" id="L558" title="All 2 branches missed.">    if (m_centers.get(terr) == null) {</span>
+<span class="nc" id="L559">      throw new IllegalStateException(&quot;Missing &quot; + CENTERS_FILE + &quot; data for &quot; + terr);</span>
+    }
+<span class="nc" id="L561">    return new Point(m_centers.get(terr));</span>
+  }
+
+  public Point getCenter(final Territory terr) {
+<span class="nc" id="L565">    return getCenter(terr.getName());</span>
+  }
+
+  public Point getCapitolMarkerLocation(final Territory terr) {
+<span class="nc bnc" id="L569" title="All 2 branches missed.">    if (m_capitolPlace.containsKey(terr.getName())) {</span>
+<span class="nc" id="L570">      return m_capitolPlace.get(terr.getName());</span>
+    }
+<span class="nc" id="L572">    return getCenter(terr);</span>
+  }
+
+  public Point getConvoyMarkerLocation(final Territory terr) {
+<span class="nc bnc" id="L576" title="All 2 branches missed.">    if (m_convoyPlace.containsKey(terr.getName())) {</span>
+<span class="nc" id="L577">      return m_convoyPlace.get(terr.getName());</span>
+    }
+<span class="nc" id="L579">    return getCenter(terr);</span>
+  }
+
+  public Optional&lt;Point&gt; getCommentMarkerLocation(final Territory terr) {
+<span class="nc" id="L583">    return Optional.ofNullable(m_commentPlace.get(terr.getName()));</span>
+  }
+
+  public Point getKamikazeMarkerLocation(final Territory terr) {
+<span class="nc bnc" id="L587" title="All 2 branches missed.">    if (m_kamikazePlace.containsKey(terr.getName())) {</span>
+<span class="nc" id="L588">      return m_kamikazePlace.get(terr.getName());</span>
+    }
+<span class="nc" id="L590">    return getCenter(terr);</span>
+  }
+
+  public Point getVCPlacementPoint(final Territory terr) {
+<span class="nc bnc" id="L594" title="All 2 branches missed.">    if (m_vcPlace.containsKey(terr.getName())) {</span>
+<span class="nc" id="L595">      return m_vcPlace.get(terr.getName());</span>
+    }
+<span class="nc" id="L597">    return getCenter(terr);</span>
+  }
+
+  public Point getBlockadePlacementPoint(final Territory terr) {
+<span class="nc bnc" id="L601" title="All 2 branches missed.">    if (m_blockadePlace.containsKey(terr.getName())) {</span>
+<span class="nc" id="L602">      return m_blockadePlace.get(terr.getName());</span>
+    }
+<span class="nc" id="L604">    return getCenter(terr);</span>
+  }
+
+  public Optional&lt;Point&gt; getPUPlacementPoint(final Territory terr) {
+<span class="nc" id="L608">    return Optional.ofNullable(m_PUPlace.get(terr.getName()));</span>
+  }
+
+  public Optional&lt;Point&gt; getNamePlacementPoint(final Territory terr) {
+<span class="nc" id="L612">    return Optional.ofNullable(m_namePlace.get(terr.getName()));</span>
+  }
+
+  /**
+   * Get the territory at the x,y co-ordinates could be null.
+   */
+  public String getTerritoryAt(final double x, final double y) {
+<span class="nc" id="L619">    String seaName = null;</span>
+    // try to find a land territory.
+    // sea zones often surround a land territory
+<span class="nc" id="L622">    final Iterator&lt;String&gt; keyIter = m_polys.keySet().iterator();</span>
+<span class="nc bnc" id="L623" title="All 2 branches missed.">    while (keyIter.hasNext()) {</span>
+<span class="nc" id="L624">      final String name = keyIter.next();</span>
+<span class="nc" id="L625">      final Collection&lt;Polygon&gt; polygons = m_polys.get(name);</span>
+<span class="nc" id="L626">      final Iterator&lt;Polygon&gt; polyIter = polygons.iterator();</span>
+<span class="nc bnc" id="L627" title="All 2 branches missed.">      while (polyIter.hasNext()) {</span>
+<span class="nc" id="L628">        final Polygon poly = polyIter.next();</span>
+<span class="nc bnc" id="L629" title="All 2 branches missed.">        if (poly.contains(x, y)) {</span>
+<span class="nc bnc" id="L630" title="All 2 branches missed.">          if (Util.isTerritoryNameIndicatingWater(name)) {</span>
+<span class="nc" id="L631">            seaName = name;</span>
+<span class="nc" id="L632">          } else {</span>
+<span class="nc" id="L633">            return name;</span>
+          }
+        }
+      }
+    }
+<span class="nc" id="L638">    return seaName;</span>
+  }
+
+  public Dimension getMapDimensions() {
+<span class="nc" id="L642">    final String widthProperty = m_mapProperties.getProperty(PROPERTY_MAP_WIDTH);</span>
+<span class="nc" id="L643">    final String heightProperty = m_mapProperties.getProperty(PROPERTY_MAP_HEIGHT);</span>
+<span class="nc bnc" id="L644" title="All 4 branches missed.">    if (widthProperty == null || heightProperty == null) {</span>
+<span class="nc" id="L645">      throw new IllegalStateException(</span>
+<span class="nc" id="L646">          &quot;Missing &quot; + PROPERTY_MAP_WIDTH + &quot; or &quot; + PROPERTY_MAP_HEIGHT + &quot; in &quot; + MAP_PROPERTIES);</span>
+    }
+<span class="nc" id="L648">    final int width = Integer.parseInt(widthProperty.trim());</span>
+<span class="nc" id="L649">    final int height = Integer.parseInt(heightProperty.trim());</span>
+<span class="nc" id="L650">    return new Dimension(width, height);</span>
+  }
+
+  public Rectangle getBoundingRect(final Territory terr) {
+<span class="nc" id="L654">    final String name = terr.getName();</span>
+<span class="nc" id="L655">    return getBoundingRect(name);</span>
+  }
+
+  public Rectangle getBoundingRect(final String name) {
+<span class="nc" id="L659">    final List&lt;Polygon&gt; polys = m_polys.get(name);</span>
+<span class="nc bnc" id="L660" title="All 2 branches missed.">    if (polys == null) {</span>
+<span class="nc" id="L661">      throw new IllegalStateException(&quot;No polygons found for:&quot; + name + &quot; All territories:&quot; + m_polys.keySet());</span>
+    }
+<span class="nc" id="L663">    final Iterator&lt;Polygon&gt; polyIter = polys.iterator();</span>
+<span class="nc" id="L664">    final Rectangle bounds = polyIter.next().getBounds();</span>
+<span class="nc bnc" id="L665" title="All 2 branches missed.">    while (polyIter.hasNext()) {</span>
+<span class="nc" id="L666">      bounds.add(polyIter.next().getBounds());</span>
+    }
+    // if we have a territory that straddles the map divide, ie: which has polygons on both the left and right sides of
+    // the map,
+    // then the polygon's width or height could be almost equal to the map width or height
+    // this can cause lots of problems, like when we want to get the tiles for the territory we would end up getting all
+    // the tiles for the
+    // map (and a java heap space error)
+<span class="nc" id="L674">    final Dimension mapDimensions = getMapDimensions();</span>
+<span class="nc bnc" id="L675" title="All 6 branches missed.">    if ((scrollWrapX() &amp;&amp; bounds.width &gt; 1800 &amp;&amp; bounds.width &gt; mapDimensions.width * 0.9)</span>
+<span class="nc bnc" id="L676" title="All 6 branches missed.">        || (scrollWrapY() &amp;&amp; bounds.height &gt; 1200 &amp;&amp; bounds.height &gt; mapDimensions.height * 0.9)) {</span>
+<span class="nc" id="L677">      return getBoundingRectWithTranslate(polys, mapDimensions);</span>
+    }
+<span class="nc" id="L679">    return bounds;</span>
+  }
+
+  private Rectangle getBoundingRectWithTranslate(final List&lt;Polygon&gt; polys, final Dimension mapDimensions) {
+<span class="nc" id="L683">    Rectangle boundingRect = null;</span>
+<span class="nc" id="L684">    final int mapWidth = mapDimensions.width;</span>
+<span class="nc" id="L685">    final int mapHeight = mapDimensions.height;</span>
+<span class="nc" id="L686">    final int closeToMapWidth = (int) (mapWidth * 0.9);</span>
+<span class="nc" id="L687">    final int closeToMapHeight = (int) (mapHeight * 0.9);</span>
+<span class="nc" id="L688">    final boolean scrollWrapX = this.scrollWrapX();</span>
+<span class="nc" id="L689">    final boolean scrollWrapY = this.scrollWrapY();</span>
+<span class="nc bnc" id="L690" title="All 2 branches missed.">    for (final Polygon item : polys) {</span>
+      // if our rectangle is on the right side (mapscrollx) then we push it to be on the negative left side, so that the
+      // bounds.x will be
+      // negative
+      // this solves the issue of maps that have a territory where polygons were on both sides of the map divide
+      // (so our bounds.x was 0, and our bounds.y would be the entire map width)
+      // (when in fact it should actually be bounds.x = -10 or something, and bounds.width = 20 or something)
+      // we use map dimensions.width * 0.9 because the polygon may not actually touch the side of the map (like if the
+      // territory borders are
+      // thick)
+<span class="nc" id="L700">      final Rectangle itemRect = item.getBounds();</span>
+<span class="nc bnc" id="L701" title="All 4 branches missed.">      if (scrollWrapX &amp;&amp; itemRect.getMaxX() &gt;= closeToMapWidth) {</span>
+<span class="nc" id="L702">        itemRect.translate(-mapWidth, 0);</span>
+      }
+<span class="nc bnc" id="L704" title="All 4 branches missed.">      if (scrollWrapY &amp;&amp; itemRect.getMaxY() &gt;= closeToMapHeight) {</span>
+<span class="nc" id="L705">        itemRect.translate(0, -mapHeight);</span>
+      }
+<span class="nc bnc" id="L707" title="All 2 branches missed.">      if (boundingRect == null) {</span>
+<span class="nc" id="L708">        boundingRect = itemRect;</span>
+<span class="nc" id="L709">      } else {</span>
+<span class="nc" id="L710">        boundingRect.add(itemRect);</span>
+      }
+    }
+    // if the polygon is completely negative, we can make translate it back to normal
+<span class="nc bnc" id="L714" title="All 4 branches missed.">    if (boundingRect.x &lt; 0 &amp;&amp; boundingRect.getMaxX() &lt;= 0) {</span>
+<span class="nc" id="L715">      boundingRect.translate(mapWidth, 0);</span>
+    }
+<span class="nc bnc" id="L717" title="All 4 branches missed.">    if (boundingRect.y &lt; 0 &amp;&amp; boundingRect.getMaxY() &lt;= 0) {</span>
+<span class="nc" id="L718">      boundingRect.translate(0, mapHeight);</span>
+    }
+<span class="nc" id="L720">    return boundingRect;</span>
+  }
+
+  public Optional&lt;Image&gt; getVCImage() {
+<span class="nc" id="L724">    return loadImage(&quot;misc/vc.png&quot;);</span>
+  }
+
+  public Optional&lt;Image&gt; getBlockadeImage() {
+<span class="nc" id="L728">    return loadImage(&quot;misc/blockade.png&quot;);</span>
+  }
+
+  public Optional&lt;Image&gt; getErrorImage() {
+<span class="nc" id="L732">    return loadImage(&quot;misc/error.gif&quot;);</span>
+  }
+
+  public Optional&lt;Image&gt; getWarningImage() {
+<span class="nc" id="L736">    return loadImage(&quot;misc/warning.gif&quot;);</span>
+  }
+
+  public Optional&lt;Image&gt; getInfoImage() {
+<span class="nc" id="L740">    return loadImage(&quot;misc/information.gif&quot;);</span>
+  }
+
+  public Optional&lt;Image&gt; getHelpImage() {
+<span class="nc" id="L744">    return loadImage(&quot;misc/help.gif&quot;);</span>
+  }
+
+  private Optional&lt;Image&gt; loadImage(final String imageName) {
+<span class="nc" id="L748">    final URL url = m_resourceLoader.getResource(imageName);</span>
+<span class="nc bnc" id="L749" title="All 2 branches missed.">    if (url == null) {</span>
+      // this is actually pretty common that we try to read images that are not there. Let the caller
+      // decide if this is an error or not.
+<span class="nc" id="L752">      return Optional.empty();</span>
+    }
+    try {
+<span class="nc" id="L755">      return Optional.of(ImageIO.read(url));</span>
+<span class="nc" id="L756">    } catch (final IOException e) {</span>
+<span class="nc" id="L757">      ClientLogger.logQuietly(e);</span>
+<span class="nc" id="L758">      throw new IllegalStateException(e.getMessage());</span>
+    }
+  }
+
+  public Map&lt;String, Image&gt; getTerritoryNameImages() {
+<span class="nc" id="L763">    return Collections.unmodifiableMap(m_territoryNameImages);</span>
+  }
+
+  public Map&lt;Image, List&lt;Point&gt;&gt; getDecorations() {
+<span class="nc" id="L767">    return Collections.unmodifiableMap(m_decorations);</span>
+  }
+
+  public List&lt;Point&gt; getTerritoryEffectPoints(final Territory territory) {
+<span class="nc bnc" id="L771" title="All 2 branches missed.">    if (m_territoryEffects.get(territory.getName()) == null) {</span>
+<span class="nc" id="L772">      return Arrays.asList(getCenter(territory));</span>
+    }
+<span class="nc" id="L774">    return m_territoryEffects.get(territory.getName());</span>
+  }
+
+  public Optional&lt;Image&gt; getTerritoryEffectImage(final String m_effectName) {
+    // TODO: what does this cache buy us? should we still keep it?
+<span class="nc bnc" id="L779" title="All 2 branches missed.">    if (m_effectImages.get(m_effectName) != null) {</span>
+<span class="nc" id="L780">      return Optional.of(m_effectImages.get(m_effectName));</span>
+    }
+<span class="nc" id="L782">    final Optional&lt;Image&gt; effectImage = loadImage(&quot;territoryEffects/&quot; + m_effectName + &quot;.png&quot;);</span>
+<span class="nc" id="L783">    m_effectImages.put(m_effectName, effectImage.orElse(null));</span>
+<span class="nc" id="L784">    return effectImage;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

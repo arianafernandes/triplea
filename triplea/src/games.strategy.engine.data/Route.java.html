@@ -1,0 +1,563 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Route.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.engine.data</a> &gt; <span class="el_source">Route.java</span></div><h1>Route.java</h1><pre class="source lang-java linenums">package games.strategy.engine.data;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.MoveValidator;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.Match;
+import games.strategy.util.Util;
+
+/**
+ * A route between two territories.
+ * &lt;p&gt;
+ * A route consists of a start territory, and a sequence of steps. To create a route do,
+ * &lt;code&gt;
+ * Route aRoute = new Route();
+ * route.setStart(someTerritory);
+ * route.add(anotherTerritory);
+ * route.add(yetAnotherTerritory);
+ * &lt;/code&gt;
+ */
+public class Route implements Serializable, Iterable&lt;Territory&gt; {
+  private static final long serialVersionUID = 8743882455488948557L;
+<span class="fc" id="L33">  final static List&lt;Territory&gt; emptyTerritoryList = Collections.unmodifiableList(new ArrayList&lt;&gt;());</span>
+<span class="fc" id="L34">  private final List&lt;Territory&gt; m_steps = new ArrayList&lt;&gt;();</span>
+  private Territory m_start;
+
+<span class="fc" id="L37">  public Route() {}</span>
+
+<span class="fc" id="L39">  public Route(final List&lt;Territory&gt; route) {</span>
+<span class="fc" id="L40">    setStart(route.get(0));</span>
+<span class="pc bpc" id="L41" title="1 of 2 branches missed.">    if (route.size() == 1) {</span>
+<span class="nc" id="L42">      return;</span>
+    }
+<span class="fc bfc" id="L44" title="All 2 branches covered.">    for (final Territory t : route.subList(1, route.size())) {</span>
+<span class="fc" id="L45">      add(t);</span>
+    }
+<span class="fc" id="L47">  }</span>
+
+<span class="fc" id="L49">  public Route(final Territory start, final Territory... route) {</span>
+<span class="fc" id="L50">    setStart(start);</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">    for (final Territory t : route) {</span>
+<span class="fc" id="L52">      add(t);</span>
+    }
+<span class="fc" id="L54">  }</span>
+
+  /**
+   * Join the two routes. It must be the case that r1.end() equals r2.start()
+   * or r1.end() == null and r1.start() equals r2
+   *
+   * @param r1
+   *        route 1
+   * @param r2
+   *        route 2
+   * @return a new Route starting at r1.start() going to r2.end() along r1,
+   *         r2, or null if the routes can't be joined it the joining would
+   *         form a loop
+   */
+  public static Route join(final Route r1, final Route r2) {
+<span class="nc bnc" id="L69" title="All 4 branches missed.">    if (r1 == null || r2 == null) {</span>
+      // throw new IllegalArgumentException(&quot;route cant be null r1:&quot; + r1 + &quot; r2:&quot; + r2);
+<span class="nc" id="L71">      return null;</span>
+    }
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    if (r1.numberOfSteps() == 0) {</span>
+<span class="nc bnc" id="L74" title="All 2 branches missed.">      if (!r1.getStart().equals(r2.getStart())) {</span>
+<span class="nc" id="L75">        throw new IllegalArgumentException(&quot;Cannot join, r1 doesnt end where r2 starts. r1:&quot; + r1 + &quot; r2:&quot; + r2);</span>
+      }
+    } else {
+<span class="nc bnc" id="L78" title="All 2 branches missed.">      if (!r1.getEnd().equals(r2.getStart())) {</span>
+<span class="nc" id="L79">        throw new IllegalArgumentException(&quot;Cannot join, r1 doesnt end where r2 starts. r1:&quot; + r1 + &quot; r2:&quot; + r2);</span>
+      }
+    }
+<span class="nc" id="L82">    final Collection&lt;Territory&gt; c1 = new ArrayList&lt;&gt;(r1.m_steps);</span>
+<span class="nc" id="L83">    c1.add(r1.getStart());</span>
+<span class="nc" id="L84">    final Collection&lt;Territory&gt; c2 = new ArrayList&lt;&gt;(r2.m_steps);</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">    if (!Util.intersection(c1, c2).isEmpty()) {</span>
+<span class="nc" id="L86">      return null;</span>
+    }
+<span class="nc" id="L88">    final Route joined = new Route();</span>
+<span class="nc" id="L89">    joined.setStart(r1.getStart());</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">    for (final Territory t : r1.getSteps()) {</span>
+<span class="nc" id="L91">      joined.add(t);</span>
+    }
+<span class="nc bnc" id="L93" title="All 2 branches missed.">    for (final Territory t : r2.getSteps()) {</span>
+<span class="nc" id="L94">      joined.add(t);</span>
+    }
+<span class="nc" id="L96">    return joined;</span>
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+<span class="nc bnc" id="L101" title="All 2 branches missed.">    if (o == null) {</span>
+<span class="nc" id="L102">      return false;</span>
+    }
+<span class="nc" id="L104">    final Route other = (Route) o;</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    if (!(other.numberOfSteps() == this.numberOfSteps())) {</span>
+<span class="nc" id="L106">      return false;</span>
+    }
+<span class="nc bnc" id="L108" title="All 2 branches missed.">    if (!other.getStart().equals(this.getStart())) {</span>
+<span class="nc" id="L109">      return false;</span>
+    }
+<span class="nc" id="L111">    return other.getAllTerritories().equals(this.getAllTerritories());</span>
+  }
+
+  @Override
+  public int hashCode() {
+<span class="nc" id="L116">    return toString().hashCode();</span>
+  }
+
+  /**
+   * Set the start of this route.
+   *
+   * @param t
+   *        new start territory
+   */
+  public void setStart(final Territory t) {
+<span class="pc bpc" id="L126" title="1 of 2 branches missed.">    if (t == null) {</span>
+<span class="nc" id="L127">      throw new IllegalStateException(&quot;Null territory&quot;);</span>
+    }
+<span class="fc" id="L129">    m_start = t;</span>
+<span class="fc" id="L130">  }</span>
+
+  /**
+   * @return start territory for this route
+   */
+  public Territory getStart() {
+<span class="fc" id="L136">    return m_start;</span>
+  }
+
+  /**
+   * Determines if the route crosses water by checking if any of the
+   * territories except the start and end are sea territories.
+   *
+   * @return whether the route encounters water other than at the start of the
+   *         route.
+   */
+  public boolean crossesWater() {
+<span class="pc bpc" id="L147" title="1 of 2 branches missed.">    final boolean startLand = !m_start.isWater();</span>
+<span class="fc" id="L148">    boolean overWater = false;</span>
+<span class="fc" id="L149">    final Iterator&lt;Territory&gt; routeIter = m_steps.iterator();</span>
+<span class="fc" id="L150">    Territory terr = null;</span>
+<span class="fc bfc" id="L151" title="All 2 branches covered.">    while (routeIter.hasNext()) {</span>
+<span class="fc" id="L152">      terr = routeIter.next();</span>
+<span class="pc bpc" id="L153" title="1 of 2 branches missed.">      if (terr.isWater()) {</span>
+<span class="nc" id="L154">        overWater = true;</span>
+      }
+    }
+<span class="pc bpc" id="L157" title="1 of 2 branches missed.">    if (terr == null) {</span>
+<span class="nc" id="L158">      return false;</span>
+    }
+    // If we started on land, went over water, and ended on land, we cross
+    // water.
+<span class="pc bpc" id="L162" title="4 of 6 branches missed.">    return (startLand &amp;&amp; overWater &amp;&amp; !terr.isWater());</span>
+  }
+
+  /**
+   * Add the given territory to the end of the route.
+   *
+   * @param t
+   *        referring territory
+   */
+  public void add(final Territory t) {
+<span class="pc bpc" id="L172" title="1 of 2 branches missed.">    if (t == null) {</span>
+<span class="nc" id="L173">      throw new IllegalStateException(&quot;Null territory&quot;);</span>
+    }
+<span class="pc bpc" id="L175" title="2 of 4 branches missed.">    if (t.equals(m_start) || m_steps.contains(t)) {</span>
+<span class="nc" id="L176">      throw new IllegalArgumentException(&quot;Loops not allowed in m_routes, route:&quot; + this + &quot; new territory:&quot; + t);</span>
+    }
+<span class="fc" id="L178">    m_steps.add(t);</span>
+<span class="fc" id="L179">  }</span>
+
+  /**
+   * @param u
+   *        unit that is moving on this route
+   * @return the total cost of the route including modifications due to territoryEffects and territoryConnections
+   */
+  public int getMovementCost(final Unit u) {
+    // TODO implement me
+<span class="fc" id="L188">    return m_steps.size();</span>
+  }
+
+  /**
+   * @return the number of steps in this route. Does not include start.
+   */
+  public int numberOfSteps() {
+<span class="fc" id="L195">    return m_steps.size();</span>
+  }
+
+  /**
+   * @return the number of steps in this route. DOES include start.
+   */
+  public int numberOfStepsIncludingStart() {
+<span class="fc" id="L202">    return this.getAllTerritories().size();</span>
+  }
+
+  /**
+   * @param i
+   *        step number
+   * @return territory we will be in after the i'th step for this route has
+   *         been made
+   */
+  public Territory getTerritoryAtStep(final int i) {
+<span class="fc" id="L212">    return m_steps.get(i);</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return whether all territories in this route match the given match (start territory is not tested)
+   */
+  public boolean allMatch(final Match&lt;Territory&gt; aMatch) {
+<span class="nc bnc" id="L221" title="All 2 branches missed.">    for (final Territory t : m_steps) {</span>
+<span class="nc bnc" id="L222" title="All 2 branches missed.">      if (!aMatch.match(t)) {</span>
+<span class="nc" id="L223">        return false;</span>
+      }
+    }
+<span class="nc" id="L226">    return true;</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return whether some territories in this route match the given match (start territory is not tested)
+   */
+  public boolean someMatch(final Match&lt;Territory&gt; aMatch) {
+<span class="fc bfc" id="L235" title="All 2 branches covered.">    for (final Territory t : m_steps) {</span>
+<span class="fc bfc" id="L236" title="All 2 branches covered.">      if (aMatch.match(t)) {</span>
+<span class="fc" id="L237">        return true;</span>
+      }
+    }
+<span class="fc" id="L240">    return false;</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return whether all territories in this route match the given match (start territory IS tested)
+   */
+  public boolean allMatchAllSteps(final Match&lt;Territory&gt; aMatch) {
+<span class="nc bnc" id="L249" title="All 2 branches missed.">    for (final Territory t : getAllTerritories()) {</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">      if (!aMatch.match(t)) {</span>
+<span class="nc" id="L251">        return false;</span>
+      }
+    }
+<span class="nc" id="L254">    return true;</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return whether some territories in this route match the given match (start territory IS tested)
+   */
+  public boolean someMatchAllSteps(final Match&lt;Territory&gt; aMatch) {
+<span class="nc bnc" id="L263" title="All 2 branches missed.">    for (final Territory t : getAllTerritories()) {</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">      if (aMatch.match(t)) {</span>
+<span class="nc" id="L265">        return true;</span>
+      }
+    }
+<span class="nc" id="L268">    return false;</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return whether all territories in this route match the given match (start and end territories are not tested)
+   */
+  public boolean allMatchMiddleSteps(final Match&lt;Territory&gt; aMatch, final boolean defaultWhenNoMiddleSteps) {
+<span class="fc" id="L277">    final List&lt;Territory&gt; middle = getMiddleSteps();</span>
+<span class="fc bfc" id="L278" title="All 2 branches covered.">    if (middle.isEmpty()) {</span>
+<span class="fc" id="L279">      return defaultWhenNoMiddleSteps;</span>
+    }
+<span class="fc bfc" id="L281" title="All 2 branches covered.">    for (final Territory t : middle) {</span>
+<span class="fc bfc" id="L282" title="All 2 branches covered.">      if (!aMatch.match(t)) {</span>
+<span class="fc" id="L283">        return false;</span>
+      }
+    }
+<span class="fc" id="L286">    return true;</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return whether some territories in this route match the given match (start and end territories are not tested)
+   */
+  public boolean someMatchMiddleSteps(final Match&lt;Territory&gt; aMatch, final boolean defaultWhenNoMiddleSteps) {
+<span class="nc" id="L295">    final List&lt;Territory&gt; middle = getMiddleSteps();</span>
+<span class="nc bnc" id="L296" title="All 2 branches missed.">    if (middle.isEmpty()) {</span>
+<span class="nc" id="L297">      return defaultWhenNoMiddleSteps;</span>
+    }
+<span class="nc bnc" id="L299" title="All 2 branches missed.">    for (final Territory t : middle) {</span>
+<span class="nc bnc" id="L300" title="All 2 branches missed.">      if (aMatch.match(t)) {</span>
+<span class="nc" id="L301">        return true;</span>
+      }
+    }
+<span class="nc" id="L304">    return false;</span>
+  }
+
+  /**
+   * @param aMatch
+   *        referring match
+   * @return all territories in this route match the given match (start territory is not tested)
+   */
+  public Collection&lt;Territory&gt; getMatches(final Match&lt;Territory&gt; aMatch) {
+<span class="fc" id="L313">    return Match.getMatches(m_steps, aMatch);</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="fc" id="L318">    final StringBuilder buf = new StringBuilder(&quot;Route:&quot;).append(m_start);</span>
+<span class="fc bfc" id="L319" title="All 2 branches covered.">    for (final Territory t : getSteps()) {</span>
+<span class="fc" id="L320">      buf.append(&quot; -&gt; &quot;);</span>
+<span class="fc" id="L321">      buf.append(t.getName());</span>
+    }
+<span class="fc" id="L323">    return buf.toString();</span>
+  }
+
+  public List&lt;Territory&gt; getAllTerritories() {
+<span class="fc" id="L327">    final ArrayList&lt;Territory&gt; list = new ArrayList&lt;&gt;(m_steps);</span>
+<span class="fc" id="L328">    list.add(0, m_start);</span>
+<span class="fc" id="L329">    return list;</span>
+  }
+
+  /**
+   * @return collection of all territories in this route, without the start
+   */
+  public List&lt;Territory&gt; getSteps() {
+<span class="pc bpc" id="L336" title="1 of 2 branches missed.">    if (numberOfSteps() &gt; 0) {</span>
+<span class="fc" id="L337">      return new ArrayList&lt;&gt;(m_steps);</span>
+    }
+<span class="nc" id="L339">    return emptyTerritoryList;</span>
+  }
+
+  /**
+   * @return collection of all territories in this route without the start or
+   *         the end
+   */
+  public List&lt;Territory&gt; getMiddleSteps() {
+<span class="fc bfc" id="L347" title="All 2 branches covered.">    if (numberOfSteps() &gt; 1) {</span>
+<span class="fc" id="L348">      return new ArrayList&lt;&gt;(m_steps).subList(0, numberOfSteps() - 1);</span>
+    }
+<span class="fc" id="L350">    return emptyTerritoryList;</span>
+  }
+
+  /**
+   * @return last territory in the route, this is the destination or null if
+   *         the route consists of only a starting territory
+   */
+  public Territory getEnd() {
+<span class="fc bfc" id="L358" title="All 2 branches covered.">    if (m_steps.size() == 0) {</span>
+<span class="fc" id="L359">      return null;</span>
+    }
+<span class="fc" id="L361">    return m_steps.get(m_steps.size() - 1);</span>
+  }
+
+  /**
+   * @param baseRoute
+   *        referring base route
+   * @return whether this route extend another route
+   */
+  public boolean extend(final Route baseRoute) {
+<span class="nc bnc" id="L370" title="All 2 branches missed.">    if (!this.m_start.equals(baseRoute.m_start)) {</span>
+<span class="nc" id="L371">      return false;</span>
+    }
+<span class="nc bnc" id="L373" title="All 2 branches missed.">    if (baseRoute.numberOfSteps() &gt; this.numberOfSteps()) {</span>
+<span class="nc" id="L374">      return false;</span>
+    }
+<span class="nc bnc" id="L376" title="All 2 branches missed.">    for (int i = 0; i &lt; baseRoute.m_steps.size(); i++) {</span>
+<span class="nc bnc" id="L377" title="All 2 branches missed.">      if (!baseRoute.getTerritoryAtStep(i).equals(this.getTerritoryAtStep(i))) {</span>
+<span class="nc" id="L378">        return false;</span>
+      }
+    }
+<span class="nc" id="L381">    return true;</span>
+  }
+
+  @Override
+  public Iterator&lt;Territory&gt; iterator() {
+<span class="fc" id="L386">    return Collections.unmodifiableList(getAllTerritories()).iterator();</span>
+  }
+
+  /**
+   * @return whether this route has any steps
+   */
+  public boolean hasSteps() {
+<span class="pc bpc" id="L393" title="1 of 2 branches missed.">    return !m_steps.isEmpty();</span>
+  }
+
+  /**
+   * @return whether this route has no steps
+   */
+  public boolean hasNoSteps() {
+<span class="pc bpc" id="L400" title="1 of 2 branches missed.">    return !hasSteps();</span>
+  }
+
+  /**
+   * This means that there are 2 territories in the route: the start and the end (this is only 1 step).
+   *
+   * @return whether the route has 1 step
+   */
+  public boolean hasExactlyOneStep() {
+<span class="pc bpc" id="L409" title="1 of 2 branches missed.">    return this.m_steps.size() == 1;</span>
+  }
+
+  /**
+   * the territory before the end territory (this could be the start territory
+   * in the case of 1 step)
+   *
+   * @return the territory before the end territory
+   */
+  public Territory getTerritoryBeforeEnd() {
+<span class="fc bfc" id="L419" title="All 2 branches covered.">    if (m_steps.size() &lt;= 1) {</span>
+<span class="fc" id="L420">      return getStart();</span>
+    } else {
+<span class="fc" id="L422">      return getTerritoryAtStep(m_steps.size() - 2);</span>
+    }
+  }
+
+  /**
+   * This only checks if start is water and end is not water.
+   *
+   * @return whether this route is an unloading route (unloading from transport to land)
+   */
+  public boolean isUnload() {
+<span class="pc bpc" id="L432" title="1 of 2 branches missed.">    if (hasNoSteps()) {</span>
+<span class="nc" id="L433">      return false;</span>
+    }
+    // we should not check if there is only 1 step, because otherwise movement validation will let users move their
+    // tanks over water, so
+    // long as they end on land
+<span class="fc bfc" id="L438" title="All 4 branches covered.">    return getStart().isWater() &amp;&amp; !getEnd().isWater();</span>
+  }
+
+  /**
+   * This only checks if start is not water, and end is water.
+   *
+   * @return whether this route is a loading route (loading from land into a transport @ sea)
+   */
+  public boolean isLoad() {
+<span class="pc bpc" id="L447" title="1 of 2 branches missed.">    if (hasNoSteps()) {</span>
+<span class="nc" id="L448">      return false;</span>
+    }
+<span class="fc bfc" id="L450" title="All 4 branches covered.">    return !getStart().isWater() &amp;&amp; getEnd().isWater();</span>
+  }
+
+  /**
+   * @return whether this route has more then one step
+   */
+  public boolean hasMoreThenOneStep() {
+<span class="pc bpc" id="L457" title="1 of 2 branches missed.">    return m_steps.size() &gt; 1;</span>
+  }
+
+  /**
+   * @return whether there are territories before the end where the territory is owned by null and is not sea
+   */
+  public boolean hasNeutralBeforeEnd() {
+<span class="fc bfc" id="L464" title="All 2 branches covered.">    for (final Territory current : getMiddleSteps()) {</span>
+      // neutral is owned by null and is not sea
+<span class="fc bfc" id="L466" title="All 4 branches covered.">      if (!current.isWater() &amp;&amp; current.getOwner().equals(PlayerID.NULL_PLAYERID)) {</span>
+<span class="fc" id="L467">        return true;</span>
+      }
+    }
+<span class="fc" id="L470">    return false;</span>
+  }
+
+  /**
+   * @return whether there is some water in the route including start and end
+   */
+  public boolean hasWater() {
+<span class="fc bfc" id="L477" title="All 2 branches covered.">    if (getStart().isWater()) {</span>
+<span class="fc" id="L478">      return true;</span>
+    }
+<span class="fc" id="L480">    return Match.someMatch(getSteps(), Matches.TerritoryIsWater);</span>
+  }
+
+  /**
+   * @return whether there is some land in the route including start and end
+   */
+  public boolean hasLand() {
+<span class="fc bfc" id="L487" title="All 2 branches covered.">    if (!getStart().isWater()) {</span>
+<span class="fc" id="L488">      return true;</span>
+    }
+<span class="fc bfc" id="L490" title="All 2 branches covered.">    return !Match.allMatch(getAllTerritories(), Matches.TerritoryIsWater);</span>
+  }
+
+  public int getLargestMovementCost(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L494">    int largestCost = 0;</span>
+<span class="nc bnc" id="L495" title="All 2 branches missed.">    for (final Unit unit : units) {</span>
+<span class="nc" id="L496">      largestCost = Math.max(largestCost, getMovementCost(unit));</span>
+    }
+<span class="nc" id="L498">    return largestCost;</span>
+  }
+
+  public int getMovementLeft(final Unit unit) {
+<span class="fc" id="L502">    final int movementLeft = ((TripleAUnit) unit).getMovementLeft() - getMovementCost(unit);</span>
+<span class="fc" id="L503">    return movementLeft;</span>
+  }
+
+  public ResourceCollection getMovementFuelCostCharge(final Unit unit, final GameData data) {
+<span class="fc" id="L507">    final ResourceCollection col = new ResourceCollection(data);</span>
+<span class="pc bpc" id="L508" title="1 of 2 branches missed.">    if (Matches.unitIsBeingTransported().match(unit)) {</span>
+<span class="nc" id="L509">      return col;</span>
+    }
+<span class="fc" id="L511">    final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L512">    col.add(ua.getFuelCost());</span>
+<span class="fc" id="L513">    col.multiply(getMovementCost(unit));</span>
+<span class="fc" id="L514">    return col;</span>
+  }
+
+  public static ResourceCollection getMovementFuelCostCharge(final Collection&lt;Unit&gt; unitsAll, final Route route,
+      final PlayerID currentPlayer, final GameData data /* , final boolean mustFight */) {
+<span class="fc" id="L519">    final Set&lt;Unit&gt; units = new HashSet&lt;&gt;(unitsAll);</span>
+    /*
+     * if (!mustFight)
+     * {units.removeAll(getOwnedAirMovingWithOwnedCarriers(unitsAll, currentPlayer, data));}
+     */
+<span class="fc" id="L524">    units.removeAll(Match.getMatches(unitsAll,</span>
+<span class="fc" id="L525">        Matches.unitIsBeingTransportedByOrIsDependentOfSomeUnitInThisList(unitsAll, route, currentPlayer, data, true)));</span>
+<span class="fc" id="L526">    final ResourceCollection movementCharge = new ResourceCollection(data);</span>
+<span class="fc bfc" id="L527" title="All 2 branches covered.">    for (final Unit unit : units) {</span>
+<span class="fc" id="L528">      movementCharge.add(route.getMovementFuelCostCharge(unit, data));</span>
+    }
+<span class="fc" id="L530">    return movementCharge;</span>
+  }
+
+  protected static Set&lt;Unit&gt; getOwnedAirMovingWithOwnedCarriers(final Collection&lt;Unit&gt; unitsAll,
+      final PlayerID currentPlayer, final GameData data) {
+<span class="nc" id="L535">    final Collection&lt;Unit&gt; ownedFighters =</span>
+<span class="nc" id="L536">        Match.getMatches(unitsAll, new CompositeMatchAnd&lt;&gt;(Matches.UnitCanLandOnCarrier, Matches.UnitIsAir,</span>
+<span class="nc" id="L537">            Matches.unitIsOwnedBy(currentPlayer)));</span>
+<span class="nc bnc" id="L538" title="All 2 branches missed.">    if (ownedFighters.isEmpty()) {</span>
+<span class="nc" id="L539">      return new HashSet&lt;&gt;();</span>
+    }
+<span class="nc" id="L541">    final Collection&lt;Unit&gt; ownedCarriers = Match.getMatches(unitsAll,</span>
+<span class="nc" id="L542">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsCarrier, Matches.UnitIsSea, Matches.unitIsOwnedBy(currentPlayer)));</span>
+<span class="nc bnc" id="L543" title="All 2 branches missed.">    if (ownedCarriers.isEmpty()) {</span>
+<span class="nc" id="L544">      return new HashSet&lt;&gt;();</span>
+    }
+<span class="nc" id="L546">    final Set&lt;Unit&gt; ownedFightersOnOwnedCarriers = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L547" title="All 2 branches missed.">    for (final Unit carrier : ownedCarriers) {</span>
+<span class="nc" id="L548">      final Collection&lt;Unit&gt; carrying = MoveValidator.getCanCarry(carrier, ownedFighters, currentPlayer, data);</span>
+<span class="nc" id="L549">      ownedFighters.removeAll(carrying);</span>
+<span class="nc" id="L550">      ownedFightersOnOwnedCarriers.addAll(carrying);</span>
+    }
+<span class="nc" id="L552">    return ownedFightersOnOwnedCarriers;</span>
+  }
+
+  public static Route create(final List&lt;Route&gt; routes) {
+<span class="nc" id="L556">    Route route = new Route();</span>
+<span class="nc bnc" id="L557" title="All 2 branches missed.">    for (final Route r : routes) {</span>
+<span class="nc" id="L558">      route = Route.join(route, r);</span>
+    }
+<span class="nc" id="L560">    return route;</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

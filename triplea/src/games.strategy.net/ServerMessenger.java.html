@@ -1,0 +1,764 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>ServerMessenger.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.net</a> &gt; <span class="el_source">ServerMessenger.java</span></div><h1>ServerMessenger.java</h1><pre class="source lang-java linenums"><span class="nc" id="L1">package games.strategy.net;</span>
+
+import java.io.IOException;
+import java.io.Serializable;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import games.strategy.engine.chat.ChatController;
+import games.strategy.engine.chat.IChatChannel;
+import games.strategy.engine.lobby.server.login.LobbyLoginValidator;
+import games.strategy.engine.lobby.server.userDB.MutedIpController;
+import games.strategy.engine.lobby.server.userDB.MutedMacController;
+import games.strategy.engine.lobby.server.userDB.MutedUsernameController;
+import games.strategy.engine.message.HubInvoke;
+import games.strategy.engine.message.RemoteMethodCall;
+import games.strategy.engine.message.RemoteName;
+import games.strategy.engine.message.SpokeInvoke;
+import games.strategy.net.nio.NIOSocket;
+import games.strategy.net.nio.NIOSocketListener;
+import games.strategy.net.nio.QuarantineConversation;
+import games.strategy.net.nio.ServerQuarantineConversation;
+
+/**
+ * A Messenger that can have many clients connected to it.
+ */
+public class ServerMessenger implements IServerMessenger, NIOSocketListener {
+<span class="fc" id="L47">  private static Logger logger = Logger.getLogger(ServerMessenger.class.getName());</span>
+  private final Selector acceptorSelector;
+  private final ServerSocketChannel socketChannel;
+  private final Node node;
+<span class="fc" id="L51">  private boolean shutdown = false;</span>
+  private final NIOSocket nioSocket;
+<span class="fc" id="L53">  private final List&lt;IMessageListener&gt; listeners = new CopyOnWriteArrayList&lt;&gt;();</span>
+<span class="fc" id="L54">  private final List&lt;IMessengerErrorListener&gt; errorListeners =</span>
+<span class="fc" id="L55">      new CopyOnWriteArrayList&lt;&gt;();</span>
+<span class="fc" id="L56">  private final List&lt;IConnectionChangeListener&gt; connectionListeners =</span>
+<span class="fc" id="L57">      new CopyOnWriteArrayList&lt;&gt;();</span>
+<span class="fc" id="L58">  private boolean acceptNewConnection = false;</span>
+  private ILoginValidator loginValidator;
+  // all our nodes
+<span class="fc" id="L61">  private final Map&lt;INode, SocketChannel&gt; nodeToChannel = new ConcurrentHashMap&lt;&gt;();</span>
+<span class="fc" id="L62">  private final Map&lt;SocketChannel, INode&gt; channelToNode = new ConcurrentHashMap&lt;&gt;();</span>
+
+  // A hack, till I think of something better
+<span class="fc" id="L65">  public ServerMessenger(final String name, final int portNumber, final IObjectStreamFactory streamFactory)</span>
+      throws IOException {
+<span class="fc" id="L67">    socketChannel = ServerSocketChannel.open();</span>
+<span class="fc" id="L68">    socketChannel.configureBlocking(false);</span>
+<span class="fc" id="L69">    socketChannel.socket().setReuseAddress(true);</span>
+<span class="fc" id="L70">    socketChannel.socket().bind(new InetSocketAddress(portNumber), 10);</span>
+<span class="fc" id="L71">    nioSocket = new NIOSocket(streamFactory, this, &quot;Server&quot;);</span>
+<span class="fc" id="L72">    acceptorSelector = Selector.open();</span>
+<span class="pc bpc" id="L73" title="1 of 2 branches missed.">    if (IPFinder.findInetAddress() != null) {</span>
+<span class="fc" id="L74">      node = new Node(name, IPFinder.findInetAddress(), portNumber);</span>
+<span class="fc" id="L75">    } else {</span>
+<span class="nc" id="L76">      node = new Node(name, InetAddress.getLocalHost(), portNumber);</span>
+    }
+<span class="fc" id="L78">    final Thread t = new Thread(new ConnectionHandler(), &quot;Server Messenger Connection Handler&quot;);</span>
+<span class="fc" id="L79">    t.start();</span>
+<span class="fc" id="L80">  }</span>
+
+  @Override
+  public void setLoginValidator(final ILoginValidator loginValidator) {
+<span class="fc" id="L84">    this.loginValidator = loginValidator;</span>
+<span class="fc" id="L85">  }</span>
+
+  @Override
+  public ILoginValidator getLoginValidator() {
+<span class="nc" id="L89">    return loginValidator;</span>
+  }
+
+  /** Creates new ServerMessenger */
+  public ServerMessenger(final String name, final int portNumber) throws IOException {
+<span class="fc" id="L94">    this(name, portNumber, new DefaultObjectStreamFactory());</span>
+<span class="fc" id="L95">  }</span>
+
+  @Override
+  public void addMessageListener(final IMessageListener listener) {
+<span class="fc" id="L99">    listeners.add(listener);</span>
+<span class="fc" id="L100">  }</span>
+
+  @Override
+  public void removeMessageListener(final IMessageListener listener) {
+<span class="nc" id="L104">    listeners.remove(listener);</span>
+<span class="nc" id="L105">  }</span>
+
+  /**
+   * Get a list of nodes.
+   */
+  @Override
+  public Set&lt;INode&gt; getNodes() {
+<span class="fc" id="L112">    final Set&lt;INode&gt; rVal = new HashSet&lt;&gt;(nodeToChannel.keySet());</span>
+<span class="fc" id="L113">    rVal.add(node);</span>
+<span class="fc" id="L114">    return rVal;</span>
+  }
+
+  @Override
+  public synchronized void shutDown() {
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">    if (!shutdown) {</span>
+<span class="fc" id="L120">      shutdown = true;</span>
+<span class="fc" id="L121">      nioSocket.shutDown();</span>
+      try {
+<span class="fc" id="L123">        socketChannel.close();</span>
+<span class="pc" id="L124">      } catch (final Exception e) {</span>
+        // ignore
+      }
+<span class="pc bpc" id="L127" title="1 of 2 branches missed.">      if (acceptorSelector != null) {</span>
+<span class="fc" id="L128">        acceptorSelector.wakeup();</span>
+      }
+    }
+<span class="fc" id="L131">  }</span>
+
+  public synchronized boolean isShutDown() {
+<span class="nc" id="L134">    return shutdown;</span>
+  }
+
+  @Override
+  public boolean isConnected() {
+<span class="nc bnc" id="L139" title="All 2 branches missed.">    return !shutdown;</span>
+  }
+
+  /**
+   * Send a message to the given node.
+   */
+  @Override
+  public void send(final Serializable msg, final INode to) {
+<span class="pc bpc" id="L147" title="1 of 2 branches missed.">    if (shutdown) {</span>
+<span class="nc" id="L148">      return;</span>
+    }
+<span class="pc bpc" id="L150" title="1 of 2 branches missed.">    if (logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L151">      logger.log(Level.FINEST, &quot;Sending&quot; + msg + &quot; to:&quot; + to);</span>
+    }
+<span class="fc" id="L153">    final MessageHeader header = new MessageHeader(to, node, msg);</span>
+<span class="fc" id="L154">    final SocketChannel socketChannel = nodeToChannel.get(to);</span>
+    // the socket was removed
+<span class="pc bpc" id="L156" title="1 of 2 branches missed.">    if (socketChannel == null) {</span>
+<span class="nc bnc" id="L157" title="All 2 branches missed.">      if (logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L158">        logger.log(Level.FINER, &quot;no channel for node:&quot; + to + &quot; dropping message:&quot; + msg);</span>
+      }
+      // the socket has not been added yet
+<span class="nc" id="L161">      return;</span>
+    }
+<span class="fc" id="L163">    nioSocket.send(socketChannel, header);</span>
+<span class="fc" id="L164">  }</span>
+
+  /**
+   * Send a message to all nodes.
+   */
+  @Override
+  public void broadcast(final Serializable msg) {
+<span class="fc" id="L171">    final MessageHeader header = new MessageHeader(node, msg);</span>
+<span class="fc" id="L172">    forwardBroadcast(header);</span>
+<span class="fc" id="L173">  }</span>
+
+  private boolean isLobby() {
+<span class="fc" id="L176">    return loginValidator instanceof LobbyLoginValidator;</span>
+  }
+
+  private boolean isGame() {
+<span class="pc bpc" id="L180" title="1 of 2 branches missed.">    return !isLobby();</span>
+  }
+
+<span class="fc" id="L183">  private final Object m_cachedListLock = new Object();</span>
+<span class="fc" id="L184">  private final HashMap&lt;String, String&gt; m_cachedMacAddresses = new HashMap&lt;&gt;();</span>
+
+  @Override
+  public String getPlayerMac(final String name) {
+<span class="nc" id="L188">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L189">      String mac = m_cachedMacAddresses.get(name);</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">      if (mac == null) {</span>
+<span class="nc" id="L191">        mac = m_playersThatLeftMacs_Last10.get(name);</span>
+      }
+<span class="nc" id="L193">      return mac;</span>
+    }
+  }
+
+  // We need to cache whether players are muted, because otherwise the database would have to be accessed each time a
+  // message was sent,
+  // which can be very slow
+<span class="fc" id="L200">  private final List&lt;String&gt; m_liveMutedUsernames = new ArrayList&lt;&gt;();</span>
+
+  public boolean IsUsernameMuted(final String username) {
+<span class="nc" id="L203">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L204">      return m_liveMutedUsernames.contains(username);</span>
+    }
+  }
+
+  @Override
+  public void NotifyUsernameMutingOfPlayer(final String username, final Date muteExpires) {
+<span class="nc" id="L210">    synchronized (m_cachedListLock) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">      if (!m_liveMutedUsernames.contains(username)) {</span>
+<span class="nc" id="L212">        m_liveMutedUsernames.add(username);</span>
+      }
+<span class="nc bnc" id="L214" title="All 2 branches missed.">      if (muteExpires != null) {</span>
+<span class="nc" id="L215">        ScheduleUsernameUnmuteAt(username, muteExpires.getTime());</span>
+      }
+    }
+<span class="nc" id="L218">  }</span>
+
+<span class="fc" id="L220">  private final List&lt;String&gt; m_liveMutedIpAddresses = new ArrayList&lt;&gt;();</span>
+
+  public boolean IsIpMuted(final String ip) {
+<span class="nc" id="L223">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L224">      return m_liveMutedIpAddresses.contains(ip);</span>
+    }
+  }
+
+  @Override
+  public void NotifyIPMutingOfPlayer(final String ip, final Date muteExpires) {
+<span class="nc" id="L230">    synchronized (m_cachedListLock) {</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">      if (!m_liveMutedIpAddresses.contains(ip)) {</span>
+<span class="nc" id="L232">        m_liveMutedIpAddresses.add(ip);</span>
+      }
+<span class="nc bnc" id="L234" title="All 2 branches missed.">      if (muteExpires != null) {</span>
+<span class="nc" id="L235">        ScheduleIpUnmuteAt(ip, muteExpires.getTime());</span>
+      }
+    }
+<span class="nc" id="L238">  }</span>
+
+<span class="fc" id="L240">  private final List&lt;String&gt; m_liveMutedMacAddresses = new ArrayList&lt;&gt;();</span>
+
+  public boolean IsMacMuted(final String mac) {
+<span class="nc" id="L243">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L244">      return m_liveMutedMacAddresses.contains(mac);</span>
+    }
+  }
+
+  @Override
+  public void NotifyMacMutingOfPlayer(final String mac, final Date muteExpires) {
+<span class="nc" id="L250">    synchronized (m_cachedListLock) {</span>
+<span class="nc bnc" id="L251" title="All 2 branches missed.">      if (!m_liveMutedMacAddresses.contains(mac)) {</span>
+<span class="nc" id="L252">        m_liveMutedMacAddresses.add(mac);</span>
+      }
+<span class="nc bnc" id="L254" title="All 2 branches missed.">      if (muteExpires != null) {</span>
+<span class="nc" id="L255">        ScheduleMacUnmuteAt(mac, muteExpires.getTime());</span>
+      }
+    }
+<span class="nc" id="L258">  }</span>
+
+  private void ScheduleUsernameUnmuteAt(final String username, final long checkTime) {
+<span class="nc" id="L261">    final Timer unmuteUsernameTimer = new Timer(&quot;Username unmute timer&quot;);</span>
+<span class="nc" id="L262">    unmuteUsernameTimer.schedule(getUsernameUnmuteTask(username), new Date(checkTime));</span>
+<span class="nc" id="L263">  }</span>
+
+  private void ScheduleIpUnmuteAt(final String ip, final long checkTime) {
+<span class="nc" id="L266">    final Timer unmuteIpTimer = new Timer(&quot;IP unmute timer&quot;);</span>
+<span class="nc" id="L267">    unmuteIpTimer.schedule(getIpUnmuteTask(ip), new Date(checkTime));</span>
+<span class="nc" id="L268">  }</span>
+
+  private void ScheduleMacUnmuteAt(final String mac, final long checkTime) {
+<span class="nc" id="L271">    final Timer unmuteMacTimer = new Timer(&quot;Mac unmute timer&quot;);</span>
+<span class="nc" id="L272">    unmuteMacTimer.schedule(getMacUnmuteTask(mac), new Date(checkTime));</span>
+<span class="nc" id="L273">  }</span>
+
+  public void NotifyPlayerLogin(final String uniquePlayerName, final String ip, final String mac) {
+<span class="pc" id="L276">    synchronized (m_cachedListLock) {</span>
+<span class="fc" id="L277">      m_cachedMacAddresses.put(uniquePlayerName, mac);</span>
+<span class="pc bpc" id="L278" title="1 of 2 branches missed.">      if (isLobby()) {</span>
+<span class="nc" id="L279">        final String realName = uniquePlayerName.split(&quot; &quot;)[0];</span>
+<span class="nc bnc" id="L280" title="All 2 branches missed.">        if (!m_liveMutedUsernames.contains(realName)) {</span>
+<span class="nc" id="L281">          final long muteTill = new MutedUsernameController().getUsernameUnmuteTime(realName);</span>
+<span class="nc bnc" id="L282" title="All 4 branches missed.">          if (muteTill != -1 &amp;&amp; muteTill &lt;= System.currentTimeMillis()) {</span>
+            // Signal the player as muted
+<span class="nc" id="L284">            m_liveMutedUsernames.add(realName);</span>
+<span class="nc" id="L285">            ScheduleUsernameUnmuteAt(realName, muteTill);</span>
+          }
+        }
+<span class="nc bnc" id="L288" title="All 2 branches missed.">        if (!m_liveMutedIpAddresses.contains(ip)) {</span>
+<span class="nc" id="L289">          final long muteTill = new MutedIpController().getIpUnmuteTime(ip);</span>
+<span class="nc bnc" id="L290" title="All 4 branches missed.">          if (muteTill != -1 &amp;&amp; muteTill &lt;= System.currentTimeMillis()) {</span>
+            // Signal the player as muted
+<span class="nc" id="L292">            m_liveMutedIpAddresses.add(ip);</span>
+<span class="nc" id="L293">            ScheduleIpUnmuteAt(ip, muteTill);</span>
+          }
+        }
+<span class="nc bnc" id="L296" title="All 2 branches missed.">        if (!m_liveMutedMacAddresses.contains(mac)) {</span>
+<span class="nc" id="L297">          final long muteTill = new MutedMacController().getMacUnmuteTime(mac);</span>
+<span class="nc bnc" id="L298" title="All 4 branches missed.">          if (muteTill != -1 &amp;&amp; muteTill &lt;= System.currentTimeMillis()) {</span>
+            // Signal the player as muted
+<span class="nc" id="L300">            m_liveMutedMacAddresses.add(mac);</span>
+<span class="nc" id="L301">            ScheduleMacUnmuteAt(mac, muteTill);</span>
+          }
+        }
+      }
+    }
+<span class="fc" id="L306">  }</span>
+
+<span class="fc" id="L308">  private final HashMap&lt;String, String&gt; m_playersThatLeftMacs_Last10 = new HashMap&lt;&gt;();</span>
+
+  public HashMap&lt;String, String&gt; getPlayersThatLeftMacs_Last10() {
+<span class="nc" id="L311">    return m_playersThatLeftMacs_Last10;</span>
+  }
+
+  private void NotifyPlayerRemoval(final INode node) {
+<span class="pc" id="L315">    synchronized (m_cachedListLock) {</span>
+<span class="fc" id="L316">      m_playersThatLeftMacs_Last10.put(node.getName(), m_cachedMacAddresses.get(node.getName()));</span>
+<span class="pc bpc" id="L317" title="1 of 2 branches missed.">      if (m_playersThatLeftMacs_Last10.size() &gt; 10) {</span>
+<span class="nc" id="L318">        m_playersThatLeftMacs_Last10.remove(m_playersThatLeftMacs_Last10.entrySet().iterator().next().toString());</span>
+      }
+<span class="fc" id="L320">      m_cachedMacAddresses.remove(node.getName());</span>
+    }
+<span class="fc" id="L322">  }</span>
+
+  // Special character to stop spoofing by server
+  public static final String YOU_HAVE_BEEN_MUTED_LOBBY =
+      &quot;?YOUR LOBBY CHATTING HAS BEEN TEMPORARILY 'MUTED' BY THE ADMINS, TRY AGAIN LATER&quot;;
+
+  // Special character to stop spoofing by host
+<span class="fc" id="L329">  public static final String YOU_HAVE_BEEN_MUTED_GAME = &quot;?YOUR CHATTING IN THIS GAME HAS BEEN 'MUTED' BY THE HOST&quot;;</span>
+
+  @Override
+  public void messageReceived(final MessageHeader msg, final SocketChannel channel) {
+<span class="fc" id="L333">    final INode expectedReceive = channelToNode.get(channel);</span>
+<span class="pc bpc" id="L334" title="1 of 2 branches missed.">    if (!expectedReceive.equals(msg.getFrom())) {</span>
+<span class="nc" id="L335">      throw new IllegalStateException(&quot;Expected: &quot; + expectedReceive + &quot; not: &quot; + msg.getFrom());</span>
+    }
+<span class="fc bfc" id="L337" title="All 2 branches covered.">    if (msg.getMessage() instanceof HubInvoke) // Chat messages are always HubInvoke's</span>
+    {
+<span class="pc bpc" id="L339" title="3 of 4 branches missed.">      if (isLobby() &amp;&amp; ((HubInvoke) msg.getMessage()).call.getRemoteName().equals(&quot;_ChatCtrl_LOBBY_CHAT&quot;)) {</span>
+<span class="nc" id="L340">        final String realName = msg.getFrom().getName().split(&quot; &quot;)[0];</span>
+<span class="nc bnc" id="L341" title="All 2 branches missed.">        if (IsUsernameMuted(realName)) {</span>
+<span class="nc" id="L342">          bareBonesSendChatMessage(YOU_HAVE_BEEN_MUTED_LOBBY, msg.getFrom());</span>
+<span class="nc" id="L343">          return;</span>
+<span class="nc bnc" id="L344" title="All 2 branches missed.">        } else if (IsIpMuted(msg.getFrom().getAddress().getHostAddress())) {</span>
+<span class="nc" id="L345">          bareBonesSendChatMessage(YOU_HAVE_BEEN_MUTED_LOBBY, msg.getFrom());</span>
+<span class="nc" id="L346">          return;</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        } else if (IsMacMuted(getPlayerMac(msg.getFrom().getName()))) {</span>
+<span class="nc" id="L348">          bareBonesSendChatMessage(YOU_HAVE_BEEN_MUTED_LOBBY, msg.getFrom());</span>
+<span class="nc" id="L349">          return;</span>
+        }
+<span class="pc bpc" id="L351" title="1 of 2 branches missed.">      } else if (isGame() &amp;&amp; ((HubInvoke) msg.getMessage()).call.getRemoteName()</span>
+<span class="pc bpc" id="L352" title="1 of 2 branches missed.">          .equals(&quot;_ChatCtrlgames.strategy.engine.framework.ui.ServerStartup.CHAT_NAME&quot;)) {</span>
+<span class="nc" id="L353">        final String realName = msg.getFrom().getName().split(&quot; &quot;)[0];</span>
+<span class="nc bnc" id="L354" title="All 2 branches missed.">        if (IsUsernameMuted(realName)) {</span>
+<span class="nc" id="L355">          bareBonesSendChatMessage(YOU_HAVE_BEEN_MUTED_GAME, msg.getFrom());</span>
+<span class="nc" id="L356">          return;</span>
+<span class="nc bnc" id="L357" title="All 2 branches missed.">        } else if (IsIpMuted(msg.getFrom().getAddress().getHostAddress())) {</span>
+<span class="nc" id="L358">          bareBonesSendChatMessage(YOU_HAVE_BEEN_MUTED_GAME, msg.getFrom());</span>
+<span class="nc" id="L359">          return;</span>
+        }
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        if (IsMacMuted(getPlayerMac(msg.getFrom().getName()))) {</span>
+<span class="nc" id="L362">          bareBonesSendChatMessage(YOU_HAVE_BEEN_MUTED_GAME, msg.getFrom());</span>
+<span class="nc" id="L363">          return;</span>
+        }
+      }
+    }
+<span class="fc bfc" id="L367" title="All 2 branches covered.">    if (msg.getFor() == null) {</span>
+<span class="fc" id="L368">      forwardBroadcast(msg);</span>
+<span class="fc" id="L369">      notifyListeners(msg);</span>
+<span class="fc bfc" id="L370" title="All 2 branches covered.">    } else if (msg.getFor().equals(node)) {</span>
+<span class="fc" id="L371">      notifyListeners(msg);</span>
+<span class="fc" id="L372">    } else {</span>
+<span class="fc" id="L373">      forward(msg);</span>
+    }
+<span class="fc" id="L375">  }</span>
+
+  private void bareBonesSendChatMessage(final String message, final INode to) {
+<span class="nc" id="L378">    final List&lt;Object&gt; args = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L379">    final Class&lt;? extends Object&gt;[] argTypes = new Class&lt;?&gt;[1];</span>
+<span class="nc" id="L380">    args.add(message);</span>
+<span class="nc" id="L381">    argTypes[0] = args.get(0).getClass();</span>
+    RemoteName rn;
+<span class="nc bnc" id="L383" title="All 2 branches missed.">    if (isLobby()) {</span>
+<span class="nc" id="L384">      rn = new RemoteName(ChatController.getChatChannelName(&quot;_LOBBY_CHAT&quot;), IChatChannel.class);</span>
+<span class="nc" id="L385">    } else {</span>
+<span class="nc" id="L386">      rn = new RemoteName(</span>
+<span class="nc" id="L387">          ChatController.getChatChannelName(&quot;games.strategy.engine.framework.ui.ServerStartup.CHAT_NAME&quot;),</span>
+<span class="nc" id="L388">          IChatChannel.class);</span>
+    }
+<span class="nc" id="L390">    final RemoteMethodCall call =</span>
+<span class="nc" id="L391">        new RemoteMethodCall(rn.getName(), &quot;chatOccured&quot;, args.toArray(), argTypes, rn.getClazz());</span>
+<span class="nc" id="L392">    final SpokeInvoke spokeInvoke = new SpokeInvoke(null, false, call, getServerNode());</span>
+<span class="nc" id="L393">    send(spokeInvoke, to);</span>
+<span class="nc" id="L394">  }</span>
+
+  // The following code is used in hosted lobby games by the host for player mini-banning and mini-muting
+<span class="fc" id="L397">  private final List&lt;String&gt; m_miniBannedUsernames = new ArrayList&lt;&gt;();</span>
+
+  @Override
+  public boolean IsUsernameMiniBanned(final String username) {
+<span class="nc" id="L401">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L402">      return m_miniBannedUsernames.contains(username);</span>
+    }
+  }
+
+  @Override
+  public void NotifyUsernameMiniBanningOfPlayer(final String username, final Date expires) {
+<span class="nc" id="L408">    synchronized (m_cachedListLock) {</span>
+<span class="nc bnc" id="L409" title="All 2 branches missed.">      if (!m_miniBannedUsernames.contains(username)) {</span>
+<span class="nc" id="L410">        m_miniBannedUsernames.add(username);</span>
+      }
+<span class="nc bnc" id="L412" title="All 2 branches missed.">      if (expires != null) {</span>
+<span class="nc" id="L413">        final Timer unbanUsernameTimer = new Timer(&quot;Username unban timer&quot;);</span>
+<span class="nc" id="L414">        unbanUsernameTimer.schedule(new TimerTask() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L417">            synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L418">              m_miniBannedUsernames.remove(username);</span>
+            }
+<span class="nc" id="L420">          }</span>
+<span class="nc" id="L421">        }, new Date(expires.getTime()));</span>
+      }
+    }
+<span class="nc" id="L424">  }</span>
+
+<span class="fc" id="L426">  private final List&lt;String&gt; m_miniBannedIpAddresses = new ArrayList&lt;&gt;();</span>
+
+  @Override
+  public boolean IsIpMiniBanned(final String ip) {
+<span class="nc" id="L430">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L431">      return m_miniBannedIpAddresses.contains(ip);</span>
+    }
+  }
+
+  @Override
+  public void NotifyIPMiniBanningOfPlayer(final String ip, final Date expires) {
+<span class="nc" id="L437">    synchronized (m_cachedListLock) {</span>
+<span class="nc bnc" id="L438" title="All 2 branches missed.">      if (!m_miniBannedIpAddresses.contains(ip)) {</span>
+<span class="nc" id="L439">        m_miniBannedIpAddresses.add(ip);</span>
+      }
+<span class="nc bnc" id="L441" title="All 2 branches missed.">      if (expires != null) {</span>
+<span class="nc" id="L442">        final Timer unbanIpTimer = new Timer(&quot;IP unban timer&quot;);</span>
+<span class="nc" id="L443">        unbanIpTimer.schedule(new TimerTask() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L446">            synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L447">              m_miniBannedIpAddresses.remove(ip);</span>
+            }
+<span class="nc" id="L449">          }</span>
+<span class="nc" id="L450">        }, new Date(expires.getTime()));</span>
+      }
+    }
+<span class="nc" id="L453">  }</span>
+
+<span class="fc" id="L455">  private final List&lt;String&gt; m_miniBannedMacAddresses = new ArrayList&lt;&gt;();</span>
+
+  @Override
+  public boolean IsMacMiniBanned(final String mac) {
+<span class="nc" id="L459">    synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L460">      return m_miniBannedMacAddresses.contains(mac);</span>
+    }
+  }
+
+  @Override
+  public void NotifyMacMiniBanningOfPlayer(final String mac, final Date expires) {
+<span class="nc" id="L466">    synchronized (m_cachedListLock) {</span>
+<span class="nc bnc" id="L467" title="All 2 branches missed.">      if (!m_miniBannedMacAddresses.contains(mac)) {</span>
+<span class="nc" id="L468">        m_miniBannedMacAddresses.add(mac);</span>
+      }
+<span class="nc bnc" id="L470" title="All 2 branches missed.">      if (expires != null) {</span>
+<span class="nc" id="L471">        final Timer unbanMacTimer = new Timer(&quot;Mac unban timer&quot;);</span>
+<span class="nc" id="L472">        unbanMacTimer.schedule(new TimerTask() {</span>
+          @Override
+          public void run() {
+<span class="nc" id="L475">            synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L476">              m_miniBannedMacAddresses.remove(mac);</span>
+            }
+<span class="nc" id="L478">          }</span>
+<span class="nc" id="L479">        }, new Date(expires.getTime()));</span>
+      }
+    }
+<span class="nc" id="L482">  }</span>
+
+  private void forward(final MessageHeader msg) {
+<span class="pc bpc" id="L485" title="1 of 2 branches missed.">    if (shutdown) {</span>
+<span class="nc" id="L486">      return;</span>
+    }
+<span class="fc" id="L488">    final SocketChannel socketChannel = nodeToChannel.get(msg.getFor());</span>
+<span class="pc bpc" id="L489" title="1 of 2 branches missed.">    if (socketChannel == null) {</span>
+<span class="nc" id="L490">      throw new IllegalStateException(&quot;No channel for:&quot; + msg.getFor() + &quot; all channels:&quot; + socketChannel);</span>
+    }
+<span class="fc" id="L492">    nioSocket.send(socketChannel, msg);</span>
+<span class="fc" id="L493">  }</span>
+
+  private void forwardBroadcast(final MessageHeader msg) {
+<span class="pc bpc" id="L496" title="1 of 2 branches missed.">    if (shutdown) {</span>
+<span class="nc" id="L497">      return;</span>
+    }
+<span class="fc" id="L499">    final SocketChannel fromChannel = nodeToChannel.get(msg.getFrom());</span>
+<span class="fc" id="L500">    final List&lt;SocketChannel&gt; nodes = new ArrayList&lt;&gt;(nodeToChannel.values());</span>
+<span class="pc bpc" id="L501" title="1 of 2 branches missed.">    if (logger.isLoggable(Level.FINEST)) {</span>
+<span class="nc" id="L502">      logger.log(Level.FINEST, &quot;broadcasting to&quot; + nodes);</span>
+    }
+<span class="fc bfc" id="L504" title="All 2 branches covered.">    for (final SocketChannel channel : nodes) {</span>
+<span class="fc bfc" id="L505" title="All 2 branches covered.">      if (channel != fromChannel) {</span>
+<span class="fc" id="L506">        nioSocket.send(channel, msg);</span>
+      }
+    }
+<span class="fc" id="L509">  }</span>
+
+  private boolean isNameTaken(final String nodeName) {
+<span class="fc bfc" id="L512" title="All 2 branches covered.">    for (final INode node : getNodes()) {</span>
+<span class="pc bpc" id="L513" title="1 of 2 branches missed.">      if (node.getName().equalsIgnoreCase(nodeName)) {</span>
+<span class="nc" id="L514">        return true;</span>
+      }
+    }
+<span class="fc" id="L517">    return false;</span>
+  }
+
+  public String getUniqueName(String currentName) {
+<span class="pc bpc" id="L521" title="1 of 2 branches missed.">    if (currentName.length() &gt; 50) {</span>
+<span class="nc" id="L522">      currentName = currentName.substring(0, 50);</span>
+    }
+<span class="pc bpc" id="L524" title="1 of 2 branches missed.">    if (currentName.length() &lt; 2) {</span>
+<span class="nc" id="L525">      currentName = &quot;aa&quot; + currentName;</span>
+    }
+<span class="pc" id="L527">    synchronized (node) {</span>
+<span class="pc bpc" id="L528" title="1 of 2 branches missed.">      if (isNameTaken(currentName)) {</span>
+<span class="nc" id="L529">        int i = 1;</span>
+<span class="nc" id="L530">        while (true) {</span>
+<span class="nc" id="L531">          final String newName = currentName + &quot; (&quot; + i + &quot;)&quot;;</span>
+<span class="nc bnc" id="L532" title="All 2 branches missed.">          if (!isNameTaken(newName)) {</span>
+<span class="nc" id="L533">            currentName = newName;</span>
+<span class="nc" id="L534">            break;</span>
+          }
+<span class="nc" id="L536">          i++;</span>
+        }
+      }
+    }
+<span class="fc" id="L540">    return currentName;</span>
+  }
+
+  private void notifyListeners(final MessageHeader msg) {
+<span class="fc" id="L544">    final Iterator&lt;IMessageListener&gt; iter = listeners.iterator();</span>
+<span class="fc bfc" id="L545" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc" id="L546">      final IMessageListener listener = iter.next();</span>
+<span class="fc" id="L547">      listener.messageReceived(msg.getMessage(), msg.getFrom());</span>
+    }
+<span class="fc" id="L549">  }</span>
+
+  @Override
+  public void addErrorListener(final IMessengerErrorListener listener) {
+<span class="fc" id="L553">    errorListeners.add(listener);</span>
+<span class="fc" id="L554">  }</span>
+
+  @Override
+  public void removeErrorListener(final IMessengerErrorListener listener) {
+<span class="nc" id="L558">    errorListeners.remove(listener);</span>
+<span class="nc" id="L559">  }</span>
+
+  @Override
+  public void addConnectionChangeListener(final IConnectionChangeListener listener) {
+<span class="fc" id="L563">    connectionListeners.add(listener);</span>
+<span class="fc" id="L564">  }</span>
+
+  @Override
+  public void removeConnectionChangeListener(final IConnectionChangeListener listener) {
+<span class="fc" id="L568">    connectionListeners.remove(listener);</span>
+<span class="fc" id="L569">  }</span>
+
+  private void notifyConnectionsChanged(final boolean added, final INode node) {
+<span class="fc" id="L572">    final Iterator&lt;IConnectionChangeListener&gt; iter = connectionListeners.iterator();</span>
+<span class="fc bfc" id="L573" title="All 2 branches covered.">    while (iter.hasNext()) {</span>
+<span class="fc bfc" id="L574" title="All 2 branches covered.">      if (added) {</span>
+<span class="fc" id="L575">        iter.next().connectionAdded(node);</span>
+<span class="fc" id="L576">      } else {</span>
+<span class="fc" id="L577">        iter.next().connectionRemoved(node);</span>
+      }
+    }
+<span class="fc" id="L580">  }</span>
+
+  @Override
+  public void setAcceptNewConnections(final boolean accept) {
+<span class="fc" id="L584">    acceptNewConnection = accept;</span>
+<span class="fc" id="L585">  }</span>
+
+  @Override
+  public boolean isAcceptNewConnections() {
+<span class="nc" id="L589">    return acceptNewConnection;</span>
+  }
+
+  /**
+   * Get the local node
+   */
+  @Override
+  public INode getLocalNode() {
+<span class="fc" id="L597">    return node;</span>
+  }
+
+<span class="fc" id="L600">  private class ConnectionHandler implements Runnable {</span>
+    @Override
+    public void run() {
+      try {
+<span class="fc" id="L604">        socketChannel.register(acceptorSelector, SelectionKey.OP_ACCEPT);</span>
+<span class="pc" id="L605">      } catch (final ClosedChannelException e) {</span>
+<span class="nc" id="L606">        logger.log(Level.SEVERE, &quot;socket closed&quot;, e);</span>
+<span class="nc" id="L607">        shutDown();</span>
+      }
+<span class="pc bfc" id="L609" title="All 2 branches covered.">      while (!shutdown) {</span>
+        try {
+<span class="fc" id="L611">          acceptorSelector.select();</span>
+<span class="pc" id="L612">        } catch (final IOException e) {</span>
+<span class="nc" id="L613">          logger.log(Level.SEVERE, &quot;Could not accept on server&quot;, e);</span>
+<span class="nc" id="L614">          shutDown();</span>
+        }
+<span class="fc bfc" id="L616" title="All 2 branches covered.">        if (shutdown) {</span>
+<span class="fc" id="L617">          continue;</span>
+        }
+<span class="fc" id="L619">        final Set&lt;SelectionKey&gt; keys = acceptorSelector.selectedKeys();</span>
+<span class="fc" id="L620">        final Iterator&lt;SelectionKey&gt; iter = keys.iterator();</span>
+<span class="fc bfc" id="L621" title="All 2 branches covered.">        while (iter.hasNext()) {</span>
+<span class="fc" id="L622">          final SelectionKey key = iter.next();</span>
+<span class="fc" id="L623">          iter.remove();</span>
+<span class="pc bpc" id="L624" title="2 of 4 branches missed.">          if (key.isAcceptable() &amp;&amp; key.isValid()) {</span>
+<span class="fc" id="L625">            final ServerSocketChannel serverSocketChannel = (ServerSocketChannel) key.channel();</span>
+            // Accept the connection and make it non-blocking
+<span class="fc" id="L627">            SocketChannel socketChannel = null;</span>
+            try {
+<span class="fc" id="L629">              socketChannel = serverSocketChannel.accept();</span>
+<span class="pc bpc" id="L630" title="1 of 2 branches missed.">              if (socketChannel == null) {</span>
+<span class="nc" id="L631">                continue;</span>
+              }
+<span class="fc" id="L633">              socketChannel.configureBlocking(false);</span>
+<span class="fc" id="L634">              socketChannel.socket().setKeepAlive(true);</span>
+<span class="pc" id="L635">            } catch (final IOException e) {</span>
+<span class="nc" id="L636">              logger.log(Level.FINE, &quot;Could not accept channel&quot;, e);</span>
+              try {
+<span class="nc bnc" id="L638" title="All 2 branches missed.">                if (socketChannel != null) {</span>
+<span class="nc" id="L639">                  socketChannel.close();</span>
+                }
+<span class="nc" id="L641">              } catch (final IOException e2) {</span>
+<span class="nc" id="L642">                logger.log(Level.FINE, &quot;Could not close channel&quot;, e2);</span>
+              }
+<span class="nc" id="L644">              continue;</span>
+            }
+            // we are not accepting connections
+<span class="pc bpc" id="L647" title="1 of 2 branches missed.">            if (!acceptNewConnection) {</span>
+              try {
+<span class="nc" id="L649">                socketChannel.close();</span>
+<span class="nc" id="L650">              } catch (final IOException e) {</span>
+<span class="nc" id="L651">                logger.log(Level.FINE, &quot;Could not close channel&quot;, e);</span>
+              }
+<span class="nc" id="L653">              continue;</span>
+            }
+<span class="fc" id="L655">            final ServerQuarantineConversation conversation =</span>
+<span class="fc" id="L656">                new ServerQuarantineConversation(loginValidator, socketChannel, nioSocket, ServerMessenger.this);</span>
+<span class="fc" id="L657">            nioSocket.add(socketChannel, conversation);</span>
+<span class="pc bnc" id="L658" title="All 2 branches missed.">          } else if (!key.isValid()) {</span>
+<span class="nc" id="L659">            key.cancel();</span>
+          }
+        }
+      }
+<span class="fc" id="L663">    }</span>
+  }
+
+  private TimerTask getUsernameUnmuteTask(final String username) {
+<span class="nc" id="L667">    return createUnmuteTimerTask(</span>
+<span class="nc bnc" id="L668" title="All 6 branches missed.">        () -&gt; (isLobby() &amp;&amp; new MutedUsernameController().getUsernameUnmuteTime(username) == -1) || (isGame()),</span>
+<span class="nc" id="L669">        () -&gt; m_liveMutedUsernames.remove(username));</span>
+  }
+
+  private TimerTask createUnmuteTimerTask(final Supplier&lt;Boolean&gt; runCondition, final Runnable action) {
+<span class="nc" id="L673">    return new TimerTask() {</span>
+      @Override
+      public void run() {
+<span class="nc bnc" id="L676" title="All 2 branches missed.">        if (runCondition.get()) {</span>
+<span class="nc" id="L677">          synchronized (m_cachedListLock) {</span>
+<span class="nc" id="L678">            action.run();</span>
+          }
+        }
+<span class="nc" id="L681">      }</span>
+    };
+  }
+
+  private TimerTask getIpUnmuteTask(final String ip) {
+<span class="nc" id="L686">    return createUnmuteTimerTask(</span>
+<span class="nc bnc" id="L687" title="All 6 branches missed.">        () -&gt; (isLobby() &amp;&amp; new MutedIpController().getIpUnmuteTime(ip) == -1) || (isGame()),</span>
+<span class="nc" id="L688">        () -&gt; m_liveMutedIpAddresses.remove(ip));</span>
+  }
+
+  private TimerTask getMacUnmuteTask(final String mac) {
+<span class="nc" id="L692">    return createUnmuteTimerTask(</span>
+<span class="nc bnc" id="L693" title="All 6 branches missed.">        () -&gt; (isLobby() &amp;&amp; new MutedMacController().getMacUnmuteTime(mac) == -1) || (isGame()),</span>
+<span class="nc" id="L694">        () -&gt; m_liveMutedMacAddresses.remove(mac));</span>
+  }
+
+  @Override
+  public boolean isServer() {
+<span class="fc" id="L699">    return true;</span>
+  }
+
+  @Override
+  public void removeConnection(final INode nodeToRemove) {
+<span class="pc bpc" id="L704" title="1 of 2 branches missed.">    if (nodeToRemove.equals(this.node)) {</span>
+<span class="nc" id="L705">      throw new IllegalArgumentException(&quot;Cant remove ourself!&quot;);</span>
+    }
+<span class="fc" id="L707">    NotifyPlayerRemoval(nodeToRemove);</span>
+<span class="fc" id="L708">    final SocketChannel channel = nodeToChannel.remove(nodeToRemove);</span>
+<span class="pc bpc" id="L709" title="1 of 2 branches missed.">    if (channel == null) {</span>
+<span class="nc" id="L710">      logger.info(&quot;Could not remove connection to node:&quot; + nodeToRemove);</span>
+<span class="nc" id="L711">      return;</span>
+    }
+<span class="fc" id="L713">    channelToNode.remove(channel);</span>
+<span class="fc" id="L714">    nioSocket.close(channel);</span>
+<span class="fc" id="L715">    notifyConnectionsChanged(false, nodeToRemove);</span>
+<span class="fc" id="L716">    logger.info(&quot;Connection removed:&quot; + nodeToRemove);</span>
+<span class="fc" id="L717">  }</span>
+
+  @Override
+  public INode getServerNode() {
+<span class="fc" id="L721">    return node;</span>
+  }
+
+  @Override
+  public void socketError(final SocketChannel channel, final Exception error) {
+<span class="pc bpc" id="L726" title="1 of 2 branches missed.">    if (channel == null) {</span>
+<span class="nc" id="L727">      throw new IllegalArgumentException(&quot;Null channel&quot;);</span>
+    }
+    // already closed, dont report it again
+<span class="fc" id="L730">    final INode node = channelToNode.get(channel);</span>
+<span class="fc bfc" id="L731" title="All 2 branches covered.">    if (node != null) {</span>
+<span class="fc" id="L732">      removeConnection(node);</span>
+    }
+<span class="fc" id="L734">  }</span>
+
+  @Override
+  public void socketUnqaurantined(final SocketChannel channel, final QuarantineConversation conversation) {
+<span class="fc" id="L738">    final ServerQuarantineConversation con = (ServerQuarantineConversation) conversation;</span>
+<span class="fc" id="L739">    final INode remote = new Node(con.getRemoteName(), (InetSocketAddress) channel.socket().getRemoteSocketAddress());</span>
+<span class="pc bpc" id="L740" title="1 of 2 branches missed.">    if (logger.isLoggable(Level.FINER)) {</span>
+<span class="nc" id="L741">      logger.log(Level.FINER, &quot;Unquarntined node:&quot; + remote);</span>
+    }
+<span class="fc" id="L743">    nodeToChannel.put(remote, channel);</span>
+<span class="fc" id="L744">    channelToNode.put(channel, remote);</span>
+<span class="fc" id="L745">    notifyConnectionsChanged(true, remote);</span>
+<span class="fc" id="L746">    logger.info(&quot;Connection added to:&quot; + remote);</span>
+<span class="fc" id="L747">  }</span>
+
+  @Override
+  public INode getRemoteNode(final SocketChannel channel) {
+<span class="fc" id="L751">    return channelToNode.get(channel);</span>
+  }
+
+  @Override
+  public InetSocketAddress getRemoteServerSocketAddress() {
+<span class="nc" id="L756">    return node.getSocketAddress();</span>
+  }
+
+  @Override
+  public String toString() {
+<span class="nc" id="L761">    return &quot;ServerMessenger LocalNode:&quot; + node + &quot; ClientNodes:&quot; + nodeToChannel.keySet();</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

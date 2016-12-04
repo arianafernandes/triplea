@@ -1,0 +1,1171 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>RulesAttachment.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.attachments</a> &gt; <span class="el_source">RulesAttachment.java</span></div><h1>RulesAttachment.java</h1><pre class="source lang-java linenums">package games.strategy.triplea.attachments;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import games.strategy.engine.data.Attachable;
+import games.strategy.engine.data.BattleRecordsList;
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameMap;
+import games.strategy.engine.data.GameParseException;
+import games.strategy.engine.data.IAttachment;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipTracker.Relationship;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.engine.data.annotations.GameProperty;
+import games.strategy.engine.data.annotations.InternalDoNotExport;
+import games.strategy.engine.delegate.IDelegateBridge;
+import games.strategy.engine.random.IRandomStats.DiceType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.MapSupport;
+import games.strategy.triplea.delegate.Matches;
+import games.strategy.triplea.delegate.TechAdvance;
+import games.strategy.triplea.delegate.TechTracker;
+import games.strategy.triplea.formatter.MyFormatter;
+import games.strategy.triplea.player.ITripleAPlayer;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.Match;
+import games.strategy.util.ThreadUtil;
+import games.strategy.util.Tuple;
+
+@MapSupport
+public class RulesAttachment extends AbstractPlayerRulesAttachment {
+  private static final long serialVersionUID = 7301965634079412516L;
+  // condition for having techs
+<span class="fc" id="L49">  private ArrayList&lt;TechAdvance&gt; m_techs = null;</span>
+  @InternalDoNotExport
+  // Do Not Export (do not include in IAttachment).
+<span class="fc" id="L52">  private int m_techCount = -1;</span>
+  // condition for having specific relationships
+<span class="fc" id="L54">  private ArrayList&lt;String&gt; m_relationship = new ArrayList&lt;&gt;();</span>
+  // condition for being at war
+<span class="fc" id="L56">  private HashSet&lt;PlayerID&gt; m_atWarPlayers = null;</span>
+  @InternalDoNotExport
+  // Do Not Export (do not include in IAttachment).
+<span class="fc" id="L59">  private int m_atWarCount = -1;</span>
+  // condition for having destroyed at least X enemy non-neutral TUV (total unit value) [according to
+  // the prices the defender pays for the units]
+<span class="fc" id="L62">  private String m_destroyedTUV = null;</span>
+  // condition for having had a battle in some territory, attacker or defender, win
+  // or lost, etc. these next 9 variables use m_territoryCount for determining the number needed.
+<span class="fc" id="L65">  private ArrayList&lt;Tuple&lt;String, ArrayList&lt;Territory&gt;&gt;&gt; m_battle =</span>
+<span class="fc" id="L66">      new ArrayList&lt;&gt;();</span>
+  // ownership related
+<span class="fc" id="L68">  private String[] m_alliedOwnershipTerritories = null;</span>
+<span class="fc" id="L69">  private String[] m_directOwnershipTerritories = null;</span>
+  // exclusion of units
+<span class="fc" id="L71">  private String[] m_alliedExclusionTerritories = null;</span>
+<span class="fc" id="L72">  private String[] m_directExclusionTerritories = null;</span>
+<span class="fc" id="L73">  private String[] m_enemyExclusionTerritories = null;</span>
+<span class="fc" id="L74">  private String[] m_enemySurfaceExclusionTerritories = null;</span>
+  // presence of units
+<span class="fc" id="L76">  private String[] m_directPresenceTerritories = null;</span>
+<span class="fc" id="L77">  private String[] m_alliedPresenceTerritories = null;</span>
+<span class="fc" id="L78">  private String[] m_enemyPresenceTerritories = null;</span>
+  // used with above 3 to determine the type of unit that must be present
+<span class="fc" id="L80">  private IntegerMap&lt;String&gt; m_unitPresence = new IntegerMap&lt;&gt;();</span>
+
+
+  /** Creates new RulesAttachment */
+  public RulesAttachment(final String name, final Attachable attachable, final GameData gameData) {
+<span class="fc" id="L85">    super(name, attachable, gameData);</span>
+<span class="fc" id="L86">  }</span>
+
+  /**
+   * Convenience method, for use with rules attachments, objectives, and condition attachments. Should return
+   * RulesAttachments.
+   *
+   * @param player PlayerID
+   * @param nameOfAttachment exact full name of attachment
+   * @return new rule attachment
+   */
+  public static RulesAttachment get(final PlayerID player, final String nameOfAttachment) {
+<span class="fc" id="L97">    return get(player, nameOfAttachment, null, false);</span>
+  }
+
+  public static RulesAttachment get(final PlayerID player, final String nameOfAttachment,
+      final Collection&lt;PlayerID&gt; playersToSearch, final boolean allowNull) {
+<span class="fc" id="L102">    RulesAttachment rVal = (RulesAttachment) player.getAttachment(nameOfAttachment);</span>
+<span class="pc bpc" id="L103" title="1 of 2 branches missed.">    if (rVal == null) {</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">      if (playersToSearch == null) {</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (!allowNull) {</span>
+<span class="nc" id="L106">          throw new IllegalStateException(</span>
+<span class="nc" id="L107">              &quot;Rules &amp; Conditions: No rule attachment for:&quot; + player.getName() + &quot; with name: &quot; + nameOfAttachment);</span>
+        }
+      } else {
+<span class="nc bnc" id="L110" title="All 2 branches missed.">        for (final PlayerID otherPlayer : playersToSearch) {</span>
+<span class="nc bnc" id="L111" title="All 2 branches missed.">          if (otherPlayer == player) {</span>
+<span class="nc" id="L112">            continue;</span>
+          }
+<span class="nc" id="L114">          rVal = (RulesAttachment) otherPlayer.getAttachment(nameOfAttachment);</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">          if (rVal != null) {</span>
+<span class="nc" id="L116">            return rVal;</span>
+          }
+        }
+<span class="nc bnc" id="L119" title="All 2 branches missed.">        if (!allowNull) {</span>
+<span class="nc" id="L120">          throw new IllegalStateException(</span>
+<span class="nc" id="L121">              &quot;Rules &amp; Conditions: No rule attachment for:&quot; + player.getName() + &quot; with name: &quot; + nameOfAttachment);</span>
+        }
+      }
+    }
+<span class="fc" id="L125">    return rVal;</span>
+  }
+
+  /**
+   * Convenience method, for use returning any RulesAttachment that begins with &quot;objectiveAttachment&quot;
+   * National Objectives are just conditions that also give money to a player during the end turn delegate. They can be
+   * used for testing by
+   * triggers as well.
+   * Conditions that do not give money are not prefixed with &quot;objectiveAttachment&quot;,
+   * and the trigger attachment that uses these kinds of conditions gets them a different way because they are
+   * specifically named inside
+   * that trigger.
+   */
+  public static Set&lt;RulesAttachment&gt; getNationalObjectives(final PlayerID player) {
+<span class="nc" id="L139">    final Set&lt;RulesAttachment&gt; natObjs = new HashSet&lt;&gt;();</span>
+<span class="nc" id="L140">    final Map&lt;String, IAttachment&gt; map = player.getAttachments();</span>
+<span class="nc bnc" id="L141" title="All 2 branches missed.">    for (final Map.Entry&lt;String, IAttachment&gt; entry : map.entrySet()) {</span>
+<span class="nc" id="L142">      final IAttachment attachment = entry.getValue();</span>
+<span class="nc bnc" id="L143" title="All 2 branches missed.">      if (attachment instanceof RulesAttachment) {</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">        if (attachment.getName().startsWith(Constants.RULES_OBJECTIVE_PREFIX)) {</span>
+<span class="nc" id="L145">          natObjs.add((RulesAttachment) attachment);</span>
+        }
+      }
+    }
+<span class="nc" id="L149">    return natObjs;</span>
+  }
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDestroyedTUV(final String value) throws GameParseException {
+<span class="pc bpc" id="L154" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L155">      m_destroyedTUV = null;</span>
+<span class="nc" id="L156">      return;</span>
+    }
+<span class="fc" id="L158">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L159" title="1 of 2 branches missed.">    if (s.length != 2) {</span>
+<span class="fc" id="L160">      throw new GameParseException(</span>
+<span class="fc" id="L161">          &quot;destroyedTUV must have 2 fields, value=currentRound/allRounds, count= the amount of TUV that this player must destroy&quot;</span>
+<span class="fc" id="L162">              + thisErrorMsg());</span>
+    }
+<span class="nc" id="L164">    final int i = getInt(s[0]);</span>
+<span class="nc bnc" id="L165" title="All 2 branches missed.">    if (i &lt; -1) {</span>
+<span class="nc" id="L166">      throw new GameParseException(</span>
+<span class="nc" id="L167">          &quot;destroyedTUV count cannot be less than -1 [with -1 meaning the condition is not active]&quot; + thisErrorMsg());</span>
+    }
+<span class="nc bnc" id="L169" title="All 4 branches missed.">    if (!(s[1].equals(&quot;currentRound&quot;) || s[1].equals(&quot;allRounds&quot;))) {</span>
+<span class="nc" id="L170">      throw new GameParseException(&quot;destroyedTUV value must be currentRound or allRounds&quot; + thisErrorMsg());</span>
+    }
+<span class="nc" id="L172">    m_destroyedTUV = value;</span>
+<span class="nc" id="L173">  }</span>
+
+  public String getDestroyedTUV() {
+<span class="nc" id="L176">    return m_destroyedTUV;</span>
+  }
+
+  public void resetDestroyedTUV() {
+<span class="nc" id="L180">    m_destroyedTUV = null;</span>
+<span class="nc" id="L181">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setBattle(final String value) throws GameParseException {
+<span class="fc" id="L188">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L189" title="1 of 2 branches missed.">    if (s.length &lt; 5) {</span>
+<span class="nc" id="L190">      throw new GameParseException(</span>
+<span class="nc" id="L191">          &quot;battle must have at least 5 fields, attacker:defender:resultType:round:territory1...&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L193">    final PlayerID attacker = getData().getPlayerList().getPlayerID(s[0]);</span>
+<span class="pc bpc" id="L194" title="3 of 4 branches missed.">    if (attacker == null &amp;&amp; !s[0].equalsIgnoreCase(&quot;any&quot;)) {</span>
+<span class="nc" id="L195">      throw new GameParseException(&quot;no player named: &quot; + s[0] + thisErrorMsg());</span>
+    }
+<span class="fc" id="L197">    final PlayerID defender = getData().getPlayerList().getPlayerID(s[1]);</span>
+<span class="pc bpc" id="L198" title="3 of 4 branches missed.">    if (defender == null &amp;&amp; !s[1].equalsIgnoreCase(&quot;any&quot;)) {</span>
+<span class="nc" id="L199">      throw new GameParseException(&quot;no player named: &quot; + s[1] + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L201" title="1 of 2 branches missed.">    if (!s[2].equalsIgnoreCase(&quot;any&quot;)) {</span>
+<span class="nc" id="L202">      throw new GameParseException(&quot;battle allows the following for resultType: any&quot; + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L204" title="1 of 2 branches missed.">    if (!s[3].equalsIgnoreCase(&quot;currentRound&quot;)) {</span>
+      try {
+<span class="nc" id="L206">        getInt(s[3].split(&quot;-&quot;)[0]);</span>
+<span class="nc" id="L207">        getInt(s[3].split(&quot;-&quot;)[1]);</span>
+<span class="nc" id="L208">      } catch (final Exception e) {</span>
+<span class="nc" id="L209">        throw new GameParseException(&quot;round must either be currentRound or two numbers like: 2-4&quot; + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L212">    final ArrayList&lt;Territory&gt; terrs = new ArrayList&lt;&gt;();</span>
+<span class="fc" id="L213">    final GameMap map = getData().getMap();</span>
+    // this loop starts on 4, so do not replace with an enhanced for loop
+<span class="fc bfc" id="L215" title="All 2 branches covered.">    for (int i = 4; i &lt; s.length; i++) {</span>
+<span class="fc" id="L216">      final Territory t = map.getTerritory(s[i]);</span>
+<span class="pc bpc" id="L217" title="1 of 2 branches missed.">      if (t == null) {</span>
+<span class="nc" id="L218">        throw new GameParseException(&quot;no such territory called: &quot; + s[i] + thisErrorMsg());</span>
+      }
+<span class="fc" id="L220">      terrs.add(t);</span>
+    }
+<span class="fc" id="L222">    m_battle.add(Tuple.of((s[0] + &quot;:&quot; + s[1] + &quot;:&quot; + s[2] + &quot;:&quot; + s[3]), terrs));</span>
+<span class="fc" id="L223">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setBattle(final ArrayList&lt;Tuple&lt;String, ArrayList&lt;Territory&gt;&gt;&gt; value) {
+<span class="nc" id="L227">    m_battle = value;</span>
+<span class="nc" id="L228">  }</span>
+
+  public ArrayList&lt;Tuple&lt;String, ArrayList&lt;Territory&gt;&gt;&gt; getBattle() {
+<span class="nc" id="L231">    return m_battle;</span>
+  }
+
+  public void clearBattle() {
+<span class="nc" id="L235">    m_battle.clear();</span>
+<span class="nc" id="L236">  }</span>
+
+  public void resetBattle() {
+<span class="nc" id="L239">    m_battle = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L240">  }</span>
+
+  /**
+   * Condition to check if a certain relationship exists between 2 players.
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value should be a string containing: &quot;player:player:relationship&quot;
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setRelationship(final String value) throws GameParseException {
+<span class="fc" id="L250">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L251" title="2 of 4 branches missed.">    if (s.length &lt; 3 || s.length &gt; 4) {</span>
+<span class="nc" id="L252">      throw new GameParseException(</span>
+<span class="nc" id="L253">          &quot;relationship should have value=\&quot;playername1:playername2:relationshiptype:numberOfRoundsExisting\&quot;&quot;</span>
+<span class="nc" id="L254">              + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L256" title="1 of 2 branches missed.">    if (getData().getPlayerList().getPlayerID(s[0]) == null) {</span>
+<span class="nc" id="L257">      throw new GameParseException(</span>
+<span class="nc" id="L258">          &quot;playername: &quot; + s[0] + &quot; isn't valid in condition with relationship: &quot; + value + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L260" title="1 of 2 branches missed.">    if (getData().getPlayerList().getPlayerID(s[1]) == null) {</span>
+<span class="nc" id="L261">      throw new GameParseException(</span>
+<span class="nc" id="L262">          &quot;playername: &quot; + s[1] + &quot; isn't valid in condition with relationship: &quot; + value + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L264" title="1 of 2 branches missed.">    if (!(s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_ALLIED)</span>
+<span class="fc bfc" id="L265" title="All 2 branches covered.">        || s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_NEUTRAL)</span>
+<span class="fc bfc" id="L266" title="All 2 branches covered.">        || s[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_WAR)</span>
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">        || Matches.isValidRelationshipName(getData()).match(s[2]))) {</span>
+<span class="nc" id="L268">      throw new GameParseException(</span>
+<span class="nc" id="L269">          &quot;relationship: &quot; + s[2] + &quot; isn't valid in condition with relationship: &quot; + value + thisErrorMsg());</span>
+    }
+<span class="pc bpc" id="L271" title="1 of 4 branches missed.">    if (s.length == 4 &amp;&amp; Integer.parseInt(s[3]) &lt; -1) {</span>
+<span class="nc" id="L272">      throw new GameParseException(</span>
+<span class="nc" id="L273">          &quot;numberOfRoundsExisting should be a number between -1 and 100000.  -1 should be default value if you don't know what to put&quot;</span>
+<span class="nc" id="L274">              + thisErrorMsg());</span>
+    }
+<span class="fc bfc" id="L276" title="All 2 branches covered.">    m_relationship.add((s.length == 3) ? (value + &quot;:-1&quot;) : value);</span>
+<span class="fc" id="L277">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setRelationship(final ArrayList&lt;String&gt; value) {
+<span class="nc" id="L281">    m_relationship = value;</span>
+<span class="nc" id="L282">  }</span>
+
+  public ArrayList&lt;String&gt; getRelationship() {
+<span class="nc" id="L285">    return m_relationship;</span>
+  }
+
+  public void clearRelationship() {
+<span class="nc" id="L289">    m_relationship.clear();</span>
+<span class="nc" id="L290">  }</span>
+
+  public void resetRelationship() {
+<span class="nc" id="L293">    m_relationship = new ArrayList&lt;&gt;();</span>
+<span class="nc" id="L294">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAlliedOwnershipTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L298" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L299">      m_alliedOwnershipTerritories = null;</span>
+<span class="nc" id="L300">      return;</span>
+    }
+<span class="fc" id="L302">    m_alliedOwnershipTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L303">    validateNames(m_alliedOwnershipTerritories);</span>
+<span class="fc" id="L304">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAlliedOwnershipTerritories(final String[] value) {
+<span class="nc" id="L308">    m_alliedOwnershipTerritories = value;</span>
+<span class="nc" id="L309">  }</span>
+
+  public String[] getAlliedOwnershipTerritories() {
+<span class="fc" id="L312">    return m_alliedOwnershipTerritories;</span>
+  }
+
+  public void resetAlliedOwnershipTerritories() {
+<span class="nc" id="L316">    m_alliedOwnershipTerritories = null;</span>
+<span class="nc" id="L317">  }</span>
+
+  // exclusion types = controlled, controlledNoWater, original, all, or list
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAlliedExclusionTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L322" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L323">      m_alliedExclusionTerritories = null;</span>
+<span class="nc" id="L324">      return;</span>
+    }
+<span class="fc" id="L326">    m_alliedExclusionTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L327">    validateNames(m_alliedExclusionTerritories);</span>
+<span class="fc" id="L328">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAlliedExclusionTerritories(final String[] value) {
+<span class="nc" id="L332">    m_alliedExclusionTerritories = value;</span>
+<span class="nc" id="L333">  }</span>
+
+  public String[] getAlliedExclusionTerritories() {
+<span class="fc" id="L336">    return m_alliedExclusionTerritories;</span>
+  }
+
+  public void resetAlliedExclusionTerritories() {
+<span class="nc" id="L340">    m_alliedExclusionTerritories = null;</span>
+<span class="nc" id="L341">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDirectExclusionTerritories(final String value) throws GameParseException {
+<span class="nc bnc" id="L345" title="All 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L346">      m_directExclusionTerritories = null;</span>
+<span class="nc" id="L347">      return;</span>
+    }
+<span class="nc" id="L349">    m_directExclusionTerritories = value.split(&quot;:&quot;);</span>
+<span class="nc" id="L350">    validateNames(m_directExclusionTerritories);</span>
+<span class="nc" id="L351">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDirectExclusionTerritories(final String[] value) {
+<span class="nc" id="L355">    m_directExclusionTerritories = value;</span>
+<span class="nc" id="L356">  }</span>
+
+  public String[] getDirectExclusionTerritories() {
+<span class="fc" id="L359">    return m_directExclusionTerritories;</span>
+  }
+
+  public void resetDirectExclusionTerritories() {
+<span class="nc" id="L363">    m_directExclusionTerritories = null;</span>
+<span class="nc" id="L364">  }</span>
+
+  // exclusion types = original or list
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setEnemyExclusionTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L369" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L370">      m_enemyExclusionTerritories = null;</span>
+<span class="nc" id="L371">      return;</span>
+    }
+<span class="fc" id="L373">    m_enemyExclusionTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L374">    validateNames(m_enemyExclusionTerritories);</span>
+<span class="fc" id="L375">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setEnemyExclusionTerritories(final String[] value) {
+<span class="nc" id="L379">    m_enemyExclusionTerritories = value;</span>
+<span class="nc" id="L380">  }</span>
+
+  public String[] getEnemyExclusionTerritories() {
+<span class="fc" id="L383">    return m_enemyExclusionTerritories;</span>
+  }
+
+  public void resetEnemyExclusionTerritories() {
+<span class="nc" id="L387">    m_enemyExclusionTerritories = null;</span>
+<span class="nc" id="L388">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDirectPresenceTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L392" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L393">      m_directPresenceTerritories = null;</span>
+<span class="nc" id="L394">      return;</span>
+    }
+<span class="fc" id="L396">    m_directPresenceTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L397">    validateNames(m_directPresenceTerritories);</span>
+<span class="fc" id="L398">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDirectPresenceTerritories(final String[] value) {
+<span class="nc" id="L402">    m_directPresenceTerritories = value;</span>
+<span class="nc" id="L403">  }</span>
+
+  public String[] getDirectPresenceTerritories() {
+<span class="fc" id="L406">    return m_directPresenceTerritories;</span>
+  }
+
+  public void resetDirectPresenceTerritories() {
+<span class="nc" id="L410">    m_directPresenceTerritories = null;</span>
+<span class="nc" id="L411">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAlliedPresenceTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L415" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L416">      m_alliedPresenceTerritories = null;</span>
+<span class="nc" id="L417">      return;</span>
+    }
+<span class="fc" id="L419">    m_alliedPresenceTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L420">    validateNames(m_alliedPresenceTerritories);</span>
+<span class="fc" id="L421">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAlliedPresenceTerritories(final String[] value) {
+<span class="nc" id="L425">    m_alliedPresenceTerritories = value;</span>
+<span class="nc" id="L426">  }</span>
+
+  public String[] getAlliedPresenceTerritories() {
+<span class="fc" id="L429">    return m_alliedPresenceTerritories;</span>
+  }
+
+  public void resetAlliedPresenceTerritories() {
+<span class="nc" id="L433">    m_alliedPresenceTerritories = null;</span>
+<span class="nc" id="L434">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setEnemyPresenceTerritories(final String value) throws GameParseException {
+<span class="nc bnc" id="L438" title="All 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L439">      m_enemyPresenceTerritories = null;</span>
+<span class="nc" id="L440">      return;</span>
+    }
+<span class="nc" id="L442">    m_enemyPresenceTerritories = value.split(&quot;:&quot;);</span>
+<span class="nc" id="L443">    validateNames(m_enemyPresenceTerritories);</span>
+<span class="nc" id="L444">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setEnemyPresenceTerritories(final String[] value) {
+<span class="nc" id="L448">    m_enemyPresenceTerritories = value;</span>
+<span class="nc" id="L449">  }</span>
+
+  public String[] getEnemyPresenceTerritories() {
+<span class="fc" id="L452">    return m_enemyPresenceTerritories;</span>
+  }
+
+  public void resetEnemyPresenceTerritories() {
+<span class="nc" id="L456">    m_enemyPresenceTerritories = null;</span>
+<span class="nc" id="L457">  }</span>
+
+  // exclusion types = original or list
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setEnemySurfaceExclusionTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L462" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L463">      m_enemySurfaceExclusionTerritories = null;</span>
+<span class="nc" id="L464">      return;</span>
+    }
+<span class="fc" id="L466">    m_enemySurfaceExclusionTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L467">    validateNames(m_enemySurfaceExclusionTerritories);</span>
+<span class="fc" id="L468">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setEnemySurfaceExclusionTerritories(final String[] value) {
+<span class="nc" id="L472">    m_enemySurfaceExclusionTerritories = value;</span>
+<span class="nc" id="L473">  }</span>
+
+  public String[] getEnemySurfaceExclusionTerritories() {
+<span class="fc" id="L476">    return m_enemySurfaceExclusionTerritories;</span>
+  }
+
+  public void resetEnemySurfaceExclusionTerritories() {
+<span class="nc" id="L480">    m_enemySurfaceExclusionTerritories = null;</span>
+<span class="nc" id="L481">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDirectOwnershipTerritories(final String value) throws GameParseException {
+<span class="pc bpc" id="L485" title="1 of 2 branches missed.">    if (value == null) {</span>
+<span class="nc" id="L486">      m_directOwnershipTerritories = null;</span>
+<span class="nc" id="L487">      return;</span>
+    }
+<span class="fc" id="L489">    m_directOwnershipTerritories = value.split(&quot;:&quot;);</span>
+<span class="fc" id="L490">    validateNames(m_directOwnershipTerritories);</span>
+<span class="fc" id="L491">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setDirectOwnershipTerritories(final String[] value) {
+<span class="nc" id="L495">    m_directOwnershipTerritories = value;</span>
+<span class="nc" id="L496">  }</span>
+
+  public String[] getDirectOwnershipTerritories() {
+<span class="fc" id="L499">    return m_directOwnershipTerritories;</span>
+  }
+
+  public void resetDirectOwnershipTerritories() {
+<span class="nc" id="L503">    m_directOwnershipTerritories = null;</span>
+<span class="nc" id="L504">  }</span>
+
+  /**
+   * Adds to, not sets. Anything that adds to instead of setting needs a clear function as well.
+   *
+   * @param value
+   * @throws GameParseException
+   */
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = true)
+  public void setUnitPresence(String value) throws GameParseException {
+<span class="fc" id="L514">    final String[] s = value.split(&quot;:&quot;);</span>
+<span class="pc bpc" id="L515" title="1 of 2 branches missed.">    if (s.length &lt;= 1) {</span>
+<span class="nc" id="L516">      throw new GameParseException(</span>
+<span class="nc" id="L517">          &quot;unitPresence must have at least 2 fields. Format value=unit1 count=number, or value=unit1:unit2:unit3 count=number&quot;</span>
+<span class="nc" id="L518">              + thisErrorMsg());</span>
+    }
+<span class="fc" id="L520">    final int n = getInt(s[0]);</span>
+<span class="pc bpc" id="L521" title="1 of 2 branches missed.">    if (n &lt; 0) {</span>
+<span class="nc" id="L522">      throw new GameParseException(&quot;unitPresence must be a positive integer&quot; + thisErrorMsg());</span>
+    }
+<span class="fc bfc" id="L524" title="All 2 branches covered.">    for (int i = 1; i &lt; s.length; i++) {</span>
+<span class="fc" id="L525">      final String unitTypeToProduce = s[i];</span>
+      // validate that this unit exists in the xml
+<span class="fc" id="L527">      final UnitType ut = getData().getUnitTypeList().getUnitType(unitTypeToProduce);</span>
+<span class="pc bpc" id="L528" title="2 of 6 branches missed.">      if (ut == null &amp;&amp; !(unitTypeToProduce.equals(&quot;any&quot;) || unitTypeToProduce.equals(&quot;ANY&quot;))) {</span>
+<span class="nc" id="L529">        throw new GameParseException(&quot;No unit called: &quot; + unitTypeToProduce + thisErrorMsg());</span>
+      }
+    }
+<span class="fc" id="L532">    value = value.replaceFirst(s[0] + &quot;:&quot;, &quot;&quot;);</span>
+<span class="fc" id="L533">    m_unitPresence.put(value, n);</span>
+<span class="fc" id="L534">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setUnitPresence(final IntegerMap&lt;String&gt; value) {
+<span class="fc" id="L538">    m_unitPresence = value;</span>
+<span class="fc" id="L539">  }</span>
+
+  public IntegerMap&lt;String&gt; getUnitPresence() {
+<span class="nc" id="L542">    return m_unitPresence;</span>
+  }
+
+  public void clearUnitPresence() {
+<span class="nc" id="L546">    m_unitPresence.clear();</span>
+<span class="nc" id="L547">  }</span>
+
+  public void resetUnitPresence() {
+<span class="nc" id="L550">    m_unitPresence = new IntegerMap&lt;&gt;();</span>
+<span class="nc" id="L551">  }</span>
+
+  public int getAtWarCount() {
+<span class="nc" id="L554">    return m_atWarCount;</span>
+  }
+
+  public int getTechCount() {
+<span class="nc" id="L558">    return m_techCount;</span>
+  }
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAtWarPlayers(final String players) throws GameParseException {
+<span class="pc bpc" id="L563" title="1 of 2 branches missed.">    if (players == null) {</span>
+<span class="nc" id="L564">      m_atWarPlayers = null;</span>
+<span class="nc" id="L565">      return;</span>
+    }
+<span class="fc" id="L567">    final String[] s = players.split(&quot;:&quot;);</span>
+<span class="fc" id="L568">    int count = -1;</span>
+<span class="pc bpc" id="L569" title="1 of 2 branches missed.">    if (s.length &lt; 1) {</span>
+<span class="nc" id="L570">      throw new GameParseException(&quot;Empty enemy list&quot; + thisErrorMsg());</span>
+    }
+    try {
+<span class="fc" id="L573">      count = getInt(s[0]);</span>
+<span class="fc" id="L574">      m_atWarCount = count;</span>
+<span class="pc" id="L575">    } catch (final Exception e) {</span>
+<span class="nc" id="L576">      m_atWarCount = 0;</span>
+    }
+<span class="pc bpc" id="L578" title="4 of 6 branches missed.">    if (s.length &lt; 1 || s.length == 1 &amp;&amp; count != -1) {</span>
+<span class="nc" id="L579">      throw new GameParseException(&quot;Empty enemy list&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L581">    m_atWarPlayers = new HashSet&lt;&gt;();</span>
+<span class="pc bpc" id="L582" title="1 of 4 branches missed.">    for (int i = count == -1 ? 0 : 1; i &lt; s.length; i++) {</span>
+<span class="fc" id="L583">      final PlayerID player = getData().getPlayerList().getPlayerID(s[i]);</span>
+<span class="pc bpc" id="L584" title="1 of 2 branches missed.">      if (player == null) {</span>
+<span class="nc" id="L585">        throw new GameParseException(&quot;Could not find player. name:&quot; + s[i] + thisErrorMsg());</span>
+      }
+<span class="fc" id="L587">      m_atWarPlayers.add(player);</span>
+    }
+<span class="fc" id="L589">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setAtWarPlayers(final HashSet&lt;PlayerID&gt; value) {
+<span class="nc" id="L593">    m_atWarPlayers = value;</span>
+<span class="nc" id="L594">  }</span>
+
+  public HashSet&lt;PlayerID&gt; getAtWarPlayers() {
+<span class="fc" id="L597">    return m_atWarPlayers;</span>
+  }
+
+  public void resetAtWarPlayers() {
+<span class="nc" id="L601">    m_atWarPlayers = null;</span>
+<span class="nc" id="L602">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTechs(final String newTechs) throws GameParseException {
+<span class="pc bpc" id="L606" title="1 of 2 branches missed.">    if (newTechs == null) {</span>
+<span class="nc" id="L607">      m_techs = null;</span>
+<span class="nc" id="L608">      return;</span>
+    }
+<span class="fc" id="L610">    final String[] s = newTechs.split(&quot;:&quot;);</span>
+<span class="fc" id="L611">    int count = -1;</span>
+<span class="pc bpc" id="L612" title="1 of 2 branches missed.">    if (s.length &lt; 1) {</span>
+<span class="nc" id="L613">      throw new GameParseException(&quot;Empty tech list&quot; + thisErrorMsg());</span>
+    }
+    try {
+<span class="fc" id="L616">      count = getInt(s[0]);</span>
+<span class="fc" id="L617">      m_techCount = count;</span>
+<span class="pc" id="L618">    } catch (final Exception e) {</span>
+<span class="nc" id="L619">      m_techCount = 0;</span>
+    }
+<span class="pc bpc" id="L621" title="4 of 6 branches missed.">    if (s.length &lt; 1 || s.length == 1 &amp;&amp; count != -1) {</span>
+<span class="nc" id="L622">      throw new GameParseException(&quot;Empty tech list&quot; + thisErrorMsg());</span>
+    }
+<span class="fc" id="L624">    m_techs = new ArrayList&lt;&gt;();</span>
+<span class="pc bpc" id="L625" title="1 of 4 branches missed.">    for (int i = count == -1 ? 0 : 1; i &lt; s.length; i++) {</span>
+<span class="fc" id="L626">      TechAdvance ta = getData().getTechnologyFrontier().getAdvanceByProperty(s[i]);</span>
+<span class="pc bpc" id="L627" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L628">        ta = getData().getTechnologyFrontier().getAdvanceByName(s[i]);</span>
+      }
+<span class="pc bpc" id="L630" title="1 of 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L631">        throw new GameParseException(&quot;Technology not found :&quot; + Arrays.toString(s) + thisErrorMsg());</span>
+      }
+<span class="fc" id="L633">      m_techs.add(ta);</span>
+    }
+<span class="fc" id="L635">  }</span>
+
+  @GameProperty(xmlProperty = true, gameProperty = true, adds = false)
+  public void setTechs(final ArrayList&lt;TechAdvance&gt; value) {
+<span class="nc" id="L639">    m_techs = value;</span>
+<span class="nc" id="L640">  }</span>
+
+  public ArrayList&lt;TechAdvance&gt; getTechs() {
+<span class="nc" id="L643">    return m_techs;</span>
+  }
+
+  public void resetTechs() {
+<span class="nc" id="L647">    m_techs = null;</span>
+<span class="nc" id="L648">  }</span>
+
+  @Override
+  public boolean isSatisfied(final HashMap&lt;ICondition, Boolean&gt; testedConditions) {
+<span class="nc" id="L652">    checkNotNull(testedConditions);</span>
+<span class="nc" id="L653">    checkState(testedConditions.containsKey(this));</span>
+
+<span class="nc" id="L655">    return testedConditions.get(this);</span>
+  }
+
+  @Override
+  public boolean isSatisfied(HashMap&lt;ICondition, Boolean&gt; testedConditions, final IDelegateBridge aBridge) {
+<span class="fc bfc" id="L660" title="All 2 branches covered.">    if (testedConditions != null) {</span>
+<span class="pc bpc" id="L661" title="1 of 2 branches missed.">      if (testedConditions.containsKey(this)) {</span>
+<span class="nc" id="L662">        return testedConditions.get(this);</span>
+      }
+    }
+<span class="fc" id="L665">    boolean objectiveMet = true;</span>
+<span class="fc" id="L666">    final List&lt;PlayerID&gt; players = getPlayers();</span>
+<span class="fc" id="L667">    final GameData data = aBridge.getData();</span>
+    // check meta conditions (conditions which hold other conditions)
+<span class="pc bpc" id="L669" title="2 of 4 branches missed.">    if (objectiveMet &amp;&amp; m_conditions.size() &gt; 0) {</span>
+<span class="nc bnc" id="L670" title="All 2 branches missed.">      if (testedConditions == null) {</span>
+<span class="nc" id="L671">        testedConditions = testAllConditionsRecursive(</span>
+<span class="nc" id="L672">            getAllConditionsRecursive(new HashSet&lt;&gt;(m_conditions), null), null, aBridge);</span>
+      }
+<span class="nc" id="L674">      objectiveMet = areConditionsMet(new ArrayList&lt;&gt;(m_conditions), testedConditions, m_conditionType);</span>
+    }
+    // check switch (on/off)
+<span class="pc bpc" id="L677" title="1 of 2 branches missed.">    if (objectiveMet) {</span>
+<span class="fc" id="L678">      objectiveMet = m_switch;</span>
+    }
+    // check turn limits
+<span class="pc bpc" id="L681" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; m_turns != null) {</span>
+<span class="fc" id="L682">      objectiveMet = checkTurns(data);</span>
+    }
+    // check custom game property options
+<span class="pc bpc" id="L685" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; m_gameProperty != null) {</span>
+<span class="nc" id="L686">      objectiveMet = this.getGamePropertyState(data);</span>
+    }
+    // Check for unit presence (Veqryn)
+<span class="pc bpc" id="L689" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getDirectPresenceTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L691">      final String[] terrs = getDirectPresenceTerritories();</span>
+<span class="nc" id="L692">      objectiveMet = checkUnitPresence(getTerritoryListBasedOnInputFromXML(terrs, players, data),</span>
+<span class="nc" id="L693">          &quot;direct&quot;, getTerritoryCount(), players, data);</span>
+    }
+    // Check for unit presence (Veqryn)
+<span class="pc bpc" id="L696" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getAlliedPresenceTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L698">      final String[] terrs = getAlliedPresenceTerritories();</span>
+<span class="nc" id="L699">      objectiveMet = checkUnitPresence(getTerritoryListBasedOnInputFromXML(terrs, players, data),</span>
+<span class="nc" id="L700">          &quot;allied&quot;, getTerritoryCount(), players, data);</span>
+    }
+    // Check for unit presence (Veqryn)
+<span class="pc bpc" id="L703" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getEnemyPresenceTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L705">      final String[] terrs = getEnemyPresenceTerritories();</span>
+<span class="nc" id="L706">      objectiveMet = checkUnitPresence(getTerritoryListBasedOnInputFromXML(terrs, players, data), &quot;enemy&quot;,</span>
+<span class="nc" id="L707">          getTerritoryCount(), players, data);</span>
+    }
+    // Check for direct unit exclusions (veqryn)
+<span class="pc bpc" id="L710" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getDirectExclusionTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L712">      final String[] terrs = getDirectExclusionTerritories();</span>
+<span class="nc" id="L713">      objectiveMet = checkUnitExclusions(getTerritoryListBasedOnInputFromXML(terrs, players, data),</span>
+<span class="nc" id="L714">          &quot;direct&quot;, getTerritoryCount(), players, data);</span>
+    }
+    // Check for allied unit exclusions
+<span class="pc bpc" id="L717" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getAlliedExclusionTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L719">      final String[] terrs = getAlliedExclusionTerritories();</span>
+<span class="nc" id="L720">      objectiveMet = checkUnitExclusions(getTerritoryListBasedOnInputFromXML(terrs, players, data),</span>
+<span class="nc" id="L721">          &quot;allied&quot;, getTerritoryCount(), players, data);</span>
+    }
+    // Check for enemy unit exclusions (ANY UNITS)
+<span class="pc bpc" id="L724" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getEnemyExclusionTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L726">      final String[] terrs = getEnemyExclusionTerritories();</span>
+<span class="nc" id="L727">      objectiveMet = checkUnitExclusions(getTerritoryListBasedOnInputFromXML(terrs, players, data),</span>
+<span class="nc" id="L728">          &quot;enemy&quot;, getTerritoryCount(), players, data);</span>
+    }
+    // Check for enemy unit exclusions (SURFACE UNITS with ATTACK POWER)
+<span class="pc bpc" id="L731" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getEnemySurfaceExclusionTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L733">      final String[] terrs = getEnemySurfaceExclusionTerritories();</span>
+<span class="nc" id="L734">      objectiveMet = checkUnitExclusions(getTerritoryListBasedOnInputFromXML(terrs, players, data),</span>
+<span class="nc" id="L735">          &quot;enemy_surface&quot;, getTerritoryCount(), players, data);</span>
+    }
+    // Check for Territory Ownership rules
+<span class="pc bpc" id="L738" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getAlliedOwnershipTerritories() != null) {</span>
+      // Get the listed territories
+<span class="nc" id="L740">      final String[] terrs = getAlliedOwnershipTerritories();</span>
+      Set&lt;Territory&gt; listedTerritories;
+<span class="nc bnc" id="L742" title="All 2 branches missed.">      if (terrs.length == 1) {</span>
+<span class="nc bnc" id="L743" title="All 2 branches missed.">        if (terrs[0].equals(&quot;original&quot;)) {</span>
+<span class="nc" id="L744">          final Collection&lt;PlayerID&gt; allies =</span>
+<span class="nc" id="L745">              Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAlliedWithAnyOfThesePlayers(players, data));</span>
+<span class="nc" id="L746">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, allies, data);</span>
+<span class="nc bnc" id="L747" title="All 2 branches missed.">        } else if (terrs[0].equals(&quot;enemy&quot;)) {</span>
+<span class="nc" id="L748">          final Collection&lt;PlayerID&gt; enemies =</span>
+<span class="nc" id="L749">              Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAtWarWithAnyOfThesePlayers(players, data));</span>
+<span class="nc" id="L750">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, enemies, data);</span>
+<span class="nc" id="L751">        } else {</span>
+<span class="nc" id="L752">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+        }
+<span class="nc bnc" id="L754" title="All 2 branches missed.">      } else if (terrs.length == 2) {</span>
+<span class="nc bnc" id="L755" title="All 2 branches missed.">        if (terrs[1].equals(&quot;original&quot;)) {</span>
+<span class="nc" id="L756">          final Collection&lt;PlayerID&gt; allies =</span>
+<span class="nc" id="L757">              Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAlliedWithAnyOfThesePlayers(players, data));</span>
+<span class="nc" id="L758">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, allies, data);</span>
+<span class="nc bnc" id="L759" title="All 2 branches missed.">        } else if (terrs[1].equals(&quot;enemy&quot;)) {</span>
+<span class="nc" id="L760">          final Collection&lt;PlayerID&gt; enemies =</span>
+<span class="nc" id="L761">              Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAtWarWithAnyOfThesePlayers(players, data));</span>
+<span class="nc" id="L762">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, enemies, data);</span>
+<span class="nc" id="L763">        } else {</span>
+<span class="nc" id="L764">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+        }
+<span class="nc" id="L766">      } else {</span>
+<span class="nc" id="L767">        listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+      }
+<span class="nc" id="L769">      objectiveMet = checkAlliedOwnership(listedTerritories, getTerritoryCount(), players, data);</span>
+    }
+    // Check for Direct Territory Ownership rules
+<span class="fc bfc" id="L772" title="All 4 branches covered.">    if (objectiveMet &amp;&amp; getDirectOwnershipTerritories() != null) {</span>
+      // Get the listed territories
+<span class="fc" id="L774">      final String[] terrs = getDirectOwnershipTerritories();</span>
+      Set&lt;Territory&gt; listedTerritories;
+<span class="pc bpc" id="L776" title="1 of 2 branches missed.">      if (terrs.length == 1) {</span>
+<span class="nc bnc" id="L777" title="All 2 branches missed.">        if (terrs[0].equals(&quot;original&quot;)) {</span>
+<span class="nc" id="L778">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+<span class="nc bnc" id="L779" title="All 2 branches missed.">        } else if (terrs[0].equals(&quot;enemy&quot;)) {</span>
+<span class="nc" id="L780">          final Collection&lt;PlayerID&gt; enemies =</span>
+<span class="nc" id="L781">              Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAtWarWithAnyOfThesePlayers(players, data));</span>
+<span class="nc" id="L782">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, enemies, data);</span>
+<span class="nc" id="L783">        } else {</span>
+<span class="nc" id="L784">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+        }
+<span class="pc bpc" id="L786" title="1 of 2 branches missed.">      } else if (terrs.length == 2) {</span>
+<span class="nc bnc" id="L787" title="All 2 branches missed.">        if (terrs[1].equals(&quot;original&quot;)) {</span>
+<span class="nc" id="L788">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+<span class="nc bnc" id="L789" title="All 2 branches missed.">        } else if (terrs[1].equals(&quot;enemy&quot;)) {</span>
+<span class="nc" id="L790">          final Collection&lt;PlayerID&gt; enemies =</span>
+<span class="nc" id="L791">              Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAtWarWithAnyOfThesePlayers(players, data));</span>
+<span class="nc" id="L792">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, enemies, data);</span>
+<span class="nc" id="L793">        } else {</span>
+<span class="nc" id="L794">          listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+        }
+<span class="nc" id="L796">      } else {</span>
+<span class="fc" id="L797">        listedTerritories = getTerritoryListBasedOnInputFromXML(terrs, players, data);</span>
+      }
+<span class="fc" id="L799">      objectiveMet = checkDirectOwnership(listedTerritories, getTerritoryCount(), players);</span>
+    }
+    // get attached to player
+<span class="fc" id="L802">    final PlayerID playerAttachedTo = (PlayerID) getAttachedTo();</span>
+<span class="pc bpc" id="L803" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; getAtWarPlayers() != null) {</span>
+<span class="nc" id="L804">      objectiveMet = checkAtWar(playerAttachedTo, getAtWarPlayers(), getAtWarCount(), data);</span>
+    }
+<span class="fc bfc" id="L806" title="All 4 branches covered.">    if (objectiveMet &amp;&amp; m_techs != null) {</span>
+<span class="fc" id="L807">      objectiveMet = checkTechs(playerAttachedTo, data);</span>
+    }
+    // check for relationships
+<span class="pc bpc" id="L810" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; m_relationship.size() &gt; 0) {</span>
+<span class="nc" id="L811">      objectiveMet = checkRelationships();</span>
+    }
+    // check for battle stats
+<span class="pc bpc" id="L814" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; m_destroyedTUV != null) {</span>
+<span class="nc" id="L815">      final String[] s = m_destroyedTUV.split(&quot;:&quot;);</span>
+<span class="nc" id="L816">      final int requiredDestroyedTUV = getInt(s[0]);</span>
+<span class="nc bnc" id="L817" title="All 2 branches missed.">      if (requiredDestroyedTUV &gt;= 0) {</span>
+<span class="nc" id="L818">        final boolean justCurrentRound = s[1].equals(&quot;currentRound&quot;);</span>
+<span class="nc" id="L819">        final int destroyedTUVforThisRoundSoFar = BattleRecordsList.getTUVdamageCausedByPlayer(playerAttachedTo,</span>
+<span class="nc" id="L820">            data.getBattleRecordsList(), 0, data.getSequence().getRound(), justCurrentRound, false);</span>
+<span class="nc bnc" id="L821" title="All 2 branches missed.">        if (requiredDestroyedTUV &gt; destroyedTUVforThisRoundSoFar) {</span>
+<span class="nc" id="L822">          objectiveMet = false;</span>
+        }
+<span class="nc bnc" id="L824" title="All 2 branches missed.">        if (getCountEach()) {</span>
+<span class="nc" id="L825">          m_eachMultiple = destroyedTUVforThisRoundSoFar;</span>
+        }
+      }
+    }
+    // check for battles
+<span class="pc bpc" id="L830" title="1 of 4 branches missed.">    if (objectiveMet &amp;&amp; !m_battle.isEmpty()) {</span>
+<span class="nc" id="L831">      final BattleRecordsList brl = data.getBattleRecordsList();</span>
+<span class="nc" id="L832">      final int round = data.getSequence().getRound();</span>
+<span class="nc bnc" id="L833" title="All 2 branches missed.">      for (final Tuple&lt;String, ArrayList&lt;Territory&gt;&gt; entry : m_battle) {</span>
+<span class="nc" id="L834">        final String[] type = entry.getFirst().split(&quot;:&quot;);</span>
+        // they could be &quot;any&quot;, and if they are &quot;any&quot; then this would be null, which is good!
+<span class="nc" id="L836">        final PlayerID attacker = data.getPlayerList().getPlayerID(type[0]);</span>
+<span class="nc" id="L837">        final PlayerID defender = data.getPlayerList().getPlayerID(type[1]);</span>
+<span class="nc" id="L838">        final String resultType = type[2];</span>
+<span class="nc" id="L839">        final String roundType = type[3];</span>
+<span class="nc" id="L840">        int start = 0;</span>
+<span class="nc" id="L841">        int end = round;</span>
+<span class="nc" id="L842">        final boolean currentRound = roundType.equalsIgnoreCase(&quot;currentRound&quot;);</span>
+<span class="nc bnc" id="L843" title="All 2 branches missed.">        if (!currentRound) {</span>
+<span class="nc" id="L844">          final String[] rounds = roundType.split(&quot;-&quot;);</span>
+<span class="nc" id="L845">          start = getInt(rounds[0]);</span>
+<span class="nc" id="L846">          end = getInt(rounds[1]);</span>
+        }
+<span class="nc" id="L848">        objectiveMet = BattleRecordsList.getWereThereBattlesInTerritoriesMatching(attacker, defender, resultType,</span>
+<span class="nc" id="L849">            entry.getSecond(), brl, start, end, currentRound);</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">        if (!objectiveMet) {</span>
+<span class="nc" id="L851">          break;</span>
+        }
+      }
+    }
+    // &quot;chance&quot; should ALWAYS be checked last!
+<span class="fc" id="L856">    final int hitTarget = getChanceToHit();</span>
+<span class="fc" id="L857">    final int diceSides = getChanceDiceSides();</span>
+<span class="fc" id="L858">    final int incrementOnFailure = this.getChanceIncrementOnFailure();</span>
+<span class="fc" id="L859">    final int decrementOnSuccess = this.getChanceDecrementOnSuccess();</span>
+<span class="pc bpc" id="L860" title="3 of 8 branches missed.">    if (objectiveMet &amp;&amp; (hitTarget != diceSides || incrementOnFailure != 0 || decrementOnSuccess != 0)) {</span>
+<span class="nc bnc" id="L861" title="All 4 branches missed.">      if (diceSides &lt;= 0 || hitTarget &gt;= diceSides) {</span>
+<span class="nc" id="L862">        objectiveMet = true;</span>
+<span class="nc" id="L863">        changeChanceDecrementOrIncrementOnSuccessOrFailure(aBridge, objectiveMet, false);</span>
+<span class="nc bnc" id="L864" title="All 2 branches missed.">      } else if (hitTarget &lt;= 0) {</span>
+<span class="nc" id="L865">        objectiveMet = false;</span>
+<span class="nc" id="L866">        changeChanceDecrementOrIncrementOnSuccessOrFailure(aBridge, objectiveMet, false);</span>
+<span class="nc" id="L867">      } else {</span>
+        // there is an issue with maps using thousands of chance triggers: they are causing the cypted random source
+        // (ie: live and pbem
+        // games) to lock up or error out
+        // so we need to slow them down a bit, until we come up with a better solution (like aggregating all the chances
+        // together, then
+        // getting a ton of random numbers at once instead of one at a time)
+<span class="nc" id="L874">        ThreadUtil.sleep(100);</span>
+<span class="nc" id="L875">        final int rollResult = aBridge.getRandom(diceSides, null, DiceType.ENGINE,</span>
+<span class="nc" id="L876">            &quot;Attempting the Condition: &quot; + MyFormatter.attachmentNameToText(this.getName())) + 1;</span>
+<span class="nc bnc" id="L877" title="All 2 branches missed.">        objectiveMet = rollResult &lt;= hitTarget;</span>
+<span class="nc bnc" id="L878" title="All 2 branches missed.">        final String notificationMessage = (objectiveMet ? TRIGGER_CHANCE_SUCCESSFUL : TRIGGER_CHANCE_FAILURE)</span>
+<span class="nc" id="L879">            + &quot; (Rolled at &quot; + hitTarget + &quot; out of &quot; + diceSides + &quot; Result: &quot; + rollResult + &quot;  for &quot;</span>
+<span class="nc" id="L880">            + MyFormatter.attachmentNameToText(this.getName()) + &quot;)&quot;;</span>
+<span class="nc" id="L881">        aBridge.getHistoryWriter().startEvent(notificationMessage);</span>
+<span class="nc" id="L882">        changeChanceDecrementOrIncrementOnSuccessOrFailure(aBridge, objectiveMet, true);</span>
+<span class="nc" id="L883">        ((ITripleAPlayer) aBridge.getRemotePlayer(aBridge.getPlayerID())).reportMessage(notificationMessage,</span>
+<span class="nc" id="L884">            notificationMessage);</span>
+      }
+    }
+<span class="fc" id="L887">    return objectiveMet != m_invert;</span>
+  }
+
+  /**
+   * checks if all relationship requirements are set
+   *
+   * @return whether all relationships as are required are set correctly.
+   */
+  private boolean checkRelationships() {
+<span class="nc bnc" id="L896" title="All 2 branches missed.">    for (final String aRelationCheck : m_relationship) {</span>
+<span class="nc" id="L897">      final String[] relationCheck = aRelationCheck.split(&quot;:&quot;);</span>
+<span class="nc" id="L898">      final PlayerID p1 = getData().getPlayerList().getPlayerID(relationCheck[0]);</span>
+<span class="nc" id="L899">      final PlayerID p2 = getData().getPlayerList().getPlayerID(relationCheck[1]);</span>
+<span class="nc" id="L900">      final int relationshipsExistance = Integer.parseInt(relationCheck[3]);</span>
+<span class="nc" id="L901">      final Relationship currentRelationship = getData().getRelationshipTracker().getRelationship(p1, p2);</span>
+<span class="nc" id="L902">      final RelationshipType currentRelationshipType = currentRelationship.getRelationshipType();</span>
+<span class="nc bnc" id="L903" title="All 2 branches missed.">      if (!relationShipExistsLongEnnough(currentRelationship, relationshipsExistance)) {</span>
+<span class="nc" id="L904">        return false;</span>
+      }
+<span class="nc bnc" id="L906" title="All 2 branches missed.">      if (!(relationCheck[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_ALLIED)</span>
+<span class="nc bnc" id="L907" title="All 2 branches missed.">          &amp;&amp; Matches.RelationshipTypeIsAllied.match(currentRelationshipType)</span>
+<span class="nc bnc" id="L908" title="All 2 branches missed.">          || relationCheck[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_NEUTRAL)</span>
+<span class="nc bnc" id="L909" title="All 2 branches missed.">              &amp;&amp; Matches.RelationshipTypeIsNeutral.match(currentRelationshipType)</span>
+<span class="nc bnc" id="L910" title="All 2 branches missed.">          || relationCheck[2].equals(Constants.RELATIONSHIP_CONDITION_ANY_WAR)</span>
+<span class="nc bnc" id="L911" title="All 2 branches missed.">              &amp;&amp; Matches.RelationshipTypeIsAtWar.match(currentRelationshipType)</span>
+<span class="nc" id="L912">          || currentRelationshipType</span>
+<span class="nc bnc" id="L913" title="All 2 branches missed.">              .equals(getData().getRelationshipTypeList().getRelationshipType(relationCheck[2])))) {</span>
+<span class="nc" id="L914">        return false;</span>
+      }
+    }
+<span class="nc" id="L917">    return true;</span>
+  }
+
+  private boolean relationShipExistsLongEnnough(final Relationship r, final int relationshipsExistance) {
+<span class="nc" id="L921">    int roundCurrentRelationshipWasCreated = r.getRoundCreated();</span>
+<span class="nc" id="L922">    roundCurrentRelationshipWasCreated += games.strategy.triplea.Properties.getRelationshipsLastExtraRounds(getData());</span>
+<span class="nc bnc" id="L923" title="All 2 branches missed.">    return getData().getSequence().getRound() - roundCurrentRelationshipWasCreated &gt;= relationshipsExistance;</span>
+  }
+
+  /**
+   * Checks for the collection of territories to see if they have units owned by the exclType alliance.
+   */
+  private boolean checkUnitPresence(final Collection&lt;Territory&gt; Territories, final String exclType,
+      final int numberNeeded, final List&lt;PlayerID&gt; players, final GameData data) {
+<span class="nc" id="L931">    int numberMet = 0;</span>
+<span class="nc" id="L932">    boolean satisfied = false;</span>
+<span class="nc" id="L933">    boolean useSpecific = false;</span>
+<span class="nc bnc" id="L934" title="All 4 branches missed.">    if (getUnitPresence() != null &amp;&amp; !getUnitPresence().keySet().isEmpty()) {</span>
+<span class="nc" id="L935">      useSpecific = true;</span>
+    }
+<span class="nc bnc" id="L937" title="All 2 branches missed.">    for (final Territory terr : Territories) {</span>
+<span class="nc" id="L938">      final Collection&lt;Unit&gt; allUnits =</span>
+<span class="nc" id="L939">          Match.getMatches(terr.getUnits().getUnits(), Matches.unitIsBeingTransported().invert());</span>
+<span class="nc bnc" id="L940" title="All 2 branches missed.">      if (exclType.equals(&quot;direct&quot;)) {</span>
+<span class="nc" id="L941">        allUnits.removeAll(Match.getMatches(allUnits, Matches.unitIsOwnedByOfAnyOfThesePlayers(players).invert()));</span>
+<span class="nc bnc" id="L942" title="All 2 branches missed.">      } else if (exclType.equals(&quot;allied&quot;)) {</span>
+<span class="nc" id="L943">        allUnits.retainAll(Match.getMatches(allUnits, Matches.alliedUnitOfAnyOfThesePlayers(players, data)));</span>
+<span class="nc bnc" id="L944" title="All 2 branches missed.">      } else if (exclType.equals(&quot;enemy&quot;)) {</span>
+<span class="nc" id="L945">        allUnits.retainAll(Match.getMatches(allUnits, Matches.enemyUnitOfAnyOfThesePlayers(players, data)));</span>
+<span class="nc" id="L946">      } else {</span>
+<span class="nc" id="L947">        return false;</span>
+      }
+<span class="nc bnc" id="L949" title="All 2 branches missed.">      if (allUnits.size() &gt; 0) {</span>
+<span class="nc bnc" id="L950" title="All 2 branches missed.">        if (!useSpecific) {</span>
+<span class="nc" id="L951">          numberMet += 1;</span>
+<span class="nc bnc" id="L952" title="All 2 branches missed.">          if (numberMet &gt;= numberNeeded) {</span>
+<span class="nc" id="L953">            satisfied = true;</span>
+<span class="nc bnc" id="L954" title="All 2 branches missed.">            if (!getCountEach()) {</span>
+<span class="nc" id="L955">              break;</span>
+            }
+          }
+<span class="nc bnc" id="L958" title="All 2 branches missed.">        } else if (useSpecific) {</span>
+<span class="nc" id="L959">          final IntegerMap&lt;String&gt; unitComboMap = getUnitPresence();</span>
+<span class="nc" id="L960">          final Set&lt;String&gt; unitCombos = unitComboMap.keySet();</span>
+<span class="nc" id="L961">          boolean hasEnough = false;</span>
+<span class="nc bnc" id="L962" title="All 2 branches missed.">          for (final String uc : unitCombos) {</span>
+<span class="nc" id="L963">            final int unitsNeeded = unitComboMap.getInt(uc);</span>
+<span class="nc bnc" id="L964" title="All 6 branches missed.">            if (uc == null || uc.equals(&quot;ANY&quot;) || uc.equals(&quot;any&quot;)) {</span>
+<span class="nc bnc" id="L965" title="All 2 branches missed.">              hasEnough = allUnits.size() &gt;= unitsNeeded;</span>
+<span class="nc" id="L966">            } else {</span>
+<span class="nc" id="L967">              final Set&lt;UnitType&gt; typesAllowed = data.getUnitTypeList().getUnitTypes(uc.split(&quot;:&quot;));</span>
+<span class="nc bnc" id="L968" title="All 2 branches missed.">              hasEnough = Match.getMatches(allUnits, Matches.unitIsOfTypes(typesAllowed)).size() &gt;= unitsNeeded;</span>
+            }
+<span class="nc bnc" id="L970" title="All 2 branches missed.">            if (!hasEnough) {</span>
+<span class="nc" id="L971">              break;</span>
+            }
+          }
+<span class="nc bnc" id="L974" title="All 2 branches missed.">          if (hasEnough) {</span>
+<span class="nc" id="L975">            numberMet += 1;</span>
+<span class="nc bnc" id="L976" title="All 2 branches missed.">            if (numberMet &gt;= numberNeeded) {</span>
+<span class="nc" id="L977">              satisfied = true;</span>
+<span class="nc bnc" id="L978" title="All 2 branches missed.">              if (!getCountEach()) {</span>
+<span class="nc" id="L979">                break;</span>
+              }
+            }
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L986" title="All 2 branches missed.">    if (getCountEach()) {</span>
+<span class="nc" id="L987">      m_eachMultiple = numberMet;</span>
+    }
+<span class="nc" id="L989">    return satisfied;</span>
+  }
+
+  /**
+   * Checks for the collection of territories to see if they have units owned by the exclType alliance.
+   * It doesn't yet threshold the data
+   */
+  private boolean checkUnitExclusions(final Collection&lt;Territory&gt; Territories, final String exclType,
+      final int numberNeeded, final List&lt;PlayerID&gt; players, final GameData data) {
+<span class="nc" id="L998">    int numberMet = 0;</span>
+<span class="nc" id="L999">    boolean satisfied = false;</span>
+<span class="nc" id="L1000">    boolean useSpecific = false;</span>
+<span class="nc bnc" id="L1001" title="All 4 branches missed.">    if (getUnitPresence() != null &amp;&amp; !getUnitPresence().keySet().isEmpty()) {</span>
+<span class="nc" id="L1002">      useSpecific = true;</span>
+    }
+<span class="nc" id="L1004">    final Iterator&lt;Territory&gt; ownedTerrIter = Territories.iterator();</span>
+    // Go through the owned territories and see if there are any units owned by allied/enemy based on exclType
+<span class="nc bnc" id="L1006" title="All 2 branches missed.">    while (ownedTerrIter.hasNext()) {</span>
+      // get all the units in the territory
+<span class="nc" id="L1008">      final Territory terr = ownedTerrIter.next();</span>
+<span class="nc" id="L1009">      final Collection&lt;Unit&gt; allUnits =</span>
+<span class="nc" id="L1010">          Match.getMatches(terr.getUnits().getUnits(), Matches.unitIsBeingTransported().invert());</span>
+<span class="nc bnc" id="L1011" title="All 2 branches missed.">      if (exclType.equals(&quot;allied&quot;)) { // any allied units in the territory. (does not include owned units)</span>
+<span class="nc" id="L1012">        allUnits.removeAll(Match.getMatches(allUnits, Matches.unitIsOwnedByOfAnyOfThesePlayers(players)));</span>
+<span class="nc" id="L1013">        allUnits.retainAll(Match.getMatches(allUnits, Matches.alliedUnitOfAnyOfThesePlayers(players, data)));</span>
+<span class="nc bnc" id="L1014" title="All 2 branches missed.">      } else if (exclType.equals(&quot;direct&quot;)) {</span>
+<span class="nc" id="L1015">        allUnits.removeAll(Match.getMatches(allUnits, Matches.unitIsOwnedByOfAnyOfThesePlayers(players).invert()));</span>
+<span class="nc bnc" id="L1016" title="All 2 branches missed.">      } else if (exclType.equals(&quot;enemy&quot;)) { // any enemy units in the territory</span>
+<span class="nc" id="L1017">        allUnits.retainAll(Match.getMatches(allUnits, Matches.enemyUnitOfAnyOfThesePlayers(players, data)));</span>
+<span class="nc bnc" id="L1018" title="All 2 branches missed.">      } else if (exclType.equals(&quot;enemy_surface&quot;)) { // any enemy units (not trn/sub) in the territory</span>
+<span class="nc" id="L1019">        allUnits.retainAll(</span>
+<span class="nc" id="L1020">            Match.getMatches(allUnits, new CompositeMatchAnd&lt;&gt;(Matches.enemyUnitOfAnyOfThesePlayers(players, data),</span>
+<span class="nc" id="L1021">                Matches.UnitIsNotSub, Matches.UnitIsNotTransportButCouldBeCombatTransport)));</span>
+<span class="nc" id="L1022">      } else {</span>
+<span class="nc" id="L1023">        return false;</span>
+      }
+<span class="nc bnc" id="L1025" title="All 2 branches missed.">      if (allUnits.size() == 0) {</span>
+<span class="nc" id="L1026">        numberMet += 1;</span>
+<span class="nc bnc" id="L1027" title="All 2 branches missed.">        if (numberMet &gt;= numberNeeded) {</span>
+<span class="nc" id="L1028">          satisfied = true;</span>
+<span class="nc bnc" id="L1029" title="All 2 branches missed.">          if (!getCountEach()) {</span>
+<span class="nc" id="L1030">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L1033" title="All 2 branches missed.">      } else if (useSpecific) {</span>
+<span class="nc" id="L1034">        final IntegerMap&lt;String&gt; unitComboMap = getUnitPresence();</span>
+<span class="nc" id="L1035">        final Set&lt;String&gt; unitCombos = unitComboMap.keySet();</span>
+<span class="nc" id="L1036">        boolean hasLess = false;</span>
+<span class="nc bnc" id="L1037" title="All 2 branches missed.">        for (final String uc : unitCombos) {</span>
+<span class="nc" id="L1038">          final int unitsMax = unitComboMap.getInt(uc);</span>
+<span class="nc bnc" id="L1039" title="All 6 branches missed.">          if (uc == null || uc.equals(&quot;ANY&quot;) || uc.equals(&quot;any&quot;)) {</span>
+<span class="nc bnc" id="L1040" title="All 2 branches missed.">            hasLess = allUnits.size() &lt;= unitsMax;</span>
+<span class="nc" id="L1041">          } else {</span>
+<span class="nc" id="L1042">            final Set&lt;UnitType&gt; typesAllowed = data.getUnitTypeList().getUnitTypes(uc.split(&quot;:&quot;));</span>
+<span class="nc bnc" id="L1043" title="All 2 branches missed.">            hasLess = Match.getMatches(allUnits, Matches.unitIsOfTypes(typesAllowed)).size() &lt;= unitsMax;</span>
+          }
+<span class="nc bnc" id="L1045" title="All 2 branches missed.">          if (!hasLess) {</span>
+<span class="nc" id="L1046">            break;</span>
+          }
+        }
+<span class="nc bnc" id="L1049" title="All 2 branches missed.">        if (hasLess) {</span>
+<span class="nc" id="L1050">          numberMet += 1;</span>
+<span class="nc bnc" id="L1051" title="All 2 branches missed.">          if (numberMet &gt;= numberNeeded) {</span>
+<span class="nc" id="L1052">            satisfied = true;</span>
+<span class="nc bnc" id="L1053" title="All 2 branches missed.">            if (!getCountEach()) {</span>
+<span class="nc" id="L1054">              break;</span>
+            }
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L1060" title="All 2 branches missed.">    if (getCountEach()) {</span>
+<span class="nc" id="L1061">      m_eachMultiple = numberMet;</span>
+    }
+<span class="nc" id="L1063">    return satisfied;</span>
+  }
+
+  /**
+   * Checks for allied ownership of the collection of territories. Once the needed number threshold is reached, the
+   * satisfied flag is set
+   * to true and returned
+   */
+  private boolean checkAlliedOwnership(final Collection&lt;Territory&gt; listedTerrs,
+      final int numberNeeded, final Collection&lt;PlayerID&gt; players, final GameData data) {
+<span class="nc" id="L1073">    int numberMet = 0;</span>
+<span class="nc" id="L1074">    boolean satisfied = false;</span>
+<span class="nc" id="L1075">    final Collection&lt;PlayerID&gt; allies =</span>
+<span class="nc" id="L1076">        Match.getMatches(data.getPlayerList().getPlayers(), Matches.isAlliedWithAnyOfThesePlayers(players, data));</span>
+<span class="nc bnc" id="L1077" title="All 2 branches missed.">    for (final Territory listedTerr : listedTerrs) {</span>
+      // if the territory owner is an ally
+<span class="nc bnc" id="L1079" title="All 2 branches missed.">      if (Matches.isTerritoryOwnedBy(allies).match(listedTerr)) {</span>
+<span class="nc" id="L1080">        numberMet += 1;</span>
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">        if (numberMet &gt;= numberNeeded) {</span>
+<span class="nc" id="L1082">          satisfied = true;</span>
+<span class="nc bnc" id="L1083" title="All 2 branches missed.">          if (!getCountEach()) {</span>
+<span class="nc" id="L1084">            break;</span>
+          }
+        }
+      }
+    }
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">    if (getCountEach()) {</span>
+<span class="nc" id="L1090">      m_eachMultiple = numberMet;</span>
+    }
+<span class="nc" id="L1092">    return satisfied;</span>
+  }
+
+  /**
+   * Checks for direct ownership of the collection of territories. Once the needed number threshold is reached, return
+   * true.
+   */
+  private boolean checkDirectOwnership(final Collection&lt;Territory&gt; listedTerrs,
+      final int numberNeeded, final Collection&lt;PlayerID&gt; players) {
+<span class="fc" id="L1101">    int numberMet = 0;</span>
+<span class="fc" id="L1102">    boolean satisfied = false;</span>
+<span class="fc bfc" id="L1103" title="All 2 branches covered.">    for (final Territory listedTerr : listedTerrs) {</span>
+<span class="fc bfc" id="L1104" title="All 2 branches covered.">      if (Matches.isTerritoryOwnedBy(players).match(listedTerr)) {</span>
+<span class="fc" id="L1105">        numberMet += 1;</span>
+<span class="fc bfc" id="L1106" title="All 2 branches covered.">        if (numberMet &gt;= numberNeeded) {</span>
+<span class="fc" id="L1107">          satisfied = true;</span>
+<span class="pc bpc" id="L1108" title="1 of 2 branches missed.">          if (!getCountEach()) {</span>
+<span class="fc" id="L1109">            break;</span>
+          }
+        }
+      }
+    }
+<span class="pc bpc" id="L1114" title="1 of 2 branches missed.">    if (getCountEach()) {</span>
+<span class="nc" id="L1115">      m_eachMultiple = numberMet;</span>
+    }
+<span class="fc" id="L1117">    return satisfied;</span>
+  }
+
+  private boolean checkAtWar(final PlayerID player, final Set&lt;PlayerID&gt; enemies, final int count, final GameData data) {
+<span class="nc" id="L1121">    int found = 0;</span>
+<span class="nc bnc" id="L1122" title="All 2 branches missed.">    for (final PlayerID e : enemies) {</span>
+<span class="nc bnc" id="L1123" title="All 2 branches missed.">      if (data.getRelationshipTracker().isAtWar(player, e)) {</span>
+<span class="nc" id="L1124">        found++;</span>
+      }
+    }
+<span class="nc bnc" id="L1127" title="All 2 branches missed.">    if (count == 0) {</span>
+<span class="nc bnc" id="L1128" title="All 2 branches missed.">      return count == found;</span>
+    }
+<span class="nc bnc" id="L1130" title="All 2 branches missed.">    if (getCountEach()) {</span>
+<span class="nc" id="L1131">      m_eachMultiple = found;</span>
+    }
+<span class="nc bnc" id="L1133" title="All 2 branches missed.">    return found &gt;= count;</span>
+  }
+
+  private boolean checkTechs(final PlayerID player, final GameData data) {
+<span class="fc" id="L1137">    int found = 0;</span>
+<span class="pc bpc" id="L1138" title="1 of 2 branches missed.">    for (final TechAdvance a : TechTracker.getCurrentTechAdvances(player, data)) {</span>
+<span class="nc bnc" id="L1139" title="All 2 branches missed.">      if (m_techs.contains(a)) {</span>
+<span class="nc" id="L1140">        found++;</span>
+      }
+    }
+<span class="pc bpc" id="L1143" title="1 of 2 branches missed.">    if (m_techCount == 0) {</span>
+<span class="nc bnc" id="L1144" title="All 2 branches missed.">      return m_techCount == found;</span>
+    }
+<span class="pc bpc" id="L1146" title="1 of 2 branches missed.">    if (getCountEach()) {</span>
+<span class="nc" id="L1147">      m_eachMultiple = found;</span>
+    }
+<span class="pc bpc" id="L1149" title="1 of 2 branches missed.">    return found &gt;= m_techCount;</span>
+  }
+
+  /**
+   * Called after the attachment is created.
+   *
+   * @throws GameParseException validation failed
+   */
+  @Override
+  public void validate(final GameData data) throws GameParseException {
+<span class="fc" id="L1159">    super.validate(data);</span>
+<span class="fc" id="L1160">    validateNames(m_alliedOwnershipTerritories);</span>
+<span class="fc" id="L1161">    validateNames(m_enemyExclusionTerritories);</span>
+<span class="fc" id="L1162">    validateNames(m_enemySurfaceExclusionTerritories);</span>
+<span class="fc" id="L1163">    validateNames(m_alliedExclusionTerritories);</span>
+<span class="fc" id="L1164">    validateNames(m_directExclusionTerritories);</span>
+<span class="fc" id="L1165">    validateNames(m_directOwnershipTerritories);</span>
+<span class="fc" id="L1166">    validateNames(m_directPresenceTerritories);</span>
+<span class="fc" id="L1167">    validateNames(m_alliedPresenceTerritories);</span>
+<span class="fc" id="L1168">    validateNames(m_enemyPresenceTerritories);</span>
+<span class="fc" id="L1169">  }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>

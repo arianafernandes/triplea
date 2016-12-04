@@ -1,0 +1,3427 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../../../.resources/report.css" type="text/css"/><link rel="shortcut icon" href="../../../.resources/report.gif" type="image/gif"/><title>Matches.java</title><link rel="stylesheet" href="../../../.resources/prettify.css" type="text/css"/><script type="text/javascript" src="../../../.resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../../../.sessions.html" class="el_session">Sessions</a></span><a href="../../../index.html" class="el_report">test (25/nov/2016 10:16:58)</a> &gt; <a href="../../index.html" class="el_group">triplea</a> &gt; <a href="../index.html" class="el_bundle">src</a> &gt; <a href="index.source.html" class="el_package">games.strategy.triplea.delegate</a> &gt; <span class="el_source">Matches.java</span></div><h1>Matches.java</h1><pre class="source lang-java linenums"><span class="pc" id="L1">package games.strategy.triplea.delegate;</span>
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+
+import games.strategy.engine.data.GameData;
+import games.strategy.engine.data.GameStep;
+import games.strategy.engine.data.PlayerID;
+import games.strategy.engine.data.RelationshipTracker;
+import games.strategy.engine.data.RelationshipTracker.Relationship;
+import games.strategy.engine.data.RelationshipType;
+import games.strategy.engine.data.Resource;
+import games.strategy.engine.data.Route;
+import games.strategy.engine.data.Territory;
+import games.strategy.engine.data.Unit;
+import games.strategy.engine.data.UnitType;
+import games.strategy.triplea.Constants;
+import games.strategy.triplea.Properties;
+import games.strategy.triplea.TripleAUnit;
+import games.strategy.triplea.attachments.AbstractUserActionAttachment;
+import games.strategy.triplea.attachments.ICondition;
+import games.strategy.triplea.attachments.PlayerAttachment;
+import games.strategy.triplea.attachments.PoliticalActionAttachment;
+import games.strategy.triplea.attachments.RulesAttachment;
+import games.strategy.triplea.attachments.TechAttachment;
+import games.strategy.triplea.attachments.TerritoryAttachment;
+import games.strategy.triplea.attachments.UnitAttachment;
+import games.strategy.triplea.attachments.UnitSupportAttachment;
+import games.strategy.triplea.util.TransportUtils;
+import games.strategy.triplea.util.UnitCategory;
+import games.strategy.triplea.util.UnitSeperator;
+import games.strategy.util.CompositeMatch;
+import games.strategy.util.CompositeMatchAnd;
+import games.strategy.util.CompositeMatchOr;
+import games.strategy.util.IntegerMap;
+import games.strategy.util.InverseMatch;
+import games.strategy.util.Match;
+import games.strategy.util.Tuple;
+import games.strategy.util.Util;
+
+/**
+ * Useful match interfaces.
+ * Rather than writing code like,
+ *
+ * &lt;pre&gt;
+ * boolean hasLand = false;
+ * Iterator iter = someCollection.iterator();
+ * while (iter.hasNext()) {
+ *   Unit unit = (Unit) iter.next();
+ *   UnitAttachment ua = UnitAttachment.get(unit.getType());
+ *   if (ua.isAir) {
+ *     hasAir = true;
+ *     break;
+ *   }
+ * }
+ * &lt;/pre&gt;
+ *
+ * You can write code like,
+ * boolean hasLand = Match.someMatch(someCollection, Matches.UnitIsAir);
+ * The benefits should be obvious to any right minded person.
+ */
+public class Matches {
+<span class="fc" id="L69">  public static final Match&lt;Object&gt; IsTerritory = new Match&lt;Object&gt;() {</span>
+    @Override
+    public boolean match(final Object o) {
+<span class="nc bnc" id="L72" title="All 4 branches missed.">      return o != null &amp;&amp; o instanceof Territory;</span>
+    }
+  };
+<span class="fc" id="L75">  public static final Match&lt;Unit&gt; UnitHasMoreThanOneHitPointTotal = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L78">      return UnitTypeHasMoreThanOneHitPointTotal.match(unit.getType());</span>
+    }
+  };
+<span class="fc" id="L81">  public static final Match&lt;UnitType&gt; UnitTypeHasMoreThanOneHitPointTotal = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType ut) {
+<span class="fc" id="L84">      final UnitAttachment ua = UnitAttachment.get(ut);</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">      return ua.getHitPoints() &gt; 1;</span>
+    }
+  };
+<span class="fc" id="L88">  public static final Match&lt;Unit&gt; UnitHasTakenSomeDamage = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc bnc" id="L91" title="All 2 branches missed.">      return unit.getHits() &gt; 0;</span>
+    }
+  };
+<span class="fc" id="L94">  public static final Match&lt;Unit&gt; UnitHasNotTakenAnyDamage = new InverseMatch&lt;&gt;(UnitHasTakenSomeDamage);</span>
+<span class="fc" id="L95">  public static final Match&lt;Unit&gt; UnitHasOnlyOneHitPointLeft = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc" id="L98">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">      return ua.getHitPoints() - unit.getHits() &lt;= 1;</span>
+    }
+  };
+<span class="fc" id="L102">  public static final Match&lt;Unit&gt; UnitIsSea = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L105">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L106">      return ua.getIsSea();</span>
+    }
+  };
+<span class="fc" id="L109">  public static final Match&lt;Unit&gt; UnitIsSub = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L112">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L113">      return ua.getIsSub();</span>
+    }
+  };
+<span class="fc" id="L116">  public static final Match&lt;Unit&gt; UnitIsNotSub = new InverseMatch&lt;&gt;(UnitIsSub);</span>
+<span class="fc" id="L117">  public static final Match&lt;Unit&gt; UnitIsCombatTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L120">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L121" title="3 of 4 branches missed.">      return (ua.getIsCombatTransport() &amp;&amp; ua.getIsSea());</span>
+    }
+  };
+<span class="fc" id="L124">  public static final Match&lt;Unit&gt; UnitIsNotCombatTransport = new InverseMatch&lt;&gt;(UnitIsCombatTransport);</span>
+<span class="fc" id="L125">  public static final Match&lt;Unit&gt; UnitIsTransportButNotCombatTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L128">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L129" title="1 of 6 branches missed.">      return (ua.getTransportCapacity() != -1 &amp;&amp; ua.getIsSea() &amp;&amp; !ua.getIsCombatTransport());</span>
+    }
+  };
+<span class="fc" id="L132">  public static final Match&lt;Unit&gt; UnitIsNotTransportButCouldBeCombatTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L135">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L136" title="All 2 branches covered.">      if (ua.getTransportCapacity() == -1) {</span>
+<span class="fc" id="L137">        return true;</span>
+      } else {
+<span class="pc bpc" id="L139" title="3 of 4 branches missed.">        return ua.getIsCombatTransport() &amp;&amp; ua.getIsSea();</span>
+      }
+    }
+  };
+<span class="fc" id="L143">  public static final Match&lt;Unit&gt; UnitIsDestroyer = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L146">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L147">      return ua.getIsDestroyer();</span>
+    }
+  };
+<span class="fc" id="L150">  public static final Match&lt;UnitType&gt; UnitTypeIsDestroyer = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="fc" id="L153">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L154">      return ua.getIsDestroyer();</span>
+    }
+  };
+<span class="fc" id="L157">  public static final Match&lt;Unit&gt; UnitIsTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L160">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L161" title="All 4 branches covered.">      return (ua.getTransportCapacity() != -1 &amp;&amp; ua.getIsSea());</span>
+    }
+  };
+<span class="fc" id="L164">  public static final Match&lt;Unit&gt; UnitIsNotTransport = UnitIsTransport.invert();</span>
+<span class="fc" id="L165">  public static final Match&lt;Unit&gt; UnitIsTransportAndNotDestroyer = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc" id="L168">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L169" title="All 6 branches missed.">      return (!Matches.UnitIsDestroyer.match(unit) &amp;&amp; ua.getTransportCapacity() != -1 &amp;&amp; ua.getIsSea());</span>
+    }
+  };
+<span class="fc" id="L172">  public static final Match&lt;UnitType&gt; UnitTypeIsStrategicBomber = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L175">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="pc bpc" id="L176" title="1 of 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L177">        return false;</span>
+      }
+<span class="fc" id="L179">      return ua.getIsStrategicBomber();</span>
+    }
+  };
+<span class="fc" id="L182">  public static final Match&lt;Unit&gt; UnitIsStrategicBomber = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L185">      return UnitTypeIsStrategicBomber.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L188">  public static final Match&lt;Unit&gt; UnitIsNotStrategicBomber = new InverseMatch&lt;&gt;(UnitIsStrategicBomber);</span>
+<span class="fc" id="L189">  public static final Match&lt;UnitType&gt; UnitTypeCanLandOnCarrier = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L192">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L194">        return false;</span>
+      }
+<span class="nc bnc" id="L196" title="All 2 branches missed.">      return ua.getCarrierCost() != -1;</span>
+    }
+  };
+<span class="fc" id="L199">  public static final Match&lt;UnitType&gt; UnitTypeCannotLandOnCarrier =</span>
+<span class="fc" id="L200">      new InverseMatch&lt;&gt;(UnitTypeCanLandOnCarrier);</span>
+<span class="fc" id="L201">  public static final Match&lt;Unit&gt; unitHasMoved = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L204">      final Unit unit = obj;</span>
+<span class="fc bfc" id="L205" title="All 2 branches covered.">      return TripleAUnit.get(unit).getAlreadyMoved() &gt; 0;</span>
+    }
+  };
+<span class="fc" id="L208">  public static final Match&lt;Unit&gt; unitHasNotMoved = new InverseMatch&lt;&gt;(unitHasMoved);</span>
+
+  public static Match&lt;Unit&gt; unitCanAttack(final PlayerID id) {
+<span class="fc" id="L211">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L214">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L215" title="1 of 2 branches missed.">        if (ua.getMovement(id) &lt;= 0) {</span>
+<span class="nc" id="L216">          return false;</span>
+        }
+<span class="fc bfc" id="L218" title="All 2 branches covered.">        return ua.getAttack(id) &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;UnitType&gt; unitTypeCanAttack(final PlayerID id) {
+<span class="nc" id="L224">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType uT) {
+<span class="nc" id="L227">        final UnitAttachment ua = UnitAttachment.get(uT);</span>
+<span class="nc bnc" id="L228" title="All 2 branches missed.">        if (ua.getMovement(id) &lt;= 0) {</span>
+<span class="nc" id="L229">          return false;</span>
+        }
+<span class="nc bnc" id="L231" title="All 2 branches missed.">        return ua.getAttack(id) &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitHasAttackValueOfAtLeast(final int attackValue) {
+<span class="fc" id="L237">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L240">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L241" title="All 2 branches covered.">        return ua.getAttack(unit.getOwner()) &gt;= attackValue;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitHasDefendValueOfAtLeast(final int defendValue) {
+<span class="fc" id="L247">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L250">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L251" title="1 of 2 branches missed.">        return ua.getDefense(unit.getOwner()) &gt;= defendValue;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsEnemyOf(final GameData data, final PlayerID player) {
+<span class="fc" id="L257">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="fc" id="L260">        return data.getRelationshipTracker().isAtWar(u.getOwner(), player);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L265">  public static final Match&lt;Unit&gt; UnitIsNotSea = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L268">      final Unit unit = obj;</span>
+<span class="fc" id="L269">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L270" title="All 2 branches covered.">      return !ua.getIsSea();</span>
+    }
+  };
+<span class="fc" id="L273">  public static final Match&lt;UnitType&gt; UnitTypeIsSea = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L276">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L277">      return ua.getIsSea();</span>
+    }
+  };
+<span class="fc" id="L280">  public static final Match&lt;UnitType&gt; UnitTypeIsNotSea = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="fc" id="L283">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc bfc" id="L284" title="All 2 branches covered.">      return !ua.getIsSea();</span>
+    }
+  };
+<span class="fc" id="L287">  public static final Match&lt;UnitType&gt; UnitTypeIsSeaOrAir = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="nc" id="L290">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L291" title="All 4 branches missed.">      return ua.getIsSea() || ua.getIsAir();</span>
+    }
+  };
+<span class="fc" id="L294">  public static final Match&lt;UnitType&gt; UnitTypeIsCarrier = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="nc" id="L297">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L298" title="All 2 branches missed.">      return (ua.getCarrierCapacity() != -1);</span>
+    }
+  };
+<span class="fc" id="L301">  public static final Match&lt;Unit&gt; UnitIsAir = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L304">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L305">      return ua.getIsAir();</span>
+    }
+  };
+<span class="fc" id="L308">  public static final Match&lt;Unit&gt; UnitIsNotAir = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L311">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L312" title="All 2 branches covered.">      return !ua.getIsAir();</span>
+    }
+  };
+
+  public static Match&lt;UnitType&gt; unitTypeCanBombard(final PlayerID id) {
+<span class="nc" id="L317">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType type) {
+<span class="nc" id="L320">        final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc" id="L321">        return ua.getCanBombard(id);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitCanBeGivenByTerritoryTo(final PlayerID player) {
+<span class="nc" id="L327">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="nc" id="L330">        final Unit unit = o;</span>
+<span class="nc" id="L331">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc" id="L332">        return ua.getCanBeGivenByTerritoryTo().contains(player);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitCanBeCapturedOnEnteringToInThisTerritory(final PlayerID player, final Territory terr,
+      final GameData data) {
+<span class="fc" id="L339">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="pc bpc" id="L342" title="1 of 2 branches missed.">        if (!games.strategy.triplea.Properties.getCaptureUnitsOnEnteringTerritory(data)) {</span>
+<span class="fc" id="L343">          return false;</span>
+        }
+<span class="nc" id="L345">        final Unit unit = o;</span>
+<span class="nc" id="L346">        final PlayerID unitOwner = unit.getOwner();</span>
+<span class="nc" id="L347">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc" id="L348">        final boolean unitCanBeCapturedByPlayer = ua.getCanBeCapturedOnEnteringBy().contains(player);</span>
+<span class="nc" id="L349">        final TerritoryAttachment ta = TerritoryAttachment.get(terr);</span>
+<span class="nc bnc" id="L350" title="All 2 branches missed.">        if (ta == null) {</span>
+<span class="nc" id="L351">          return false;</span>
+        }
+<span class="nc bnc" id="L353" title="All 2 branches missed.">        if (ta.getCaptureUnitOnEnteringBy() == null) {</span>
+<span class="nc" id="L354">          return false;</span>
+        }
+<span class="nc" id="L356">        final boolean territoryCanHaveUnitsThatCanBeCapturedByPlayer = ta.getCaptureUnitOnEnteringBy().contains(player);</span>
+<span class="nc" id="L357">        final PlayerAttachment pa = PlayerAttachment.get(unitOwner);</span>
+<span class="nc bnc" id="L358" title="All 2 branches missed.">        if (pa == null) {</span>
+<span class="nc" id="L359">          return false;</span>
+        }
+<span class="nc bnc" id="L361" title="All 2 branches missed.">        if (pa.getCaptureUnitOnEnteringBy() == null) {</span>
+<span class="nc" id="L362">          return false;</span>
+        }
+<span class="nc" id="L364">        final boolean unitOwnerCanLetUnitsBeCapturedByPlayer = pa.getCaptureUnitOnEnteringBy().contains(player);</span>
+<span class="nc bnc" id="L365" title="All 4 branches missed.">        return (unitCanBeCapturedByPlayer &amp;&amp; territoryCanHaveUnitsThatCanBeCapturedByPlayer</span>
+<span class="nc bnc" id="L366" title="All 2 branches missed.">            &amp;&amp; unitOwnerCanLetUnitsBeCapturedByPlayer);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitDestroyedWhenCapturedByOrFrom(final PlayerID playerBY) {
+<span class="fc" id="L372">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="nc" id="L375">        final Match&lt;Unit&gt; byOrFrom =</span>
+<span class="nc" id="L376">            new CompositeMatchOr&lt;&gt;(UnitDestroyedWhenCapturedBy(playerBY), UnitDestroyedWhenCapturedFrom());</span>
+<span class="nc" id="L377">        return byOrFrom.match(o);</span>
+      }
+    };
+  }
+
+  private static Match&lt;Unit&gt; UnitDestroyedWhenCapturedBy(final PlayerID playerBY) {
+<span class="nc" id="L383">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="nc" id="L386">        final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc bnc" id="L387" title="All 2 branches missed.">        if (ua.getDestroyedWhenCapturedBy().isEmpty()) {</span>
+<span class="nc" id="L388">          return false;</span>
+        }
+<span class="nc bnc" id="L390" title="All 2 branches missed.">        for (final Tuple&lt;String, PlayerID&gt; tuple : ua.getDestroyedWhenCapturedBy()) {</span>
+<span class="nc bnc" id="L391" title="All 4 branches missed.">          if (tuple.getFirst().equals(&quot;BY&quot;) &amp;&amp; tuple.getSecond().equals(playerBY)) {</span>
+<span class="nc" id="L392">            return true;</span>
+          }
+        }
+<span class="nc" id="L395">        return false;</span>
+      }
+    };
+  }
+
+  private static Match&lt;Unit&gt; UnitDestroyedWhenCapturedFrom() {
+<span class="nc" id="L401">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="nc" id="L404">        final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc bnc" id="L405" title="All 2 branches missed.">        if (ua.getDestroyedWhenCapturedBy().isEmpty()) {</span>
+<span class="nc" id="L406">          return false;</span>
+        }
+<span class="nc bnc" id="L408" title="All 2 branches missed.">        for (final Tuple&lt;String, PlayerID&gt; tuple : ua.getDestroyedWhenCapturedBy()) {</span>
+<span class="nc bnc" id="L409" title="All 4 branches missed.">          if (tuple.getFirst().equals(&quot;FROM&quot;) &amp;&amp; tuple.getSecond().equals(u.getOwner())) {</span>
+<span class="nc" id="L410">            return true;</span>
+          }
+        }
+<span class="nc" id="L413">        return false;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L418">  public static final Match&lt;Unit&gt; UnitIsAirBase = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc" id="L421">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc" id="L422">      return ua.getIsAirBase();</span>
+    }
+  };
+<span class="fc" id="L425">  public static final Match&lt;Unit&gt; UnitCanBeDamaged = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L428">      return UnitTypeCanBeDamaged.match(unit.getType());</span>
+    }
+  };
+<span class="fc" id="L431">  public static final Match&lt;UnitType&gt; UnitTypeCanBeDamaged = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType ut) {
+<span class="fc" id="L434">      final UnitAttachment ua = UnitAttachment.get(ut);</span>
+<span class="fc" id="L435">      return ua.getCanBeDamaged();</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitIsAtMaxDamageOrNotCanBeDamaged(final Territory t) {
+<span class="fc" id="L440">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L443">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L444" title="All 2 branches covered.">        if (!ua.getCanBeDamaged()) {</span>
+<span class="fc" id="L445">          return true;</span>
+        }
+<span class="fc bfc" id="L447" title="All 2 branches covered.">        if (games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(unit.getData())) {</span>
+<span class="fc" id="L448">          final TripleAUnit taUnit = (TripleAUnit) unit;</span>
+<span class="pc bpc" id="L449" title="1 of 2 branches missed.">          return taUnit.getUnitDamage() &gt;= taUnit.getHowMuchDamageCanThisUnitTakeTotal(unit, t);</span>
+        } else {
+<span class="fc" id="L451">          return false;</span>
+        }
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitIsLegalBombingTargetBy(final Unit bomberOrRocket) {
+<span class="nc" id="L458">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L461">        final UnitAttachment ua = UnitAttachment.get(bomberOrRocket.getType());</span>
+<span class="nc" id="L462">        final HashSet&lt;UnitType&gt; allowedTargets = ua.getBombingTargets(bomberOrRocket.getData());</span>
+<span class="nc bnc" id="L463" title="All 4 branches missed.">        return allowedTargets == null || allowedTargets.contains(unit.getType());</span>
+      }
+    };
+  }
+
+<span class="fc" id="L468">  public static Match&lt;Unit&gt; UnitHasTakenSomeBombingUnitDamage = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc" id="L471">      final TripleAUnit taUnit = (TripleAUnit) unit;</span>
+<span class="nc bnc" id="L472" title="All 2 branches missed.">      return taUnit.getUnitDamage() &gt; 0;</span>
+    }
+  };
+<span class="fc" id="L475">  public static Match&lt;Unit&gt; UnitHasNotTakenAnyBombingUnitDamage =</span>
+<span class="fc" id="L476">      new InverseMatch&lt;&gt;(UnitHasTakenSomeBombingUnitDamage);</span>
+<span class="fc" id="L477">  public static Match&lt;Unit&gt; UnitIsDisabled = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc bfc" id="L480" title="All 2 branches covered.">      if (!UnitCanBeDamaged.match(unit)) {</span>
+<span class="fc" id="L481">        return false;</span>
+      }
+<span class="fc bfc" id="L483" title="All 2 branches covered.">      if (!games.strategy.triplea.Properties.getDamageFromBombingDoneToUnitsInsteadOfTerritories(unit.getData())) {</span>
+<span class="fc" id="L484">        return false;</span>
+      }
+<span class="fc" id="L486">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L487">      final TripleAUnit taUnit = (TripleAUnit) unit;</span>
+<span class="pc bpc" id="L488" title="1 of 2 branches missed.">      if (ua.getMaxOperationalDamage() &lt; 0) {</span>
+        // factories may or may not have max operational damage set, so we must still determine here
+        // assume that if maxOperationalDamage &lt; 0, then the max damage must be based on the territory value (if the
+        // damage &gt;= production of
+        // territory, then we are disabled)
+        // TerritoryAttachment ta = TerritoryAttachment.get(t);
+        // return taUnit.getUnitDamage() &gt;= ta.getProduction();
+<span class="fc" id="L495">        return false;</span>
+      }
+      // only greater than. if == then we can still operate
+<span class="nc bnc" id="L498" title="All 2 branches missed.">      return taUnit.getUnitDamage() &gt; ua.getMaxOperationalDamage();</span>
+    }
+  };
+<span class="fc" id="L501">  public static Match&lt;Unit&gt; UnitIsNotDisabled = new InverseMatch&lt;&gt;(UnitIsDisabled);</span>
+<span class="fc" id="L502">  public static final Match&lt;Unit&gt; UnitCanDieFromReachingMaxDamage = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L505">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L506" title="1 of 2 branches missed.">      if (!ua.getCanBeDamaged()) {</span>
+<span class="nc" id="L507">        return false;</span>
+      }
+<span class="fc" id="L509">      return ua.getCanDieFromReachingMaxDamage();</span>
+    }
+  };
+<span class="fc" id="L512">  public static final Match&lt;Unit&gt; UnitIsInfrastructure = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L515">      return UnitTypeIsInfrastructure.match(unit.getType());</span>
+    }
+  };
+<span class="fc" id="L518">  public static final Match&lt;Unit&gt; UnitIsNotInfrastructure = new InverseMatch&lt;&gt;(UnitIsInfrastructure);</span>
+<span class="fc" id="L519">  public static final Match&lt;UnitType&gt; UnitTypeIsInfrastructure = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType ut) {
+<span class="fc" id="L522">      final UnitAttachment ua = UnitAttachment.get(ut);</span>
+<span class="fc" id="L523">      return ua.getIsInfrastructure();</span>
+    }
+  };
+
+  /**
+   * Checks for having attack/defense and for providing support. Does not check for having AA ability.
+   *
+   * @param attack
+   * @param player
+   * @param data
+   */
+  public static Match&lt;Unit&gt; UnitIsSupporterOrHasCombatAbility(final boolean attack, final GameData data) {
+<span class="fc" id="L535">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L538">        return Matches.UnitTypeIsSupporterOrHasCombatAbility(attack, unit.getOwner(), data).match(unit.getType());</span>
+      }
+    };
+  }
+
+  /**
+   * Checks for having attack/defense and for providing support. Does not check for having AA ability.
+   *
+   * @param attack
+   * @param player
+   * @param data
+   */
+  private static Match&lt;UnitType&gt; UnitTypeIsSupporterOrHasCombatAbility(final boolean attack,
+      final PlayerID player,
+      final GameData data) {
+<span class="fc" id="L553">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType ut) {
+        // if unit has attack or defense, return true
+<span class="fc" id="L557">        final UnitAttachment ua = UnitAttachment.get(ut);</span>
+<span class="fc bfc" id="L558" title="All 4 branches covered.">        if (attack &amp;&amp; ua.getAttack(player) &gt; 0) {</span>
+<span class="fc" id="L559">          return true;</span>
+        }
+<span class="fc bfc" id="L561" title="All 4 branches covered.">        if (!attack &amp;&amp; ua.getDefense(player) &gt; 0) {</span>
+<span class="fc" id="L562">          return true;</span>
+        }
+        // if unit can support other units, return true
+<span class="pc bpc" id="L565" title="1 of 2 branches missed.">        return !UnitSupportAttachment.get(ut).isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;UnitSupportAttachment&gt; UnitSupportAttachmentCanBeUsedByPlayer(final PlayerID player) {
+<span class="nc" id="L571">    return new Match&lt;UnitSupportAttachment&gt;() {</span>
+      @Override
+      public boolean match(final UnitSupportAttachment usa) {
+<span class="nc" id="L574">        return usa.getPlayers().contains(player);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L579">  public static final Match&lt;Unit&gt; UnitCanScramble = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc" id="L582">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc" id="L583">      return ua.getCanScramble();</span>
+    }
+  };
+<span class="fc" id="L586">  public static final Match&lt;Unit&gt; UnitWasScrambled = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L589">      final TripleAUnit taUnit = (TripleAUnit) obj;</span>
+<span class="fc" id="L590">      return taUnit.getWasScrambled();</span>
+    }
+  };
+<span class="fc" id="L593">  public static final Match&lt;Unit&gt; UnitWasInAirBattle = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L596">      final TripleAUnit taUnit = (TripleAUnit) obj;</span>
+<span class="fc" id="L597">      return taUnit.getWasInAirBattle();</span>
+    }
+  };
+<span class="fc" id="L600">  public static final Match&lt;Territory&gt; TerritoryIsIsland = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="nc" id="L603">      final Collection&lt;Territory&gt; neighbors = t.getData().getMap().getNeighbors(t);</span>
+<span class="nc bnc" id="L604" title="All 4 branches missed.">      return neighbors.size() == 1 &amp;&amp; TerritoryIsWater.match(neighbors.iterator().next());</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; unitCanBombard(final PlayerID id) {
+<span class="fc" id="L609">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L612">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L613">        return ua.getCanBombard(id);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L618">  public static final Match&lt;Unit&gt; UnitCanBlitz = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L621">      final Unit unit = obj;</span>
+<span class="fc" id="L622">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L623">      return ua.getCanBlitz(obj.getOwner());</span>
+    }
+  };
+<span class="fc" id="L626">  public static final Match&lt;Unit&gt; UnitIsLandTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L629">      final Unit unit = obj;</span>
+<span class="fc" id="L630">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L631">      return ua.getIsLandTransport();</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitIsNotInfrastructureAndNotCapturedOnEntering(final PlayerID player,
+      final Territory terr, final GameData data) {
+<span class="fc" id="L637">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit obj) {
+<span class="fc" id="L640">        final Unit unit = obj;</span>
+<span class="fc" id="L641">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L642" title="All 2 branches covered.">        return !ua.getIsInfrastructure()</span>
+<span class="pc bpc" id="L643" title="1 of 2 branches missed.">            &amp;&amp; !UnitCanBeCapturedOnEnteringToInThisTerritory(player, terr, data).match(unit);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L648">  public static final Match&lt;Unit&gt; UnitIsSuicide = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L651">      final Unit unit = obj;</span>
+<span class="fc" id="L652">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L653">      return ua.getIsSuicide();</span>
+    }
+  };
+<span class="fc" id="L656">  public static final Match&lt;Unit&gt; UnitIsKamikaze = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L659">      final Unit unit = obj;</span>
+<span class="fc" id="L660">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L661">      return ua.getIsKamikaze();</span>
+    }
+  };
+<span class="fc" id="L664">  public static final Match&lt;UnitType&gt; UnitTypeIsAir = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L667">      final UnitType type = obj;</span>
+<span class="fc" id="L668">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L669">      return ua.getIsAir();</span>
+    }
+  };
+<span class="fc" id="L672">  public static final Match&lt;UnitType&gt; UnitTypeIsNotAir = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L675">      final UnitType type = obj;</span>
+<span class="fc" id="L676">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="pc bpc" id="L677" title="1 of 2 branches missed.">      return !ua.getIsAir();</span>
+    }
+  };
+<span class="fc" id="L680">  public static final Match&lt;Unit&gt; UnitCanLandOnCarrier = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L683">      final Unit unit = obj;</span>
+<span class="fc" id="L684">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L685" title="All 2 branches covered.">      return ua.getCarrierCost() != -1;</span>
+    }
+  };
+<span class="fc" id="L688">  public static final Match&lt;Unit&gt; UnitIsCarrier = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L691">      final Unit unit = obj;</span>
+<span class="fc" id="L692">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L693" title="All 2 branches covered.">      return ua.getCarrierCapacity() != -1;</span>
+    }
+  };
+
+  public static Match&lt;Territory&gt; TerritoryHasOwnedCarrier(final PlayerID player) {
+<span class="fc" id="L698">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L701">        return t.getUnits()</span>
+<span class="fc" id="L702">            .someMatch(new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), Matches.UnitIsCarrier));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitIsAlliedCarrier(final PlayerID player, final GameData data) {
+<span class="nc" id="L708">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit obj) {
+<span class="nc" id="L711">        final Unit unit = obj;</span>
+<span class="nc" id="L712">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L713" title="All 4 branches missed.">        return ua.getCarrierCapacity() != -1 &amp;&amp; data.getRelationshipTracker().isAllied(player, obj.getOwner());</span>
+      }
+    };
+  }
+
+<span class="fc" id="L718">  public static final Match&lt;Unit&gt; UnitCanBeTransported = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L721">      final Unit unit = obj;</span>
+<span class="fc" id="L722">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L723" title="All 2 branches covered.">      return ua.getTransportCost() != -1;</span>
+    }
+  };
+<span class="fc" id="L726">  public static final Match&lt;Unit&gt; UnitCanNotBeTransported = new InverseMatch&lt;&gt;(UnitCanBeTransported);</span>
+<span class="fc" id="L727">  public static final Match&lt;Unit&gt; UnitWasAmphibious = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L730">      final TripleAUnit taUnit = (TripleAUnit) obj;</span>
+<span class="fc" id="L731">      return taUnit.getWasAmphibious();</span>
+    }
+  };
+<span class="fc" id="L734">  public static final Match&lt;Unit&gt; UnitWasNotAmphibious = new InverseMatch&lt;&gt;(UnitWasAmphibious);</span>
+<span class="fc" id="L735">  public static final Match&lt;Unit&gt; UnitWasInCombat = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L738">      final TripleAUnit taUnit = (TripleAUnit) obj;</span>
+<span class="fc" id="L739">      return taUnit.getWasInCombat();</span>
+    }
+  };
+<span class="fc" id="L742">  public static final Match&lt;Unit&gt; UnitWasUnloadedThisTurn = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L745">      final TripleAUnit taUnit = (TripleAUnit) obj;</span>
+<span class="pc bpc" id="L746" title="1 of 2 branches missed.">      return taUnit.getUnloadedTo() != null;</span>
+    }
+  };
+<span class="fc" id="L749">  public static final Match&lt;Unit&gt; UnitWasLoadedThisTurn = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L752">      final TripleAUnit taUnit = (TripleAUnit) obj;</span>
+<span class="fc" id="L753">      return taUnit.getWasLoadedThisTurn();</span>
+    }
+  };
+<span class="fc" id="L756">  public static final Match&lt;Unit&gt; UnitWasNotLoadedThisTurn = new InverseMatch&lt;&gt;(UnitWasLoadedThisTurn);</span>
+<span class="fc" id="L757">  public static final Match&lt;Unit&gt; UnitCanTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L760">      final Unit unit = obj;</span>
+<span class="fc" id="L761">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc bfc" id="L762" title="All 2 branches covered.">      return ua.getTransportCapacity() != -1;</span>
+    }
+  };
+<span class="fc" id="L765">  public static final Match&lt;UnitType&gt; UnitTypeCanTransport = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L768">      final UnitType type = obj;</span>
+<span class="nc" id="L769">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L770" title="All 2 branches missed.">      return ua.getTransportCapacity() != -1;</span>
+    }
+  };
+<span class="fc" id="L773">  public static final Match&lt;UnitType&gt; UnitTypeCanBeTransported = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L776">      final UnitType type = obj;</span>
+<span class="nc" id="L777">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L778" title="All 2 branches missed.">      return ua.getTransportCost() != -1;</span>
+    }
+  };
+<span class="fc" id="L781">  public static final Match&lt;Unit&gt; UnitCanProduceUnits = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L784">      return UnitTypeCanProduceUnits.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L787">  public static final Match&lt;UnitType&gt; UnitTypeCanProduceUnits = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L790">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L791">      return ua.getCanProduceUnits();</span>
+    }
+  };
+<span class="fc" id="L794">  public static final Match&lt;Unit&gt; UnitCanNotProduceUnits = new InverseMatch&lt;&gt;(UnitCanProduceUnits);</span>
+<span class="fc" id="L795">  public static final Match&lt;UnitType&gt; UnitTypeIsInfrastructureButNotAAofAnyKind = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="nc bnc" id="L798" title="All 4 branches missed.">      return UnitTypeIsInfrastructure.match(type) &amp;&amp; !UnitTypeIsAAforAnything.match(type);</span>
+    }
+  };
+<span class="fc" id="L801">  public static final Match&lt;UnitType&gt; UnitTypeIsInfantry = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L804">      final UnitType type = obj;</span>
+<span class="nc" id="L805">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc" id="L806">      return ua.getIsInfantry();</span>
+    }
+  };
+<span class="fc" id="L809">  public static final Match&lt;UnitType&gt; UnitTypeIsArtillery = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L812">      final UnitType type = obj;</span>
+<span class="nc" id="L813">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc" id="L814">      return ua.getArtillery();</span>
+    }
+  };
+<span class="fc" id="L817">  public static final Match&lt;Unit&gt; UnitHasMaxBuildRestrictions = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L820">      final UnitType type = obj.getType();</span>
+<span class="nc" id="L821">      return UnitTypeHasMaxBuildRestrictions.match(type);</span>
+    }
+  };
+<span class="fc" id="L824">  public static final Match&lt;UnitType&gt; UnitTypeHasMaxBuildRestrictions = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L827">      final UnitType type = obj;</span>
+<span class="nc" id="L828">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L829" title="All 2 branches missed.">      return ua.getMaxBuiltPerPlayer() &gt;= 0;</span>
+    }
+  };
+<span class="fc" id="L832">  public static final Match&lt;Unit&gt; UnitIsRocket = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L835">      return UnitTypeIsRocket.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L838">  public static final Match&lt;UnitType&gt; UnitTypeIsRocket = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L841">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L842">      return ua.getIsRocket();</span>
+    }
+  };
+<span class="fc" id="L845">  public static final Match&lt;Unit&gt; UnitHasPlacementLimit = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L848">      final UnitType type = obj.getUnitType();</span>
+<span class="nc" id="L849">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L850" title="All 2 branches missed.">      return ua.getPlacementLimit() != null;</span>
+    }
+  };
+<span class="fc" id="L853">  public static final Match&lt;Unit&gt; UnitHasMovementLimit = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L856">      final UnitType type = obj.getUnitType();</span>
+<span class="fc" id="L857">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc bfc" id="L858" title="All 2 branches covered.">      return ua.getMovementLimit() != null;</span>
+    }
+  };
+<span class="fc" id="L861">  public static final Match&lt;Unit&gt; UnitHasAttackingLimit = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L864">      final UnitType type = obj.getUnitType();</span>
+<span class="fc" id="L865">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="pc bpc" id="L866" title="1 of 2 branches missed.">      return ua.getAttackingLimit() != null;</span>
+    }
+  };
+<span class="fc" id="L869">  public static final Match&lt;Unit&gt; UnitCanNotMoveDuringCombatMove = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L872">      return UnitTypeCanNotMoveDuringCombatMove.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L875">  public static final Match&lt;UnitType&gt; UnitTypeCanNotMoveDuringCombatMove = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="fc" id="L878">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L879">      return ua.getCanNotMoveDuringCombatMove();</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitIsAAthatCanHitTheseUnits(final Collection&lt;Unit&gt; targets,
+      final Match&lt;Unit&gt; typeOfAA, final HashMap&lt;String, HashSet&lt;UnitType&gt;&gt; airborneTechTargetsAllowed) {
+<span class="fc" id="L885">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit obj) {
+<span class="fc bfc" id="L888" title="All 2 branches covered.">        if (!typeOfAA.match(obj)) {</span>
+<span class="fc" id="L889">          return false;</span>
+        }
+<span class="fc" id="L891">        final UnitAttachment ua = UnitAttachment.get(obj.getType());</span>
+<span class="fc" id="L892">        final Set&lt;UnitType&gt; targetsAA = ua.getTargetsAA(obj.getData());</span>
+<span class="fc bfc" id="L893" title="All 2 branches covered.">        for (final Unit u : targets) {</span>
+<span class="fc bfc" id="L894" title="All 2 branches covered.">          if (targetsAA.contains(u.getType())) {</span>
+<span class="fc" id="L895">            return true;</span>
+          }
+        }
+<span class="fc" id="L898">        return Match.someMatch(targets, new CompositeMatchAnd&lt;&gt;(Matches.UnitIsAirborne,</span>
+<span class="fc" id="L899">            Matches.unitIsOfTypes(airborneTechTargetsAllowed.get(ua.getTypeAA()))));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitIsAAofTypeAA(final String typeAA) {
+<span class="fc" id="L905">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit obj) {
+<span class="fc" id="L908">        return UnitAttachment.get(obj.getType()).getTypeAA().matches(typeAA);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L913">  public static final Match&lt;Unit&gt; UnitAAShotDamageableInsteadOfKillingInstantly = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L916">      return UnitAttachment.get(obj.getType()).getDamageableAA();</span>
+    }
+  };
+
+  private static Match&lt;Unit&gt; UnitIsAAthatWillNotFireIfPresentEnemyUnits(final Collection&lt;Unit&gt; enemyUnitsPresent) {
+<span class="fc" id="L921">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit obj) {
+<span class="fc" id="L924">        final UnitAttachment ua = UnitAttachment.get(obj.getType());</span>
+<span class="fc bfc" id="L925" title="All 2 branches covered.">        for (final Unit u : enemyUnitsPresent) {</span>
+<span class="pc bpc" id="L926" title="1 of 2 branches missed.">          if (ua.getWillNotFireIfPresent().contains(u.getType())) {</span>
+<span class="nc" id="L927">            return true;</span>
+          }
+        }
+<span class="fc" id="L930">        return false;</span>
+      }
+    };
+  }
+
+  private static Match&lt;UnitType&gt; UnitTypeIsAAthatCanFireOnRound(final int battleRoundNumber) {
+<span class="fc" id="L936">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType obj) {
+<span class="fc" id="L939">        final int maxRoundsAA = UnitAttachment.get(obj).getMaxRoundsAA();</span>
+<span class="pc bpc" id="L940" title="1 of 4 branches missed.">        return maxRoundsAA &lt; 0 || maxRoundsAA &gt;= battleRoundNumber;</span>
+      }
+    };
+  }
+
+  private static Match&lt;Unit&gt; UnitIsAAthatCanFireOnRound(final int battleRoundNumber) {
+<span class="fc" id="L946">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit obj) {
+<span class="fc" id="L949">        return UnitTypeIsAAthatCanFireOnRound(battleRoundNumber).match(obj.getType());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitIsAAthatCanFire(final Collection&lt;Unit&gt; unitsMovingOrAttacking,
+      final HashMap&lt;String, HashSet&lt;UnitType&gt;&gt; airborneTechTargetsAllowed, final PlayerID playerMovingOrAttacking,
+      final Match&lt;Unit&gt; typeOfAA, final int battleRoundNumber, final boolean defending, final GameData data) {
+<span class="fc" id="L957">    return new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(playerMovingOrAttacking, data),</span>
+<span class="fc" id="L958">        Matches.unitIsBeingTransported().invert(),</span>
+<span class="fc" id="L959">        Matches.UnitIsAAthatCanHitTheseUnits(unitsMovingOrAttacking, typeOfAA, airborneTechTargetsAllowed),</span>
+<span class="fc" id="L960">        Matches.UnitIsAAthatWillNotFireIfPresentEnemyUnits(unitsMovingOrAttacking).invert(),</span>
+<span class="fc" id="L961">        Matches.UnitIsAAthatCanFireOnRound(battleRoundNumber),</span>
+<span class="fc bfc" id="L962" title="All 2 branches covered.">        (defending ? UnitAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero</span>
+<span class="fc" id="L963">            : UnitOffensiveAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero));</span>
+  }
+
+<span class="fc" id="L966">  public static final Match&lt;Unit&gt; UnitIsAAforCombatOnly = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L969">      return UnitTypeIsAAforCombatOnly.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L972">  public static final Match&lt;UnitType&gt; UnitTypeIsAAforCombatOnly = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L975">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L976">      return ua.getIsAAforCombatOnly();</span>
+    }
+  };
+<span class="fc" id="L979">  public static final Match&lt;Unit&gt; UnitIsAAforBombingThisUnitOnly = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L982">      return UnitTypeIsAAforBombingThisUnitOnly.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L985">  public static final Match&lt;UnitType&gt; UnitTypeIsAAforBombingThisUnitOnly = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L988">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L989">      return ua.getIsAAforBombingThisUnitOnly();</span>
+    }
+  };
+<span class="fc" id="L992">  public static final Match&lt;Unit&gt; UnitIsAAforFlyOverOnly = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L995">      return UnitTypeIsAAforFlyOverOnly.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L998">  public static final Match&lt;UnitType&gt; UnitTypeIsAAforFlyOverOnly = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L1001">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L1002">      return ua.getIsAAforFlyOverOnly();</span>
+    }
+  };
+<span class="fc" id="L1005">  public static final Match&lt;Unit&gt; UnitIsAAforAnything = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1008">      return UnitTypeIsAAforAnything.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L1011">  public static final Match&lt;UnitType&gt; UnitTypeIsAAforAnything = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L1014">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="pc bpc" id="L1015" title="2 of 6 branches missed.">      return ua.getIsAAforBombingThisUnitOnly() || ua.getIsAAforCombatOnly() || ua.getIsAAforFlyOverOnly();</span>
+    }
+  };
+<span class="fc" id="L1018">  public static final Match&lt;Unit&gt; UnitIsNotAA = new InverseMatch&lt;&gt;(UnitIsAAforAnything);</span>
+<span class="fc" id="L1019">  public static final Match&lt;Unit&gt; UnitMaxAAattacksIsInfinite = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1022">      return UnitTypeMaxAAattacksIsInfinite.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L1025">  public static final Match&lt;UnitType&gt; UnitTypeMaxAAattacksIsInfinite = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L1028">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="pc bpc" id="L1029" title="1 of 2 branches missed.">      return ua.getMaxAAattacks() == -1;</span>
+    }
+  };
+<span class="fc" id="L1032">  public static final Match&lt;Unit&gt; UnitMayOverStackAA = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1035">      return UnitTypeMayOverStackAA.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L1038">  public static final Match&lt;UnitType&gt; UnitTypeMayOverStackAA = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L1041">      final UnitAttachment ua = UnitAttachment.get(obj);</span>
+<span class="fc" id="L1042">      return ua.getMayOverStackAA();</span>
+    }
+  };
+<span class="fc" id="L1045">  public static final Match&lt;Unit&gt; UnitAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1048">      final UnitAttachment ua = UnitAttachment.get(obj.getType());</span>
+<span class="pc bpc" id="L1049" title="2 of 4 branches missed.">      return ua.getAttackAA(obj.getOwner()) &gt; 0 &amp;&amp; ua.getMaxAAattacks() != 0;</span>
+    }
+  };
+<span class="fc" id="L1052">  public static final Match&lt;Unit&gt; UnitOffensiveAttackAAisGreaterThanZeroAndMaxAAattacksIsNotZero = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L1055">      final UnitAttachment ua = UnitAttachment.get(obj.getType());</span>
+<span class="nc bnc" id="L1056" title="All 4 branches missed.">      return ua.getOffensiveAttackAA(obj.getOwner()) &gt; 0 &amp;&amp; ua.getMaxAAattacks() != 0;</span>
+    }
+  };
+<span class="fc" id="L1059">  public static final Match&lt;Unit&gt; UnitIsInfantry = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1062">      final UnitType type = obj.getUnitType();</span>
+<span class="fc" id="L1063">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L1064">      return ua.getIsInfantry();</span>
+    }
+  };
+<span class="fc" id="L1067">  public static final Match&lt;Unit&gt; UnitIsNotInfantry = new InverseMatch&lt;&gt;(UnitIsInfantry);</span>
+<span class="fc" id="L1068">  public static final Match&lt;Unit&gt; UnitHasMarinePositiveBonus = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L1071">      final UnitType type = obj.getUnitType();</span>
+<span class="nc" id="L1072">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L1073" title="All 2 branches missed.">      return ua.getIsMarine() &gt; 0;</span>
+    }
+  };
+<span class="fc" id="L1076">  public static final Match&lt;Unit&gt; UnitHasMarineNegativeBonus = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L1079">      final UnitType type = obj.getUnitType();</span>
+<span class="nc" id="L1080">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L1081" title="All 2 branches missed.">      return ua.getIsMarine() &lt; 0;</span>
+    }
+  };
+<span class="fc" id="L1084">  public static final Match&lt;Unit&gt; UnitIsNotMarine = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L1087">      final UnitType type = obj.getUnitType();</span>
+<span class="nc" id="L1088">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc bnc" id="L1089" title="All 2 branches missed.">      return ua.getIsMarine() == 0;</span>
+    }
+  };
+<span class="fc" id="L1092">  public static final Match&lt;Unit&gt; UnitIsAirTransportable = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1095">      final TechAttachment ta = TechAttachment.get(obj.getOwner());</span>
+<span class="pc bpc" id="L1096" title="1 of 4 branches missed.">      if (ta == null || !ta.getParatroopers()) {</span>
+<span class="fc" id="L1097">        return false;</span>
+      }
+<span class="fc" id="L1099">      final UnitType type = obj.getUnitType();</span>
+<span class="fc" id="L1100">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L1101">      return ua.getIsAirTransportable();</span>
+    }
+  };
+<span class="fc" id="L1104">  public static final Match&lt;Unit&gt; UnitIsNotAirTransportable = new InverseMatch&lt;&gt;(UnitIsAirTransportable);</span>
+<span class="fc" id="L1105">  public static final Match&lt;Unit&gt; UnitIsAirTransport = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1108">      final TechAttachment ta = TechAttachment.get(obj.getOwner());</span>
+<span class="pc bpc" id="L1109" title="1 of 4 branches missed.">      if (ta == null || !ta.getParatroopers()) {</span>
+<span class="fc" id="L1110">        return false;</span>
+      }
+<span class="fc" id="L1112">      final UnitType type = obj.getUnitType();</span>
+<span class="fc" id="L1113">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L1114">      return ua.getIsAirTransport();</span>
+    }
+  };
+<span class="fc" id="L1117">  public static final Match&lt;Unit&gt; UnitIsNotAirTransport = new InverseMatch&lt;&gt;(UnitIsAirTransport);</span>
+<span class="fc" id="L1118">  public static final Match&lt;Unit&gt; UnitIsArtillery = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L1121">      final UnitType type = obj.getUnitType();</span>
+<span class="fc" id="L1122">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L1123">      return ua.getArtillery();</span>
+    }
+  };
+<span class="fc" id="L1126">  public static final Match&lt;Unit&gt; UnitIsArtillerySupportable = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L1129">      final UnitType type = obj.getUnitType();</span>
+<span class="nc" id="L1130">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="nc" id="L1131">      return ua.getArtillerySupportable();</span>
+    }
+  };
+  // TODO: CHECK whether this makes any sense
+<span class="fc" id="L1135">  public static final Match&lt;Territory&gt; TerritoryIsLandOrWater = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="pc bpc" id="L1138" title="1 of 2 branches missed.">      return t != null;</span>
+    }
+  };
+<span class="fc" id="L1141">  public static final Match&lt;Territory&gt; TerritoryIsWater = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="fc" id="L1144">      return t.isWater();</span>
+    }
+  };
+<span class="fc" id="L1147">  public static final Match&lt;Territory&gt; TerritoryIsVictoryCity = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="nc" id="L1150">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L1151" title="All 2 branches missed.">      if (ta == null) {</span>
+<span class="nc" id="L1152">        return false;</span>
+      }
+<span class="nc bnc" id="L1154" title="All 2 branches missed.">      return ta.getVictoryCity() != 0;</span>
+    }
+  };
+<span class="fc" id="L1157">  public static final Match&lt;Territory&gt; TerritoryIsLand = new InverseMatch&lt;&gt;(TerritoryIsWater);</span>
+<span class="fc" id="L1158">  public static final Match&lt;Territory&gt; TerritoryIsEmpty = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="fc bfc" id="L1161" title="All 2 branches covered.">      return t.getUnits().size() == 0;</span>
+    }
+  };
+
+  /**
+   * Tests for Land, Convoys Centers and Convoy Routes, and Contested Territories.
+   * Assumes player is either the owner of the territory we are testing, or about to become the owner (ie: this doesn't
+   * test ownership).
+   * If the game option for contested territories not producing is on, then will also remove any contested territories.
+   */
+  public static Match&lt;Territory&gt; territoryCanCollectIncomeFrom(final PlayerID player, final GameData data) {
+<span class="nc" id="L1172">    final boolean contestedDoNotProduce =</span>
+<span class="nc" id="L1173">        games.strategy.triplea.Properties.getContestedTerritoriesProduceNoIncome(data);</span>
+<span class="nc" id="L1174">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L1177">        final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L1178" title="All 2 branches missed.">        if (ta == null) {</span>
+<span class="nc" id="L1179">          return false;</span>
+        }
+<span class="nc" id="L1181">        final PlayerID origOwner = OriginalOwnerTracker.getOriginalOwner(t);</span>
+<span class="nc bnc" id="L1182" title="All 2 branches missed.">        if (t.isWater()) {</span>
+          // if it's water, it is a Convoy Center
+          // Can't get PUs for capturing a CC, only original owner can get them. (Except capturing null player CCs)
+<span class="nc bnc" id="L1185" title="All 6 branches missed.">          if (!(origOwner == null || origOwner == PlayerID.NULL_PLAYERID || origOwner == player)) {</span>
+<span class="nc" id="L1186">            return false;</span>
+          }
+        }
+<span class="nc bnc" id="L1189" title="All 4 branches missed.">        if (ta.getConvoyRoute() &amp;&amp; !ta.getConvoyAttached().isEmpty()) {</span>
+          // Determine if at least one part of the convoy route is owned by us or an ally
+<span class="nc" id="L1191">          boolean atLeastOne = false;</span>
+<span class="nc bnc" id="L1192" title="All 2 branches missed.">          for (final Territory convoy : ta.getConvoyAttached()) {</span>
+<span class="nc bnc" id="L1193" title="All 2 branches missed.">            if (data.getRelationshipTracker().isAllied(convoy.getOwner(), player)</span>
+<span class="nc bnc" id="L1194" title="All 2 branches missed.">                &amp;&amp; TerritoryAttachment.get(convoy).getConvoyRoute()) {</span>
+<span class="nc" id="L1195">              atLeastOne = true;</span>
+            }
+          }
+<span class="nc bnc" id="L1198" title="All 2 branches missed.">          if (!atLeastOne) {</span>
+<span class="nc" id="L1199">            return false;</span>
+          }
+        }
+<span class="nc bnc" id="L1202" title="All 4 branches missed.">        return !(contestedDoNotProduce &amp;&amp; !Matches.territoryHasNoEnemyUnits(player, data).match(t));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasNeighborMatching(final GameData data, final Match&lt;Territory&gt; match) {
+<span class="nc" id="L1208">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1211" title="All 2 branches missed.">        return data.getMap().getNeighbors(t, match).size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyLandNeighbor(final GameData data, final PlayerID player) {
+<span class="nc" id="L1217">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+        // This method will still return true if territory t is an impassable or restricted territory With enemy
+        // neighbors. Makes sure your
+        // AI does not include any impassable or restricted territories by using this:
+        // CompositeMatch&lt;Territory&gt; territoryHasEnemyLandNeighborAndIsNotImpassableOrRestricted = new
+        // CompositeMatchAnd&lt;Territory&gt;(Matches.TerritoryIsPassableAndNotRestricted(player),
+        // Matches.territoryHasEnemyLandNeighbor(data,
+        // player));
+<span class="nc" id="L1227">        final CompositeMatch&lt;Territory&gt; condition = new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsLand,</span>
+<span class="nc" id="L1228">            Matches.isTerritoryEnemyAndNotUnownedWaterOrImpassableOrRestricted(player, data));</span>
+<span class="nc bnc" id="L1229" title="All 2 branches missed.">        return data.getMap().getNeighbors(t, condition).size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasAlliedNeighborWithAlliedUnitMatching(final GameData data,
+      final PlayerID player, final Match&lt;Unit&gt; unitMatch) {
+<span class="nc" id="L1236">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1239" title="All 2 branches missed.">        return data.getMap().getNeighbors(t, Matches.territoryIsAlliedAndHasAlliedUnitMatching(data, player, unitMatch))</span>
+<span class="nc" id="L1240">            .size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasValidLandRouteTo(final GameData data, final Territory goTerr) {
+<span class="nc" id="L1246">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L1249">        final CompositeMatch&lt;Territory&gt; validLandRoute =</span>
+<span class="nc" id="L1250">            new CompositeMatchAnd&lt;&gt;(Matches.TerritoryIsLand, Matches.TerritoryIsNotImpassable);</span>
+<span class="nc bnc" id="L1251" title="All 2 branches missed.">        return data.getMap().getRoute(t, goTerr, validLandRoute) != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsInList(final Collection&lt;Territory&gt; list) {
+<span class="nc" id="L1257">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory ter) {
+<span class="nc" id="L1260">        return list.contains(ter);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsNotInList(final Collection&lt;Territory&gt; list) {
+<span class="nc" id="L1266">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory ter) {
+<span class="nc bnc" id="L1269" title="All 2 branches missed.">        return !list.contains(ter);</span>
+      }
+    };
+  }
+
+  /**
+   * @param data
+   *        game data
+   * @param player
+   * @return Match&lt;Territory&gt; that tests if there is a route to an enemy capital from the given territory
+   */
+  public static Match&lt;Territory&gt; territoryHasRouteToEnemyCapital(final GameData data, final PlayerID player) {
+<span class="nc" id="L1281">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1284" title="All 2 branches missed.">        for (final PlayerID ePlayer : data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L1285">          final List&lt;Territory&gt; capitalsListOwned =</span>
+<span class="nc" id="L1286">              new ArrayList&lt;&gt;(TerritoryAttachment.getAllCurrentlyOwnedCapitals(ePlayer, data));</span>
+<span class="nc bnc" id="L1287" title="All 2 branches missed.">          for (final Territory current : capitalsListOwned) {</span>
+<span class="nc bnc" id="L1288" title="All 2 branches missed.">            if (!data.getRelationshipTracker().isAtWar(player, current.getOwner())) {</span>
+<span class="nc" id="L1289">              continue;</span>
+            }
+<span class="nc bnc" id="L1291" title="All 2 branches missed.">            if (data.getMap().getDistance(t, current,</span>
+<span class="nc" id="L1292">                Matches.TerritoryIsPassableAndNotRestricted(player, data)) != -1) {</span>
+<span class="nc" id="L1293">              return true;</span>
+            }
+          }
+        }
+<span class="nc" id="L1297">        return false;</span>
+      }
+    };
+  }
+
+  /**
+   * @param data
+   *        game data
+   * @param player
+   * @return true only if the route is land
+   */
+  public static Match&lt;Territory&gt; territoryHasLandRouteToEnemyCapital(final GameData data, final PlayerID player) {
+<span class="nc" id="L1309">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1312" title="All 2 branches missed.">        for (final PlayerID ePlayer : data.getPlayerList().getPlayers()) {</span>
+<span class="nc" id="L1313">          final List&lt;Territory&gt; capitalsListOwned =</span>
+<span class="nc" id="L1314">              new ArrayList&lt;&gt;(TerritoryAttachment.getAllCurrentlyOwnedCapitals(ePlayer, data));</span>
+<span class="nc bnc" id="L1315" title="All 2 branches missed.">          for (final Territory current : capitalsListOwned) {</span>
+<span class="nc bnc" id="L1316" title="All 2 branches missed.">            if (!data.getRelationshipTracker().isAtWar(player, current.getOwner())) {</span>
+<span class="nc" id="L1317">              continue;</span>
+            }
+<span class="nc bnc" id="L1319" title="All 2 branches missed.">            if (data.getMap().getDistance(t, current,</span>
+<span class="nc" id="L1320">                Matches.TerritoryIsNotImpassableToLandUnits(player, data)) != -1) {</span>
+<span class="nc" id="L1321">              return true;</span>
+            }
+          }
+        }
+<span class="nc" id="L1325">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyNonNeutralNeighborWithEnemyUnitMatching(final GameData data,
+      final PlayerID player, final Match&lt;Unit&gt; unitMatch) {
+<span class="nc" id="L1332">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1335" title="All 2 branches missed.">        return data.getMap()</span>
+<span class="nc" id="L1336">            .getNeighbors(t, Matches.territoryIsEnemyNonNeutralAndHasEnemyUnitMatching(data, player, unitMatch))</span>
+<span class="nc" id="L1337">            .size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasOwnedNeighborWithOwnedUnitMatching(final GameData data,
+      final PlayerID player, final Match&lt;Unit&gt; unitMatch) {
+<span class="nc" id="L1344">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1347" title="All 2 branches missed.">        return data.getMap().getNeighbors(t, Matches.territoryIsOwnedAndHasOwnedUnitMatching(data, player, unitMatch))</span>
+<span class="nc" id="L1348">            .size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasOwnedAtBeginningOfTurnIsFactoryOrCanProduceUnitsNeighbor(
+      final GameData data, final PlayerID player) {
+<span class="fc" id="L1355">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="pc bpc" id="L1358" title="1 of 2 branches missed.">        return data.getMap()</span>
+<span class="fc" id="L1359">            .getNeighbors(t, Matches.territoryHasOwnedAtBeginningOfTurnIsFactoryOrCanProduceUnits(data, player))</span>
+<span class="fc" id="L1360">            .size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasWaterNeighbor(final GameData data) {
+<span class="nc" id="L1366">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1369" title="All 2 branches missed.">        return data.getMap().getNeighbors(t, Matches.TerritoryIsWater).size() &gt; 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsAlliedAndHasAlliedUnitMatching(final GameData data, final PlayerID player,
+      final Match&lt;Unit&gt; unitMatch) {
+<span class="nc" id="L1376">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1379" title="All 2 branches missed.">        if (!data.getRelationshipTracker().isAllied(t.getOwner(), player)) {</span>
+<span class="nc" id="L1380">          return false;</span>
+        }
+<span class="nc" id="L1382">        return t.getUnits().someMatch(new CompositeMatchAnd&lt;&gt;(Matches.alliedUnit(player, data), unitMatch));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsOwnedAndHasOwnedUnitMatching(final GameData data, final PlayerID player,
+      final Match&lt;Unit&gt; unitMatch) {
+<span class="nc" id="L1389">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1392" title="All 2 branches missed.">        if (!t.getOwner().equals(player)) {</span>
+<span class="nc" id="L1393">          return false;</span>
+        }
+<span class="nc" id="L1395">        return t.getUnits().someMatch(new CompositeMatchAnd&lt;&gt;(Matches.unitIsOwnedBy(player), unitMatch));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasOwnedIsFactoryOrCanProduceUnits(final GameData data,
+      final PlayerID player) {
+<span class="nc" id="L1402">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1405" title="All 2 branches missed.">        if (!t.getOwner().equals(player)) {</span>
+<span class="nc" id="L1406">          return false;</span>
+        }
+<span class="nc" id="L1408">        return t.getUnits().someMatch(Matches.UnitCanProduceUnits);</span>
+      }
+    };
+  }
+
+  private static Match&lt;Territory&gt; territoryHasOwnedAtBeginningOfTurnIsFactoryOrCanProduceUnits(final GameData data,
+      final PlayerID player) {
+<span class="fc" id="L1415">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1418" title="All 2 branches covered.">        if (!t.getOwner().equals(player)) {</span>
+<span class="fc" id="L1419">          return false;</span>
+        }
+<span class="fc bfc" id="L1421" title="All 2 branches covered.">        if (!t.getUnits().someMatch(Matches.UnitCanProduceUnits)) {</span>
+<span class="fc" id="L1422">          return false;</span>
+        }
+<span class="fc" id="L1424">        final BattleTracker bt = AbstractMoveDelegate.getBattleTracker(data);</span>
+<span class="pc bpc" id="L1425" title="2 of 4 branches missed.">        return !(bt == null || bt.wasConquered(t));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasAlliedIsFactoryOrCanProduceUnits(final GameData data,
+      final PlayerID player) {
+<span class="fc" id="L1432">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1435" title="All 2 branches covered.">        if (!isTerritoryAllied(player, data).match(t)) {</span>
+<span class="fc" id="L1436">          return false;</span>
+        }
+<span class="fc" id="L1438">        return t.getUnits().someMatch(Matches.UnitCanProduceUnits);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsEnemyNonNeutralAndHasEnemyUnitMatching(final GameData data,
+      final PlayerID player, final Match&lt;Unit&gt; unitMatch) {
+<span class="nc" id="L1445">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1448" title="All 2 branches missed.">        if (!data.getRelationshipTracker().isAtWar(player, t.getOwner())) {</span>
+<span class="nc" id="L1449">          return false;</span>
+        }
+<span class="nc bnc" id="L1451" title="All 2 branches missed.">        if (t.getOwner().isNull()) {</span>
+<span class="nc" id="L1452">          return false;</span>
+        }
+<span class="nc" id="L1454">        return t.getUnits().someMatch(new CompositeMatchAnd&lt;&gt;(Matches.enemyUnit(player, data), unitMatch));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsEmptyOfCombatUnits(final GameData data, final PlayerID player) {
+<span class="fc" id="L1460">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L1463">        final CompositeMatch&lt;Unit&gt; nonCom = new CompositeMatchOr&lt;&gt;();</span>
+<span class="fc" id="L1464">        nonCom.add(UnitIsInfrastructure);</span>
+<span class="fc" id="L1465">        nonCom.add(enemyUnit(player, data).invert());</span>
+        // this is causing issues where the newly captured
+        // nonCom.add(UnitCanBeCapturedOnEnteringToInThisTerritory(player, t, data));
+        // units fight against themselves
+<span class="fc" id="L1469">        return t.getUnits().allMatch(nonCom);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L1474">  public static final Match&lt;Territory&gt; TerritoryIsNeutralButNotWater = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="fc bfc" id="L1477" title="All 2 branches covered.">      if (t.isWater()) {</span>
+<span class="fc" id="L1478">        return false;</span>
+      }
+<span class="fc" id="L1480">      return t.getOwner().equals(PlayerID.NULL_PLAYERID);</span>
+    }
+  };
+<span class="fc" id="L1483">  public final static Match&lt;Territory&gt; TerritoryIsNotNeutralButCouldBeWater =</span>
+<span class="fc" id="L1484">      new InverseMatch&lt;&gt;(TerritoryIsNeutralButNotWater);</span>
+<span class="fc" id="L1485">  public static final Match&lt;Territory&gt; TerritoryIsImpassable = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="fc bfc" id="L1488" title="All 2 branches covered.">      if (t.isWater()) {</span>
+<span class="fc" id="L1489">        return false;</span>
+      }
+<span class="fc" id="L1491">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="pc bpc" id="L1492" title="1 of 4 branches missed.">      return ta != null &amp;&amp; ta.getIsImpassable();</span>
+    }
+  };
+<span class="fc" id="L1495">  public final static Match&lt;Territory&gt; TerritoryIsNotImpassable = new InverseMatch&lt;&gt;(TerritoryIsImpassable);</span>
+
+  public static Match&lt;Territory&gt; seaCanMoveOver(final PlayerID player, final GameData data) {
+<span class="fc" id="L1498">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1501" title="All 2 branches covered.">        if (!TerritoryIsWater.match(t)) {</span>
+<span class="fc" id="L1502">          return false;</span>
+        }
+<span class="fc" id="L1504">        return TerritoryIsPassableAndNotRestricted(player, data).match(t);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; airCanFlyOver(final PlayerID player, final GameData data,
+      final boolean areNeutralsPassableByAir) {
+<span class="fc" id="L1511">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="pc bpc" id="L1514" title="1 of 4 branches missed.">        if (!areNeutralsPassableByAir &amp;&amp; TerritoryIsNeutralButNotWater.match(t)) {</span>
+<span class="fc" id="L1515">          return false;</span>
+        }
+<span class="fc bfc" id="L1517" title="All 2 branches covered.">        if (!TerritoryIsPassableAndNotRestricted(player, data).match(t)) {</span>
+<span class="fc" id="L1518">          return false;</span>
+        }
+<span class="pc bfc" id="L1520" title="All 2 branches covered.">        return !(TerritoryIsLand.match(t)</span>
+<span class="pc bpc" id="L1521" title="1 of 2 branches missed.">            &amp;&amp; !data.getRelationshipTracker().canMoveAirUnitsOverOwnedLand(player, t.getOwner()));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; TerritoryIsPassableAndNotRestricted(final PlayerID player, final GameData data) {
+<span class="fc" id="L1527">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1530" title="All 2 branches covered.">        if (Matches.TerritoryIsImpassable.match(t)) {</span>
+<span class="fc" id="L1531">          return false;</span>
+        }
+<span class="fc bfc" id="L1533" title="All 2 branches covered.">        if (!Properties.getMovementByTerritoryRestricted(data)) {</span>
+<span class="fc" id="L1534">          return true;</span>
+        }
+<span class="fc" id="L1536">        final RulesAttachment ra = (RulesAttachment) player.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="pc bpc" id="L1537" title="1 of 4 branches missed.">        if (ra == null || ra.getMovementRestrictionTerritories() == null) {</span>
+<span class="fc" id="L1538">          return true;</span>
+        }
+<span class="fc" id="L1540">        final String movementRestrictionType = ra.getMovementRestrictionType();</span>
+<span class="fc" id="L1541">        final Collection&lt;Territory&gt; listedTerritories =</span>
+<span class="fc" id="L1542">            ra.getListedTerritories(ra.getMovementRestrictionTerritories(), true, true);</span>
+<span class="pc bpc" id="L1543" title="1 of 2 branches missed.">        return (movementRestrictionType.equals(&quot;allowed&quot;) == listedTerritories.contains(t));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; TerritoryIsImpassableToLandUnits(final PlayerID player, final GameData data) {
+<span class="nc" id="L1549">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1552" title="All 2 branches missed.">        if (t.isWater()) {</span>
+<span class="nc" id="L1553">          return true;</span>
+<span class="nc bnc" id="L1554" title="All 2 branches missed.">        } else if (Matches.TerritoryIsPassableAndNotRestricted(player, data).invert().match(t)) {</span>
+<span class="nc" id="L1555">          return true;</span>
+        }
+<span class="nc" id="L1557">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; TerritoryIsNotImpassableToLandUnits(final PlayerID player, final GameData data) {
+<span class="nc" id="L1563">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L1566">        return TerritoryIsImpassableToLandUnits(player, data).invert().match(t);</span>
+      }
+    };
+  }
+
+  /**
+   * Does NOT check for Canals, Blitzing, Loading units on transports, TerritoryEffects that disallow units, Stacking
+   * Limits, Unit movement
+   * left, Fuel available, etc.&lt;br&gt;
+   * &lt;br&gt;
+   * Does check for: Impassable, ImpassableNeutrals, ImpassableToAirNeutrals, RestrictedTerritories, Land units moving
+   * on water, Sea units
+   * moving on land,
+   * and territories that are disallowed due to a relationship attachment (canMoveLandUnitsOverOwnedLand,
+   * canMoveAirUnitsOverOwnedLand,
+   * canLandAirUnitsOnOwnedLand, canMoveIntoDuringCombatMove, etc).
+   */
+  public static Match&lt;Territory&gt; TerritoryIsPassableAndNotRestrictedAndOkByRelationships(
+      final PlayerID playerWhoOwnsAllTheUnitsMoving, final GameData data, final boolean isCombatMovePhase,
+      final boolean hasLandUnitsNotBeingTransportedOrBeingLoaded, final boolean hasSeaUnitsNotBeingTransported,
+      final boolean hasAirUnitsNotBeingTransported, final boolean isLandingZoneOnLandForAirUnits) {
+<span class="nc bnc" id="L1587" title="All 2 branches missed.">    final boolean neutralsPassable = !games.strategy.triplea.Properties.getNeutralsImpassable(data);</span>
+<span class="nc" id="L1588">    final boolean areNeutralsPassableByAir =</span>
+<span class="nc bnc" id="L1589" title="All 4 branches missed.">        neutralsPassable &amp;&amp; games.strategy.triplea.Properties.getNeutralFlyoverAllowed(data);</span>
+<span class="nc" id="L1590">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1593" title="All 2 branches missed.">        if (Matches.TerritoryIsImpassable.match(t)) {</span>
+<span class="nc" id="L1594">          return false;</span>
+        }
+<span class="nc bnc" id="L1596" title="All 6 branches missed.">        if ((!neutralsPassable || (hasAirUnitsNotBeingTransported &amp;&amp; !areNeutralsPassableByAir))</span>
+<span class="nc bnc" id="L1597" title="All 2 branches missed.">            &amp;&amp; TerritoryIsNeutralButNotWater.match(t)) {</span>
+<span class="nc" id="L1598">          return false;</span>
+        }
+<span class="nc bnc" id="L1600" title="All 2 branches missed.">        if (Properties.getMovementByTerritoryRestricted(data)) {</span>
+<span class="nc" id="L1601">          final RulesAttachment ra =</span>
+<span class="nc" id="L1602">              (RulesAttachment) playerWhoOwnsAllTheUnitsMoving.getAttachment(Constants.RULES_ATTACHMENT_NAME);</span>
+<span class="nc bnc" id="L1603" title="All 4 branches missed.">          if (ra != null &amp;&amp; ra.getMovementRestrictionTerritories() != null) {</span>
+<span class="nc" id="L1604">            final String movementRestrictionType = ra.getMovementRestrictionType();</span>
+<span class="nc" id="L1605">            final Collection&lt;Territory&gt; listedTerritories =</span>
+<span class="nc" id="L1606">                ra.getListedTerritories(ra.getMovementRestrictionTerritories(), true, true);</span>
+<span class="nc bnc" id="L1607" title="All 2 branches missed.">            if (!(movementRestrictionType.equals(&quot;allowed&quot;) == listedTerritories.contains(t))) {</span>
+<span class="nc" id="L1608">              return false;</span>
+            }
+          }
+        }
+<span class="nc" id="L1612">        final boolean isWater = Matches.TerritoryIsWater.match(t);</span>
+<span class="nc" id="L1613">        final boolean isLand = Matches.TerritoryIsLand.match(t);</span>
+<span class="nc bnc" id="L1614" title="All 4 branches missed.">        if (hasLandUnitsNotBeingTransportedOrBeingLoaded &amp;&amp; !isLand) {</span>
+<span class="nc" id="L1615">          return false;</span>
+        }
+<span class="nc bnc" id="L1617" title="All 4 branches missed.">        if (hasSeaUnitsNotBeingTransported &amp;&amp; !isWater) {</span>
+<span class="nc" id="L1618">          return false;</span>
+        }
+<span class="nc bnc" id="L1620" title="All 2 branches missed.">        if (isLand) {</span>
+<span class="nc bnc" id="L1621" title="All 2 branches missed.">          if (hasLandUnitsNotBeingTransportedOrBeingLoaded &amp;&amp; !data.getRelationshipTracker()</span>
+<span class="nc bnc" id="L1622" title="All 2 branches missed.">              .canMoveLandUnitsOverOwnedLand(playerWhoOwnsAllTheUnitsMoving, t.getOwner())) {</span>
+<span class="nc" id="L1623">            return false;</span>
+          }
+<span class="nc bnc" id="L1625" title="All 2 branches missed.">          if (hasAirUnitsNotBeingTransported &amp;&amp; !data.getRelationshipTracker()</span>
+<span class="nc bnc" id="L1626" title="All 2 branches missed.">              .canMoveAirUnitsOverOwnedLand(playerWhoOwnsAllTheUnitsMoving, t.getOwner())) {</span>
+<span class="nc" id="L1627">            return false;</span>
+          }
+        }
+<span class="nc bnc" id="L1630" title="All 2 branches missed.">        if (isLandingZoneOnLandForAirUnits &amp;&amp; !data.getRelationshipTracker()</span>
+<span class="nc bnc" id="L1631" title="All 2 branches missed.">            .canLandAirUnitsOnOwnedLand(playerWhoOwnsAllTheUnitsMoving, t.getOwner())) {</span>
+<span class="nc" id="L1632">          return false;</span>
+        }
+<span class="nc bnc" id="L1634" title="All 2 branches missed.">        return !(isCombatMovePhase &amp;&amp; !data.getRelationshipTracker()</span>
+<span class="nc bnc" id="L1635" title="All 2 branches missed.">            .canMoveIntoDuringCombatMove(playerWhoOwnsAllTheUnitsMoving, t.getOwner()));</span>
+      }
+    };
+  }
+
+<span class="fc" id="L1640">  public static final Match&lt;IBattle&gt; BattleIsEmpty = new Match&lt;IBattle&gt;() {</span>
+    @Override
+    public boolean match(final IBattle battle) {
+<span class="fc" id="L1643">      return battle.isEmpty();</span>
+    }
+  };
+<span class="fc" id="L1646">  public static final Match&lt;IBattle&gt; BattleIsAmphibious = new Match&lt;IBattle&gt;() {</span>
+    @Override
+    public boolean match(final IBattle battle) {
+<span class="fc" id="L1649">      return battle.isAmphibious();</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitHasEnoughMovementForRoutes(final List&lt;Route&gt; route) {
+<span class="nc" id="L1654">    return UnitHasEnoughMovementForRoute(Route.create(route));</span>
+  }
+
+  public static Match&lt;Unit&gt; UnitHasEnoughMovementForRoute(final List&lt;Territory&gt; territories) {
+<span class="nc" id="L1658">    return UnitHasEnoughMovementForRoute(new Route(territories));</span>
+  }
+
+  public static Match&lt;Unit&gt; UnitHasEnoughMovementForRoute(final Route route) {
+<span class="fc" id="L1662">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L1665">        int left = TripleAUnit.get(unit).getMovementLeft();</span>
+<span class="fc" id="L1666">        int movementcost = route.getMovementCost(unit);</span>
+<span class="fc" id="L1667">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L1668">        final PlayerID player = unit.getOwner();</span>
+<span class="fc bfc" id="L1669" title="All 2 branches covered.">        if (ua.getIsAir()) {</span>
+<span class="fc" id="L1670">          TerritoryAttachment taStart = null;</span>
+<span class="fc" id="L1671">          TerritoryAttachment taEnd = null;</span>
+<span class="pc bpc" id="L1672" title="1 of 2 branches missed.">          if (route.getStart() != null) {</span>
+<span class="fc" id="L1673">            taStart = TerritoryAttachment.get(route.getStart());</span>
+          }
+<span class="pc bpc" id="L1675" title="1 of 2 branches missed.">          if (route.getEnd() != null) {</span>
+<span class="fc" id="L1676">            taEnd = TerritoryAttachment.get(route.getEnd());</span>
+          }
+<span class="fc" id="L1678">          movementcost = route.getMovementCost(unit);</span>
+<span class="fc bfc" id="L1679" title="All 4 branches covered.">          if (taStart != null &amp;&amp; taStart.getAirBase()) {</span>
+<span class="fc" id="L1680">            left++;</span>
+          }
+<span class="fc bfc" id="L1682" title="All 4 branches covered.">          if (taEnd != null &amp;&amp; taEnd.getAirBase()) {</span>
+<span class="fc" id="L1683">            left++;</span>
+          }
+        }
+<span class="fc" id="L1686">        final GameStep stepName = unit.getData().getSequence().getStep();</span>
+<span class="fc bfc" id="L1687" title="All 4 branches covered.">        if (ua.getIsSea() &amp;&amp; stepName.getDisplayName().equals(&quot;Non Combat Move&quot;)) {</span>
+<span class="fc" id="L1688">          movementcost = route.getMovementCost(unit);</span>
+          // If a zone adjacent to the starting and ending sea zones
+          // are allied navalbases, increase the range.
+          // TODO Still need to be able to handle stops on the way
+          // (history to get route.getStart()
+<span class="fc bfc" id="L1693" title="All 2 branches covered.">          for (final Territory terrNext : unit.getData().getMap().getNeighbors(route.getStart(), 1)) {</span>
+<span class="fc" id="L1694">            final TerritoryAttachment taNeighbor = TerritoryAttachment.get(terrNext);</span>
+<span class="pc bpc" id="L1695" title="1 of 4 branches missed.">            if (taNeighbor != null &amp;&amp; taNeighbor.getNavalBase()</span>
+<span class="nc bnc" id="L1696" title="All 2 branches missed.">                &amp;&amp; unit.getData().getRelationshipTracker().isAllied(terrNext.getOwner(), player)) {</span>
+<span class="nc bnc" id="L1697" title="All 2 branches missed.">              for (final Territory terrEnd : unit.getData().getMap().getNeighbors(route.getEnd(), 1)) {</span>
+<span class="nc" id="L1698">                final TerritoryAttachment taEndNeighbor = TerritoryAttachment.get(terrEnd);</span>
+<span class="nc bnc" id="L1699" title="All 4 branches missed.">                if (taEndNeighbor != null &amp;&amp; taEndNeighbor.getNavalBase()</span>
+<span class="nc bnc" id="L1700" title="All 2 branches missed.">                    &amp;&amp; unit.getData().getRelationshipTracker().isAllied(terrEnd.getOwner(), player)) {</span>
+<span class="nc" id="L1701">                  left++;</span>
+<span class="nc" id="L1702">                  break;</span>
+                }
+              }
+            }
+          }
+        }
+<span class="pc bpc" id="L1708" title="1 of 4 branches missed.">        return !(left &lt; 0 || left &lt; movementcost);</span>
+      }
+    };
+  }
+
+  /**
+   * Match units that have at least 1 movement left
+   */
+<span class="fc" id="L1716">  public final static Match&lt;Unit&gt; unitHasMovementLeft = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit o) {
+<span class="pc bpc" id="L1719" title="1 of 2 branches missed.">      return TripleAUnit.get(o).getMovementLeft() &gt;= 1;</span>
+    }
+  };
+<span class="fc" id="L1722">  public static final Match&lt;Unit&gt; UnitCanMove = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit u) {
+<span class="nc" id="L1725">      return UnitTypeCanMove(u.getOwner()).match(u.getType());</span>
+    }
+  };
+
+  private static Match&lt;UnitType&gt; UnitTypeCanMove(final PlayerID player) {
+<span class="nc" id="L1730">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType obj) {
+<span class="nc bnc" id="L1733" title="All 2 branches missed.">        return UnitAttachment.get(obj).getMovement(player) &gt; 0;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L1738">  public static final Match&lt;Unit&gt; UnitIsStatic = new InverseMatch&lt;&gt;(UnitCanMove);</span>
+
+  public static Match&lt;UnitType&gt; UnitTypeIsStatic(final PlayerID id) {
+<span class="nc" id="L1741">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType uT) {
+<span class="nc bnc" id="L1744" title="All 2 branches missed.">        return !UnitTypeCanMove(id).match(uT);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsLandAndOwnedBy(final PlayerID player) {
+<span class="nc" id="L1750">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L1753">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L1754" title="All 6 branches missed.">        return !ua.getIsSea() &amp;&amp; !ua.getIsAir() &amp;&amp; unit.getOwner().equals(player);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsOwnedBy(final PlayerID player) {
+<span class="fc" id="L1760">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L1763">        return unit.getOwner().equals(player);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsOwnedByOfAnyOfThesePlayers(final Collection&lt;PlayerID&gt; players) {
+<span class="nc" id="L1769">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L1772">        return players.contains(unit.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitHasDefenseThatIsMoreThanOrEqualTo(final int minDefense) {
+<span class="nc" id="L1778">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L1781">        final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L1782" title="All 2 branches missed.">        return ua.getDefense(unit.getOwner()) &gt;= minDefense;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsTransporting() {
+<span class="nc" id="L1788">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L1791">        final Collection&lt;Unit&gt; transporting = TripleAUnit.get(unit).getTransporting();</span>
+<span class="nc bnc" id="L1792" title="All 4 branches missed.">        return !(transporting == null || transporting.isEmpty());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsTransportingSomeCategories(final Collection&lt;Unit&gt; units) {
+<span class="nc" id="L1798">    final Collection&lt;UnitCategory&gt; unitCategories = UnitSeperator.categorize(units);</span>
+<span class="nc" id="L1799">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L1802">        final Collection&lt;Unit&gt; transporting = TripleAUnit.get(unit).getTransporting();</span>
+<span class="nc bnc" id="L1803" title="All 2 branches missed.">        if (transporting == null) {</span>
+<span class="nc" id="L1804">          return false;</span>
+        }
+<span class="nc" id="L1806">        return Util.someIntersect(UnitSeperator.categorize(transporting), unitCategories);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryAllied(final PlayerID player, final GameData data) {
+<span class="fc" id="L1812">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L1815">        return data.getRelationshipTracker().isAllied(player, t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryOwnedBy(final PlayerID player) {
+<span class="fc" id="L1821">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L1824">        return t.getOwner().equals(player);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryOwnedBy(final Collection&lt;PlayerID&gt; players) {
+<span class="fc" id="L1830">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1833" title="All 2 branches covered.">        for (final PlayerID player : players) {</span>
+<span class="fc bfc" id="L1834" title="All 2 branches covered.">          if (t.getOwner().equals(player)) {</span>
+<span class="fc" id="L1835">            return true;</span>
+          }
+        }
+<span class="fc" id="L1838">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; isUnitAllied(final PlayerID player, final GameData data) {
+<span class="fc" id="L1844">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit t) {
+<span class="fc" id="L1847">        return data.getRelationshipTracker().isAllied(player, t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryFriendly(final PlayerID player, final GameData data) {
+<span class="fc" id="L1853">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="pc bpc" id="L1856" title="1 of 2 branches missed.">        if (t.isWater()) {</span>
+<span class="nc" id="L1857">          return true;</span>
+        }
+<span class="fc bfc" id="L1859" title="All 2 branches covered.">        if (t.getOwner().equals(player)) {</span>
+<span class="fc" id="L1860">          return true;</span>
+        }
+<span class="fc" id="L1862">        return data.getRelationshipTracker().isAllied(player, t.getOwner());</span>
+      }
+    };
+  }
+
+  private static Match&lt;Unit&gt; unitIsEnemyAAforAnything(final PlayerID player, final GameData data) {
+<span class="nc" id="L1868">    final CompositeMatch&lt;Unit&gt; comp = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L1869">    comp.add(UnitIsAAforAnything);</span>
+<span class="nc" id="L1870">    comp.add(enemyUnit(player, data));</span>
+<span class="nc" id="L1871">    return comp;</span>
+  }
+
+  private static Match&lt;Unit&gt; unitIsEnemyAAforCombat(final PlayerID player, final GameData data) {
+<span class="nc" id="L1875">    final CompositeMatch&lt;Unit&gt; comp = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L1876">    comp.add(UnitIsAAforCombatOnly);</span>
+<span class="nc" id="L1877">    comp.add(enemyUnit(player, data));</span>
+<span class="nc" id="L1878">    return comp;</span>
+  }
+
+  public static Match&lt;Unit&gt; unitIsInTerritory(final Territory territory) {
+<span class="fc" id="L1882">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="fc" id="L1885">        return territory.getUnits().getUnits().contains(o);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryEnemy(final PlayerID player, final GameData data) {
+<span class="fc" id="L1891">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1894" title="All 2 branches covered.">        if (t.getOwner().equals(player)) {</span>
+<span class="fc" id="L1895">          return false;</span>
+        }
+<span class="fc" id="L1897">        return data.getRelationshipTracker().isAtWar(player, t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryEnemyAndNotUnownedWater(final PlayerID player, final GameData data) {
+<span class="fc" id="L1903">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1906" title="All 2 branches covered.">        if (t.getOwner().equals(player)) {</span>
+<span class="fc" id="L1907">          return false;</span>
+        }
+        // if we look at territory attachments, may have funny results for blockades or other things that are passable
+        // and not owned. better
+        // to check them by alliance. (veqryn)
+        // OLD code included: if(t.isWater() &amp;&amp; t.getOwner().isNull() &amp;&amp; TerritoryAttachment.get(t) == null){return
+        // false;}
+<span class="fc bfc" id="L1914" title="All 4 branches covered.">        if (t.getOwner().equals(PlayerID.NULL_PLAYERID) &amp;&amp; t.isWater()) {</span>
+<span class="fc" id="L1915">          return false;</span>
+        }
+<span class="fc" id="L1917">        return data.getRelationshipTracker().isAtWar(player, t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryEnemyAndNotUnownedWaterOrImpassableOrRestricted(final PlayerID player,
+      final GameData data) {
+<span class="fc" id="L1924">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L1927" title="All 2 branches covered.">        if (t.getOwner().equals(player)) {</span>
+<span class="fc" id="L1928">          return false;</span>
+        }
+        // if we look at territory attachments, may have funny results for blockades or other things that are passable
+        // and not owned. better
+        // to check them by alliance. (veqryn)
+        // OLD code included: if(t.isWater() &amp;&amp; t.getOwner().isNull() &amp;&amp; TerritoryAttachment.get(t) == null){return
+        // false;}
+<span class="fc bfc" id="L1935" title="All 4 branches covered.">        if (t.getOwner().equals(PlayerID.NULL_PLAYERID) &amp;&amp; t.isWater()) {</span>
+<span class="fc" id="L1936">          return false;</span>
+        }
+<span class="pc bpc" id="L1938" title="1 of 2 branches missed.">        if (!Matches.TerritoryIsPassableAndNotRestricted(player, data).match(t)) {</span>
+<span class="nc" id="L1939">          return false;</span>
+        }
+<span class="fc" id="L1941">        return data.getRelationshipTracker().isAtWar(player, t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; TerritoryIsBlitzable(final PlayerID player, final GameData data) {
+<span class="fc" id="L1947">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+        // cant blitz water
+<span class="pc bpc" id="L1951" title="1 of 2 branches missed.">        if (t.isWater()) {</span>
+<span class="nc" id="L1952">          return false;</span>
+        }
+        // cant blitz on neutrals
+<span class="fc bfc" id="L1955" title="All 2 branches covered.">        if (t.getOwner().equals(PlayerID.NULL_PLAYERID)</span>
+<span class="pc bpc" id="L1956" title="1 of 2 branches missed.">            &amp;&amp; !games.strategy.triplea.Properties.getNeutralsBlitzable(data)) {</span>
+<span class="fc" id="L1957">          return false;</span>
+        }
+        // was conquered but not blitzed
+<span class="fc bfc" id="L1960" title="All 2 branches covered.">        if (AbstractMoveDelegate.getBattleTracker(data).wasConquered(t)</span>
+<span class="fc bfc" id="L1961" title="All 2 branches covered.">            &amp;&amp; !AbstractMoveDelegate.getBattleTracker(data).wasBlitzed(t)) {</span>
+<span class="fc" id="L1962">          return false;</span>
+        }
+<span class="fc" id="L1964">        final CompositeMatch&lt;Unit&gt; blitzableUnits = new CompositeMatchOr&lt;&gt;();</span>
+        // we ignore neutral units
+<span class="fc" id="L1966">        blitzableUnits.add(Matches.enemyUnit(player, data).invert());</span>
+        // WW2V2, cant blitz through factories and aa guns
+        // WW2V1, you can
+<span class="fc bfc" id="L1969" title="All 2 branches covered.">        if (!games.strategy.triplea.Properties.getWW2V2(data)</span>
+<span class="fc bfc" id="L1970" title="All 2 branches covered.">            &amp;&amp; !games.strategy.triplea.Properties.getBlitzThroughFactoriesAndAARestricted(data)) {</span>
+<span class="fc" id="L1971">          blitzableUnits.add(Matches.UnitIsInfrastructure);</span>
+        }
+<span class="fc" id="L1973">        return t.getUnits().allMatch(blitzableUnits);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; isTerritoryFreeNeutral(final GameData data) {
+<span class="nc" id="L1979">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1982" title="All 4 branches missed.">        return (t.getOwner().equals(PlayerID.NULL_PLAYERID) &amp;&amp; Properties.getNeutralCharge(data) &lt;= 0);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryDoesNotCostMoneyToEnter(final GameData data) {
+<span class="nc" id="L1988">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L1991" title="All 6 branches missed.">        return Matches.TerritoryIsLand.invert().match(t) || !t.getOwner().equals(PlayerID.NULL_PLAYERID)</span>
+<span class="nc" id="L1992">            || Properties.getNeutralCharge(data) &lt;= 0;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; enemyUnit(final PlayerID player, final GameData data) {
+<span class="fc" id="L1998">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L2001">        return data.getRelationshipTracker().isAtWar(player, unit.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; enemyUnitOfAnyOfThesePlayers(final Collection&lt;PlayerID&gt; players, final GameData data) {
+<span class="nc" id="L2007">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc" id="L2010">        return data.getRelationshipTracker().isAtWarWithAnyOfThesePlayers(unit.getOwner(), players);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitOwnedBy(final PlayerID player) {
+<span class="fc" id="L2016">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="fc" id="L2019">        final Unit unit = o;</span>
+<span class="fc" id="L2020">        return unit.getOwner().equals(player);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitOwnedBy(final List&lt;PlayerID&gt; players) {
+<span class="fc" id="L2026">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit o) {
+<span class="pc bpc" id="L2029" title="1 of 2 branches missed.">        for (final PlayerID p : players) {</span>
+<span class="pc bpc" id="L2030" title="1 of 2 branches missed.">          if (o.getOwner().equals(p)) {</span>
+<span class="fc" id="L2031">            return true;</span>
+          }
+        }
+<span class="nc" id="L2034">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; alliedUnit(final PlayerID player, final GameData data) {
+<span class="fc" id="L2040">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc bfc" id="L2043" title="All 2 branches covered.">        if (unit.getOwner().equals(player)) {</span>
+<span class="fc" id="L2044">          return true;</span>
+        }
+<span class="fc" id="L2046">        return data.getRelationshipTracker().isAllied(player, unit.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; alliedUnitOfAnyOfThesePlayers(final Collection&lt;PlayerID&gt; players, final GameData data) {
+<span class="nc" id="L2052">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="nc bnc" id="L2055" title="All 2 branches missed.">        if (Matches.unitIsOwnedByOfAnyOfThesePlayers(players).match(unit)) {</span>
+<span class="nc" id="L2056">          return true;</span>
+        }
+<span class="nc" id="L2058">        return data.getRelationshipTracker().isAlliedWithAnyOfThesePlayers(unit.getOwner(), players);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIs(final Territory test) {
+<span class="fc" id="L2064">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L2067">        return t.equals(test);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasLandUnitsOwnedBy(final PlayerID player) {
+<span class="nc" id="L2073">    final CompositeMatch&lt;Unit&gt; unitOwnedBy = new CompositeMatchAnd&lt;&gt;(unitIsOwnedBy(player), Matches.UnitIsLand);</span>
+<span class="nc" id="L2074">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2077">        return t.getUnits().someMatch(unitOwnedBy);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasUnitsOwnedBy(final PlayerID player) {
+<span class="fc" id="L2083">    final Match&lt;Unit&gt; unitOwnedBy = unitIsOwnedBy(player);</span>
+<span class="fc" id="L2084">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L2087">        return t.getUnits().someMatch(unitOwnedBy);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasUnitsThatMatch(final Match&lt;Unit&gt; cond) {
+<span class="fc" id="L2093">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L2096">        return t.getUnits().someMatch(cond);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyAAforAnything(final PlayerID player, final GameData data) {
+<span class="nc" id="L2102">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2105">        return t.getUnits().someMatch(unitIsEnemyAAforAnything(player, data));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyAAforCombatOnly(final PlayerID player, final GameData data) {
+<span class="nc" id="L2111">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2114">        return t.getUnits().someMatch(Matches.unitIsEnemyAAforCombat(player, data));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasNoEnemyUnits(final PlayerID player, final GameData data) {
+<span class="fc" id="L2120">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L2123" title="All 2 branches covered.">        return !t.getUnits().someMatch(enemyUnit(player, data));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasNoAlliedUnits(final PlayerID player, final GameData data) {
+<span class="nc" id="L2129">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L2132" title="All 2 branches missed.">        return !t.getUnits().someMatch(alliedUnit(player, data));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasAlliedUnits(final PlayerID player, final GameData data) {
+<span class="fc" id="L2138">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L2141">        return t.getUnits().someMatch(alliedUnit(player, data));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasNonSubmergedEnemyUnits(final PlayerID player, final GameData data) {
+<span class="fc" id="L2147">    final CompositeMatch&lt;Unit&gt; match = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="fc" id="L2148">    match.add(enemyUnit(player, data));</span>
+<span class="fc" id="L2149">    match.add(new InverseMatch&lt;&gt;(unitIsSubmerged(data)));</span>
+<span class="fc" id="L2150">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L2153">        return t.getUnits().someMatch(match);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyLandUnits(final PlayerID player, final GameData data) {
+<span class="nc" id="L2159">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2162">        return t.getUnits().someMatch(new CompositeMatchAnd&lt;&gt;(enemyUnit(player, data), UnitIsLand));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemySeaUnits(final PlayerID player, final GameData data) {
+<span class="nc" id="L2168">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2171">        return t.getUnits().someMatch(new CompositeMatchAnd&lt;&gt;(enemyUnit(player, data), UnitIsSea));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyBlitzUnits(final PlayerID player, final GameData data) {
+<span class="nc" id="L2177">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L2180" title="All 4 branches missed.">        return t.getUnits().someMatch(enemyUnit(player, data)) &amp;&amp; t.getUnits().someMatch(Matches.UnitCanBlitz);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasEnemyUnits(final PlayerID player, final GameData data) {
+<span class="fc" id="L2186">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L2189">        return t.getUnits().someMatch(enemyUnit(player, data));</span>
+      }
+    };
+  }
+
+  /**
+   * The territory is owned by the enemy of those enemy units (ie: probably owned by you or your ally, but not
+   * necessarily so in an FFA type
+   * game) and is not unowned water.
+   */
+  public static Match&lt;Territory&gt; territoryHasEnemyUnitsThatCanCaptureTerritoryAndTerritoryOwnedByTheirEnemyAndIsNotUnownedWater(
+      final PlayerID player, final GameData data) {
+<span class="nc" id="L2201">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L2204" title="All 2 branches missed.">        if (t.getOwner() == null) {</span>
+<span class="nc" id="L2205">          return false;</span>
+        }
+<span class="nc bnc" id="L2207" title="All 6 branches missed.">        if (t.isWater() &amp;&amp; TerritoryAttachment.get(t) == null &amp;&amp; t.getOwner().isNull()) {</span>
+<span class="nc" id="L2208">          return false;</span>
+        }
+<span class="nc" id="L2210">        final Set&lt;PlayerID&gt; enemies = new HashSet&lt;&gt;();</span>
+<span class="nc bnc" id="L2211" title="All 2 branches missed.">        for (final Unit u : t.getUnits()</span>
+<span class="nc" id="L2212">            .getMatches(new CompositeMatchAnd&lt;&gt;(enemyUnit(player, data), UnitIsNotAir, UnitIsNotInfrastructure))) {</span>
+<span class="nc" id="L2213">          enemies.add(u.getOwner());</span>
+        }
+<span class="nc" id="L2215">        return (Matches.isAtWarWithAnyOfThesePlayers(enemies, data)).match(t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasOwnedTransportingUnits(final PlayerID player) {
+<span class="nc" id="L2221">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2224">        final CompositeMatch&lt;Unit&gt; match = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="nc" id="L2225">        match.add(unitIsOwnedBy(player));</span>
+<span class="nc" id="L2226">        match.add(transportIsTransporting());</span>
+<span class="nc" id="L2227">        return t.getUnits().someMatch(match);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; transportCannotUnload(final Territory territory) {
+<span class="nc" id="L2233">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit transport) {
+<span class="nc bnc" id="L2236" title="All 2 branches missed.">        if (TransportTracker.hasTransportUnloadedInPreviousPhase(transport)) {</span>
+<span class="nc" id="L2237">          return true;</span>
+        }
+<span class="nc bnc" id="L2239" title="All 2 branches missed.">        if (TransportTracker.isTransportUnloadRestrictedToAnotherTerritory(transport, territory)) {</span>
+<span class="nc" id="L2240">          return true;</span>
+        }
+<span class="nc" id="L2242">        return TransportTracker.isTransportUnloadRestrictedInNonCombat(transport);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; transportIsNotTransporting() {
+<span class="nc" id="L2248">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit transport) {
+<span class="nc bnc" id="L2251" title="All 2 branches missed.">        return !TransportTracker.isTransporting(transport);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; transportIsTransporting() {
+<span class="fc" id="L2257">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit transport) {
+<span class="fc" id="L2260">        return TransportTracker.isTransporting(transport);</span>
+      }
+    };
+  }
+
+  /**
+   * @return Match that tests the TripleAUnit getTransportedBy value
+   *         which is normally set for sea transport movement of land units,
+   *         and sometimes set for other things like para-troopers and dependent allied fighters sitting as cargo on a
+   *         ship. (not sure if
+   *         set for mech inf or not)
+   */
+  public static Match&lt;Unit&gt; unitIsBeingTransported() {
+<span class="fc" id="L2273">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit dependent) {
+<span class="fc bfc" id="L2276" title="All 2 branches covered.">        return ((TripleAUnit) dependent).getTransportedBy() != null;</span>
+      }
+    };
+  }
+
+  /**
+   * @param units
+   *        referring unit
+   * @param route
+   *        referring route
+   * @param currentPlayer
+   *        current player
+   * @param data
+   *        game data
+   * @param forceLoadParatroopersIfPossible
+   *        should we load paratroopers? (if not, we assume they are already loaded)
+   * @return Match that tests the TripleAUnit getTransportedBy value
+   *         (also tests for para-troopers, and for dependent allied fighters sitting as cargo on a ship)
+   */
+  public static Match&lt;Unit&gt; unitIsBeingTransportedByOrIsDependentOfSomeUnitInThisList(final Collection&lt;Unit&gt; units,
+      final Route route, final PlayerID currentPlayer, final GameData data,
+      final boolean forceLoadParatroopersIfPossible) {
+<span class="fc" id="L2298">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit dependent) {
+        // transported on a sea transport
+<span class="fc" id="L2302">        final Unit transportedBy = ((TripleAUnit) dependent).getTransportedBy();</span>
+<span class="fc bfc" id="L2303" title="All 4 branches covered.">        if (transportedBy != null &amp;&amp; units.contains(transportedBy)) {</span>
+<span class="fc" id="L2304">          return true;</span>
+        }
+        // cargo on a carrier
+<span class="fc" id="L2307">        final Map&lt;Unit, Collection&lt;Unit&gt;&gt; carrierMustMoveWith =</span>
+<span class="fc" id="L2308">            MoveValidator.carrierMustMoveWith(units, units, data, currentPlayer);</span>
+<span class="pc bpc" id="L2309" title="1 of 2 branches missed.">        if (carrierMustMoveWith != null) {</span>
+<span class="fc bfc" id="L2310" title="All 2 branches covered.">          for (final Unit unit : carrierMustMoveWith.keySet()) {</span>
+<span class="fc bfc" id="L2311" title="All 2 branches covered.">            if (carrierMustMoveWith.get(unit).contains(dependent)) {</span>
+<span class="fc" id="L2312">              return true;</span>
+            }
+          }
+        }
+        // paratrooper on an air transport
+<span class="fc bfc" id="L2317" title="All 2 branches covered.">        if (forceLoadParatroopersIfPossible) {</span>
+<span class="fc" id="L2318">          final Collection&lt;Unit&gt; airTransports = Match.getMatches(units, Matches.UnitIsAirTransport);</span>
+<span class="fc" id="L2319">          final Collection&lt;Unit&gt; paratroops = Match.getMatches(units, Matches.UnitIsAirTransportable);</span>
+<span class="fc bfc" id="L2320" title="All 4 branches covered.">          if (!airTransports.isEmpty() &amp;&amp; !paratroops.isEmpty()) {</span>
+<span class="fc" id="L2321">            if (TransportUtils.mapTransportsToLoad(paratroops, airTransports)</span>
+<span class="fc bfc" id="L2322" title="All 2 branches covered.">                .containsKey(dependent)) {</span>
+<span class="fc" id="L2323">              return true;</span>
+            }
+          }
+        }
+<span class="fc" id="L2327">        return false;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2332">  public final static Match&lt;Unit&gt; UnitIsLand = new CompositeMatchAnd&lt;&gt;(UnitIsNotSea, UnitIsNotAir);</span>
+<span class="fc" id="L2333">  public final static Match&lt;UnitType&gt; UnitTypeIsLand =</span>
+<span class="fc" id="L2334">      new CompositeMatchAnd&lt;&gt;(UnitTypeIsNotSea, UnitTypeIsNotAir);</span>
+<span class="fc" id="L2335">  public final static Match&lt;Unit&gt; UnitIsNotLand = new InverseMatch&lt;&gt;(UnitIsLand);</span>
+
+  public static Match&lt;Unit&gt; unitIsOfType(final UnitType type) {
+<span class="fc" id="L2338">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="fc" id="L2341">        return unit.getType().equals(type);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsOfTypes(final Set&lt;UnitType&gt; types) {
+<span class="fc" id="L2347">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unit) {
+<span class="pc bpc" id="L2350" title="1 of 4 branches missed.">        if (types == null || types.isEmpty()) {</span>
+<span class="fc" id="L2351">          return false;</span>
+        }
+<span class="fc" id="L2353">        return types.contains(unit.getType());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryWasFoughOver(final BattleTracker tracker) {
+<span class="fc" id="L2359">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="pc bpc" id="L2362" title="2 of 4 branches missed.">        return tracker.wasBattleFought(t) || tracker.wasBlitzed(t);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsSubmerged(final GameData data) {
+<span class="fc" id="L2368">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="fc" id="L2371">        return TripleAUnit.get(u).getSubmerged();</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitIsNotSubmerged(final GameData data) {
+<span class="fc" id="L2377">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="pc bpc" id="L2380" title="1 of 2 branches missed.">        return !TripleAUnit.get(u).getSubmerged();</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2385">  public static final Match&lt;UnitType&gt; UnitTypeIsSub = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="fc" id="L2388">      final UnitType type = obj;</span>
+<span class="fc" id="L2389">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="fc" id="L2390">      return ua.getIsSub();</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; unitOwnerHasImprovedArtillerySupportTech() {
+<span class="fc" id="L2395">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="fc" id="L2398">        return TechTracker.hasImprovedArtillerySupport(u.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryHasNonAllowedCanal(final PlayerID player, final Collection&lt;Unit&gt; unitsMoving,
+      final GameData data) {
+<span class="nc" id="L2405">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L2408">        return MoveValidator.validateCanal(t, null, unitsMoving, player, data).isPresent();</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryIsBlockedSea(final PlayerID player, final GameData data) {
+<span class="nc" id="L2414">    final CompositeMatch&lt;Unit&gt; ignore =</span>
+<span class="nc" id="L2415">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsInfrastructure.invert(), Matches.alliedUnit(player, data).invert());</span>
+<span class="nc" id="L2416">    final CompositeMatch&lt;Unit&gt; sub = new CompositeMatchAnd&lt;&gt;(Matches.UnitIsSub.invert());</span>
+<span class="nc" id="L2417">    final CompositeMatch&lt;Unit&gt; transport =</span>
+<span class="nc" id="L2418">        new CompositeMatchAnd&lt;&gt;(Matches.UnitIsTransportButNotCombatTransport.invert(), Matches.UnitIsLand.invert());</span>
+<span class="nc" id="L2419">    final CompositeMatch&lt;Unit&gt; unitCond = ignore;</span>
+<span class="nc bnc" id="L2420" title="All 2 branches missed.">    if (Properties.getIgnoreTransportInMovement(data)) {</span>
+<span class="nc" id="L2421">      unitCond.add(transport);</span>
+    }
+<span class="nc bnc" id="L2423" title="All 2 branches missed.">    if (Properties.getIgnoreSubInMovement(data)) {</span>
+<span class="nc" id="L2424">      unitCond.add(sub);</span>
+    }
+<span class="nc" id="L2426">    final CompositeMatch&lt;Territory&gt; routeCondition = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L2427">        Matches.territoryHasUnitsThatMatch(unitCond).invert(), Matches.TerritoryIsWater);</span>
+<span class="nc" id="L2428">    return routeCondition;</span>
+  }
+
+<span class="fc" id="L2431">  public static final Match&lt;Unit&gt; UnitCanRepairOthers = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc bnc" id="L2434" title="All 2 branches missed.">      if (UnitIsDisabled.match(unit)) {</span>
+<span class="nc" id="L2435">        return false;</span>
+      }
+<span class="nc bnc" id="L2437" title="All 2 branches missed.">      if (Matches.unitIsBeingTransported().match(unit)) {</span>
+<span class="nc" id="L2438">        return false;</span>
+      }
+<span class="nc" id="L2440">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L2441" title="All 2 branches missed.">      if (ua.getRepairsUnits() == null) {</span>
+<span class="nc" id="L2442">        return false;</span>
+      }
+<span class="nc bnc" id="L2444" title="All 2 branches missed.">      return !ua.getRepairsUnits().isEmpty();</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitCanRepairThisUnit(final Unit damagedUnit) {
+<span class="nc" id="L2449">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unitCanRepair) {
+<span class="nc" id="L2452">        final UnitType type = unitCanRepair.getUnitType();</span>
+<span class="nc" id="L2453">        final UnitAttachment ua = UnitAttachment.get(type);</span>
+        // TODO: make sure the unit is operational
+<span class="nc bnc" id="L2455" title="All 4 branches missed.">        if (ua.getRepairsUnits() != null &amp;&amp; ua.getRepairsUnits().keySet().contains(damagedUnit.getType())) {</span>
+<span class="nc" id="L2456">          return true;</span>
+        }
+<span class="nc" id="L2458">        return false;</span>
+      }
+    };
+  }
+
+  /**
+   * @param territory
+   *        referring territory
+   * @param player
+   *        referring player
+   * @param data
+   *        game data
+   * @return Match that will return true if the territory contains a unit that can repair this unit
+   *         (It will also return true if this unit is Sea and an adjacent land territory has a land unit that can
+   *         repair this unit.)
+   */
+  public static Match&lt;Unit&gt; UnitCanBeRepairedByFacilitiesInItsTerritory(final Territory territory,
+      final PlayerID player, final GameData data) {
+<span class="nc" id="L2476">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit damagedUnit) {
+<span class="nc" id="L2479">        final Match&lt;Unit&gt; damaged =</span>
+<span class="nc" id="L2480">            new CompositeMatchAnd&lt;&gt;(Matches.UnitHasMoreThanOneHitPointTotal, Matches.UnitHasTakenSomeDamage);</span>
+<span class="nc bnc" id="L2481" title="All 2 branches missed.">        if (!damaged.match(damagedUnit)) {</span>
+<span class="nc" id="L2482">          return false;</span>
+        }
+<span class="nc" id="L2484">        final Match&lt;Unit&gt; repairUnit = new CompositeMatchAnd&lt;&gt;(Matches.alliedUnit(player, data),</span>
+<span class="nc" id="L2485">            Matches.UnitCanRepairOthers, Matches.UnitCanRepairThisUnit(damagedUnit));</span>
+<span class="nc bnc" id="L2486" title="All 2 branches missed.">        if (Match.someMatch(territory.getUnits().getUnits(), repairUnit)) {</span>
+<span class="nc" id="L2487">          return true;</span>
+        }
+<span class="nc bnc" id="L2489" title="All 2 branches missed.">        if (Matches.UnitIsSea.match(damagedUnit)) {</span>
+<span class="nc" id="L2490">          final Match&lt;Unit&gt; repairUnitLand = new CompositeMatchAnd&lt;&gt;(repairUnit, Matches.UnitIsLand);</span>
+<span class="nc" id="L2491">          final List&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L2492">              new ArrayList&lt;&gt;(data.getMap().getNeighbors(territory, Matches.TerritoryIsLand));</span>
+<span class="nc bnc" id="L2493" title="All 2 branches missed.">          for (final Territory current : neighbors) {</span>
+<span class="nc bnc" id="L2494" title="All 2 branches missed.">            if (Match.someMatch(current.getUnits().getUnits(), repairUnitLand)) {</span>
+<span class="nc" id="L2495">              return true;</span>
+            }
+          }
+<span class="nc bnc" id="L2498" title="All 2 branches missed.">        } else if (Matches.UnitIsLand.match(damagedUnit)) {</span>
+<span class="nc" id="L2499">          final Match&lt;Unit&gt; repairUnitSea = new CompositeMatchAnd&lt;&gt;(repairUnit, Matches.UnitIsSea);</span>
+<span class="nc" id="L2500">          final List&lt;Territory&gt; neighbors =</span>
+<span class="nc" id="L2501">              new ArrayList&lt;&gt;(data.getMap().getNeighbors(territory, Matches.TerritoryIsWater));</span>
+<span class="nc bnc" id="L2502" title="All 2 branches missed.">          for (final Territory current : neighbors) {</span>
+<span class="nc bnc" id="L2503" title="All 2 branches missed.">            if (Match.someMatch(current.getUnits().getUnits(), repairUnitSea)) {</span>
+<span class="nc" id="L2504">              return true;</span>
+            }
+          }
+        }
+<span class="nc" id="L2508">        return false;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2513">  public static final Match&lt;Unit&gt; UnitCanGiveBonusMovement = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="fc" id="L2516">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L2517" title="1 of 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2518">        return false;</span>
+      }
+<span class="pc bpc" id="L2520" title="3 of 4 branches missed.">      return ua.getGivesMovement().size() &gt; 0 &amp;&amp; Matches.unitIsBeingTransported().invert().match(unit);</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitCanGiveBonusMovementToThisUnit(final Unit unitWhichWillGetBonus) {
+<span class="fc" id="L2525">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unitCanGiveBonusMovement) {
+<span class="pc bpc" id="L2528" title="1 of 2 branches missed.">        if (UnitIsDisabled.match(unitCanGiveBonusMovement)) {</span>
+<span class="nc" id="L2529">          return false;</span>
+        }
+<span class="fc" id="L2531">        final UnitType type = unitCanGiveBonusMovement.getUnitType();</span>
+<span class="fc" id="L2532">        final UnitAttachment ua = UnitAttachment.get(type);</span>
+        // TODO: make sure the unit is operational
+<span class="pc bpc" id="L2534" title="1 of 2 branches missed.">        return UnitCanGiveBonusMovement.match(unitCanGiveBonusMovement)</span>
+<span class="nc bnc" id="L2535" title="All 2 branches missed.">            &amp;&amp; ua.getGivesMovement().getInt(unitWhichWillGetBonus.getType()) != 0;</span>
+      }
+    };
+  }
+
+  /**
+   * @param territory
+   *        referring territory
+   * @param player
+   *        referring player
+   * @param data
+   *        game data
+   * @return Match that will return true if the territory contains a unit that can give bonus movement to this unit
+   *         (It will also return true if this unit is Sea and an adjacent land territory has a land unit that can give
+   *         bonus movement to
+   *         this unit.)
+   */
+  public static Match&lt;Unit&gt; UnitCanBeGivenBonusMovementByFacilitiesInItsTerritory(final Territory territory,
+      final PlayerID player, final GameData data) {
+<span class="fc" id="L2554">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unitWhichWillGetBonus) {
+<span class="fc" id="L2557">        final Match&lt;Unit&gt; givesBonusUnit = new CompositeMatchAnd&lt;&gt;(Matches.alliedUnit(player, data),</span>
+<span class="fc" id="L2558">            UnitCanGiveBonusMovementToThisUnit(unitWhichWillGetBonus));</span>
+<span class="pc bpc" id="L2559" title="1 of 2 branches missed.">        if (Match.someMatch(territory.getUnits().getUnits(), givesBonusUnit)) {</span>
+<span class="nc" id="L2560">          return true;</span>
+        }
+<span class="fc bfc" id="L2562" title="All 2 branches covered.">        if (Matches.UnitIsSea.match(unitWhichWillGetBonus)) {</span>
+<span class="fc" id="L2563">          final Match&lt;Unit&gt; givesBonusUnitLand = new CompositeMatchAnd&lt;&gt;(givesBonusUnit, Matches.UnitIsLand);</span>
+<span class="fc" id="L2564">          final List&lt;Territory&gt; neighbors =</span>
+<span class="fc" id="L2565">              new ArrayList&lt;&gt;(data.getMap().getNeighbors(territory, Matches.TerritoryIsLand));</span>
+<span class="fc bfc" id="L2566" title="All 2 branches covered.">          for (final Territory current : neighbors) {</span>
+<span class="pc bpc" id="L2567" title="1 of 2 branches missed.">            if (Match.someMatch(current.getUnits().getUnits(), givesBonusUnitLand)) {</span>
+<span class="nc" id="L2568">              return true;</span>
+            }
+          }
+        }
+<span class="fc" id="L2572">        return false;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2577">  public static final Match&lt;Unit&gt; UnitCreatesUnits = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L2580">      final Unit unit = obj;</span>
+<span class="nc" id="L2581">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L2582" title="All 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2583">        return false;</span>
+      }
+<span class="nc bnc" id="L2585" title="All 4 branches missed.">      return (ua.getCreatesUnitsList() != null &amp;&amp; ua.getCreatesUnitsList().size() &gt; 0);</span>
+    }
+  };
+<span class="fc" id="L2588">  public static final Match&lt;Unit&gt; UnitCreatesResources = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc" id="L2591">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L2592" title="All 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2593">        return false;</span>
+      }
+<span class="nc bnc" id="L2595" title="All 4 branches missed.">      return (ua.getCreatesResourcesList() != null &amp;&amp; ua.getCreatesResourcesList().size() &gt; 0);</span>
+    }
+  };
+  /** Any unit that creates at least a single positive resource. */
+<span class="fc" id="L2599">  public static final Match&lt;Unit&gt; UnitCreatesResourcesPositive = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc bnc" id="L2602" title="All 2 branches missed.">      if (!UnitCreatesResources.match(unit)) {</span>
+<span class="nc" id="L2603">        return false;</span>
+      }
+<span class="nc" id="L2605">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L2606" title="All 4 branches missed.">      if (ua == null || ua.getCreatesResourcesList() == null) {</span>
+<span class="nc" id="L2607">        return false;</span>
+      }
+<span class="nc" id="L2609">      final IntegerMap&lt;Resource&gt; resources = ua.getCreatesResourcesList();</span>
+<span class="nc bnc" id="L2610" title="All 2 branches missed.">      for (final Entry&lt;Resource, Integer&gt; entry : resources.entrySet()) {</span>
+<span class="nc bnc" id="L2611" title="All 2 branches missed.">        if (entry.getValue() &gt; 0) {</span>
+<span class="nc" id="L2612">          return true;</span>
+        }
+      }
+<span class="nc" id="L2615">      return false;</span>
+    }
+  };
+  /** Any unit that does not create a single positive resource, but does create at least a single negative resource. */
+<span class="fc" id="L2619">  public static final Match&lt;Unit&gt; UnitCreatesResourcesNegative = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+<span class="nc bnc" id="L2622" title="All 4 branches missed.">      if (!UnitCreatesResources.match(unit) || UnitCreatesResourcesPositive.match(unit)) {</span>
+<span class="nc" id="L2623">        return false;</span>
+      }
+<span class="nc" id="L2625">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L2626" title="All 4 branches missed.">      if (ua == null || ua.getCreatesResourcesList() == null) {</span>
+<span class="nc" id="L2627">        return false;</span>
+      }
+<span class="nc" id="L2629">      final IntegerMap&lt;Resource&gt; resources = ua.getCreatesResourcesList();</span>
+<span class="nc bnc" id="L2630" title="All 2 branches missed.">      for (final Entry&lt;Resource, Integer&gt; entry : resources.entrySet()) {</span>
+<span class="nc bnc" id="L2631" title="All 2 branches missed.">        if (entry.getValue() &lt; 0) {</span>
+<span class="nc" id="L2632">          return true;</span>
+        }
+      }
+<span class="nc" id="L2635">      return false;</span>
+    }
+  };
+<span class="fc" id="L2638">  public static final Match&lt;UnitType&gt; UnitTypeConsumesUnitsOnCreation = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType obj) {
+<span class="nc" id="L2641">      final UnitType unit = obj;</span>
+<span class="nc" id="L2642">      final UnitAttachment ua = UnitAttachment.get(unit);</span>
+<span class="nc bnc" id="L2643" title="All 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2644">        return false;</span>
+      }
+<span class="nc bnc" id="L2646" title="All 4 branches missed.">      return (ua.getConsumesUnits() != null &amp;&amp; ua.getConsumesUnits().size() &gt; 0);</span>
+    }
+  };
+<span class="fc" id="L2649">  public static final Match&lt;Unit&gt; UnitConsumesUnitsOnCreation = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L2652">      final Unit unit = obj;</span>
+<span class="fc" id="L2653">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="pc bpc" id="L2654" title="1 of 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2655">        return false;</span>
+      }
+<span class="pc bpc" id="L2657" title="2 of 4 branches missed.">      return (ua.getConsumesUnits() != null &amp;&amp; ua.getConsumesUnits().size() &gt; 0);</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitWhichConsumesUnitsHasRequiredUnits(
+      final Collection&lt;Unit&gt; unitsInTerritoryAtStartOfTurn,
+      final Territory territory) {
+<span class="nc" id="L2664">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unitWhichRequiresUnits) {
+<span class="nc bnc" id="L2667" title="All 2 branches missed.">        if (!Matches.UnitConsumesUnitsOnCreation.match(unitWhichRequiresUnits)) {</span>
+<span class="nc" id="L2668">          return true;</span>
+        }
+<span class="nc" id="L2670">        final UnitAttachment ua = UnitAttachment.get(unitWhichRequiresUnits.getType());</span>
+<span class="nc" id="L2671">        final IntegerMap&lt;UnitType&gt; requiredUnitsMap = ua.getConsumesUnits();</span>
+<span class="nc" id="L2672">        final Collection&lt;UnitType&gt; requiredUnits = requiredUnitsMap.keySet();</span>
+<span class="nc" id="L2673">        boolean canBuild = true;</span>
+<span class="nc bnc" id="L2674" title="All 2 branches missed.">        for (final UnitType ut : requiredUnits) {</span>
+<span class="nc" id="L2675">          final Match&lt;Unit&gt; unitIsOwnedByAndOfTypeAndNotDamaged = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L2676">              Matches.unitIsOwnedBy(unitWhichRequiresUnits.getOwner()), Matches.unitIsOfType(ut),</span>
+<span class="nc" id="L2677">              Matches.UnitHasNotTakenAnyBombingUnitDamage, Matches.UnitHasNotTakenAnyDamage, Matches.UnitIsNotDisabled);</span>
+<span class="nc" id="L2678">          final int requiredNumber = requiredUnitsMap.getInt(ut);</span>
+<span class="nc" id="L2679">          final int numberInTerritory =</span>
+<span class="nc" id="L2680">              Match.countMatches(unitsInTerritoryAtStartOfTurn, unitIsOwnedByAndOfTypeAndNotDamaged);</span>
+<span class="nc bnc" id="L2681" title="All 2 branches missed.">          if (numberInTerritory &lt; requiredNumber) {</span>
+<span class="nc" id="L2682">            canBuild = false;</span>
+          }
+<span class="nc bnc" id="L2684" title="All 2 branches missed.">          if (!canBuild) {</span>
+<span class="nc" id="L2685">            break;</span>
+          }
+        }
+<span class="nc" id="L2688">        return canBuild;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2693">  public static final Match&lt;Unit&gt; UnitRequiresUnitsOnCreation = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="nc" id="L2696">      final Unit unit = obj;</span>
+<span class="nc" id="L2697">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="nc bnc" id="L2698" title="All 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2699">        return false;</span>
+      }
+<span class="nc bnc" id="L2701" title="All 4 branches missed.">      return (ua.getRequiresUnits() != null &amp;&amp; ua.getRequiresUnits().size() &gt; 0);</span>
+    }
+  };
+
+  public static Match&lt;Unit&gt; UnitWhichRequiresUnitsHasRequiredUnitsInList(
+      final Collection&lt;Unit&gt; unitsInTerritoryAtStartOfTurn) {
+<span class="nc" id="L2707">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit unitWhichRequiresUnits) {
+<span class="nc bnc" id="L2710" title="All 2 branches missed.">        if (!Matches.UnitRequiresUnitsOnCreation.match(unitWhichRequiresUnits)) {</span>
+<span class="nc" id="L2711">          return true;</span>
+        }
+<span class="nc" id="L2713">        final Match&lt;Unit&gt; unitIsOwnedByAndNotDisabled = new CompositeMatchAnd&lt;&gt;(</span>
+<span class="nc" id="L2714">            Matches.unitIsOwnedBy(unitWhichRequiresUnits.getOwner()), Matches.UnitIsNotDisabled);</span>
+<span class="nc" id="L2715">        unitsInTerritoryAtStartOfTurn</span>
+<span class="nc" id="L2716">            .retainAll(Match.getMatches(unitsInTerritoryAtStartOfTurn, unitIsOwnedByAndNotDisabled));</span>
+<span class="nc" id="L2717">        boolean canBuild = false;</span>
+<span class="nc" id="L2718">        final UnitAttachment ua = UnitAttachment.get(unitWhichRequiresUnits.getType());</span>
+<span class="nc" id="L2719">        final ArrayList&lt;String[]&gt; unitComboPossibilities = ua.getRequiresUnits();</span>
+<span class="nc bnc" id="L2720" title="All 2 branches missed.">        for (final String[] combo : unitComboPossibilities) {</span>
+<span class="nc bnc" id="L2721" title="All 2 branches missed.">          if (combo != null) {</span>
+<span class="nc" id="L2722">            boolean haveAll = true;</span>
+<span class="nc" id="L2723">            final Collection&lt;UnitType&gt; requiredUnits = ua.getListedUnits(combo);</span>
+<span class="nc bnc" id="L2724" title="All 2 branches missed.">            for (final UnitType ut : requiredUnits) {</span>
+<span class="nc bnc" id="L2725" title="All 2 branches missed.">              if (Match.countMatches(unitsInTerritoryAtStartOfTurn, Matches.unitIsOfType(ut)) &lt; 1) {</span>
+<span class="nc" id="L2726">                haveAll = false;</span>
+              }
+<span class="nc bnc" id="L2728" title="All 2 branches missed.">              if (!haveAll) {</span>
+<span class="nc" id="L2729">                break;</span>
+              }
+            }
+<span class="nc bnc" id="L2732" title="All 2 branches missed.">            if (haveAll) {</span>
+<span class="nc" id="L2733">              canBuild = true;</span>
+            }
+          }
+<span class="nc bnc" id="L2736" title="All 2 branches missed.">          if (canBuild) {</span>
+<span class="nc" id="L2737">            break;</span>
+          }
+        }
+<span class="nc" id="L2740">        return canBuild;</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2745">  public static final Match&lt;Territory&gt; territoryIsBlockadeZone = new Match&lt;Territory&gt;() {</span>
+    @Override
+    public boolean match(final Territory t) {
+<span class="nc" id="L2748">      final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L2749" title="All 2 branches missed.">      if (ta != null) {</span>
+<span class="nc" id="L2750">        return ta.getBlockadeZone();</span>
+      }
+<span class="nc" id="L2752">      return false;</span>
+    }
+  };
+<span class="fc" id="L2755">  public static final Match&lt;Unit&gt; UnitIsConstruction = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L2758">      return UnitTypeIsConstruction.match(obj.getType());</span>
+    }
+  };
+<span class="fc" id="L2761">  public static final Match&lt;UnitType&gt; UnitTypeIsConstruction = new Match&lt;UnitType&gt;() {</span>
+    @Override
+    public boolean match(final UnitType type) {
+<span class="fc" id="L2764">      final UnitAttachment ua = UnitAttachment.get(type);</span>
+<span class="pc bpc" id="L2765" title="1 of 2 branches missed.">      if (ua == null) {</span>
+<span class="nc" id="L2766">        return false;</span>
+      }
+<span class="fc" id="L2768">      return ua.getIsConstruction();</span>
+    }
+  };
+<span class="fc" id="L2771">  public static final Match&lt;Unit&gt; UnitIsNotConstruction = new InverseMatch&lt;&gt;(UnitIsConstruction);</span>
+<span class="fc" id="L2772">  public static final Match&lt;Unit&gt; UnitCanProduceUnitsAndIsConstruction =</span>
+<span class="fc" id="L2773">      new CompositeMatchAnd&lt;&gt;(UnitCanProduceUnits, UnitIsConstruction);</span>
+<span class="fc" id="L2774">  public static final Match&lt;UnitType&gt; UnitTypeCanProduceUnitsAndIsConstruction =</span>
+<span class="fc" id="L2775">      new CompositeMatchAnd&lt;&gt;(UnitTypeCanProduceUnits, UnitTypeIsConstruction);</span>
+<span class="fc" id="L2776">  public static final Match&lt;Unit&gt; UnitCanProduceUnitsAndIsInfrastructure =</span>
+<span class="fc" id="L2777">      new CompositeMatchAnd&lt;&gt;(UnitCanProduceUnits, UnitIsInfrastructure);</span>
+<span class="fc" id="L2778">  public static final Match&lt;Unit&gt; UnitCanProduceUnitsAndCanBeDamaged =</span>
+<span class="fc" id="L2779">      new CompositeMatchAnd&lt;&gt;(UnitCanProduceUnits, UnitCanBeDamaged);</span>
+  /**
+   * See if a unit can invade. Units with canInvadeFrom not set, or set to &quot;all&quot;, can invade from any other unit.
+   * Otherwise, units must have
+   * a specific unit in this list to be able to invade from that unit.
+   */
+<span class="fc" id="L2785">  public static final Match&lt;Unit&gt; UnitCanInvade = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit unit) {
+      // is the unit being transported?
+<span class="fc" id="L2789">      final Unit transport = TripleAUnit.get(unit).getTransportedBy();</span>
+<span class="pc bpc" id="L2790" title="1 of 2 branches missed.">      if (transport == null) {</span>
+        // Unit isn't transported so can Invade
+<span class="nc" id="L2792">        return true;</span>
+      }
+<span class="fc" id="L2794">      final UnitAttachment ua = UnitAttachment.get(unit.getType());</span>
+<span class="fc" id="L2795">      return ua.canInvadeFrom(transport.getUnitType().getName());</span>
+    }
+  };
+<span class="fc" id="L2798">  public static final Match&lt;RelationshipType&gt; RelationshipTypeIsAllied = new Match&lt;RelationshipType&gt;() {</span>
+    @Override
+    public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2801">      return relationship.getRelationshipTypeAttachment().isAllied();</span>
+    }
+  };
+<span class="fc" id="L2804">  public static final Match&lt;Relationship&gt; RelationshipIsAllied = new Match&lt;Relationship&gt;() {</span>
+    @Override
+    public boolean match(final Relationship relationship) {
+<span class="nc" id="L2807">      return relationship.getRelationshipType().getRelationshipTypeAttachment().isAllied();</span>
+    }
+  };
+<span class="fc" id="L2810">  public static final Match&lt;RelationshipType&gt; RelationshipTypeIsNeutral = new Match&lt;RelationshipType&gt;() {</span>
+    @Override
+    public boolean match(final RelationshipType relationship) {
+<span class="nc" id="L2813">      return relationship.getRelationshipTypeAttachment().isNeutral();</span>
+    }
+  };
+<span class="fc" id="L2816">  public static final Match&lt;Relationship&gt; RelationshipIsNeutral = new Match&lt;Relationship&gt;() {</span>
+    @Override
+    public boolean match(final Relationship relationship) {
+<span class="nc" id="L2819">      return relationship.getRelationshipType().getRelationshipTypeAttachment().isNeutral();</span>
+    }
+  };
+<span class="fc" id="L2822">  public static final Match&lt;RelationshipType&gt; RelationshipTypeIsAtWar = new Match&lt;RelationshipType&gt;() {</span>
+    @Override
+    public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2825">      return relationship.getRelationshipTypeAttachment().isWar();</span>
+    }
+  };
+<span class="fc" id="L2828">  public static final Match&lt;Relationship&gt; RelationshipIsAtWar = new Match&lt;Relationship&gt;() {</span>
+    @Override
+    public boolean match(final Relationship relationship) {
+<span class="nc" id="L2831">      return relationship.getRelationshipType().getRelationshipTypeAttachment().isWar();</span>
+    }
+  };
+<span class="fc" id="L2834">  public static final Match&lt;RelationshipType&gt; RelationshipTypeCanMoveLandUnitsOverOwnedLand =</span>
+<span class="fc" id="L2835">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2838">          return relationship.getRelationshipTypeAttachment().getCanMoveLandUnitsOverOwnedLand();</span>
+        }
+      };
+
+  /**
+   * If the territory is not land, returns true. Else, tests relationship of the owners.
+   */
+  public static Match&lt;Territory&gt; TerritoryAllowsCanMoveLandUnitsOverOwnedLand(final PlayerID ownerOfUnitsMoving,
+      final GameData data) {
+<span class="nc" id="L2847">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L2850" title="All 2 branches missed.">        if (!Matches.TerritoryIsLand.match(t)) {</span>
+<span class="nc" id="L2851">          return true;</span>
+        }
+<span class="nc" id="L2853">        final PlayerID tOwner = t.getOwner();</span>
+<span class="nc bnc" id="L2854" title="All 2 branches missed.">        if (tOwner == null) {</span>
+<span class="nc" id="L2855">          return true;</span>
+        }
+<span class="nc" id="L2857">        return data.getRelationshipTracker().canMoveLandUnitsOverOwnedLand(tOwner, ownerOfUnitsMoving);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2862">  public static final Match&lt;RelationshipType&gt; RelationshipTypeCanMoveAirUnitsOverOwnedLand =</span>
+<span class="fc" id="L2863">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2866">          return relationship.getRelationshipTypeAttachment().getCanMoveAirUnitsOverOwnedLand();</span>
+        }
+      };
+
+  /**
+   * If the territory is not land, returns true. Else, tests relationship of the owners.
+   */
+  public static Match&lt;Territory&gt; TerritoryAllowsCanMoveAirUnitsOverOwnedLand(final PlayerID ownerOfUnitsMoving,
+      final GameData data) {
+<span class="nc" id="L2875">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L2878" title="All 2 branches missed.">        if (!Matches.TerritoryIsLand.match(t)) {</span>
+<span class="nc" id="L2879">          return true;</span>
+        }
+<span class="nc" id="L2881">        final PlayerID tOwner = t.getOwner();</span>
+<span class="nc bnc" id="L2882" title="All 2 branches missed.">        if (tOwner == null) {</span>
+<span class="nc" id="L2883">          return true;</span>
+        }
+<span class="nc" id="L2885">        return data.getRelationshipTracker().canMoveAirUnitsOverOwnedLand(tOwner, ownerOfUnitsMoving);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L2890">  public static final Match&lt;RelationshipType&gt; RelationshipTypeCanLandAirUnitsOnOwnedLand =</span>
+<span class="fc" id="L2891">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2894">          return relationship.getRelationshipTypeAttachment().getCanLandAirUnitsOnOwnedLand();</span>
+        }
+      };
+<span class="fc" id="L2897">  public static final Match&lt;RelationshipType&gt; RelationshipTypeCanTakeOverOwnedTerritory =</span>
+<span class="fc" id="L2898">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2901">          return relationship.getRelationshipTypeAttachment().getCanTakeOverOwnedTerritory();</span>
+        }
+      };
+<span class="fc" id="L2904">  public static final Match&lt;RelationshipType&gt; RelationshipTypeGivesBackOriginalTerritories =</span>
+<span class="fc" id="L2905">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType relationship) {
+<span class="nc" id="L2908">          return relationship.getRelationshipTypeAttachment().getGivesBackOriginalTerritories();</span>
+        }
+      };
+<span class="fc" id="L2911">  public static final Match&lt;RelationshipType&gt; RelationshipTypeCanMoveIntoDuringCombatMove =</span>
+<span class="fc" id="L2912">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2915">          return relationship.getRelationshipTypeAttachment().getCanMoveIntoDuringCombatMove();</span>
+        }
+      };
+<span class="fc" id="L2918">  public static final Match&lt;RelationshipType&gt; RelationshipTypeCanMoveThroughCanals = new Match&lt;RelationshipType&gt;() {</span>
+    @Override
+    public boolean match(final RelationshipType relationship) {
+<span class="fc" id="L2921">      return relationship.getRelationshipTypeAttachment().getCanMoveThroughCanals();</span>
+    }
+  };
+<span class="fc" id="L2924">  public static final Match&lt;RelationshipType&gt; RelationshipTypeRocketsCanFlyOver = new Match&lt;RelationshipType&gt;() {</span>
+    @Override
+    public boolean match(final RelationshipType relationship) {
+<span class="nc" id="L2927">      return relationship.getRelationshipTypeAttachment().getRocketsCanFlyOver();</span>
+    }
+  };
+
+  public static Match&lt;String&gt; isValidRelationshipName(final GameData data) {
+<span class="fc" id="L2932">    return new Match&lt;String&gt;() {</span>
+      @Override
+      public boolean match(final String relationshipName) {
+<span class="pc bpc" id="L2935" title="1 of 2 branches missed.">        return data.getRelationshipTypeList().getRelationshipType(relationshipName) != null;</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isAtWar(final PlayerID player, final GameData data) {
+<span class="fc" id="L2941">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="fc" id="L2944">        return Matches.RelationshipTypeIsAtWar</span>
+<span class="fc" id="L2945">            .match(data.getRelationshipTracker().getRelationshipType(player, player2));</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isAtWarWithAnyOfThesePlayers(final Collection&lt;PlayerID&gt; players,
+      final GameData data) {
+<span class="nc" id="L2952">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="nc" id="L2955">        return data.getRelationshipTracker().isAtWarWithAnyOfThesePlayers(player2, players);</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isAllied(final PlayerID player, final GameData data) {
+<span class="nc" id="L2961">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="nc" id="L2964">        return Matches.RelationshipTypeIsAllied</span>
+<span class="nc" id="L2965">            .match(data.getRelationshipTracker().getRelationshipType(player, player2));</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isAlliedWithAnyOfThesePlayers(final Collection&lt;PlayerID&gt; players,
+      final GameData data) {
+<span class="nc" id="L2972">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="nc" id="L2975">        return data.getRelationshipTracker().isAlliedWithAnyOfThesePlayers(player2, players);</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isNeutral(final PlayerID player, final GameData data) {
+<span class="nc" id="L2981">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="nc" id="L2984">        return Matches.RelationshipTypeIsNeutral</span>
+<span class="nc" id="L2985">            .match(data.getRelationshipTracker().getRelationshipType(player, player2));</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isNeutralWithAnyOfThesePlayers(final Collection&lt;PlayerID&gt; players,
+      final GameData data) {
+<span class="nc" id="L2992">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="nc" id="L2995">        return data.getRelationshipTracker().isNeutralWithAnyOfThesePlayers(player2, players);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitIsOwnedAndIsFactoryOrCanProduceUnits(final PlayerID player) {
+<span class="fc" id="L3001">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="fc bfc" id="L3004" title="All 4 branches covered.">        return (UnitCanProduceUnits.match(u) &amp;&amp; unitIsOwnedBy(player).match(u));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitCanReceivesAbilityWhenWith() {
+<span class="fc" id="L3010">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="pc bpc" id="L3013" title="1 of 2 branches missed.">        return !UnitAttachment.get(u.getType()).getReceivesAbilityWhenWith().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitCanReceivesAbilityWhenWith(final String filterForAbility,
+      final String filterForUnitType) {
+<span class="nc" id="L3020">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="nc bnc" id="L3023" title="All 2 branches missed.">        for (final String receives : UnitAttachment.get(u.getType()).getReceivesAbilityWhenWith()) {</span>
+<span class="nc" id="L3024">          final String[] s = receives.split(&quot;:&quot;);</span>
+<span class="nc bnc" id="L3025" title="All 4 branches missed.">          if (s[0].equals(filterForAbility) &amp;&amp; s[1].equals(filterForUnitType)) {</span>
+<span class="nc" id="L3026">            return true;</span>
+          }
+        }
+<span class="nc" id="L3029">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitHasWhenCombatDamagedEffect() {
+<span class="fc" id="L3035">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="pc bpc" id="L3038" title="1 of 2 branches missed.">        return !UnitAttachment.get(u.getType()).getWhenCombatDamaged().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitHasWhenCombatDamagedEffect(final String filterForEffect) {
+<span class="fc" id="L3044">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="pc bpc" id="L3047" title="1 of 2 branches missed.">        if (!UnitHasWhenCombatDamagedEffect().match(u)) {</span>
+<span class="fc" id="L3048">          return false;</span>
+        }
+<span class="nc" id="L3050">        final TripleAUnit taUnit = (TripleAUnit) u;</span>
+<span class="nc" id="L3051">        final int currentDamage = taUnit.getHits();</span>
+<span class="nc" id="L3052">        final ArrayList&lt;Tuple&lt;Tuple&lt;Integer, Integer&gt;, Tuple&lt;String, String&gt;&gt;&gt; whenCombatDamagedList =</span>
+<span class="nc" id="L3053">            UnitAttachment.get(u.getType()).getWhenCombatDamaged();</span>
+<span class="nc bnc" id="L3054" title="All 2 branches missed.">        for (final Tuple&lt;Tuple&lt;Integer, Integer&gt;, Tuple&lt;String, String&gt;&gt; key : whenCombatDamagedList) {</span>
+<span class="nc" id="L3055">          final String effect = key.getSecond().getFirst();</span>
+<span class="nc bnc" id="L3056" title="All 2 branches missed.">          if (!effect.equals(filterForEffect)) {</span>
+<span class="nc" id="L3057">            continue;</span>
+          }
+<span class="nc" id="L3059">          final int damagedFrom = key.getFirst().getFirst();</span>
+<span class="nc" id="L3060">          final int damagedTo = key.getFirst().getSecond();</span>
+<span class="nc bnc" id="L3061" title="All 4 branches missed.">          if (currentDamage &gt;= damagedFrom &amp;&amp; currentDamage &lt;= damagedTo) {</span>
+<span class="nc" id="L3062">            return true;</span>
+          }
+        }
+<span class="nc" id="L3065">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; TerritoryHasWhenCapturedByGoesTo() {
+<span class="fc" id="L3071">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc" id="L3074">        final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="pc bpc" id="L3075" title="1 of 2 branches missed.">        if (ta == null) {</span>
+<span class="nc" id="L3076">          return false;</span>
+        }
+<span class="pc bpc" id="L3078" title="1 of 2 branches missed.">        return !ta.getWhenCapturedByGoesTo().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitWhenCapturedChangesIntoDifferentUnitType() {
+<span class="fc" id="L3084">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="nc bnc" id="L3087" title="All 2 branches missed.">        return !UnitAttachment.get(u.getType()).getWhenCapturedChangesInto().isEmpty();</span>
+      }
+    };
+  }
+
+  public static Match&lt;AbstractUserActionAttachment&gt; AbstractUserActionAttachmentCanBeAttempted(
+      final HashMap&lt;ICondition, Boolean&gt; testedConditions) {
+<span class="nc" id="L3094">    return new Match&lt;AbstractUserActionAttachment&gt;() {</span>
+      @Override
+      public boolean match(final AbstractUserActionAttachment paa) {
+<span class="nc bnc" id="L3097" title="All 4 branches missed.">        return paa.hasAttemptsLeft() &amp;&amp; paa.canPerform(testedConditions);</span>
+      }
+    };
+  }
+
+  public static Match&lt;PoliticalActionAttachment&gt; PoliticalActionHasCostBetween(final int greaterThanEqualTo,
+      final int lessThanEqualTo) {
+<span class="nc" id="L3104">    return new Match&lt;PoliticalActionAttachment&gt;() {</span>
+      @Override
+      public boolean match(final PoliticalActionAttachment paa) {
+<span class="nc bnc" id="L3107" title="All 4 branches missed.">        return (paa.getCostPU() &gt;= greaterThanEqualTo &amp;&amp; paa.getCostPU() &lt;= lessThanEqualTo);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L3112">  public static final Match&lt;Unit&gt; UnitCanOnlyPlaceInOriginalTerritories = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit u) {
+<span class="nc" id="L3115">      final UnitAttachment ua = UnitAttachment.get(u.getType());</span>
+<span class="nc" id="L3116">      final Set&lt;String&gt; specialOptions = ua.getSpecial();</span>
+<span class="nc bnc" id="L3117" title="All 2 branches missed.">      for (final String option : specialOptions) {</span>
+<span class="nc bnc" id="L3118" title="All 2 branches missed.">        if (option.equals(&quot;canOnlyPlaceInOriginalTerritories&quot;)) {</span>
+<span class="nc" id="L3119">          return true;</span>
+        }
+      }
+<span class="nc" id="L3122">      return false;</span>
+    }
+  };
+
+  /**
+   * Accounts for OccupiedTerrOf. Returns false if there is no territory attachment (like if it is water).
+   *
+   * @param player
+   */
+  public static Match&lt;Territory&gt; TerritoryIsOriginallyOwnedBy(final PlayerID player) {
+<span class="nc" id="L3132">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc" id="L3135">        final TerritoryAttachment ta = TerritoryAttachment.get(t);</span>
+<span class="nc bnc" id="L3136" title="All 2 branches missed.">        if (ta == null) {</span>
+<span class="nc" id="L3137">          return false;</span>
+        }
+<span class="nc" id="L3139">        final PlayerID originalOwner = ta.getOriginalOwner();</span>
+<span class="nc bnc" id="L3140" title="All 2 branches missed.">        if (originalOwner == null) {</span>
+<span class="nc bnc" id="L3141" title="All 2 branches missed.">          return player == null;</span>
+        }
+<span class="nc" id="L3143">        return originalOwner.equals(player);</span>
+      }
+    };
+  }
+
+  public static Match&lt;PlayerID&gt; isAlliedAndAlliancesCanChainTogether(final PlayerID player, final GameData data) {
+<span class="nc" id="L3149">    return new Match&lt;PlayerID&gt;() {</span>
+      @Override
+      public boolean match(final PlayerID player2) {
+<span class="nc" id="L3152">        return RelationshipTypeIsAlliedAndAlliancesCanChainTogether</span>
+<span class="nc" id="L3153">            .match(data.getRelationshipTracker().getRelationshipType(player, player2));</span>
+      }
+    };
+  }
+
+<span class="fc" id="L3158">  public static final Match&lt;RelationshipType&gt; RelationshipTypeIsAlliedAndAlliancesCanChainTogether =</span>
+<span class="fc" id="L3159">      new Match&lt;RelationshipType&gt;() {</span>
+        @Override
+        public boolean match(final RelationshipType rt) {
+<span class="nc bnc" id="L3162" title="All 2 branches missed.">          return RelationshipTypeIsAllied.match(rt)</span>
+<span class="nc bnc" id="L3163" title="All 2 branches missed.">              &amp;&amp; rt.getRelationshipTypeAttachment().getAlliancesCanChainTogether();</span>
+        }
+      };
+<span class="fc" id="L3166">  public static final Match&lt;RelationshipType&gt; RelationshipTypeIsDefaultWarPosition = new Match&lt;RelationshipType&gt;() {</span>
+    @Override
+    public boolean match(final RelationshipType rt) {
+<span class="nc" id="L3169">      return rt.getRelationshipTypeAttachment().getIsDefaultWarPosition();</span>
+    }
+  };
+
+  /**
+   * If player is null, this match Will return true if ANY of the relationship changes match the conditions. (since
+   * paa's can have more than
+   * 1 change).
+   *
+   * @param player
+   *        CAN be null
+   * @param currentRelation
+   *        cannot be null
+   * @param newRelation
+   *        cannot be null
+   * @param data
+   *        cannot be null
+   */
+  public static Match&lt;PoliticalActionAttachment&gt; politicalActionIsRelationshipChangeOf(final PlayerID player,
+      final Match&lt;RelationshipType&gt; currentRelation, final Match&lt;RelationshipType&gt; newRelation, final GameData data) {
+<span class="nc" id="L3189">    return new Match&lt;PoliticalActionAttachment&gt;() {</span>
+      @Override
+      public boolean match(final PoliticalActionAttachment paa) {
+<span class="nc bnc" id="L3192" title="All 2 branches missed.">        for (final String relationshipChangeString : paa.getRelationshipChange()) {</span>
+<span class="nc" id="L3193">          final String[] relationshipChange = relationshipChangeString.split(&quot;:&quot;);</span>
+<span class="nc" id="L3194">          final PlayerID p1 = data.getPlayerList().getPlayerID(relationshipChange[0]);</span>
+<span class="nc" id="L3195">          final PlayerID p2 = data.getPlayerList().getPlayerID(relationshipChange[1]);</span>
+<span class="nc bnc" id="L3196" title="All 6 branches missed.">          if (player != null &amp;&amp; !(p1.equals(player) || p2.equals(player))) {</span>
+<span class="nc" id="L3197">            continue;</span>
+          }
+<span class="nc" id="L3199">          final RelationshipType currentType = data.getRelationshipTracker().getRelationshipType(p1, p2);</span>
+<span class="nc" id="L3200">          final RelationshipType newType = data.getRelationshipTypeList().getRelationshipType(relationshipChange[2]);</span>
+<span class="nc bnc" id="L3201" title="All 4 branches missed.">          if (currentRelation.match(currentType) &amp;&amp; newRelation.match(newType)) {</span>
+<span class="nc" id="L3202">            return true;</span>
+          }
+        }
+<span class="nc" id="L3205">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;PoliticalActionAttachment&gt; politicalActionAffectsAtLeastOneAlivePlayer(
+      final PlayerID currentPlayer, final GameData data) {
+<span class="nc" id="L3212">    return new Match&lt;PoliticalActionAttachment&gt;() {</span>
+      @Override
+      public boolean match(final PoliticalActionAttachment paa) {
+<span class="nc bnc" id="L3215" title="All 2 branches missed.">        for (final String relationshipChangeString : paa.getRelationshipChange()) {</span>
+<span class="nc" id="L3216">          final String[] relationshipChange = relationshipChangeString.split(&quot;:&quot;);</span>
+<span class="nc" id="L3217">          final PlayerID p1 = data.getPlayerList().getPlayerID(relationshipChange[0]);</span>
+<span class="nc" id="L3218">          final PlayerID p2 = data.getPlayerList().getPlayerID(relationshipChange[1]);</span>
+<span class="nc bnc" id="L3219" title="All 2 branches missed.">          if (!currentPlayer.equals(p1)) {</span>
+<span class="nc bnc" id="L3220" title="All 2 branches missed.">            if (p1.amNotDeadYet(data)) {</span>
+<span class="nc" id="L3221">              return true;</span>
+            }
+          }
+<span class="nc bnc" id="L3224" title="All 2 branches missed.">          if (!currentPlayer.equals(p2)) {</span>
+<span class="nc bnc" id="L3225" title="All 2 branches missed.">            if (p2.amNotDeadYet(data)) {</span>
+<span class="nc" id="L3226">              return true;</span>
+            }
+          }
+        }
+<span class="nc" id="L3230">        return false;</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; airCanLandOnThisAlliedNonConqueredLandTerritory(final PlayerID player,
+      final GameData data) {
+<span class="fc" id="L3237">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L3240" title="All 2 branches covered.">        if (!Matches.TerritoryIsLand.match(t)) {</span>
+<span class="fc" id="L3241">          return false;</span>
+        }
+<span class="fc" id="L3243">        final BattleTracker bt = AbstractMoveDelegate.getBattleTracker(data);</span>
+<span class="fc bfc" id="L3244" title="All 2 branches covered.">        if (bt.wasConquered(t)) {</span>
+<span class="fc" id="L3245">          return false;</span>
+        }
+<span class="fc" id="L3247">        final PlayerID owner = t.getOwner();</span>
+<span class="pc bpc" id="L3248" title="1 of 4 branches missed.">        if (owner == null || owner.isNull()) {</span>
+<span class="fc" id="L3249">          return false;</span>
+        }
+<span class="fc" id="L3251">        final RelationshipTracker rt = data.getRelationshipTracker();</span>
+<span class="pc bpc" id="L3252" title="1 of 4 branches missed.">        return !(!rt.canMoveAirUnitsOverOwnedLand(player, owner) || !rt.canLandAirUnitsOnOwnedLand(player, owner));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryAllowsRocketsCanFlyOver(final PlayerID player, final GameData data) {
+<span class="nc" id="L3258">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="nc bnc" id="L3261" title="All 2 branches missed.">        if (!Matches.TerritoryIsLand.match(t)) {</span>
+<span class="nc" id="L3262">          return true;</span>
+        }
+<span class="nc" id="L3264">        final PlayerID owner = t.getOwner();</span>
+<span class="nc bnc" id="L3265" title="All 4 branches missed.">        if (owner == null || owner.isNull()) {</span>
+<span class="nc" id="L3266">          return true;</span>
+        }
+<span class="nc" id="L3268">        final RelationshipTracker rt = data.getRelationshipTracker();</span>
+<span class="nc" id="L3269">        return rt.rocketsCanFlyOver(player, owner);</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; unitCanScrambleOnRouteDistance(final Route route) {
+<span class="nc" id="L3275">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="nc bnc" id="L3278" title="All 2 branches missed.">        return UnitAttachment.get(u.getType()).getMaxScrambleDistance() &gt;= route.getMovementCost(u);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L3283">  public static final Match&lt;Unit&gt; unitCanIntercept = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit u) {
+<span class="nc" id="L3286">      return UnitAttachment.get(u.getType()).getCanIntercept();</span>
+    }
+  };
+<span class="fc" id="L3289">  public static final Match&lt;Unit&gt; unitCanEscort = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit u) {
+<span class="nc" id="L3292">      return UnitAttachment.get(u.getType()).getCanEscort();</span>
+    }
+  };
+<span class="fc" id="L3295">  public static final Match&lt;Unit&gt; unitCanAirBattle = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit u) {
+<span class="nc" id="L3298">      return UnitAttachment.get(u.getType()).getCanAirBattle();</span>
+    }
+  };
+
+  public static Match&lt;Territory&gt; territoryIsOwnedByPlayerWhosRelationshipTypeCanTakeOverOwnedTerritoryAndPassableAndNotWater(
+      final PlayerID attacker) {
+<span class="fc" id="L3304">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L3307" title="All 2 branches covered.">        if (t.getOwner().equals(attacker)) {</span>
+<span class="fc" id="L3308">          return false;</span>
+        }
+<span class="fc bfc" id="L3310" title="All 4 branches covered.">        if (t.getOwner().equals(PlayerID.NULL_PLAYERID) &amp;&amp; t.isWater()) {</span>
+<span class="fc" id="L3311">          return false;</span>
+        }
+<span class="pc bpc" id="L3313" title="1 of 2 branches missed.">        if (!Matches.TerritoryIsPassableAndNotRestricted(attacker, t.getData()).match(t)) {</span>
+<span class="nc" id="L3314">          return false;</span>
+        }
+<span class="fc" id="L3316">        return RelationshipTypeCanTakeOverOwnedTerritory</span>
+<span class="fc" id="L3317">            .match(t.getData().getRelationshipTracker().getRelationshipType(attacker, t.getOwner()));</span>
+      }
+    };
+  }
+
+  public static Match&lt;Territory&gt; territoryOwnerRelationshipTypeCanMoveIntoDuringCombatMove(
+      final PlayerID movingPlayer) {
+<span class="fc" id="L3324">    return new Match&lt;Territory&gt;() {</span>
+      @Override
+      public boolean match(final Territory t) {
+<span class="fc bfc" id="L3327" title="All 2 branches covered.">        if (t.getOwner().equals(movingPlayer)) {</span>
+<span class="fc" id="L3328">          return true;</span>
+        }
+<span class="fc bfc" id="L3330" title="All 4 branches covered.">        if (t.getOwner().equals(PlayerID.NULL_PLAYERID) &amp;&amp; t.isWater()) {</span>
+<span class="fc" id="L3331">          return true;</span>
+        }
+<span class="fc" id="L3333">        return t.getData().getRelationshipTracker().canMoveIntoDuringCombatMove(movingPlayer, t.getOwner());</span>
+      }
+    };
+  }
+
+  public static Match&lt;Unit&gt; UnitCanBeInBattle(final boolean attack, final boolean isLandBattle,
+      final GameData data, final int battleRound, final boolean includeAttackersThatCanNotMove,
+      final boolean doNotIncludeAA, final boolean doNotIncludeBombardingSeaUnits) {
+<span class="fc" id="L3341">    return new Match&lt;Unit&gt;() {</span>
+      @Override
+      public boolean match(final Unit u) {
+<span class="fc" id="L3344">        return Matches.UnitTypeCanBeInBattle(attack, isLandBattle, u.getOwner(), data, battleRound,</span>
+<span class="fc" id="L3345">            includeAttackersThatCanNotMove, doNotIncludeAA, doNotIncludeBombardingSeaUnits).match(u.getType());</span>
+      }
+    };
+  }
+
+  public static Match&lt;UnitType&gt; UnitTypeCanBeInBattle(final boolean attack, final boolean isLandBattle,
+      final PlayerID player, final GameData data, final int battleRound, final boolean includeAttackersThatCanNotMove,
+      final boolean doNotIncludeAA, final boolean doNotIncludeBombardingSeaUnits) {
+<span class="fc" id="L3353">    return new Match&lt;UnitType&gt;() {</span>
+      @Override
+      public boolean match(final UnitType ut) {
+        // we want to filter out anything like factories, or units that have no combat ability AND cannot be taken
+        // casualty.
+        // in addition, as of right now AA guns cannot fire on the offensive side, so we want to take them out too,
+        // unless they have other
+        // combat abilities.
+<span class="fc" id="L3361">        final Match&lt;UnitType&gt; supporterOrNotInfrastructure =</span>
+<span class="fc" id="L3362">            new CompositeMatchOr&lt;&gt;(Matches.UnitTypeIsInfrastructure.invert(),</span>
+<span class="fc" id="L3363">                Matches.UnitTypeIsSupporterOrHasCombatAbility(attack, player, data));</span>
+        final Match&lt;UnitType&gt; combat;
+<span class="fc bfc" id="L3365" title="All 2 branches covered.">        if (attack) {</span>
+          // AND match
+<span class="fc" id="L3367">          final CompositeMatch&lt;UnitType&gt; attackMatchAND = new CompositeMatchAnd&lt;&gt;();</span>
+<span class="fc" id="L3368">          attackMatchAND.add(supporterOrNotInfrastructure);</span>
+<span class="pc bpc" id="L3369" title="1 of 2 branches missed.">          if (!includeAttackersThatCanNotMove) {</span>
+<span class="nc" id="L3370">            attackMatchAND.add(Matches.UnitTypeCanNotMoveDuringCombatMove.invert());</span>
+<span class="nc" id="L3371">            attackMatchAND.add(Matches.UnitTypeCanMove(player));</span>
+          }
+<span class="fc bfc" id="L3373" title="All 2 branches covered.">          if (isLandBattle) {</span>
+<span class="pc bpc" id="L3374" title="1 of 2 branches missed.">            if (doNotIncludeBombardingSeaUnits) {</span>
+<span class="nc" id="L3375">              attackMatchAND.add(Matches.UnitTypeIsSea.invert());</span>
+            }
+<span class="nc" id="L3377">          } else { // is sea battle</span>
+<span class="fc" id="L3378">            attackMatchAND.add(Matches.UnitTypeIsLand.invert());</span>
+          }
+          // assign it
+<span class="fc" id="L3381">          combat = attackMatchAND;</span>
+<span class="fc" id="L3382">        } else { // defense</span>
+          // AND match
+<span class="fc" id="L3384">          final CompositeMatch&lt;UnitType&gt; defenseMatchAND = new CompositeMatchAnd&lt;&gt;();</span>
+          {
+            // OR match
+<span class="fc" id="L3387">            final CompositeMatch&lt;UnitType&gt; defenseMatchOR = new CompositeMatchOr&lt;&gt;();</span>
+<span class="pc bpc" id="L3388" title="1 of 2 branches missed.">            if (!doNotIncludeAA) {</span>
+<span class="fc" id="L3389">              defenseMatchOR.add(new CompositeMatchAnd&lt;&gt;(Matches.UnitTypeIsAAforCombatOnly,</span>
+<span class="fc" id="L3390">                  Matches.UnitTypeIsAAthatCanFireOnRound(battleRound)));</span>
+            }
+<span class="fc" id="L3392">            defenseMatchOR.add(supporterOrNotInfrastructure);</span>
+<span class="fc" id="L3393">            defenseMatchAND.add(defenseMatchOR);</span>
+          }
+<span class="fc bfc" id="L3395" title="All 2 branches covered.">          if (isLandBattle) {</span>
+<span class="fc" id="L3396">            defenseMatchAND.add(Matches.UnitTypeIsSea.invert());</span>
+<span class="fc" id="L3397">          } else { // is sea battle</span>
+<span class="fc" id="L3398">            defenseMatchAND.add(Matches.UnitTypeIsLand.invert());</span>
+          }
+          // assign it
+<span class="fc" id="L3401">          combat = defenseMatchAND;</span>
+        }
+<span class="fc" id="L3403">        return combat.match(ut);</span>
+      }
+    };
+  }
+
+<span class="fc" id="L3408">  public static final Match&lt;Unit&gt; UnitIsAirborne = new Match&lt;Unit&gt;() {</span>
+    @Override
+    public boolean match(final Unit obj) {
+<span class="fc" id="L3411">      return ((TripleAUnit) obj).getAirborne();</span>
+    }
+<span class="fc" id="L3413">  };</span>
+
+  public static &lt;T&gt; Match&lt;T&gt; isNotInList(final List&lt;T&gt; list) {
+<span class="nc" id="L3416">    return new Match&lt;T&gt;() {</span>
+      @Override
+      public boolean match(final T ter) {
+<span class="nc bnc" id="L3419" title="All 2 branches missed.">        return !list.contains(ter);</span>
+      }
+    };
+  }
+
+  /** Creates new Matches */
+<span class="nc" id="L3425">  private Matches() {}</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.eclemma.org/jacoco">JaCoCo</a> 0.7.6.201602180812</span>test (25/nov/2016 10:16:58)</div></body></html>
