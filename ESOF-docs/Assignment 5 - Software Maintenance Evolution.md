@@ -11,7 +11,7 @@
 ![architecture](resources/arch.png)
 
 ![smallInterfaces](resources/interfaces\ small.png)
-<p>TripleA did not pass the Unit Interfaces test. To improve this, the team must reduce the number of arguments in each function build smaller but important functions that together do the same.</p>
+<p align="justify">TripleA did not pass the Unit Interfaces test. To improve this, the team must reduce the number of arguments in each function build smaller but important functions that together do the same.</p>
 ## Evolution process
 
 ## External Links
