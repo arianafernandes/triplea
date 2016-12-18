@@ -14,7 +14,7 @@ The quality of TripleA was tested with the [Better Code Hub](https://bettercodeh
 <p align="justify">As we can see in the image above, this small part of the project did not pass the architecture balance test as well. Again, we can't say for certain that the whole project passes this test, but with this result alone we cannot assume it doesn't. This is only one package of the project, therefore it's normal to fail this test. However, we do think how project is well divided into 'small' components, comparing to the size of the project.</p>
 
 ![smallInterfaces](resources/interfaces\ small.png)
-<p align="justify">TripleA did not pass the Unit Interfaces test. To improve this, the team must reduce the number of arguments in each function build smaller but important functions that together do the same.</p>
+<p align="justify">As we can see in the image above, this part of the project did not pass the Unit Interfaces test. To improve this, the team must reduce the number of arguments in each function build smaller but important functions that together do the same.</p>
 
 ## Evolution process
 <p align="justify">Our goal as a feature was to add a "Custom URL" tab where users could input a link and the program would download that map, if the link was actually a map.</p>
