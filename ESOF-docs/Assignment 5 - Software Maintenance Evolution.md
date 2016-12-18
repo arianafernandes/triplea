@@ -2,7 +2,8 @@
 
 ## Software Maintainability
 ![Geral](resources/geral1.png)
-
+<p>The quality of TripleA was testes with the tool Better Code Hub(www.bettercodehub.com). This tool has 10 metrics to calculate readability, maintainability and evolution capacity. </p>
+<p>After the tool was run on our project, TripleA got very good result: 7 approval 7 and only 3 disapprovals.</p>
 ![automatedTests](resources/automate\ testes.png)
 
 ![architecture](resources/arch.png)
