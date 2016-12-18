@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
 
 import games.strategy.debug.ClientLogger;
 import games.strategy.engine.ClientFileSystemHelper;
@@ -69,10 +70,9 @@ public class ProcessRunnerUtil {
       commands.add("-Dapple.laf.useScreenMenuBar=true");
       commands.add("-Xdock:name=\"TripleA\"");
       final File icons = new File(ClientFileSystemHelper.getRootFolder(), "icons/triplea_icon.png");
-      if (!icons.exists()) {
-        throw new IllegalStateException("Icon file not found");
+      if (icons.exists()) {
+        commands.add("-Xdock:icon=" + icons.getAbsolutePath() + "");
       }
-      commands.add("-Xdock:icon=" + icons.getAbsolutePath() + "");
     }
     final String version = System.getProperty(GameRunner.TRIPLEA_ENGINE_VERSION_BIN);
     if (version != null && version.length() > 0) {
@@ -101,12 +101,10 @@ public class ProcessRunnerUtil {
       // we need to read the input stream to prevent possible
       // deadlocks
       final Thread t = new Thread(() -> {
-        try {
-          while (s.read() >= 0) {
-            // just read
+        try (Scanner scanner = new Scanner(s);) {
+          while (scanner.hasNextLine()) {
+            System.out.println(scanner.nextLine());
           }
-        } catch (final IOException e) {
-          ClientLogger.logQuietly(e);
         }
       }, "Process output gobbler");
       t.setDaemon(true);
