@@ -8,7 +8,7 @@ The quality of TripleA was tested with the [Better Code Hub](https://bettercodeh
 ![Geral](resources/geral1.png)
 <p align="justify">After the tool was run on a small part of our project, TripleA got very good result: 7 approval and only 3 disapprovals.</p>
 ![automatedTests](resources/automate\ testes.png)
-<p align="justify"> As we can see in the image above, this part of the project failed in the automated tests. We do want to say that this result is almost certainly inaccurate. Due to its size, we were unable to test the whole project in the better code hub tool, therefore it was suggested to us that we only tested a small part of the project. We created this repository with only the code we thought would be necessary to change the feature and only tested this small part.</p>
+<p align="justify"> As we can see in the image above, this part of the project failed in the automated tests. We do want to say that this result is almost certainly inaccurate. Due to its size, we were unable to test the whole project in the better code hub tool, therefore it was suggested to us that we only tested a small part of the project. We created this repository with only the code we thought would be necessary to implement the feature and only tested this small part.</p>
 
 ![architecture](resources/arch.png)
 <p align="justify">As we can see in the image above, this small part of the project did not pass the architecture balance test as well. Again, we can't say for certain that the whole project passes this test, but with this result alone we cannot assume it doesn't. This is only one package of the project, therefore it's normal to fail this test. However, we do think how project is well divided into 'small' components, comparing to the size of the project.</p>
