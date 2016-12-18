@@ -1,7 +1,13 @@
 ![TripleAICon](resources/icon_menu.png)
 
 ## Software Maintainability
+![Geral](resources/geral1.png)
 
+![automatedTests](resources/automate\ testes.png)
+
+![architecture](resources/arch.png)
+
+![smallInterfaces](resources/interfaces\ small.png)
 ## Evolution process
 
 ## External Links
