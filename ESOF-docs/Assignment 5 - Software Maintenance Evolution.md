@@ -3,7 +3,7 @@
 ## Software Maintainability
 <p align="justify">Every project needs to be optimized and improved periodically. That's what software maintenance and evolution is about, the process of improving and optimizing a project that is already built or is being built. This is a big part of a project's development since it focuses on parts such as error handling, feature improvement, compatibility with a possible change in the user's requirements and possibly many more. Since this is an open project, the development team is the one that focuses on these topics but it is common to see a company hiring another team to fully test the code and help the developers see what they need to evolve or maintain. This can be a very expensive procedure, but since this is an open source project, there are no additional costs.</p>
 
-<p align="justify">The quality of TripleA was testes with the tool [Better Code Hub](https://bettercodehub.com/). This tool has 10 metrics to calculate readability, maintainability and evolution capacity. </p>
+The quality of TripleA was testes with the tool [Better Code Hub](https://bettercodehub.com/). This tool has 10 metrics to calculate readability, maintainability and evolution capacity.
 ![Geral](resources/geral1.png)
 <p align="justify">After the tool was run on our project, TripleA got very good result: 7 approval and only 3 disapprovals.</p>
 ![automatedTests](resources/automate\ testes.png)
