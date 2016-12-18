@@ -15,7 +15,10 @@ The quality of TripleA was tested with the [Better Code Hub](https://bettercodeh
 
 ![smallInterfaces](resources/interfaces\ small.png)
 <p align="justify">TripleA did not pass the Unit Interfaces test. To improve this, the team must reduce the number of arguments in each function build smaller but important functions that together do the same.</p>
+
 ## Evolution process
+<p>Our goal as a feature was to add a "Custom URL" tab where users could inout a link and the program would download that map, if the link was actually a map.</p>
+<p>However we could not implement the feature. TripleA has a very complex, extensive and bad commented code. And for all these reasons we could not understand where the desired functionalities were needed to be implemented.</p>
 
 ## External Links
 * HomePage: http://triplea-game.github.io/
@@ -26,7 +29,7 @@ The quality of TripleA was tested with the [Better Code Hub](https://bettercodeh
 
 ## Group Information
 
-* [Diogo Luís Cerqueira Carneiro da Silva](https://github.com/pingudiogo) (up201405742@fe.up.pt) - <br>
-* [Luís Octávio Pais Ferreira Araújo Correia Soares](https://github.com/LuiSoares) (up201406356@fe.up.pt) - <br>
-* [Ariana Fernandes](https://github.com/arianafernandes) (up201404789@fe.up.pt) - <br>
-* [Tiago Bernardes Almeida](https://github.com/tiagobalm) (up201305665@fe.up.pt) - <br>
+* [Diogo Luís Cerqueira Carneiro da Silva](https://github.com/pingudiogo) (up201405742@fe.up.pt) - <br> 25%
+* [Luís Octávio Pais Ferreira Araújo Correia Soares](https://github.com/LuiSoares) (up201406356@fe.up.pt) - <br> 25%
+* [Ariana Fernandes](https://github.com/arianafernandes) (up201404789@fe.up.pt) - <br> 25%
+* [Tiago Bernardes Almeida](https://github.com/tiagobalm) (up201305665@fe.up.pt) - <br> 25%
