@@ -17,8 +17,8 @@ The quality of TripleA was tested with the [Better Code Hub](https://bettercodeh
 <p align="justify">TripleA did not pass the Unit Interfaces test. To improve this, the team must reduce the number of arguments in each function build smaller but important functions that together do the same.</p>
 
 ## Evolution process
-<p>Our goal as a feature was to add a "Custom URL" tab where users could inout a link and the program would download that map, if the link was actually a map.</p>
-<p>However we could not implement the feature. TripleA has a very complex, extensive and bad commented code. And for all these reasons we could not understand where the desired functionalities were needed to be implemented.</p>
+<p align="justify">Our goal as a feature was to add a "Custom URL" tab where users could input a link and the program would download that map, if the link was actually a map.</p>
+<p align="justify">However we could not implement this feature. TripleA has a very complex, extensive and bad commented code and for all those reasons we could not understand where the desired functionalities were needed to be implemented.</p>
 
 ## External Links
 * HomePage: http://triplea-game.github.io/
